@@ -76,7 +76,9 @@ enum MockScreen: String, CaseIterable, Identifiable {
 
     var isBuilt: Bool {
         switch self {
-        case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting: true
+        case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting,
+             .inspector, .settings, .onboardingWelcome, .onboardingConnect,
+             .onboardingPair, .onboardingFaceID, .lock, .privacyCover: true
         default: false
         }
     }
@@ -96,6 +98,22 @@ private struct MockScreenView: View {
                 SessionsMocks.offline
             case .sessionsReconnecting:
                 SessionsMocks.reconnecting
+            case .inspector:
+                SheetMocks.inspector
+            case .settings:
+                SheetMocks.settings
+            case .onboardingWelcome:
+                SheetMocks.onboardingWelcome
+            case .onboardingConnect:
+                SheetMocks.onboardingConnect
+            case .onboardingPair:
+                SheetMocks.onboardingPair
+            case .onboardingFaceID:
+                SheetMocks.onboardingFaceID
+            case .lock:
+                SheetMocks.lock
+            case .privacyCover:
+                SheetMocks.privacyCover
             default:
                 MockPlaceholder(screen: screen)
             }

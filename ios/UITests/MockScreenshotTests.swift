@@ -25,7 +25,7 @@ final class MockScreenshotTests: XCTestCase {
         let schemes = ["light", "dark"]
 
         for screen in screens {
-            let sizes = screen == "sessions"
+            let sizes = ["sessions", "settings", "onboarding-pair"].contains(screen)
                 ? [("default", "UICTContentSizeCategoryLarge"), ("accessibilityXL", "UICTContentSizeCategoryAccessibilityXL")]
                 : [("default", "UICTContentSizeCategoryLarge")]
             for scheme in schemes {
@@ -52,6 +52,14 @@ final class MockScreenshotTests: XCTestCase {
             attachment.name = "\(screen)-\(scheme)-\(size)"
             attachment.lifetime = .keepAlways
             add(attachment)
+
+            if screen == "settings" {
+                for _ in 0..<8 { app.swipeUp() }
+                let bottomAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                bottomAttachment.name = "settings-bottom-\(scheme)-\(size)"
+                bottomAttachment.lifetime = .keepAlways
+                add(bottomAttachment)
+            }
         }
 
         do {
