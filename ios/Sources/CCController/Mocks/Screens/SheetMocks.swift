@@ -10,6 +10,7 @@ enum SheetMocks {
                     session: inspectorSession,
                     elapsed: "31m",
                     branch: "work/2026-09-30",
+                    freezeWorkingGlyphs: true,
                     onInterrupt: {},
                     onCopySessionID: {},
                     onApprovalMode: { _ in }

@@ -5,6 +5,7 @@ struct InspectorView: View {
     let session: Session
     let elapsed: String
     let branch: String
+    let freezeWorkingGlyphs: Bool
     let onInterrupt: () -> Void
     let onCopySessionID: () -> Void
     let onApprovalMode: (ApprovalMode) -> Void
@@ -49,7 +50,7 @@ struct InspectorView: View {
         Section("Status") {
             LabeledContent("State") {
                 HStack(spacing: 7) {
-                    SpinnerGlyph(active: true, frozen: false)
+                    SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
                     Text("Working")
                         .foregroundStyle(.ccLabel)
                 }
@@ -68,24 +69,26 @@ struct InspectorView: View {
 
     private var contextSection: some View {
         Section("Context") {
-            HStack(alignment: .center, spacing: 12) {
-                Gauge(value: contextPercent / 100, in: 0...1) {
-                    EmptyView()
-                } currentValueLabel: {
-                    EmptyView()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 12) {
+                    Gauge(value: contextPercent / 100, in: 0...1) {
+                        EmptyView()
+                    } currentValueLabel: {
+                        EmptyView()
+                    }
+                    .gaugeStyle(.linearCapacity)
+                    .tint(.ccAccent)
+                    .frame(maxWidth: .infinity)
+
+                    Text("\(Int(contextPercent.rounded()))%")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.ccLabel)
                 }
-                .gaugeStyle(.linearCapacity)
-                .tint(.ccAccent)
-                .frame(maxWidth: .infinity)
 
-                Text("\(Int(contextPercent.rounded()))%")
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.ccLabel)
+                Text("\(formatTokenCount(usage.contextTokens)) of \(formatTokenCount(usage.contextWindow)) tokens")
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
             }
-
-            Text("\(formatTokenCount(usage.contextTokens)) of \(formatTokenCount(usage.contextWindow)) tokens")
-                .font(.footnote)
-                .foregroundStyle(.ccSecondary)
         }
     }
 
@@ -107,7 +110,7 @@ struct InspectorView: View {
                 Button(action: {}) {
                     HStack(spacing: 10) {
                         if subagent.state == .running {
-                            SpinnerGlyph(active: true, frozen: false)
+                            SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
                                 .font(.subheadline)
                                 .frame(width: 18)
                         } else {
