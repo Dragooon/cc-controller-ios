@@ -94,10 +94,9 @@ final class AppModel {
             let state = try await fetchState(from: serverURL, bearer: bearer)
             sessions = state.sessions
             selectedID = selectedID.flatMap { id in state.sessions.contains(where: { $0.id == id }) ? id : nil }
-                ?? state.sessions.first?.id
             connectionError = nil
         } catch {
-            let detail = error.localizedDescription
+            let detail = String(describing: error)
             connectionErrorDetail = detail
             #if DEBUG
             connectionError = "Can't reach the Mac (\(detail))"

@@ -12,7 +12,7 @@ final class ScreenshotTests: XCTestCase {
 
         for scheme in schemes {
             for (sizeName, sizeValue) in sizes {
-                let app = XCUIApplication(bundleIdentifier: "com.example.cc-controller")
+                let app = XCUIApplication()
                 app.launchArguments = [
                     "-CCServer", server,
                     "-CCColorScheme", scheme,
@@ -20,11 +20,6 @@ final class ScreenshotTests: XCTestCase {
                 ]
                 app.launchEnvironment["CCBearer"] = bearer
                 app.launch()
-                addUIInterruptionMonitor(withDescription: "Local Network") { alert in
-                    if alert.buttons["Allow"].exists { alert.buttons["Allow"].tap(); return true }
-                    return false
-                }
-                app.tap()
 
                 let sessionsTitle = app.staticTexts["Sessions"]
                 let sessionsNavigationBar = app.navigationBars["Sessions"]
@@ -33,7 +28,7 @@ final class ScreenshotTests: XCTestCase {
                     attach(named: "sessions-\(scheme)-\(sizeName)")
                 }
 
-                let selectedRow = app.descendants(matching: .any).matching(identifier: "session-staff-account-exclusions").firstMatch
+                let selectedRow = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "Staff Account Exclusions Atlas Monitoring")).firstMatch
                 XCTAssertTrue(selectedRow.waitForExistence(timeout: 10), "Fixture session row did not load; detail=\(errorDetail(in: app))")
                 selectedRow.tap()
                 let selectedName = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch

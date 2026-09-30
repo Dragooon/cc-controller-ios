@@ -9,6 +9,7 @@ RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 STARTED_DAEMON=""
 FIXTURE_OUT=""
+RUN_DIR=""
 
 step() {
   local name=$1; shift
@@ -30,6 +31,7 @@ cleanup_shots() {
     wait "$STARTED_DAEMON" 2>/dev/null || true
   fi
   if [[ -n "$FIXTURE_OUT" ]]; then rm -f "$FIXTURE_OUT"; fi
+  if [[ -n "$RUN_DIR" ]]; then rm -rf "$RUN_DIR"; fi
   while read -r udid; do
     [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-")&&x.state==="Booted") console.log(x.udid)}}})')
@@ -85,6 +87,7 @@ cmd_shots() {
   [[ ${#devices[@]} -gt 0 ]] || devices=("${DEFAULT_DEVICES[@]}")
   rm -rf "$IOS/shots"
   mkdir -p "$IOS/shots"
+  RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
   local fixture_started=$SECONDS
   node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$IOS/shots/fixture-daemon.log" 2>&1 &
@@ -99,13 +102,14 @@ cmd_shots() {
   printf '%s\n' '<!doctype html><meta charset="utf-8"><title>cc-controller iOS shots</title><style>body{font:15px system-ui;background:#121110;color:#eee;margin:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}figure{margin:0}img{display:block;max-width:100%;border-radius:16px}figcaption{padding-top:8px;color:#bbb}</style><main>' > "$index_file"
   trap cleanup_shots EXIT
   for device in "${devices[@]}"; do
-    local udid result exported
+    local udid result exported output_dir
     udid=$(ensure_device "$device" | tail -1)
     xcrun simctl ui "$udid" appearance light
     result="$IOS/build/CCController-$(echo "$device" | tr ' ()' '---').xcresult"
-    exported="$IOS/shots/$(echo "$device" | tr ' ()' '---')"
-    rm -rf "$result" "$exported"
-    mkdir -p "$exported"
+    exported="$RUN_DIR/$(echo "$device" | tr ' ()' '---')"
+    output_dir="$IOS/shots/$(echo "$device" | tr ' ()' '---')"
+    rm -rf "$result" "$exported" "$output_dir"
+    mkdir -p "$exported" "$output_dir"
     local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" -only-testing:CCControllerUITests/ScreenshotTests test)
     [[ -z "$only" ]] || args+=("-only-testing:CCControllerUITests/ScreenshotTests/testSessionsAndSelectedSessionScreens")
     TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" TEST_RUNNER_ONLY="$only" step "shots $device" "${args[@]}"
@@ -114,9 +118,10 @@ cmd_shots() {
     if [[ -f "$manifest" ]]; then
       node -e 'const fs=require("node:fs");const p=process.argv[1],d=JSON.parse(fs.readFileSync(p));for(const a of d.attachments??[]){const n=a.suggestedHumanReadableName||a.filename;if(!n.endsWith(".png"))continue;const old=a.exportedFilePath||a.filename;const src=require("node:path").join(require("node:path").dirname(p),old);const dst=require("node:path").join(require("node:path").dirname(p),n.endsWith(".png")?n:`${n}.png`);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
     fi
-    find "$exported" -maxdepth 1 -type f -name '*.png' -print | while read -r png; do
+    find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
+    find "$output_dir" -maxdepth 1 -type f -name '*.png' -print | while read -r png; do
       local base="$(basename "$png")"
-      printf '<figure><img src="%s/%s"><figcaption>%s · %s</figcaption></figure>\n' "$(basename "$exported")" "$base" "$device" "$base" >> "$index_file"
+      printf '<figure><img src="%s/%s"><figcaption>%s · %s</figcaption></figure>\n' "$(basename "$output_dir")" "$base" "$device" "$base" >> "$index_file"
     done
   done
   printf '%s\n' '</main>' >> "$index_file"
