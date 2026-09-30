@@ -1,6 +1,13 @@
 import Foundation
 import Observation
+import OSLog
 import SwiftUI
+
+private let loadLogger = Logger(subsystem: "com.example.cc-controller", category: "load")
+
+private func uptime() -> String {
+    String(format: "%.3f", ProcessInfo.processInfo.systemUptime)
+}
 
 struct NativeSession: Codable, Identifiable, Hashable, Sendable {
     let id: String
@@ -39,30 +46,47 @@ private func decode<T: Decodable>(_ type: T.Type, data: Data, path: String) thro
 }
 
 private func fetchState(from serverURL: URL, bearer: String) async throws -> NativeState {
+    loadLogger.info("fetch start uptime=\(uptime(), privacy: .public) url=\(serverURL.absoluteString, privacy: .public)")
     var request = URLRequest(url: serverURL.appending(path: "/api/bootstrap"))
+    request.cachePolicy = .reloadIgnoringLocalCacheData
     request.setValue("application/json", forHTTPHeaderField: "Accept")
     if !bearer.isEmpty {
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
     }
     do {
+        loadLogger.info("request sent uptime=\(uptime(), privacy: .public) path=/api/bootstrap")
         let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        loadLogger.info("response uptime=\(uptime(), privacy: .public) path=/api/bootstrap status=\(status) bytes=\(data.count)")
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
             throw NativeAPIError.response(path: "/api/bootstrap", status: status)
         }
-        return try decode(NativeBootstrap.self, data: data, path: "/api/bootstrap").state
+        let state = try decode(NativeBootstrap.self, data: data, path: "/api/bootstrap").state
+        loadLogger.info("decode result uptime=\(uptime(), privacy: .public) path=/api/bootstrap sessions=\(state.sessions.count)")
+        return state
     } catch {
+        loadLogger.error("bootstrap error uptime=\(uptime(), privacy: .public) description=\(String(describing: error), privacy: .public)")
         var fallback = URLRequest(url: serverURL.appending(path: "/api/state"))
+        fallback.cachePolicy = .reloadIgnoringLocalCacheData
         fallback.setValue("application/json", forHTTPHeaderField: "Accept")
         if !bearer.isEmpty {
             fallback.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await URLSession.shared.data(for: fallback)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+        do {
+            loadLogger.info("request sent uptime=\(uptime(), privacy: .public) path=/api/state")
+            let (data, response) = try await URLSession.shared.data(for: fallback)
             let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw NativeAPIError.response(path: "/api/state", status: status)
+            loadLogger.info("response uptime=\(uptime(), privacy: .public) path=/api/state status=\(status) bytes=\(data.count)")
+            guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+                throw NativeAPIError.response(path: "/api/state", status: status)
+            }
+            let state = try decode(NativeState.self, data: data, path: "/api/state")
+            loadLogger.info("decode result uptime=\(uptime(), privacy: .public) path=/api/state sessions=\(state.sessions.count)")
+            return state
+        } catch {
+            loadLogger.error("state fallback error uptime=\(uptime(), privacy: .public) description=\(String(describing: error), privacy: .public)")
+            throw error
         }
-        return try decode(NativeState.self, data: data, path: "/api/state")
     }
 }
 
@@ -90,13 +114,16 @@ final class AppModel {
     }
 
     func load() async {
+        loadLogger.info("load start uptime=\(uptime(), privacy: .public) url=\(self.serverURL.absoluteString, privacy: .public)")
         do {
             let state = try await fetchState(from: serverURL, bearer: bearer)
+            loadLogger.info("sessions assigned uptime=\(uptime(), privacy: .public) count=\(state.sessions.count)")
             sessions = state.sessions
             selectedID = selectedID.flatMap { id in state.sessions.contains(where: { $0.id == id }) ? id : nil }
             connectionError = nil
         } catch {
             let detail = String(describing: error)
+            loadLogger.error("load error uptime=\(uptime(), privacy: .public) description=\(detail, privacy: .public)")
             connectionErrorDetail = detail
             #if DEBUG
             connectionError = "Can't reach the Mac (\(detail))"
@@ -159,6 +186,7 @@ struct SessionsView: View {
                     NavigationLink(value: session.id) {
                         SessionRow(session: session)
                     }
+                    .simultaneousGesture(TapGesture().onEnded { model.selectedID = session.id })
                     .accessibilityIdentifier("session-\(session.id)")
                 }
             }
@@ -172,6 +200,11 @@ struct SessionsView: View {
             } else {
                 ContentUnavailableView("No sessions", systemImage: "rectangle.stack", description: Text("No Claude Code sessions are running on this Mac."))
                     .accessibilityIdentifier("empty-detail")
+            }
+        }
+        .navigationDestination(for: NativeSession.ID.self) { id in
+            if let session = model.session(for: id) {
+                SessionDetail(session: session)
             }
         }
         .task { await model.load() }

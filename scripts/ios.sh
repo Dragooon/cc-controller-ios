@@ -10,6 +10,7 @@ DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 STARTED_DAEMON=""
 FIXTURE_OUT=""
 RUN_DIR=""
+DIAG_DIR=""
 
 step() {
   local name=$1; shift
@@ -32,6 +33,18 @@ cleanup_shots() {
   fi
   if [[ -n "$FIXTURE_OUT" ]]; then rm -f "$FIXTURE_OUT"; fi
   if [[ -n "$RUN_DIR" ]]; then rm -rf "$RUN_DIR"; fi
+  if [[ -n "$DIAG_DIR" ]]; then
+    mkdir -p "$DIAG_DIR"
+    cp "$IOS/shots/fixture-daemon.log" "$DIAG_DIR/fixture-daemon.log" 2>/dev/null || true
+    while read -r udid; do
+      [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true
+    done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-")&&x.state==="Booted") console.log(x.udid)}}})')
+    mkdir -p "$DIAG_DIR/attachments"
+    for result in "$IOS"/build/*.xcresult; do
+      [[ -d "$result" ]] || continue
+      xcrun xcresulttool export attachments --path "$result" --output-path "$DIAG_DIR/attachments" >/dev/null 2>&1 || true
+    done
+  fi
   while read -r udid; do
     [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-")&&x.state==="Booted") console.log(x.udid)}}})')
@@ -88,6 +101,8 @@ cmd_shots() {
   rm -rf "$IOS/shots"
   mkdir -p "$IOS/shots"
   RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
+  DIAG_DIR="$IOS/build/diag"
+  mkdir -p "$DIAG_DIR"
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
   local fixture_started=$SECONDS
   node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$IOS/shots/fixture-daemon.log" 2>&1 &
@@ -116,7 +131,7 @@ cmd_shots() {
     xcrun xcresulttool export attachments --path "$result" --output-path "$exported" --filter '*.png'
     local manifest="$exported/manifest.json"
     if [[ -f "$manifest" ]]; then
-      node -e 'const fs=require("node:fs");const p=process.argv[1],d=JSON.parse(fs.readFileSync(p));for(const a of d.attachments??[]){const n=a.suggestedHumanReadableName||a.filename;if(!n.endsWith(".png"))continue;const old=a.exportedFilePath||a.filename;const src=require("node:path").join(require("node:path").dirname(p),old);const dst=require("node:path").join(require("node:path").dirname(p),n.endsWith(".png")?n:`${n}.png`);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+      node -e 'const fs=require("node:fs");const path=require("node:path");const p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";if(!suggested.toLowerCase().endsWith(".png"))continue;const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.png$/i,".png");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old);const dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
     fi
     find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
     find "$output_dir" -maxdepth 1 -type f -name '*.png' -print | while read -r png; do
