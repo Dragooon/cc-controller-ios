@@ -18,8 +18,24 @@ struct NativeBootstrap: Codable, Sendable {
     let state: NativeState
 }
 
-private enum NativeAPIError: Error {
-    case response
+private enum NativeAPIError: LocalizedError {
+    case response(path: String, status: Int)
+    case decoding(path: String, detail: String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .response(path, status): return "HTTP \(status) from \(path)"
+        case let .decoding(path, detail): return "Decode failed for \(path): \(detail)"
+        }
+    }
+}
+
+private func decode<T: Decodable>(_ type: T.Type, data: Data, path: String) throws -> T {
+    do {
+        return try JSONDecoder().decode(type, from: data)
+    } catch {
+        throw NativeAPIError.decoding(path: path, detail: String(describing: error))
+    }
 }
 
 private func fetchState(from serverURL: URL, bearer: String) async throws -> NativeState {
@@ -31,9 +47,10 @@ private func fetchState(from serverURL: URL, bearer: String) async throws -> Nat
     do {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            throw NativeAPIError.response
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw NativeAPIError.response(path: "/api/bootstrap", status: status)
         }
-        return try JSONDecoder().decode(NativeBootstrap.self, from: data).state
+        return try decode(NativeBootstrap.self, data: data, path: "/api/bootstrap").state
     } catch {
         var fallback = URLRequest(url: serverURL.appending(path: "/api/state"))
         fallback.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -42,9 +59,10 @@ private func fetchState(from serverURL: URL, bearer: String) async throws -> Nat
         }
         let (data, response) = try await URLSession.shared.data(for: fallback)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            throw error
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw NativeAPIError.response(path: "/api/state", status: status)
         }
-        return try JSONDecoder().decode(NativeState.self, from: data)
+        return try decode(NativeState.self, data: data, path: "/api/state")
     }
 }
 
@@ -54,6 +72,7 @@ final class AppModel {
     var sessions: [NativeSession] = []
     var selectedID: NativeSession.ID?
     var connectionError: String?
+    var connectionErrorDetail: String?
     var serverURL = URL(string: "http://127.0.0.1:47832")!
     var bearer = ""
     var colorScheme: ColorScheme?
@@ -62,7 +81,7 @@ final class AppModel {
         if let value = argumentValue("-CCServer", in: arguments), let url = URL(string: value) {
             serverURL = url
         }
-        bearer = argumentValue("-CCBearer", in: arguments) ?? ""
+        bearer = ProcessInfo.processInfo.environment["CCBearer"] ?? ""
         switch argumentValue("-CCColorScheme", in: arguments) {
         case "light": colorScheme = .light
         case "dark": colorScheme = .dark
@@ -78,7 +97,13 @@ final class AppModel {
                 ?? state.sessions.first?.id
             connectionError = nil
         } catch {
+            let detail = error.localizedDescription
+            connectionErrorDetail = detail
+            #if DEBUG
+            connectionError = "Can't reach the Mac (\(detail))"
+            #else
             connectionError = "Can't reach the Mac"
+            #endif
         }
     }
 
@@ -116,9 +141,20 @@ struct SessionsView: View {
         NavigationSplitView {
             List(selection: $model.selectedID) {
                 if let error = model.connectionError {
-                    Label(error, systemImage: "wifi.exclamationmark")
-                        .foregroundStyle(Color("Secondary"))
-                        .accessibilityIdentifier("connection-error")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(error, systemImage: "wifi.exclamationmark")
+                            .foregroundStyle(Color("Secondary"))
+                            .accessibilityIdentifier("connection-error")
+                        #if DEBUG
+                        if let detail = model.connectionErrorDetail {
+                            Text(detail)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(Color("Tertiary"))
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("connection-error-detail")
+                        }
+                        #endif
+                    }
                 }
                 ForEach(model.sessions) { session in
                     NavigationLink(value: session.id) {

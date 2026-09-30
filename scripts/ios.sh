@@ -49,6 +49,7 @@ ensure_device() {
   xcrun simctl boot "$udid" >/dev/null 2>&1 || true
   xcrun simctl bootstatus "$udid" -b >/dev/null
   xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+  xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
   printf '%s\n' "$udid"
 }
 
@@ -91,10 +92,9 @@ cmd_shots() {
   printf '%s\n' "[fixture] $((SECONDS - fixture_started))s (pid $STARTED_DAEMON)"
   for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
   [[ -s "$FIXTURE_OUT" ]] || { printf '%s\n' 'fixture daemon did not become ready' >&2; exit 1; }
-  local web_port bearer host_ip
+  local web_port bearer
   web_port=$(json_value "$FIXTURE_OUT" webPort)
   bearer=$(json_value "$FIXTURE_OUT" bearer)
-  host_ip=$(ipconfig getifaddr en0 2>/dev/null || printf '127.0.0.1')
   local index_file="$IOS/shots/index.html"
   printf '%s\n' '<!doctype html><meta charset="utf-8"><title>cc-controller iOS shots</title><style>body{font:15px system-ui;background:#121110;color:#eee;margin:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}figure{margin:0}img{display:block;max-width:100%;border-radius:16px}figcaption{padding-top:8px;color:#bbb}</style><main>' > "$index_file"
   trap cleanup_shots EXIT
@@ -108,7 +108,7 @@ cmd_shots() {
     mkdir -p "$exported"
     local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" -only-testing:CCControllerUITests/ScreenshotTests test)
     [[ -z "$only" ]] || args+=("-only-testing:CCControllerUITests/ScreenshotTests/testSessionsAndSelectedSessionScreens")
-    TEST_RUNNER_SERVER_URL="http://$host_ip:$web_port" TEST_RUNNER_BEARER="$bearer" TEST_RUNNER_ONLY="$only" step "shots $device" "${args[@]}"
+    TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" TEST_RUNNER_ONLY="$only" step "shots $device" "${args[@]}"
     xcrun xcresulttool export attachments --path "$result" --output-path "$exported" --filter '*.png'
     local manifest="$exported/manifest.json"
     if [[ -f "$manifest" ]]; then

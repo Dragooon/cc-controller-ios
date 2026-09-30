@@ -22,6 +22,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller
         PRODUCT_NAME: cc-controller
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
     info:
       path: Info.plist
       properties:
@@ -32,10 +35,8 @@ targets:
         CFBundleVersion: "1"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
-          NSAllowsArbitraryLoads: true
         NSFaceIDUsageDescription: Unlock cc-controller
         NSCameraUsageDescription: Attach photos to a Claude Code session
-        NSLocalNetworkUsageDescription: Connect to the cc-controller daemon on this Mac
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -58,6 +59,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller.uitests
+        TEST_TARGET_NAME: CCController
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
