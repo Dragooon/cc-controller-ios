@@ -85,7 +85,6 @@ final class MockScreenshotTests: XCTestCase {
                 topAttachment.lifetime = .keepAlways
                 add(topAttachment)
             }
-            }
         }
 
         do {
