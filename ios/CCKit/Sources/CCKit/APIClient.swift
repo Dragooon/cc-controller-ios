@@ -4,12 +4,13 @@ public enum APIError: Error, Sendable, Equatable, LocalizedError {
     case unauthorized
     case rateLimited
     case stale
+    case staleResponse(status: Int, message: String)
     case http(status: Int, message: String)
     case transport(URLError)
     case decoding(String)
 
     public var errorDescription: String? {
-        switch self { case .unauthorized: "Unauthorized"; case .rateLimited: "Rate limited"; case .stale: "Stale request"; case .http(let status, let message): "HTTP \(status): \(message)"; case .transport(let error): error.localizedDescription; case .decoding(let message): message }
+        switch self { case .unauthorized: "Unauthorized"; case .rateLimited: "Rate limited"; case .stale: "Stale request"; case .staleResponse(_, let message): message; case .http(let status, let message): "HTTP \(status): \(message)"; case .transport(let error): error.localizedDescription; case .decoding(let message): message }
     }
 }
 
@@ -75,10 +76,10 @@ public actor APIClient {
     public func mode(sessionID: String, mode: ApprovalMode) async throws -> ModeResult { try await post("/api/sessions/\(pathComponent(sessionID))/mode", body: ModeRequest(mode: mode.rawValue)) }
     public func decision(sessionID: String, requestID: String, behavior: DecisionBehavior) async throws -> Decision { try await post("/api/sessions/\(pathComponent(sessionID))/decision", body: DecisionRequest(requestId: requestID, behavior: behavior.rawValue), staleDecision: true) }
 
-    public func uploadFile(sessionID: String, data: Data, filename: String, mimeType: String? = nil) async throws -> UploadedFile {
+    public func uploadFile(sessionID: String, data: Data, filename: String, mimeType: String? = nil, timeout: TimeInterval = 30) async throws -> UploadedFile {
         let boundary = "CCKit-\(UUID().uuidString)"
         let body = multipartBody(boundary: boundary, filename: filename, mimeType: mimeType ?? "application/octet-stream", data: data)
-        let response: UploadResponse = try await request("/api/sessions/\(pathComponent(sessionID))/files", method: "POST", body: body, contentType: "multipart/form-data; boundary = \(boundary)")
+        let response: UploadResponse = try await request("/api/sessions/\(pathComponent(sessionID))/files", method: "POST", body: body, contentType: "multipart/form-data; boundary=\(boundary)", timeoutInterval: timeout)
         guard let file = response.files?.first else { throw APIError.decoding("Upload response contained no file") }
         return file
     }
@@ -123,15 +124,16 @@ public actor APIClient {
         return try await request(path, method: "POST", body: data, contentType: "application/json", staleDecision: staleDecision)
     }
 
-    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, staleDecision: Bool = false) async throws -> T {
-        let (data, _) = try await requestData(path, method: method, query: query, body: body, contentType: contentType, staleDecision: staleDecision)
+    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, staleDecision: Bool = false, timeoutInterval: TimeInterval? = nil) async throws -> T {
+        let (data, _) = try await requestData(path, method: method, query: query, body: body, contentType: contentType, staleDecision: staleDecision, timeoutInterval: timeoutInterval)
         do { return try JSONDecoder.ccKit().decode(T.self, from: data) } catch { throw APIError.decoding(error.localizedDescription) }
     }
 
-    private func requestData(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, staleDecision: Bool = false) async throws -> (Data, HTTPURLResponse) {
+    private func requestData(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, staleDecision: Bool = false, timeoutInterval: TimeInterval? = nil) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: endpoint(path, query: query))
         request.httpMethod = method
         request.httpBody = body
+        if let timeoutInterval { request.timeoutInterval = timeoutInterval }
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         applyHeaders(to: &request)
         do {
@@ -147,8 +149,8 @@ public actor APIClient {
     private func mappedError(status: Int, data: Data, staleDecision: Bool) async -> APIError {
         if status == 401 { authenticationContinuation.yield(()); return .unauthorized }
         if status == 429 { return .rateLimited }
-        if staleDecision && (status == 409 || status == 410) { return .stale }
         let message = (try? JSONDecoder().decode(ErrorResponse.self, from: data).error) ?? HTTPURLResponse.localizedString(forStatusCode: status)
+        if staleDecision && (status == 409 || status == 410) { return .staleResponse(status: status, message: message) }
         return .http(status: status, message: message)
     }
 
@@ -170,7 +172,7 @@ public actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
     }
-    private func multipartBody(boundary: String, filename: String, mimeType: String, data: Data) -> Data { var body = Data(); body.append(Data("--\(boundary)\r\n".utf8)); body.append(Data("Content-Disposition: form-data; name = \"file\"; filename = \"\(filename.replacingOccurrences(of: "\"", with: "_"))\"\r\n".utf8)); body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8)); body.append(data); body.append(Data("\r\n--\(boundary)--\r\n".utf8)); return body }
+    private func multipartBody(boundary: String, filename: String, mimeType: String, data: Data) -> Data { var body = Data(); body.append(Data("--\(boundary)\r\n".utf8)); body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename.replacingOccurrences(of: "\"", with: "_"))\"\r\n".utf8)); body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8)); body.append(data); body.append(Data("\r\n--\(boundary)--\r\n".utf8)); return body }
 }
 
 private struct EmptyBody: Encodable { }

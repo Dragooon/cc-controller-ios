@@ -9,6 +9,9 @@ public final class AppStore {
     public private(set) var daemon: DaemonInfo?
     public private(set) var lastUpdated: Date?
     public private(set) var unknownEventCount = 0
+    public private(set) var deciding: Set<String> = []
+    public private(set) var queuedNotes: [String: [QueuedNote]] = [:]
+    public private(set) var uploads: [String: UploadProgress] = [:]
 
     public var sortedSessions: [Session] {
         let priority: (Session) -> Int = { session in
@@ -35,6 +38,7 @@ public final class AppStore {
     @ObservationIgnored private let bearerProvider: @Sendable () async throws -> String
     @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let cache: DiskCache
+    @ObservationIgnored private let uploadTimeout: TimeInterval
     @ObservationIgnored private var eventStream: EventStream?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
@@ -53,13 +57,15 @@ public final class AppStore {
         bearerProvider: @escaping @Sendable () async throws -> String,
         session: URLSession = .shared,
         clock: any CCKitClock = SystemCCKitClock(),
-        cacheDirectory: URL
+        cacheDirectory: URL,
+        uploadTimeout: TimeInterval = 30
     ) {
         self.client = APIClient(baseURL: serverURL, session: session)
         self.session = session
         self.bearerProvider = bearerProvider
         self.clock = clock
         self.cache = DiskCache(directory: cacheDirectory, clock: clock)
+        self.uploadTimeout = uploadTimeout
     }
 
     public func start() {
@@ -111,6 +117,109 @@ public final class AppStore {
         approvals.filter { $0.sessionId == sessionID }
     }
 
+    public func queuedNotes(for sessionID: String) -> [QueuedNote] {
+        queuedNotes[sessionID] ?? []
+    }
+
+    public func allow(_ approval: Approval, scope: ApprovalScope = .once) async -> Result<Void, ActionError> {
+        await decide(approval, behavior: scope == .session ? .allowSession : .allow)
+    }
+
+    public func deny(_ approval: Approval) async -> Result<Void, ActionError> {
+        await decide(approval, behavior: .deny)
+    }
+
+    public func send(text: String, attachments: [String] = [], to sessionID: String, now: Bool = false) async -> Result<Void, ActionError> {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .failure(.invalid("Message text is required.")) }
+        do {
+            let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
+            queuedNotes[sessionID, default: []].append(QueuedNote(text: trimmed, queued: result.queued == true))
+            return .success(())
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
+    public func interrupt(sessionID: String) async -> Result<Void, ActionError> {
+        do {
+            _ = try await client.escape(sessionID: sessionID)
+            return .success(())
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
+    public func setApprovalMode(sessionID: String, mode: ApprovalMode) async -> Result<Void, ActionError> {
+        guard mode == .auto || mode == .remote || mode == .terminal else { return .failure(.invalid("Approval mode is not supported.")) }
+        do {
+            let result = try await client.mode(sessionID: sessionID, mode: mode)
+            guard var session = sessions[sessionID] else { return .failure(.invalid("Session is not live.")) }
+            session.mode = approvalMode(result.mode ?? mode.rawValue)
+            sessions[sessionID] = session
+            updateOpenStores(for: session)
+            scheduleCacheWrite()
+            return .success(())
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
+    public func upload(_ files: [UploadFile], to sessionID: String) async -> Result<[UploadedFile], ActionError> {
+        guard !files.isEmpty else { return .success([]) }
+        let limit = latestBootstrap?.limits?.uploadMaxBytes ?? 25 * 1024 * 1024
+        var uploaded: [UploadedFile] = []
+        var firstFailure: ActionError?
+        for (index, file) in files.enumerated() {
+            uploads[file.name] = UploadProgress(fileName: file.name, completed: index, total: files.count, state: .uploading)
+            if file.data.count > limit {
+                let error = ActionError.tooLarge(fileName: file.name, limitBytes: limit)
+                uploads[file.name] = UploadProgress(fileName: file.name, completed: index + 1, total: files.count, state: .failed(error))
+                firstFailure = firstFailure ?? error
+                continue
+            }
+            do {
+                let result = try await client.uploadFile(sessionID: sessionID, data: file.data, filename: file.name, mimeType: file.mimeType, timeout: uploadTimeout)
+                uploaded.append(result)
+                uploads[file.name] = UploadProgress(fileName: file.name, completed: index + 1, total: files.count, state: .succeeded)
+            } catch {
+                let actionError = actionError(for: error, fileName: file.name, limitBytes: limit)
+                uploads[file.name] = UploadProgress(fileName: file.name, completed: index + 1, total: files.count, state: .failed(actionError))
+                firstFailure = firstFailure ?? actionError
+            }
+        }
+        if let firstFailure { return .failure(firstFailure) }
+        return .success(uploaded)
+    }
+
+    public func upload(_ files: [UploadFile], sessionID: String) async -> Result<[UploadedFile], ActionError> {
+        await upload(files, to: sessionID)
+    }
+
+    public func logout() async -> Result<Void, ActionError> {
+        do {
+            _ = try await client.logout()
+            suspend()
+            try? await cache.clear()
+            sessions.removeAll()
+            approvals.removeAll()
+            deciding.removeAll()
+            queuedNotes.removeAll()
+            uploads.removeAll()
+            openStores.removeAll()
+            cachedTranscripts.removeAll()
+            sessionSnapshots.removeAll()
+            serverEntryCounts.removeAll()
+            latestBootstrap = nil
+            daemon = nil
+            lastUpdated = nil
+            connection = .offline(lastUpdated: nil, error: nil)
+            return .success(())
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
     public func apply(_ event: LiveEvent) {
         switch event {
         case .connected:
@@ -133,6 +242,95 @@ public final class AppStore {
             break
         case .registry:
             refreshAfterRegistryEvent()
+        }
+    }
+
+    private func decide(_ approval: Approval, behavior: DecisionBehavior) async -> Result<Void, ActionError> {
+        guard let sessionID = approval.sessionId, let requestID = approval.requestId, !requestID.isEmpty else { return .failure(.invalid("Approval is missing its request id.")) }
+        let key = "\(sessionID):\(requestID)"
+        deciding.insert(key)
+        removePendingApproval(approval)
+        defer { deciding.remove(key) }
+        do {
+            _ = try await client.decision(sessionID: sessionID, requestID: requestID, behavior: behavior)
+            _ = await refreshStateAndOpenTranscripts()
+            return .success(())
+        } catch {
+            if isStaleDecision(error) {
+                let refreshed = await refreshStateAndOpenTranscripts()
+                if !refreshed { restorePendingApproval(approval) }
+            } else {
+                restorePendingApproval(approval)
+            }
+            return .failure(actionError(for: error))
+        }
+    }
+
+    private func removePendingApproval(_ approval: Approval) {
+        guard let sessionID = approval.sessionId, var session = sessions[sessionID] else { return }
+        session.pending = (session.pending ?? []).filter { $0.requestId != approval.requestId }
+        sessions[sessionID] = session
+        approvals = sessions.values.flatMap { $0.pending ?? [] }
+        updateOpenStores(for: session)
+    }
+
+    private func restorePendingApproval(_ approval: Approval) {
+        guard let sessionID = approval.sessionId, var session = sessions[sessionID] else { return }
+        var pending = session.pending ?? []
+        guard !pending.contains(where: { $0.requestId == approval.requestId }) else { return }
+        pending.append(approval)
+        pending.sort { ($0.receivedAt ?? .distantPast) < ($1.receivedAt ?? .distantPast) }
+        session.pending = pending
+        sessions[sessionID] = session
+        approvals = sessions.values.flatMap { $0.pending ?? [] }
+        updateOpenStores(for: session)
+    }
+
+    private func refreshStateAndOpenTranscripts() async -> Bool {
+        guard let snapshot = try? await client.state() else { return false }
+        applyState(snapshot)
+        for store in openStores.values { try? await store.refetchTail() }
+        return true
+    }
+
+    private func isStaleDecision(_ error: Error) -> Bool {
+        guard let apiError = error as? APIError else { return false }
+        switch apiError {
+        case .stale, .staleResponse: return true
+        default: return false
+        }
+    }
+
+    private func actionError(for error: Error, fileName: String? = nil, limitBytes: Int? = nil) -> ActionError {
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .unauthorized: return .unauthorized
+            case .stale: return .alreadyAnswered
+            case .staleResponse(let status, let message):
+                if status == 409 && message.localizedCaseInsensitiveContains("terminal") { return .waitingInTerminal }
+                return status == 410 ? .alreadyAnswered : .server(status: status, message: message)
+            case .transport(let urlError):
+                return urlError.code == .timedOut ? .timeout : .network(urlError.localizedDescription)
+            case .http(let status, let message):
+                if message.localizedCaseInsensitiveContains("no tmux pane") || (status == 409 && message.localizedCaseInsensitiveContains("pane")) { return .noPane }
+                if status == 413 { return .tooLarge(fileName: fileName ?? "File", limitBytes: limitBytes ?? 0) }
+                return .server(status: status, message: message)
+            case .rateLimited: return .server(status: 429, message: "Too many requests")
+            case .decoding(let message): return .server(status: 0, message: message)
+            }
+        }
+        if let urlError = error as? URLError {
+            return urlError.code == .timedOut ? .timeout : .network(urlError.localizedDescription)
+        }
+        return .server(status: 0, message: error.localizedDescription)
+    }
+
+    private func approvalMode(_ rawValue: String) -> ApprovalMode {
+        switch rawValue {
+        case "auto": .auto
+        case "remote": .remote
+        case "terminal": .terminal
+        default: .unknown(rawValue)
         }
     }
 
@@ -284,6 +482,8 @@ public final class AppStore {
     private func applyTranscript(_ event: TranscriptEvent) {
         guard let sessionID = event.sessionId, let entry = event.entry else { return }
         guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return }
+        let pending = reconcileQueuedNote(queuedNotes[sessionID] ?? [], promptEntry: entry)
+        if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) } else { queuedNotes[sessionID] = pending }
         let countBefore = store.totalEntries
         let change = store.merge([entry], replace: event.replace == true, entryCount: event.entryCount)
         let expectedCount = countBefore + (change.inserted.isEmpty ? 0 : 1)

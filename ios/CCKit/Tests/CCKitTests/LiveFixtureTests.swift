@@ -15,7 +15,21 @@ final class LiveFixtureTests: XCTestCase {
         defer { app.suspend() }
         try await waitUntil { if case .live = app.connection { return true }; return false }
         XCTAssertGreaterThanOrEqual(app.sessions.count, 5)
-        XCTAssertNotNil(app.sessions["approval-flow-light-mode"]?.pending?.first)
+        XCTAssertGreaterThanOrEqual(app.approvals.count, 2)
+        let firstApproval = try XCTUnwrap(app.approvals.first(where: { $0.sessionId == "approval-flow-light-mode" }))
+        let secondApproval = try XCTUnwrap(app.approvals.first(where: { $0.sessionId == "staff-account-exclusions" }))
+        guard case .success = await app.allow(firstApproval) else { return XCTFail("Fixture allow failed") }
+        guard case .success = await app.deny(secondApproval) else { return XCTFail("Fixture deny failed") }
+        XCTAssertTrue(app.approvals.isEmpty)
+
+        guard case .failure(.noPane) = await app.send(text: "send now", to: "approval-flow-light-mode", now: true) else { return XCTFail("Expected fixture no-pane send-now error") }
+        let upload = await app.upload([UploadFile(name: "native.png", data: Data([137, 80, 78, 71]), mimeType: "image/png")], to: "staff-account-exclusions")
+        guard case .success(let files) = upload, files.first?.name == "native.png" else { return XCTFail("Fixture upload failed: \(upload)") }
+        guard case .success = await app.setApprovalMode(sessionID: "staff-account-exclusions", mode: .remote) else { return XCTFail("Fixture mode update failed") }
+        app.suspend()
+        app.resume()
+        try await waitUntil { if case .live = app.connection { return true }; return false }
+        XCTAssertEqual(app.sessions["staff-account-exclusions"]?.mode, .remote)
 
         let session = try XCTUnwrap(app.openSession("long-session"))
         try await waitUntil { session.isLoaded }

@@ -1,0 +1,66 @@
+import Foundation
+
+public enum ApprovalScope: Sendable, Equatable {
+    case once
+    case session
+}
+
+public enum ActionError: Error, Sendable, Equatable, LocalizedError {
+    case unauthorized
+    case alreadyAnswered
+    case waitingInTerminal
+    case noPane
+    case invalid(String)
+    case tooLarge(fileName: String, limitBytes: Int)
+    case network(String)
+    case timeout
+    case server(status: Int, message: String)
+
+    public var userMessage: String {
+        switch self {
+        case .unauthorized: "Your connection expired. Unlock or pair this device again."
+        case .alreadyAnswered: "This approval was already answered or has expired."
+        case .waitingInTerminal: "This approval is waiting in the terminal and cannot be answered here."
+        case .noPane: "This session has no tmux pane for that action."
+        case .invalid(let message): message
+        case .tooLarge(let fileName, let limitBytes): "\(fileName) is too large. The limit is \(limitBytes) bytes."
+        case .network(let message): "The Mac could not be reached: \(message)"
+        case .timeout: "The Mac did not finish that action in time."
+        case .server(let status, let message): "The Mac returned HTTP \(status): \(message)"
+        }
+    }
+
+    public var errorDescription: String? { userMessage }
+}
+
+public struct UploadFile: Sendable, Equatable {
+    public let name: String
+    public let data: Data
+    public let mimeType: String?
+
+    public init(name: String, data: Data, mimeType: String? = nil) {
+        self.name = name
+        self.data = data
+        self.mimeType = mimeType
+    }
+}
+
+public enum UploadState: Sendable, Equatable {
+    case uploading
+    case succeeded
+    case failed(ActionError)
+}
+
+public struct UploadProgress: Sendable, Equatable {
+    public let fileName: String
+    public let completed: Int
+    public let total: Int
+    public let state: UploadState
+
+    public init(fileName: String, completed: Int, total: Int, state: UploadState) {
+        self.fileName = fileName
+        self.completed = completed
+        self.total = total
+        self.state = state
+    }
+}

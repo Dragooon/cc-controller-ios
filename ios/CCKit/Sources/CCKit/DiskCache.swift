@@ -48,6 +48,13 @@ public actor DiskCache {
         pendingWrite = nil
     }
 
+    public func clear() throws {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        let url = directory.appendingPathComponent(fileName)
+        try FileManager.default.removeItem(at: url)
+    }
+
     private func write(_ state: DiskCacheState) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder.ccKit().encode(state)
