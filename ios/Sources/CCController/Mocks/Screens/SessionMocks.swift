@@ -258,10 +258,11 @@ private struct SubagentMock: View {
                         onSubagent: { _ in }
                     )
                 }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 18)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(.ccBackground)
             .navigationTitle("researcher")
             .navigationSubtitle("Done · 4m")
