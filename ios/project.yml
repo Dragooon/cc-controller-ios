@@ -1,0 +1,60 @@
+name: CCController
+options:
+  xcodeVersion: "27.0"
+  deploymentTarget:
+    iOS: "27.0"
+  defaultConfig: Debug
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: "$(DEVELOPMENT_TEAM)"
+targets:
+  CCController:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/CCController
+      - Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller
+        PRODUCT_NAME: cc-controller
+    info:
+      path: Info.plist
+      properties:
+        CFBundleIdentifier: com.example.cc-controller
+        CFBundleExecutable: "$(EXECUTABLE_NAME)"
+        CFBundleDisplayName: cc-controller
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSFaceIDUsageDescription: Unlock cc-controller
+        NSCameraUsageDescription: Attach photos to a Claude Code session
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    scheme:
+      testTargets:
+        - CCControllerUITests
+  CCControllerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: CCController
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "$(DEVELOPMENT_TEAM)"
