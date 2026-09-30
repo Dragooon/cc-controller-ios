@@ -1,0 +1,12 @@
+{
+  "devices": [
+    {
+      "createdAt": "2026-09-30T08:47:04.591Z",
+      "expiresAt": "2026-10-30T08:47:04.591Z",
+      "hasNativeSecret": false,
+      "hasPasskey": false,
+      "lastSeenAt": "2026-09-30T08:47:04.598Z",
+      "name": "iPhone Safari"
+    }
+  ]
+}

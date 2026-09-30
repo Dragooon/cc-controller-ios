@@ -1,0 +1,16 @@
+{
+  "behavior": "deny",
+  "holdLimitMs": 590000,
+  "mode": "terminal",
+  "permission_mode": "default",
+  "receivedAt": "2026-09-30T00:00:02.000Z",
+  "requestId": "approval-1",
+  "sessionId": "session-1",
+  "status": "terminal",
+  "text": "Denied in the terminal from this device",
+  "tool_input": {
+    "command": "echo hi"
+  },
+  "tool_name": "Bash",
+  "via": "terminal"
+}

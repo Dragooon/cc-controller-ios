@@ -1,0 +1,10 @@
+{
+  "agent": "engineer",
+  "agentId": "agent-1",
+  "kind": "subagent",
+  "startedAt": "2026-09-30T00:00:11.000Z",
+  "state": "running",
+  "text": "Build the daemon core",
+  "toolUseId": "task-1",
+  "ts": "2026-09-30T00:00:11.000Z"
+}

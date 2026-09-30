@@ -1,0 +1,11 @@
+{
+  "args": {
+    "command": "ls /tmp"
+  },
+  "kind": "tool",
+  "state": "running",
+  "text": "running",
+  "tool": "Bash",
+  "toolUseId": "toolu_bash",
+  "ts": "2026-09-30T00:00:09.000Z"
+}

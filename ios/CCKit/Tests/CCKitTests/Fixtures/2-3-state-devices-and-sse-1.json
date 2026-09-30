@@ -1,0 +1,22 @@
+{
+  "apiVersion": 2,
+  "capabilities": {
+    "bearer": true,
+    "gzip": true,
+    "logout": true,
+    "pagination": true,
+    "sendNow": true
+  },
+  "daemon": {
+    "commit": "<short sha or null>",
+    "startedAt": "<iso>",
+    "version": "0.1.0"
+  },
+  "limits": {
+    "approvalHoldMs": 590000,
+    "jsonMaxBytes": 2097152,
+    "sessionTtlHours": 12,
+    "uploadMaxBytes": 26214400
+  },
+  "state": {}
+}

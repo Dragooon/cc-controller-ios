@@ -1,0 +1,14 @@
+{
+  "sessionId": "session-1",
+  "subagents": [
+    {
+      "agent": "engineer",
+      "agentId": "agent-1",
+      "linked": true,
+      "startedAt": "2026-09-30T00:00:00.000Z",
+      "state": "running",
+      "text": "Build it",
+      "toolUseId": "task-1"
+    }
+  ]
+}

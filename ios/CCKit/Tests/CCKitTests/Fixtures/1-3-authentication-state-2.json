@@ -1,0 +1,13 @@
+{
+  "authenticated": false,
+  "device": {
+    "createdAt": "2026-09-30T08:47:04.591Z",
+    "hasPasskey": false,
+    "lastSeenAt": "2026-09-30T08:47:04.593Z",
+    "name": "iPhone Safari",
+    "pairedAt": "2026-09-30T08:47:04.591Z"
+  },
+  "error": "Login required",
+  "hasPasskey": false,
+  "passkeys": false
+}

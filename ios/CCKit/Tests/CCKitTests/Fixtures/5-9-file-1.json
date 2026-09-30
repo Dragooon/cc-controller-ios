@@ -1,0 +1,9 @@
+{
+  "kind": "file",
+  "mime": "text/csv",
+  "name": "report.csv",
+  "sessionId": "session-1",
+  "size": 12288,
+  "ts": "2026-09-30T00:16:00.000Z",
+  "url": "/api/files/session-1/report.csv"
+}

@@ -1,0 +1,7 @@
+{
+  "behavior": "deny",
+  "kind": "decision",
+  "text": "Denied in the terminal from this device",
+  "ts": "2026-09-30T00:15:00.000Z",
+  "via": "terminal"
+}

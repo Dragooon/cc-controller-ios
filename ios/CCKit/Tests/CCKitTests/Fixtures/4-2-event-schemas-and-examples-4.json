@@ -1,0 +1,13 @@
+{
+  "entry": {
+    "id": "assistant-id",
+    "kind": "assistant",
+    "rev": 14,
+    "text": "hello",
+    "ts": "2026-09-30T00:00:01.000Z"
+  },
+  "entryCount": 1,
+  "path": "/tmp/<isolated>/home/.claude/projects/.../session-1.jsonl",
+  "replace": false,
+  "sessionId": "session-1"
+}

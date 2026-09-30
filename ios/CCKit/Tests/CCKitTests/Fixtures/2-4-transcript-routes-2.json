@@ -1,0 +1,18 @@
+[
+  {
+    "id": "359cdd0d-b787-4356-9671-4ccb5473c9f1",
+    "kind": "prompt",
+    "origin": "device",
+    "rev": 12,
+    "text": "hello from device",
+    "ts": "2026-09-30T08:47:04.697Z"
+  },
+  {
+    "id": "assistant-id",
+    "kind": "assistant",
+    "model": "claude-fable-5-1",
+    "rev": 13,
+    "text": "I will inspect it.",
+    "ts": "2026-09-30T08:47:05.000Z"
+  }
+]

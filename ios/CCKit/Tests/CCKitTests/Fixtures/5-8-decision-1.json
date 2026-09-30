@@ -1,0 +1,8 @@
+{
+  "behavior": "allow",
+  "kind": "decision",
+  "requestId": "approval-1",
+  "sessionId": "session-1",
+  "ts": "2026-09-30T00:15:00.000Z",
+  "via": "remote"
+}

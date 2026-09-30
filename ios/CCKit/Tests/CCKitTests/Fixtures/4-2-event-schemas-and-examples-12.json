@@ -1,0 +1,11 @@
+{
+  "id": "file:out.png",
+  "kind": "file",
+  "mime": "image/png",
+  "name": "out.png",
+  "rev": 16,
+  "sessionId": "session-1",
+  "size": 3,
+  "ts": "2026-09-30T00:00:03.000Z",
+  "url": "/api/files/session-1/out.png"
+}

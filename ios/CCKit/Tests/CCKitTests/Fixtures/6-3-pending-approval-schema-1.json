@@ -1,0 +1,24 @@
+{
+  "agent_type": "engineer",
+  "holdLimitMs": 590000,
+  "mode": "remote",
+  "permission_mode": "default",
+  "permission_suggestions": [
+    {
+      "rules": [
+        "Bash(npm test)"
+      ],
+      "type": "addRules"
+    }
+  ],
+  "receivedAt": "2026-09-30T00:00:02.000Z",
+  "requestId": "approval-1",
+  "sessionId": "session-1",
+  "status": "remote",
+  "tool_input": {
+    "command": "npm test",
+    "description": "Run the focused tests"
+  },
+  "tool_name": "Bash",
+  "tool_use_id": "toolu_bash"
+}

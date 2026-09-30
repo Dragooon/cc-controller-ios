@@ -1,0 +1,17 @@
+{
+  "durationMs": 100,
+  "end": null,
+  "entries": [],
+  "hasBody": false,
+  "live": true,
+  "prompts": [
+    {
+      "kind": "prompt",
+      "text": "first queued prompt"
+    },
+    {
+      "kind": "prompt",
+      "text": "second queued prompt"
+    }
+  ]
+}

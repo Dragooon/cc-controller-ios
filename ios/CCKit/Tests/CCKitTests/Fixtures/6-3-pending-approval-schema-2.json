@@ -1,0 +1,13 @@
+{
+  "holdLimitMs": 590000,
+  "mode": "terminal",
+  "permission_mode": null,
+  "receivedAt": "2026-09-30T00:00:03.000Z",
+  "requestId": "approval-2",
+  "sessionId": "session-1",
+  "status": "terminal",
+  "tool_input": {
+    "file_path": "/tmp/a.txt"
+  },
+  "tool_name": "Read"
+}

@@ -1,0 +1,4 @@
+{
+  "error": "Upload exceeds 25 MB per file",
+  "limitBytes": 26214400
+}

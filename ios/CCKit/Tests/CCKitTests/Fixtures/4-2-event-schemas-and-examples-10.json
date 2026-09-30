@@ -1,0 +1,16 @@
+{
+  "behavior": "timeout",
+  "holdLimitMs": 590000,
+  "mode": "remote",
+  "permission_mode": "default",
+  "receivedAt": "2026-09-30T00:00:02.000Z",
+  "requestId": "approval-1",
+  "sessionId": "session-1",
+  "status": "terminal",
+  "timedOutAt": "2026-09-30T00:09:52.000Z",
+  "tool_input": {
+    "command": "echo hi"
+  },
+  "tool_name": "Bash",
+  "via": "remote"
+}

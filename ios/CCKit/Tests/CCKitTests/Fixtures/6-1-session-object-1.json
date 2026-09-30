@@ -1,0 +1,67 @@
+{
+  "action": "engineer is asking to run a command",
+  "cwd": "../atlas",
+  "id": "session-1",
+  "idleSince": "2026-09-30T00:00:02.000Z",
+  "lastText": "I will run the focused tests.",
+  "lastTool": "Bash",
+  "lastToolInput": {
+    "command": "npm test"
+  },
+  "live": true,
+  "location": "tmux atlas-main",
+  "mode": "auto",
+  "name": "atlas-main",
+  "pending": [
+    {
+      "agent_type": "engineer",
+      "holdLimitMs": 590000,
+      "mode": "remote",
+      "permission_mode": "default",
+      "permission_suggestions": [],
+      "previousState": "working",
+      "receivedAt": "2026-09-30T00:00:02.000Z",
+      "requestId": "approval-1",
+      "sessionId": "session-1",
+      "status": "remote",
+      "tool_input": {
+        "command": "npm test"
+      },
+      "tool_name": "Bash",
+      "tool_use_id": "toolu_bash"
+    }
+  ],
+  "pid": 123,
+  "project": "atlas",
+  "startedAt": "2026-09-30T00:00:00.000Z",
+  "state": "needs_you",
+  "subagents": [
+    {
+      "agent": "engineer",
+      "agentId": "agent-1",
+      "finishedAt": "2026-09-30T00:12:10.000Z",
+      "linked": true,
+      "result": "The daemon core is committed and tests pass.",
+      "startedAt": "2026-09-30T00:00:10.000Z",
+      "state": "done",
+      "text": "Build the daemon core",
+      "toolUseId": "task-1"
+    }
+  ],
+  "tmux": true,
+  "tmuxPane": "%7",
+  "toolRunning": true,
+  "usage": {
+    "cacheHitRate": 0.4666666666666667,
+    "cacheReadTokens": 2800000,
+    "cacheWriteTokens": 100000,
+    "contextPercent": 41.2,
+    "contextTokens": 412000,
+    "contextWindow": 1000000,
+    "inputTokens": 3100000,
+    "messages": 12,
+    "model": "claude-fable-5-1[1m]",
+    "outputTokens": 84000,
+    "totalInputTokens": 6000000
+  }
+}

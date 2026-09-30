@@ -1,0 +1,13 @@
+{
+  "cacheHitRate": 0,
+  "cacheReadTokens": 0,
+  "cacheWriteTokens": 0,
+  "contextPercent": 0,
+  "contextTokens": 0,
+  "contextWindow": 200000,
+  "inputTokens": 0,
+  "messages": 0,
+  "model": null,
+  "outputTokens": 0,
+  "totalInputTokens": 0
+}

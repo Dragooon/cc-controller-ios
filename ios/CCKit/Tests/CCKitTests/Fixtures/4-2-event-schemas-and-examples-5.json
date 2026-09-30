@@ -1,0 +1,16 @@
+{
+  "sessionId": "session-1",
+  "usage": {
+    "cacheHitRate": 0.3333333333333333,
+    "cacheReadTokens": 50,
+    "cacheWriteTokens": 0,
+    "contextPercent": 0.0123,
+    "contextTokens": 123,
+    "contextWindow": 1000000,
+    "inputTokens": 100,
+    "messages": 1,
+    "model": "claude-fable-5-1[1m]",
+    "outputTokens": 20,
+    "totalInputTokens": 150
+  }
+}

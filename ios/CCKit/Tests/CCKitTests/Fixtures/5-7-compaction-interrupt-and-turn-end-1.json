@@ -1,0 +1,5 @@
+{
+  "kind": "compaction",
+  "text": "Older tool output was compacted after the context window filled.",
+  "ts": "2026-09-30T00:13:00.000Z"
+}

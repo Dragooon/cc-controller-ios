@@ -1,0 +1,14 @@
+{
+  "entries": [
+    {
+      "id": "359cdd0d-b787-4356-9671-4ccb5473c9f1",
+      "kind": "assistant",
+      "model": "claude-fable-5-1",
+      "rev": 12,
+      "text": "I will inspect it.",
+      "ts": "2026-09-30T08:47:05.000Z"
+    }
+  ],
+  "hasMore": true,
+  "total": 42
+}

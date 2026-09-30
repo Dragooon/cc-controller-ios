@@ -1,0 +1,11 @@
+{
+  "agent": "engineer",
+  "agentId": "agent-1",
+  "durationMs": 720000,
+  "kind": "subagent_result",
+  "result": "The daemon core is committed and tests pass.",
+  "state": "done",
+  "text": "Build the daemon core",
+  "toolUseId": "task-1",
+  "ts": "2026-09-30T00:12:11.000Z"
+}

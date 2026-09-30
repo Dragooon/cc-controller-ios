@@ -1,0 +1,9 @@
+{
+  "deviceName": "iPhone Safari",
+  "publicKey": {
+    "crv": "P-256",
+    "kty": "EC",
+    "x": "<base64url>",
+    "y": "<base64url>"
+  }
+}

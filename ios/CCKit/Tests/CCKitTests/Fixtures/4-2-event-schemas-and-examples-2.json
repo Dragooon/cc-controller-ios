@@ -1,0 +1,28 @@
+{
+  "entries": {
+    "session-1": 0
+  },
+  "lastTool": "Bash",
+  "lastToolInput": {
+    "command": "ls"
+  },
+  "pending": [],
+  "sessionId": "session-1",
+  "startedAt": "2026-09-30T08:47:04.607Z",
+  "state": "working",
+  "subagents": [],
+  "toolRunning": true,
+  "usage": {
+    "cacheHitRate": 0,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0,
+    "contextPercent": 0,
+    "contextTokens": 0,
+    "contextWindow": 200000,
+    "inputTokens": 0,
+    "messages": 0,
+    "model": null,
+    "outputTokens": 0,
+    "totalInputTokens": 0
+  }
+}

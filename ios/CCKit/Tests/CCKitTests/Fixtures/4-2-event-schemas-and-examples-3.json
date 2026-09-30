@@ -1,0 +1,13 @@
+{
+  "sessions": [
+    {
+      "cwd": "/tmp/project",
+      "messagingSocketPath": "/tmp/session.sock",
+      "name": "Ghostty",
+      "pid": 123,
+      "sessionId": "session-1",
+      "status": "working",
+      "transcriptPath": "/tmp/project/session.jsonl"
+    }
+  ]
+}

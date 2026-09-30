@@ -1,0 +1,14 @@
+{
+  "response": {
+    "id": "<credential id>",
+    "rawId": "<base64url raw id>",
+    "response": {
+      "attestationObject": "<base64url>",
+      "clientDataJSON": "<base64url>",
+      "transports": [
+        "internal"
+      ]
+    },
+    "type": "public-key"
+  }
+}

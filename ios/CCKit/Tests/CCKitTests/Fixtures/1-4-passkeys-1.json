@@ -1,0 +1,42 @@
+{
+  "attestation": "none",
+  "authenticatorSelection": {
+    "requireResidentKey": true,
+    "residentKey": "required",
+    "userVerification": "required"
+  },
+  "challenge": "<base64url challenge>",
+  "excludeCredentials": [],
+  "extensions": {
+    "credProps": true
+  },
+  "hints": [],
+  "pubKeyCredParams": [
+    {
+      "alg": -48,
+      "type": "public-key"
+    },
+    {
+      "alg": -8,
+      "type": "public-key"
+    },
+    {
+      "alg": -7,
+      "type": "public-key"
+    },
+    {
+      "alg": -257,
+      "type": "public-key"
+    }
+  ],
+  "rp": {
+    "id": "localhost",
+    "name": "Claude Code"
+  },
+  "timeout": 60000,
+  "user": {
+    "displayName": "sam",
+    "id": "b3duZXI",
+    "name": "sam"
+  }
+}

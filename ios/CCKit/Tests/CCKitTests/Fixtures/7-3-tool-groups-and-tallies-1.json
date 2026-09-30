@@ -1,0 +1,17 @@
+{
+  "entries": [
+    {
+      "kind": "tool",
+      "tool": "Read"
+    },
+    {
+      "kind": "tool",
+      "tool": "Bash"
+    },
+    {
+      "kind": "tool",
+      "tool": "Bash"
+    }
+  ],
+  "kind": "tool-group"
+}

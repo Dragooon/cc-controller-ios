@@ -1,0 +1,11 @@
+{
+  "files": [
+    {
+      "mime": "image/heic",
+      "name": "photo.HEIC",
+      "path": "/tmp/<isolated>/state/inbox/live-replay-9002/photo.HEIC",
+      "size": 4,
+      "url": "/api/files/live-replay-9002/photo.HEIC"
+    }
+  ]
+}

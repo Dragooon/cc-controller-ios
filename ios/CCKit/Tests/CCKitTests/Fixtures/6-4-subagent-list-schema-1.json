@@ -1,0 +1,11 @@
+{
+  "agent": "engineer",
+  "agentId": "agent-1",
+  "finishedAt": "2026-09-30T00:12:10.000Z",
+  "linked": true,
+  "result": "The daemon core is committed and tests pass.",
+  "startedAt": "2026-09-30T00:00:10.000Z",
+  "state": "done",
+  "text": "Build the daemon core",
+  "toolUseId": "task-1"
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "kind": "prompt",
+    "origin": "terminal",
+    "text": "Inspect the fixture",
+    "ts": "2026-09-30T08:47:05.100Z"
+  },
+  {
+    "kind": "assistant",
+    "text": "The fixture is valid.",
+    "ts": "2026-09-30T08:47:06.100Z"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "kind": "prompt",
+  "origin": "terminal",
+  "paste": {
+    "lines": 2,
+    "text": "first\nsecond"
+  },
+  "text": "before\nafter",
+  "ts": "2026-09-30T00:00:04.000Z"
+}

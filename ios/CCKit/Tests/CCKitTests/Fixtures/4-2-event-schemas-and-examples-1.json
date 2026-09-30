@@ -1,0 +1,49 @@
+{
+  "device": {
+    "createdAt": "2026-09-30T08:47:04.591Z",
+    "hasPasskey": false,
+    "lastSeenAt": "2026-09-30T08:47:04.597Z",
+    "name": "iPhone Safari",
+    "pairedAt": "2026-09-30T08:47:04.591Z"
+  },
+  "entries": {
+    "session-1": 0
+  },
+  "sessions": [
+    {
+      "action": "Idle since 08:47",
+      "cwd": "/tmp/project",
+      "id": "session-1",
+      "idleSince": "2026-09-30T08:47:00.000Z",
+      "lastText": null,
+      "lastTool": null,
+      "lastToolInput": null,
+      "live": true,
+      "location": "Ghostty",
+      "mode": "auto",
+      "name": "Ghostty",
+      "pending": [],
+      "pid": 123,
+      "project": "project",
+      "startedAt": null,
+      "state": "idle",
+      "subagents": [],
+      "tmux": false,
+      "tmuxPane": null,
+      "toolRunning": false,
+      "usage": {
+        "cacheHitRate": 0,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "contextPercent": 0,
+        "contextTokens": 0,
+        "contextWindow": 200000,
+        "inputTokens": 0,
+        "messages": 0,
+        "model": null,
+        "outputTokens": 0,
+        "totalInputTokens": 0
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "challenge": "<base64url challenge>",
+  "rpId": "localhost",
+  "timeout": 60000,
+  "userVerification": "required"
+}

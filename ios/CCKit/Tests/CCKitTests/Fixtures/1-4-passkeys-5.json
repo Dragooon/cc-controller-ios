@@ -1,0 +1,13 @@
+{
+  "response": {
+    "id": "<credential id>",
+    "rawId": "<base64url raw id>",
+    "response": {
+      "authenticatorData": "<base64url>",
+      "clientDataJSON": "<base64url>",
+      "signature": "<base64url>",
+      "userHandle": null
+    },
+    "type": "public-key"
+  }
+}

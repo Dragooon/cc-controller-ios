@@ -1,0 +1,6 @@
+{
+  "result": "The daemon core is committed and tests pass.",
+  "status": "completed",
+  "task-id": "agent-1",
+  "tool-use-id": "task-1"
+}
