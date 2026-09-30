@@ -91,11 +91,12 @@ private struct ToolDetailEditMock: View {
 
 private struct ToolDetailSheet: View {
     let tool: ToolEntry
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: toolDetailSectionSpacing) {
                     ToolDetailSection(title: "Status") {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
@@ -122,9 +123,7 @@ private struct ToolDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .close) {}
-                        .buttonStyle(.glass)
-                        .accessibilityLabel("Close")
+                    Button(role: .close) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -141,10 +140,12 @@ private struct ToolDetailSheet: View {
 }
 
 private struct ToolEditDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: toolDetailSectionSpacing) {
                     ToolDetailSection(title: "Status") {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
@@ -180,9 +181,7 @@ private struct ToolEditDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .close) {}
-                        .buttonStyle(.glass)
-                        .accessibilityLabel("Close")
+                    Button(role: .close) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -197,6 +196,8 @@ private struct ToolEditDetailSheet: View {
         .tint(.ccAccent)
     }
 }
+
+private let toolDetailSectionSpacing: CGFloat = 24
 
 private struct ToolDetailSection<Content: View>: View {
     let title: String
@@ -222,7 +223,6 @@ private struct SelectableCodePanel: View {
             .font(.footnote.monospaced())
             .foregroundStyle(.ccLabel)
             .textSelection(.enabled)
-            .lineSpacing(-8)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
