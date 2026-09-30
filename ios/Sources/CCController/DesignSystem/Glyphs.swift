@@ -4,12 +4,12 @@ import SwiftUI
 struct SpinnerGlyph: View {
     let active: Bool
     let frozen: Bool
-    let frozenColor: Color
+    let dimmed: Bool
 
-    init(active: Bool, frozen: Bool, frozenColor: Color = .ccTertiary) {
+    init(active: Bool, frozen: Bool, dimmed: Bool = false) {
         self.active = active
         self.frozen = frozen
-        self.frozenColor = frozenColor
+        self.dimmed = dimmed
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,7 +22,7 @@ struct SpinnerGlyph: View {
                 .foregroundStyle(.ccTertiary)
         } else if frozen || reduceMotion {
             Text("✻︎")
-                .foregroundStyle(frozen ? Color.ccTertiary : Color.ccAccent)
+                .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
         } else {
             TimelineView(.periodic(from: .now, by: 0.12)) { context in
                 let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)

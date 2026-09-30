@@ -128,7 +128,7 @@ struct SessionsListView: View {
                     approval: approval(for: session),
                     now: now,
                     frozen: connection.isFrozen || freezeWorkingGlyphs,
-                    frozenColor: connection.isFrozen ? .ccTertiary : .ccAccent,
+                    dimmed: connection.isFrozen,
                     onOpen: { onOpen(session) },
                     onAllow: onAllow,
                     onDeny: onDeny
@@ -205,7 +205,7 @@ private struct SessionRow: View {
     let approval: Approval?
     let now: Date
     let frozen: Bool
-    let frozenColor: Color
+    let dimmed: Bool
     let onOpen: () -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -216,7 +216,7 @@ private struct SessionRow: View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: onOpen) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    SessionGlyph(session: session, frozen: frozen, frozenColor: frozenColor)
+                    SessionGlyph(session: session, frozen: frozen, dimmed: dimmed)
                         .frame(width: glyphWidth, alignment: .center)
                     SessionText(session: session, approval: approval, now: now)
                 }
@@ -253,12 +253,12 @@ private struct SessionRow: View {
 private struct SessionGlyph: View {
     let session: Session
     let frozen: Bool
-    let frozenColor: Color
+    let dimmed: Bool
 
     var body: some View {
         switch session.state {
         case .working:
-            SpinnerGlyph(active: true, frozen: frozen, frozenColor: frozenColor)
+            SpinnerGlyph(active: true, frozen: frozen, dimmed: dimmed)
                 .font(.title3.weight(.medium))
         case .needsYou:
             Text("●")
@@ -301,42 +301,43 @@ private struct SessionText: View {
     }
 
     private var meta: some View {
-        ViewThatFits(in: .horizontal) {
-            metaInline
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.project ?? "unknown project")
+        Group {
+            if shouldWrapMeta {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.project ?? "unknown project")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    metaState
+                }
+            } else {
+                Text(verbatim: inlineMetaText)
                     .lineLimit(1)
-                    .truncationMode(.middle)
-                metaState
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(.subheadline)
         .foregroundStyle(.ccSecondary)
     }
 
-    private var metaInline: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(session.project ?? "unknown project")
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .layoutPriority(0)
-            metaState
-            Spacer(minLength: 0)
-        }
+    private var metaState: some View {
+        Text(verbatim: metaStateText)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: true)
     }
 
-    private var metaState: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(" · \(sessionStateSegment(session))")
-                .fixedSize()
-                .layoutPriority(1)
-            let context = formatContextUsage(session.usage)
-            if !context.isEmpty {
-                Text(" · \(context)")
-                    .fixedSize()
-                    .layoutPriority(1)
-            }
-        }
+    private var inlineMetaText: String {
+        [session.project ?? "unknown project", metaStateText]
+            .joined(separator: " · ")
+    }
+
+    private var metaStateText: String {
+        [sessionStateSegment(session), formatContextUsage(session.usage)]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
+    private var shouldWrapMeta: Bool {
+        (session.project ?? "").count > 10 || dynamicTypeSize >= .accessibility1
     }
 
     private var activity: String {
