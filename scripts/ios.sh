@@ -152,7 +152,14 @@ cmd_mocks() {
     esac
   done
 
+  local lane="${CC_MOCK_LANE:-}"
+  MOCK_PREFIX="ccmock-"
+  if [[ -n "$lane" ]]; then
+    MOCK_PREFIX="ccmock-$lane-"
+  fi
   local mock_root="$IOS/shots/mocks"
+  if [[ -n "$lane" ]]; then mock_root="$mock_root/$lane"; fi
+  if [[ -n "$lane" ]]; then DERIVED="$IOS/build/mock-derived-$lane"; else DERIVED="$IOS/build"; fi
   MOCK_RUN_DIR=$(mktemp -d -t cc-controller-mock-run.XXXXXX)
   rm -rf "$mock_root"
   mkdir -p "$mock_root"
@@ -161,13 +168,13 @@ cmd_mocks() {
     rm -rf "$MOCK_RUN_DIR"
     while read -r udid; do
       [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-    done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("ccmock-")&&x.state==="Booted") console.log(x.udid)}}})')
+    done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const prefix=process.argv[1];for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith(prefix)&&x.state==="Booted") console.log(x.udid)}}})' "$MOCK_PREFIX")
   }
   trap cleanup_mocks EXIT
 
   ensure_mock_device() {
     local device=$1
-    local name="ccmock-$device"
+    local name="$MOCK_PREFIX$device"
     local udid
     udid=$(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name===process.argv[1]){process.stdout.write(x.udid);process.exit(0)}}}})' "$name")
     if [[ -z "$udid" ]]; then
@@ -196,7 +203,7 @@ cmd_mocks() {
     result="$IOS/build/MockScreenshot-$(echo "$device" | tr ' ()' '---').xcresult"
     exported="$MOCK_RUN_DIR/$(echo "$device" | tr ' ()' '---')"
     output_dir="$mock_root/$(echo "$device" | tr ' ()' '---')"
-    device_derived="$IOS/build/mock-derived-$(echo "$device" | tr ' ()' '---')"
+    device_derived="$DERIVED/mock-derived-$(echo "$device" | tr ' ()' '---')"
     rm -rf "$result" "$exported" "$output_dir" "$device_derived"
     mkdir -p "$exported" "$output_dir"
     local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$device_derived" -resultBundlePath "$result" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:CCControllerUITests/MockScreenshotTests test)

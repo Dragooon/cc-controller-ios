@@ -5,7 +5,8 @@ extension SessionsMocks {
         SessionsListView(
             sessions: MockFixtures.sessions,
             approvals: MockFixtures.approvals,
-            now: MockFixtures.now
+            now: MockFixtures.now,
+            freezeWorkingGlyphs: true
         )
     }
 

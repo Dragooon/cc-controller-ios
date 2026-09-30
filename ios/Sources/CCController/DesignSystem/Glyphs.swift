@@ -4,6 +4,13 @@ import SwiftUI
 struct SpinnerGlyph: View {
     let active: Bool
     let frozen: Bool
+    let frozenColor: Color
+
+    init(active: Bool, frozen: Bool, frozenColor: Color = .ccTertiary) {
+        self.active = active
+        self.frozen = frozen
+        self.frozenColor = frozenColor
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -13,12 +20,9 @@ struct SpinnerGlyph: View {
         if !active {
             Text("○")
                 .foregroundStyle(.ccTertiary)
-        } else if frozen {
+        } else if frozen || reduceMotion {
             Text("✻︎")
-                .foregroundStyle(.ccTertiary)
-        } else if reduceMotion {
-            Text("✻︎")
-                .foregroundStyle(.ccAccent)
+                .foregroundStyle(frozen ? Color.ccTertiary : Color.ccAccent)
         } else {
             TimelineView(.periodic(from: .now, by: 0.12)) { context in
                 let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)
@@ -78,28 +82,16 @@ struct ApprovalCard: View {
 
     var body: some View {
         switch style {
-        case .compact:
-            compactBody
-        case .full:
+        case .compact, .full:
             compactBody
         }
     }
 
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
-                ToolSymbol(tool: approval.toolName ?? "Tool")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.ccAccent)
-                    .frame(width: 40, alignment: .leading)
-                Text(copy.header)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.ccLabel)
-                Spacer(minLength: 8)
-                Text(formatCountdown(remainingMilliseconds))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.ccTertiary)
-                    .accessibilityLabel("Time remaining \(formatCountdown(remainingMilliseconds))")
+            ViewThatFits(in: .horizontal) {
+                compactHeader
+                stackedHeader
             }
 
             if !copy.command.isEmpty {
@@ -118,14 +110,15 @@ struct ApprovalCard: View {
                     .lineLimit(2)
             }
 
-            HStack(spacing: 8) {
-                Button("Deny", action: onDeny)
-                    .frame(maxWidth: .infinity)
-                    .buttonStyle(.glass)
-                Button("Allow", action: onAllow)
-                    .frame(maxWidth: .infinity)
-                    .buttonStyle(.glassProminent)
-                    .tint(.ccAccent)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    denyButton
+                    allowButton
+                }
+                VStack(spacing: 12) {
+                    allowButton
+                    denyButton
+                }
             }
         }
         .padding(13)
@@ -136,6 +129,66 @@ struct ApprovalCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Approval for \(copy.header)")
+    }
+
+    private var compactHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            ToolSymbol(tool: approval.toolName ?? "Tool")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.ccAccent)
+            Text(copy.header)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.ccLabel)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: 4)
+            countdown
+        }
+    }
+
+    private var stackedHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                ToolSymbol(tool: approval.toolName ?? "Tool")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
+                Text(copy.header)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccLabel)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            countdown
+                .padding(.leading, 28)
+        }
+    }
+
+    private var countdown: some View {
+        Text(formatCountdown(remainingMilliseconds))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.ccSecondary)
+            .fixedSize()
+            .accessibilityLabel("Time remaining \(formatCountdown(remainingMilliseconds))")
+    }
+
+    private var denyButton: some View {
+        Button(action: onDeny) {
+            Text("Deny")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glass)
+        .tint(.ccLabel)
+        .controlSize(.large)
+    }
+
+    private var allowButton: some View {
+        Button(action: onAllow) {
+            Text("Allow")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(.ccAccent)
+        .controlSize(.large)
     }
 
     private static let sydney = TimeZone(identifier: "Australia/Sydney")!

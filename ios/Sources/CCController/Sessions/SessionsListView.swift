@@ -20,6 +20,7 @@ struct SessionsListView: View {
     let connection: Connection
     let now: Date
     let subtitleOverride: String?
+    let freezeWorkingGlyphs: Bool
     let onOpen: (Session) -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -34,6 +35,7 @@ struct SessionsListView: View {
         connection: Connection = .live,
         now: Date = .now,
         subtitleOverride: String? = nil,
+        freezeWorkingGlyphs: Bool = false,
         onOpen: @escaping (Session) -> Void = { _ in },
         onAllow: @escaping (Approval) -> Void = { _ in },
         onDeny: @escaping (Approval) -> Void = { _ in },
@@ -45,6 +47,7 @@ struct SessionsListView: View {
         self.connection = connection
         self.now = now
         self.subtitleOverride = subtitleOverride
+        self.freezeWorkingGlyphs = freezeWorkingGlyphs
         self.onOpen = onOpen
         self.onAllow = onAllow
         self.onDeny = onDeny
@@ -69,7 +72,7 @@ struct SessionsListView: View {
         NavigationSplitView {
             list
                 .navigationTitle("Sessions")
-                .navigationSubtitle(subtitle)
+                .navigationSubtitle(subtitle ?? "")
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(action: onSettings) {
@@ -79,6 +82,7 @@ struct SessionsListView: View {
                     }
                 }
                 .searchable(text: $searchText, prompt: "Search sessions")
+                .searchToolbarBehavior(.minimize)
                 .safeAreaBar(edge: .top, spacing: 8) {
                     if case .live = connection {
                         EmptyView()
@@ -123,7 +127,8 @@ struct SessionsListView: View {
                     session: session,
                     approval: approval(for: session),
                     now: now,
-                    frozen: connection.isFrozen,
+                    frozen: connection.isFrozen || freezeWorkingGlyphs,
+                    frozenColor: connection.isFrozen ? .ccTertiary : .ccAccent,
                     onOpen: { onOpen(session) },
                     onAllow: onAllow,
                     onDeny: onDeny
@@ -134,8 +139,8 @@ struct SessionsListView: View {
         }
     }
 
-    private var subtitle: String {
-        subtitleOverride ?? nowSubtitle(total: sessions.count, needsYou: sessions.filter { $0.state == .needsYou }.count)
+    private var subtitle: String? {
+        subtitleOverride ?? sessionsSubtitle(sessions)
     }
 
     private func approval(for session: Session) -> Approval? {
@@ -200,17 +205,20 @@ private struct SessionRow: View {
     let approval: Approval?
     let now: Date
     let frozen: Bool
+    let frozenColor: Color
     let onOpen: () -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
+
+    @ScaledMetric(relativeTo: .title3) private var glyphWidth = 28
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: onOpen) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    SessionGlyph(session: session, frozen: frozen)
-                        .frame(width: 28, alignment: .center)
-                    SessionText(session: session, now: now, approval: approval)
+                    SessionGlyph(session: session, frozen: frozen, frozenColor: frozenColor)
+                        .frame(width: glyphWidth, alignment: .center)
+                    SessionText(session: session, approval: approval, now: now)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -226,7 +234,6 @@ private struct SessionRow: View {
                     onAllowSession: {},
                     onDeny: { onDeny(approval) }
                 )
-                .padding(.leading, 40)
             }
         }
         .padding(.vertical, 7)
@@ -246,11 +253,12 @@ private struct SessionRow: View {
 private struct SessionGlyph: View {
     let session: Session
     let frozen: Bool
+    let frozenColor: Color
 
     var body: some View {
         switch session.state {
         case .working:
-            SpinnerGlyph(active: true, frozen: frozen)
+            SpinnerGlyph(active: true, frozen: frozen, frozenColor: frozenColor)
                 .font(.title3.weight(.medium))
         case .needsYou:
             Text("●")
@@ -266,46 +274,75 @@ private struct SessionGlyph: View {
 
 private struct SessionText: View {
     let session: Session
-    let now: Date
     let approval: Approval?
+    let now: Date
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(session.name ?? "Untitled session")
-                    .font(.headline)
-                    .foregroundStyle(.ccLabel)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .layoutPriority(1)
-                Spacer(minLength: 0)
-                Text(relativeTime)
-                    .font(.caption)
-                    .foregroundStyle(.ccTertiary)
-                    .fixedSize()
+            Text(session.name ?? "Untitled session")
+                .font(.headline)
+                .foregroundStyle(.ccLabel)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            meta
+
+            if !activity.isEmpty {
+                Text(activity)
+                    .font(.footnote.weight(session.state == .needsYou ? .semibold : .regular))
+                    .foregroundStyle(session.state == .needsYou ? Color.ccAccent : Color.ccSecondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text(meta)
-                .font(.subheadline)
-                .foregroundStyle(.ccSecondary)
-                .lineLimit(1)
-            Text(activity)
-                .font(.footnote.weight(session.state == .needsYou ? .semibold : .regular))
-                .foregroundStyle(session.state == .needsYou ? Color.ccAccent : Color.ccSecondary)
-                .lineLimit(1)
         }
     }
 
-    private var meta: String {
-        let project = session.project ?? "unknown project"
-        let state = compactState(sessionStateSegment(session, now: now))
-        let context = formatContextUsage(session.usage)
-        return [project, state, context].filter { !$0.isEmpty }.joined(separator: " · ")
+    private var meta: some View {
+        ViewThatFits(in: .horizontal) {
+            metaInline
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.project ?? "unknown project")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                metaState
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.ccSecondary)
+    }
+
+    private var metaInline: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text(session.project ?? "unknown project")
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(0)
+            metaState
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var metaState: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(" · \(sessionStateSegment(session))")
+                .fixedSize()
+                .layoutPriority(1)
+            let context = formatContextUsage(session.usage)
+            if !context.isEmpty {
+                Text(" · \(context)")
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
+        }
     }
 
     private var activity: String {
+        if session.state == .needsYou, approval != nil { return "" }
         if session.state == .needsYou {
-            let tool = approval?.toolName ?? session.lastTool ?? "Tool"
-            return "\(tool) command waiting"
+            return "\(session.lastTool ?? "Tool") command waiting"
         }
         if session.state == .working, session.toolRunning == true {
             return "Running \(activityLineText(session))"
@@ -313,17 +350,8 @@ private struct SessionText: View {
         return activityLineText(session)
     }
 
-    private var relativeTime: String {
-        let date = session.state == .idle ? session.idleSince : session.startedAt
-        return compactState(formatDuration(elapsed(from: date)))
-    }
-
-    private func elapsed(from date: Date?) -> Double {
-        guard let date else { return 0 }
-        return max(0, now.timeIntervalSince(date) * 1000)
-    }
-
-    private func compactState(_ value: String) -> String {
-        value.replacingOccurrences(of: " 0s", with: "")
+    private func sessionStateSegment(_ session: Session) -> String {
+        let value = CCKit.sessionStateSegment(session, now: now)
+        return value.replacingOccurrences(of: " 0s", with: "")
     }
 }
