@@ -19,4 +19,46 @@ final class NativePresentationTests: XCTestCase {
     func testSessionsSubtitleReturnsNilForEmptySessions() {
         XCTAssertNil(sessionsSubtitle([]))
     }
+
+    func testDisplayDurationOmitsZeroTrailingUnits() {
+        XCTAssertEqual(displayDuration(42_000), "42s")
+        XCTAssertEqual(displayDuration(4 * 60_000), "4m")
+        XCTAssertEqual(displayDuration(4 * 60_000 + 12_000), "4m 12s")
+        XCTAssertEqual(displayDuration(65 * 60_000), "1h 5m")
+        XCTAssertEqual(displayDuration(2 * 60 * 60_000), "2h")
+    }
+
+    func testDisplayDurationRoundsToNearestSecondAndClampsNegativeValues() {
+        XCTAssertEqual(displayDuration(1_499), "1s")
+        XCTAssertEqual(displayDuration(1_500), "2s")
+        XCTAssertEqual(displayDuration(-1), "0s")
+    }
+
+    func testSessionDetailSubtitleUsesNativeDurationAndPercentComposition() {
+        let idleSince = Date(timeIntervalSince1970: 1_000)
+        let session = Session(
+            state: .idle,
+            usage: Usage(contextPercent: 67),
+            idleSince: idleSince
+        )
+
+        XCTAssertEqual(
+            sessionDetailSubtitle(session, now: Date(timeIntervalSince1970: 1_000 + 42 * 60)),
+            "idle · 42m · ctx 67%"
+        )
+    }
+
+    func testSessionDetailSubtitleIncludesAgentCount() {
+        let session = Session(
+            state: .working,
+            usage: Usage(contextPercent: 32),
+            subagents: [Subagent(agent: "researcher"), Subagent(agent: "engineer")],
+            startedAt: Date(timeIntervalSince1970: 2_000)
+        )
+
+        XCTAssertEqual(
+            sessionDetailSubtitle(session, now: Date(timeIntervalSince1970: 2_000 + 65 * 60)),
+            "working · 1h 5m · 2 agents · ctx 32%"
+        )
+    }
 }

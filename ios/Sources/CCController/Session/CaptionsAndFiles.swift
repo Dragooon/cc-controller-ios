@@ -1,5 +1,6 @@
 import CCKit
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct DecisionCaption: View {
@@ -28,23 +29,24 @@ struct DecisionCaption: View {
     }
 
     var body: some View {
-        CaptionRow(symbol: symbol, text: copy, color: color)
+        CaptionRow(symbol: symbol, text: copy, symbolColor: color)
     }
 }
 
 struct CaptionRow: View {
     let symbol: String
     let text: String
-    let color: Color
+    let symbolColor: Color
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbol)
+                .foregroundStyle(symbolColor)
             Text(text)
+                .foregroundStyle(.ccSecondary)
                 .multilineTextAlignment(.center)
         }
         .font(.caption)
-        .foregroundStyle(color)
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, 8)
     }
@@ -54,34 +56,37 @@ struct CompactionDivider: View {
     let entry: CompactionEntry
 
     var body: some View {
-        ZStack {
-            HStack(spacing: 8) {
-                Rectangle()
-                    .fill(.ccSeparator)
-                    .frame(height: 1)
-                Rectangle()
-                    .fill(.ccSeparator)
-                    .frame(height: 1)
-            }
+        ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "arrow.down.right.and.arrow.up.left")
-                    .font(.caption)
-                    .foregroundStyle(.ccSecondary)
-                ViewThatFits(in: .horizontal) {
-                    Text(entry.text ?? "Context compacted")
-                        .font(.caption)
-                        .foregroundStyle(.ccSecondary)
-                        .fixedSize()
-                    Text("Context compacted")
-                        .font(.caption)
-                        .foregroundStyle(.ccSecondary)
-                        .fixedSize()
-                }
+                Rectangle()
+                    .fill(.ccSeparator)
+                    .frame(height: 1)
+                caption
+                    .fixedSize()
+                Rectangle()
+                    .fill(.ccSeparator)
+                    .frame(height: 1)
             }
-            .padding(.horizontal, 12)
-            .background(.ccBackground)
+            .padding(.horizontal, 8)
+
+            caption
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 16)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var caption: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                .font(.caption)
+                .foregroundStyle(.ccSecondary)
+            Text(entry.text ?? "Context compacted")
+                .font(.caption)
+                .foregroundStyle(.ccSecondary)
+        }
     }
 }
 
@@ -93,9 +98,8 @@ struct FileEntryView: View {
 
     var body: some View {
         if isImage {
-            MockImageThumbnail(label: fileName)
+            MockImageThumbnail(resourceName: "rollout", contentMode: .fit, cornerRadius: 12)
                 .frame(maxWidth: 220)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else {
             HStack(spacing: 10) {
                 Image(systemName: fileSymbol)
@@ -133,7 +137,7 @@ struct WorkedFooter: View {
         HStack(spacing: 6) {
             Text("✻")
                 .foregroundStyle(.ccAccent)
-            Text("Worked for \(formatDuration(Double(durationMs)))")
+            Text("Worked for \(displayDuration(durationMs))")
                 .foregroundStyle(.ccSecondary)
         }
         .font(.caption)
@@ -143,29 +147,25 @@ struct WorkedFooter: View {
 }
 
 struct MockImageThumbnail: View {
-    let label: String
+    let resourceName: String
+    let contentMode: ContentMode
+    let cornerRadius: CGFloat
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            LinearGradient(
-                colors: [.ccBlue.opacity(0.85), .ccAccent.opacity(0.8), .ccGreen.opacity(0.7)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Image(systemName: "photo")
-                .font(.title2)
-                .foregroundStyle(.white.opacity(0.9))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.black.opacity(0.4))
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .accessibilityLabel(label)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .accessibilityLabel(resourceName)
+    }
+
+    private var image: UIImage? {
+        guard let path = Bundle.main.path(forResource: resourceName, ofType: "png") else { return nil }
+        return UIImage(contentsOfFile: path)
     }
 }
 

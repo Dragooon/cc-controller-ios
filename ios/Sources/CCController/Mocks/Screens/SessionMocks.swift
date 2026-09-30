@@ -44,7 +44,7 @@ private struct SessionMockScreen: View {
         NavigationStack {
             SessionTranscriptView(turns: turns, now: now)
                 .navigationTitle(session.name ?? "Session")
-                .navigationSubtitle(sessionNavSubtitle(session, now: now))
+                .navigationSubtitle(sessionDetailSubtitle(session, now: now))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -378,7 +378,7 @@ private enum MockSessionData {
       {"kind":"tool","id":"grep-1","ts":"2026-09-30T03:29:28Z","toolUseId":"grep-1","tool":"Grep","args":{"pattern":"AGENT_POD_IMAGE"},"result":"Found in deployment values and health checks.","state":"done"},
       {"kind":"assistant","id":"assistant-2","ts":"2026-09-30T03:30:00Z","text":"The old pods are the only remaining mismatch; I am checking the live image label now."},
       {"kind":"tool","id":"read-live","ts":"2026-09-30T03:30:10Z","toolUseId":"read-live","tool":"Read","args":{"file_path":".env-sand"},"result":"AGENT_POD_IMAGE points at the release image.","state":"done"},
-      {"kind":"tool","id":"bash-live","ts":"2026-09-30T03:30:18Z","toolUseId":"bash-live","tool":"Bash","args":{"command":"kubectl -n product-analytics wait --for=condition=ready pod -l app=agent"},"result":"waiting for one pod to become ready", "state":"running"},
+      {"kind":"tool","id":"bash-live","ts":"2026-09-30T03:30:18Z","toolUseId":"bash-live","tool":"Bash","args":{"command":"kubectl -n product-analytics wait --for=condition=ready pod -l app=agent"},"result":"all managed pods are ready", "state":"done"},
       {"kind":"subagent","id":"researcher-1","ts":"2026-09-30T03:31:00Z","toolUseId":"agent-call-1","agentId":"researcher-1","agent":"researcher","text":"Check the rollout events and compare the desired agent image with the running pods.","result":"The deployment is healthy; one pod is being replaced after the image digest changed.","state":"done","startedAt":"2026-09-30T03:31:00Z","finishedAt":"2026-09-30T03:35:00Z"},
       {"kind":"subagent_result","id":"researcher-result-1","ts":"2026-09-30T03:35:00Z","toolUseId":"agent-call-1","agentId":"researcher-1","agent":"researcher","result":"The deployment is healthy; one pod is being replaced after the image digest changed.\n\nThe new digest is registered and the final pod is progressing through readiness.","state":"done","durationMs":240000},
       {"kind":"decision","id":"decision-1","ts":"2026-09-30T03:36:00Z","requestId":"approval-1","behavior":"allow","text":"Allowed from this device"},

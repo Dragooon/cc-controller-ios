@@ -10,42 +10,49 @@ struct SubagentCard: View {
     private var durationText: String {
         guard let start = entry.startedAt else { return "0s" }
         let end = entry.finishedAt ?? now
-        return formatDuration(max(0, end.timeIntervalSince(start) * 1000))
+        return displayDuration(max(0, Int((end.timeIntervalSince(start) * 1000).rounded())))
     }
     private var linked: Bool { !(entry.agentId ?? "").isEmpty }
 
     var body: some View {
         Button { onOpen(entry) } label: {
-            VStack(alignment: .leading, spacing: 7) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    statusDot
-                    Text(entry.agent ?? "agent")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.ccLabel)
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text("\(stateLabel) · \(durationText)")
-                        .font(.caption)
-                        .foregroundStyle(.ccSecondary)
-                        .lineLimit(1)
-                }
-                Text(firstMeaningfulLine(entry.text))
-                    .font(.footnote)
-                    .foregroundStyle(.ccSecondary)
-                    .lineLimit(1)
-                if state == .done, !firstMeaningfulLine(entry.result).isEmpty {
-                    Text(firstMeaningfulLine(entry.result))
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        statusDot
+                        Text(entry.agent ?? "agent")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.ccLabel)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text("\(stateLabel) · \(durationText)")
+                            .font(.caption)
+                            .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                    }
+                    Text(firstMeaningfulLine(entry.text))
                         .font(.footnote)
-                        .foregroundStyle(.ccLabel)
-                        .lineLimit(1)
-                }
-                if !linked {
-                    Text("transcript not linked")
-                        .font(.caption)
                         .foregroundStyle(.ccSecondary)
+                        .lineLimit(1)
+                    if state == .done, !firstMeaningfulLine(entry.result).isEmpty {
+                        Text(firstMeaningfulLine(entry.result))
+                            .font(.footnote)
+                            .foregroundStyle(.ccLabel)
+                            .lineLimit(1)
+                    }
+                    if !linked {
+                        Text("transcript not linked")
+                            .font(.caption)
+                            .foregroundStyle(.ccSecondary)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.ccSecondary)
+                    .frame(width: 20)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(13)
             .background(.ccCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
@@ -53,12 +60,6 @@ struct SubagentCard: View {
         .buttonStyle(.plain)
         .disabled(!linked)
         .opacity(linked ? 1 : 0.7)
-        .overlay(alignment: .trailing) {
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.ccSecondary)
-                .padding(.trailing, 14)
-        }
     }
 
     @ViewBuilder
@@ -95,7 +96,7 @@ struct SubagentResultView: View {
     @State private var isExpanded = false
 
     private var result: String { entry.result ?? entry.text ?? "" }
-    private var durationText: String { formatDuration(Double(entry.durationMs ?? 0)) }
+    private var durationText: String { displayDuration(entry.durationMs ?? 0) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -133,12 +134,18 @@ struct SubagentResultView: View {
 struct SendMessageView: View {
     let entry: ToolEntry
 
+    private var messageText: String {
+        let formatted = formatSendMessage(args: entry.args?.objectValue ?? [:])
+        guard formatted.hasPrefix("→") else { return formatted }
+        return String(formatted.dropFirst()).trimmingCharacters(in: .whitespaces)
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
             Image(systemName: "arrow.right")
                 .font(.footnote)
                 .foregroundStyle(.ccSecondary)
-            Text(formatSendMessage(args: entry.args?.objectValue ?? [:]))
+            Text(messageText)
                 .font(.footnote)
                 .foregroundStyle(.ccSecondary)
                 .lineLimit(2)

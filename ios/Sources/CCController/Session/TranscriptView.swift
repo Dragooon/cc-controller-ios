@@ -132,7 +132,7 @@ struct TurnItemView: View {
         case .decision(let entry):
             DecisionCaption(entry: entry)
         case .interrupt:
-            CaptionRow(symbol: "stop.circle", text: "Interrupted", color: .ccSecondary)
+            CaptionRow(symbol: "stop.circle", text: "Interrupted", symbolColor: .ccSecondary)
         case .compaction(let entry):
             CompactionDivider(entry: entry)
         case .file(let entry):

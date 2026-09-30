@@ -24,8 +24,12 @@ struct PromptBubble: View {
                 if !attachmentNames.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(Array(attachmentNames.enumerated()), id: \.offset) { _, name in
-                            MockImageThumbnail(label: name)
-                                .frame(width: 64, height: 64)
+                            MockImageThumbnail(
+                                resourceName: "judge-alignment",
+                                contentMode: .fill,
+                                cornerRadius: 10
+                            )
+                            .frame(width: 64, height: 64)
                         }
                     }
                 }

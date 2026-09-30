@@ -11,3 +11,41 @@ public func sessionsSubtitle(_ sessions: [Session]) -> String? {
     if working > 0 { parts.append("\(working) working") }
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
+
+/// Formats elapsed milliseconds without trailing zero-valued units.
+public func displayDuration(_ milliseconds: Int) -> String {
+    let totalSeconds = max(0, Int((Double(milliseconds) / 1000).rounded()))
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+    let seconds = totalSeconds % 60
+
+    if hours > 0 {
+        return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h"
+    }
+    if minutes > 0 {
+        return seconds > 0 ? "\(minutes)m \(seconds)s" : "\(minutes)m"
+    }
+    return "\(seconds)s"
+}
+
+/// Builds the compact native session detail subtitle without web-only spacing.
+public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> String {
+    let state = session.state == .needsYou ? "needs you" : session.state?.rawValue ?? "idle"
+    var parts = [state]
+
+    if let started = session.state == .working ? session.startedAt : session.idleSince {
+        let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
+        parts.append(displayDuration(milliseconds))
+    }
+
+    let count = session.subagents?.count ?? 0
+    if count > 0 {
+        parts.append("\(count) agent\(count == 1 ? "" : "s")")
+    }
+
+    if let percent = session.usage?.contextPercent {
+        parts.append("ctx \(formatTokenCount(Double(percent.rounded())))%")
+    }
+
+    return parts.joined(separator: " · ")
+}
