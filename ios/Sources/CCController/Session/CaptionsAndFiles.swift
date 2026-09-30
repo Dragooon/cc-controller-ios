@@ -1,6 +1,5 @@
 import CCKit
 import SwiftUI
-import UIKit
 import UniformTypeIdentifiers
 
 struct DecisionCaption: View {
@@ -93,13 +92,15 @@ struct CompactionDivider: View {
 struct FileEntryView: View {
     let entry: FileEntry
 
-    private var isImage: Bool { (entry.mime ?? "").hasPrefix("image/") }
     private var fileName: String { entry.name ?? "Untitled file" }
+    private var isImage: Bool {
+        (entry.mime ?? "").hasPrefix("image/") || fileName.lowercased().hasSuffix(".png")
+    }
 
     var body: some View {
         if isImage {
             MockImageThumbnail(resourceName: "rollout", contentMode: .fit, cornerRadius: 12)
-                .frame(maxWidth: 220)
+                .frame(width: 220, height: 477)
         } else {
             HStack(spacing: 10) {
                 Image(systemName: fileSymbol)
@@ -152,20 +153,11 @@ struct MockImageThumbnail: View {
     let cornerRadius: CGFloat
 
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: contentMode)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        .accessibilityLabel(resourceName)
-    }
-
-    private var image: UIImage? {
-        guard let path = Bundle.main.path(forResource: resourceName, ofType: "png") else { return nil }
-        return UIImage(contentsOfFile: path)
+        Image(resourceName, bundle: .main)
+            .resizable()
+            .aspectRatio(contentMode: contentMode)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .accessibilityLabel(resourceName)
     }
 }
 
