@@ -33,7 +33,7 @@ final class AuthTests: XCTestCase {
         AuthURLProtocol.handler = { request in
             switch request.url?.path {
             case "/api/pair/poll": return AuthURLProtocol.json(Data("{\"state\":\"expired\"}".utf8))
-            case "/api/auth/native/enroll": return AuthURLProtocol.json(409, body: Data("{\"error\":\"Device already enrolled\"}".utf8))
+            case "/api/auth/native/enroll": return AuthURLProtocol.json(409, body: Data("{\"error\":\"legacy enrollment text\",\"code\":\"already_enrolled\"}".utf8))
             case "/api/auth/native/login": return AuthURLProtocol.json(401, body: Data("{\"error\":\"Unknown device secret\"}".utf8))
             default: return AuthURLProtocol.failure(URLError(.notConnectedToInternet))
             }
@@ -51,6 +51,9 @@ final class AuthTests: XCTestCase {
         catch let error as AuthError { guard case .loginRequired = error else { return XCTFail("Expected login-required enrollment failure") } }
         do { _ = try await client.login(secret: "secret"); XCTFail("Expected unknown secret") }
         catch let error as AuthError { guard case .unknownSecret = error else { return XCTFail("Expected unknown secret") } }
+        AuthURLProtocol.handler = { _ in AuthURLProtocol.json(500, body: Data("{\"error\":\"legacy pairing text\",\"code\":\"pairing_expired\"}".utf8)) }
+        do { _ = try await client.startPairing(deviceName: "iPhone"); XCTFail("Expected code-first pairing failure") }
+        catch let error as AuthError { guard case .pairingExpired = error else { return XCTFail("Expected code-first pairing failure") } }
         AuthURLProtocol.handler = { _ in AuthURLProtocol.failure(URLError(.notConnectedToInternet)) }
         do { _ = try await client.startPairing(deviceName: "iPhone"); XCTFail("Expected network failure") }
         catch let error as AuthError { guard case .network = error else { return XCTFail("Expected network failure") } }

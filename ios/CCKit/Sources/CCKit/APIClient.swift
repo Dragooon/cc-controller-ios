@@ -4,13 +4,13 @@ public enum APIError: Error, Sendable, Equatable, LocalizedError {
     case unauthorized
     case rateLimited
     case stale
-    case staleResponse(status: Int, message: String)
-    case http(status: Int, message: String)
+    case staleResponse(status: Int, message: String, code: String?)
+    case http(status: Int, message: String, code: String?)
     case transport(URLError)
     case decoding(String)
 
     public var errorDescription: String? {
-        switch self { case .unauthorized: "Unauthorized"; case .rateLimited: "Rate limited"; case .stale: "Stale request"; case .staleResponse(_, let message): message; case .http(let status, let message): "HTTP \(status): \(message)"; case .transport(let error): error.localizedDescription; case .decoding(let message): message }
+        switch self { case .unauthorized: "Unauthorized"; case .rateLimited: "Rate limited"; case .stale: "Stale request"; case .staleResponse(_, let message, _): message; case .http(let status, let message, _): "HTTP \(status): \(message)"; case .transport(let error): error.localizedDescription; case .decoding(let message): message }
     }
 }
 
@@ -149,9 +149,11 @@ public actor APIClient {
     private func mappedError(status: Int, data: Data, staleDecision: Bool) async -> APIError {
         if status == 401 { authenticationContinuation.yield(()); return .unauthorized }
         if status == 429 { return .rateLimited }
-        let message = (try? JSONDecoder().decode(ErrorResponse.self, from: data).error) ?? HTTPURLResponse.localizedString(forStatusCode: status)
-        if staleDecision && (status == 409 || status == 410) { return .staleResponse(status: status, message: message) }
-        return .http(status: status, message: message)
+        let errorResponse = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+        let message = errorResponse?.error ?? HTTPURLResponse.localizedString(forStatusCode: status)
+        let code = errorResponse?.code
+        if staleDecision && (status == 409 || status == 410) { return .staleResponse(status: status, message: message, code: code) }
+        return .http(status: status, message: message, code: code)
     }
 
     private func endpoint(_ path: String, query: [URLQueryItem] = []) -> URL {

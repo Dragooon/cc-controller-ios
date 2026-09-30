@@ -5,6 +5,7 @@ public enum AuthError: Error, Sendable, Equatable, LocalizedError {
     case invalidPairingCode
     case pairingExpired
     case loginRequired
+    case enrollmentWindowClosed
     case alreadyEnrolled(deviceName: String?)
     case unknownSecret
     case rateLimited
@@ -21,6 +22,7 @@ public enum AuthError: Error, Sendable, Equatable, LocalizedError {
         case .invalidPairingCode: return "Enter the pairing code shown by cc-gateway on the Mac."
         case .pairingExpired: return "The pairing code expired. Start pairing again on the Mac."
         case .loginRequired: return "The device is paired but not logged in. Unlock it to continue."
+        case .enrollmentWindowClosed: return "The pairing window expired. Start pairing again on the Mac."
         case .alreadyEnrolled(let deviceName):
             let name = deviceName.map { "\($0)" } ?? "this device"
             return "\(name) is already enrolled. Run cc-gateway revoke \(name) on the Mac and pair again."
@@ -105,7 +107,18 @@ public final class AuthClient: Sendable {
     }
 
     private func mapError(status: Int, data: Data) -> AuthError {
-        let message = (try? JSONDecoder().decode(ErrorResponse.self, from: data).error) ?? HTTPURLResponse.localizedString(forStatusCode: status)
+        let response = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+        let message = response?.error ?? HTTPURLResponse.localizedString(forStatusCode: status)
+        switch response?.code {
+        case "pairing_expired": return .pairingExpired
+        case "enrol_window_closed": return .enrollmentWindowClosed
+        case "already_enrolled": return .alreadyEnrolled(deviceName: nil)
+        case "rate_limited": return .rateLimited
+        case "unauthorized":
+            return status == 401 && message.localizedCaseInsensitiveContains("unknown device secret") ? .unknownSecret : .loginRequired
+        case "invalid": return .server(status: status, message: message)
+        default: break
+        }
         switch (status, message) {
         case (400, let text) where text.localizedCaseInsensitiveContains("pairing code"): return .invalidPairingCode
         case (404, _): return .pairingExpired

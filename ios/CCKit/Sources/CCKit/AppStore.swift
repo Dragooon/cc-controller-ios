@@ -319,14 +319,20 @@ public final class AppStore {
             switch apiError {
             case .unauthorized: return .unauthorized
             case .stale: return .alreadyAnswered
-            case .staleResponse(let status, let message):
+            case .staleResponse(let status, let message, let code):
+                if code == "terminal_no_pane" { return .waitingInTerminal }
+                if code == "already_answered" || status == 410 { return .alreadyAnswered }
+                if code == "no_pane" { return .noPane }
                 if status == 409 && message.localizedCaseInsensitiveContains("terminal") { return .waitingInTerminal }
-                return status == 410 ? .alreadyAnswered : .server(status: status, message: message)
+                return .server(status: status, message: message)
             case .transport(let urlError):
                 return urlError.code == .timedOut ? .timeout : .network(urlError.localizedDescription)
-            case .http(let status, let message):
+            case .http(let status, let message, let code):
+                if code == "terminal_no_pane" { return .waitingInTerminal }
+                if code == "no_pane" { return .noPane }
+                if code == "already_answered" { return .alreadyAnswered }
+                if code == "too_large" || status == 413 { return .tooLarge(fileName: fileName ?? "File", limitBytes: limitBytes ?? 0) }
                 if message.localizedCaseInsensitiveContains("no tmux pane") || (status == 409 && message.localizedCaseInsensitiveContains("pane")) { return .noPane }
-                if status == 413 { return .tooLarge(fileName: fileName ?? "File", limitBytes: limitBytes ?? 0) }
                 return .server(status: status, message: message)
             case .rateLimited: return .server(status: 429, message: "Too many requests")
             case .decoding(let message): return .server(status: 0, message: message)

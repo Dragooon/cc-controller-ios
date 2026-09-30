@@ -64,6 +64,19 @@ final class ActionTests: XCTestCase {
         guard case .failure(.unauthorized) = await app.send(text: "hello", to: "s") else { return XCTFail("Expected unauthorized") }
     }
 
+    func testCodeFirstMappingWinsAndLegacyMessageFallbackRemains() async throws {
+        ActionURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/keys") == true {
+                return ActionURLProtocol.json(500, body: Data("{\"error\":\"unrelated text\",\"code\":\"no_pane\"}".utf8))
+            }
+            return ActionURLProtocol.json(500, body: Data("{\"error\":\"Session has no tmux pane\"}".utf8))
+        }
+        let app = makeApp()
+        guard case .failure(.noPane) = await app.interrupt(sessionID: "s") else { return XCTFail("Expected code-first no-pane mapping") }
+        ActionURLProtocol.handler = { _ in ActionURLProtocol.json(500, body: Data("{\"error\":\"Session has no tmux pane\"}".utf8)) }
+        guard case .failure(.noPane) = await app.interrupt(sessionID: "s") else { return XCTFail("Expected legacy message fallback") }
+    }
+
     func testNoPaneAndNetworkErrorsAreDistinct() async throws {
         ActionURLProtocol.handler = { request in
             if request.url?.path.hasSuffix("/keys") == true { return ActionURLProtocol.json(500, body: Data("{\"error\":\"Session has no tmux pane\"}".utf8)) }

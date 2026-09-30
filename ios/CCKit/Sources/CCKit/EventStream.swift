@@ -67,14 +67,14 @@ public actor EventStream {
                 }
                 guard (200..<300).contains(response.statusCode) else {
                     if response.statusCode == 401 { await client.reportAuthenticationFailure() }
-                    throw APIError.http(status: response.statusCode, message: HTTPURLResponse.localizedString(forStatusCode: response.statusCode))
+                    throw APIError.http(status: response.statusCode, message: HTTPURLResponse.localizedString(forStatusCode: response.statusCode), code: nil)
                 }
                 attempt = 0
                 statusContinuation.yield(.live)
                 eventContinuation.yield(.connected)
                 try await consume(bytes)
                 if Task.isCancelled { break }
-                throw APIError.http(status: 599, message: "Event stream ended")
+                throw APIError.http(status: 599, message: "Event stream ended", code: nil)
             } catch is CancellationError {
                 break
             } catch {
