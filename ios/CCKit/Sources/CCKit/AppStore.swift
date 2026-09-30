@@ -1,0 +1,430 @@
+import Foundation
+import Observation
+
+@MainActor @Observable
+public final class AppStore {
+    public private(set) var connection: ConnectionState = .offline(lastUpdated: nil, error: nil)
+    public private(set) var sessions: [String: Session] = [:]
+    public private(set) var approvals: [Approval] = []
+    public private(set) var daemon: DaemonInfo?
+    public private(set) var lastUpdated: Date?
+    public private(set) var unknownEventCount = 0
+
+    public var sortedSessions: [Session] {
+        let priority: (Session) -> Int = { session in
+            switch session.state {
+            case .needsYou: 0
+            case .working: 1
+            default: 2
+            }
+        }
+        return sessions.values.sorted { left, right in
+            let leftPriority = priority(left)
+            let rightPriority = priority(right)
+            if leftPriority != rightPriority { return leftPriority < rightPriority }
+            return activityDate(left) > activityDate(right)
+        }
+    }
+
+    public var needsYouSessions: [Session] { sortedSessions.filter { $0.state == .needsYou } }
+    public var workingSessions: [Session] { sortedSessions.filter { $0.state == .working } }
+    public var idleSessions: [Session] { sortedSessions.filter { $0.state != .needsYou && $0.state != .working } }
+
+    @ObservationIgnored private let client: APIClient
+    @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private let bearerProvider: @Sendable () async throws -> String
+    @ObservationIgnored private let clock: any CCKitClock
+    @ObservationIgnored private let cache: DiskCache
+    @ObservationIgnored private var eventStream: EventStream?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
+    @ObservationIgnored private var unknownTask: Task<Void, Never>?
+    @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
+    @ObservationIgnored private var started = false
+    @ObservationIgnored private var latestBootstrap: Bootstrap?
+    @ObservationIgnored private var openStores: [String: SessionStore] = [:]
+    @ObservationIgnored private var cachedTranscripts: [String: [TranscriptEntry]] = [:]
+    @ObservationIgnored private var reconnectSince: Date?
+
+    public init(
+        serverURL: URL,
+        bearerProvider: @escaping @Sendable () async throws -> String,
+        session: URLSession = .shared,
+        clock: any CCKitClock = SystemCCKitClock(),
+        cacheDirectory: URL
+    ) {
+        self.client = APIClient(baseURL: serverURL, session: session)
+        self.session = session
+        self.bearerProvider = bearerProvider
+        self.clock = clock
+        self.cache = DiskCache(directory: cacheDirectory, clock: clock)
+    }
+
+    public func start() {
+        guard !started else { return }
+        started = true
+        connection = .connecting
+        lifecycleTask = Task { [weak self] in
+            await self?.connectInitially()
+        }
+    }
+
+    public func suspend() {
+        started = false
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
+        eventTask?.cancel()
+        statusTask?.cancel()
+        unknownTask?.cancel()
+        eventTask = nil
+        statusTask = nil
+        unknownTask = nil
+        if let eventStream {
+            Task { await eventStream.stop() }
+        }
+        eventStream = nil
+        connection = .offline(lastUpdated: lastUpdated, error: nil)
+    }
+
+    public func resume() {
+        suspend()
+        start()
+    }
+
+    public func openSession(_ id: String) -> SessionStore? {
+        openStore(sessionID: id, agentID: nil)
+    }
+
+    public func openSubagent(sessionID: String, agentID: String) -> SessionStore? {
+        openStore(sessionID: sessionID, agentID: agentID)
+    }
+
+    public func closeSession(_ id: String) {
+        openStores = openStores.filter { key, store in
+            store.sessionID != id && key != id
+        }
+    }
+
+    public func approvals(for sessionID: String) -> [Approval] {
+        approvals.filter { $0.sessionId == sessionID }
+    }
+
+    public func apply(_ event: LiveEvent) {
+        switch event {
+        case .connected:
+            connection = .live
+        case .state(let snapshot):
+            applyState(snapshot)
+        case .stateDelta(let delta):
+            applyStateDelta(delta)
+        case .transcript(let transcript):
+            applyTranscript(transcript)
+        case .usage(let usage):
+            applyUsage(usage)
+        case .subagents(let subagents):
+            applySubagents(subagents)
+        case .approval(let approval):
+            applyApproval(approval)
+        case .decision(let decision):
+            applyDecision(decision)
+        case .file:
+            break
+        case .registry:
+            refreshAfterRegistryEvent()
+        }
+    }
+
+    private func connectInitially() async {
+        await loadCache()
+        guard started else { return }
+        do {
+            try await authenticate()
+            try await bootstrapAndReconcile(resetTranscripts: false)
+            guard started else { return }
+            openEventStream()
+        } catch {
+            handleConnectionError(error)
+        }
+    }
+
+    private func authenticate() async throws {
+        let token = try await bearerProvider()
+        await client.setBearerToken(token)
+    }
+
+    private func openEventStream() {
+        let stream = EventStream(
+            client: client,
+            session: session,
+            clock: clock,
+            beforeReconnect: { [weak self] attempt in
+                guard let self else { return false }
+                return await self.prepareReconnect(attempt: attempt)
+            }
+        )
+        eventStream = stream
+        eventTask = Task { [weak self, stream] in
+            for await event in stream.events {
+                guard let self else { return }
+                self.apply(event)
+            }
+        }
+        statusTask = Task { [weak self, stream] in
+            for await status in stream.statuses {
+                guard let self else { return }
+                self.apply(status)
+            }
+        }
+        unknownTask = Task { [weak self, stream] in
+            for await _ in stream.unknownEvents {
+                guard let self else { return }
+                self.unknownEventCount += 1
+            }
+        }
+        Task { await stream.start() }
+    }
+
+    private func apply(_ status: ConnectionStatus) {
+        switch status {
+        case .connecting:
+            if started { connection = .connecting }
+        case .live:
+            connection = .live
+        case .reconnecting(let attempt):
+            connection = .reconnecting(attempt: attempt, since: reconnectSince ?? clock.now)
+        case .offline:
+            if started { connection = .offline(lastUpdated: lastUpdated, error: nil) }
+        }
+    }
+
+    private func prepareReconnect(attempt: Int) async -> Bool {
+        guard started else { return false }
+        reconnectSince = reconnectSince ?? clock.now
+        connection = .reconnecting(attempt: attempt, since: reconnectSince ?? clock.now)
+        do {
+            try await authenticate()
+            try await bootstrapAndReconcile(resetTranscripts: false)
+            reconnectSince = nil
+            return started
+        } catch let error as APIError {
+            if error == .unauthorized {
+                connection = .offline(lastUpdated: lastUpdated, error: "Authentication required")
+                started = false
+                return false
+            }
+            connection = .offline(lastUpdated: lastUpdated, error: error.localizedDescription)
+            return started
+        } catch {
+            connection = .offline(lastUpdated: lastUpdated, error: error.localizedDescription)
+            return started
+        }
+    }
+
+    private func bootstrapAndReconcile(resetTranscripts: Bool) async throws {
+        let bootstrap = try await client.bootstrap()
+        let startedAtChanged = resetTranscripts || hasDaemonRestarted(bootstrap.daemon)
+        if startedAtChanged { resetOpenTranscripts() }
+        latestBootstrap = bootstrap
+        daemon = bootstrap.daemon
+        if let state = bootstrap.state { applyState(state) }
+        lastUpdated = clock.now
+        for store in openStores.values {
+            if startedAtChanged { try await store.refetchTail(reset: true) }
+            else { try await store.refetchTail() }
+        }
+        scheduleCacheWrite()
+    }
+
+    private func hasDaemonRestarted(_ newDaemon: DaemonInfo?) -> Bool {
+        guard let old = daemon?.startedAt, let new = newDaemon?.startedAt else { return false }
+        return old != new
+    }
+
+    private func applyState(_ snapshot: StateSnapshot) {
+        sessions = Dictionary(uniqueKeysWithValues: (snapshot.sessions ?? []).compactMap { session in
+            guard let id = session.id else { return nil }
+            return (id, session)
+        })
+        approvals = sessions.values.flatMap { $0.pending ?? [] }
+        for store in openStores.values {
+            if let session = sessions[store.sessionID] {
+                store.updateSession(session)
+            } else {
+                var closed = store.session
+                closed.live = false
+                store.updateSession(closed)
+            }
+        }
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+        refetchStoresForCounts(snapshot.entries ?? [:])
+    }
+
+    private func applyStateDelta(_ delta: StateDelta) {
+        guard let id = delta.sessionId, var session = sessions[id] else { return }
+        if let state = delta.state { session.state = state }
+        if let action = delta.action { session.action = action }
+        if let startedAt = delta.startedAt { session.startedAt = startedAt }
+        if let idleSince = delta.idleSince { session.idleSince = idleSince }
+        if let lastTool = delta.lastTool { session.lastTool = lastTool }
+        if let lastToolInput = delta.lastToolInput { session.lastToolInput = lastToolInput }
+        if let toolRunning = delta.toolRunning { session.toolRunning = toolRunning }
+        if let lastText = delta.lastText { session.lastText = lastText }
+        if let usage = delta.usage { session.usage = usage }
+        if let subagents = delta.subagents { session.subagents = subagents }
+        if let pending = delta.pending { session.pending = pending }
+        sessions[id] = session
+        updateOpenStores(for: session)
+        approvals = sessions.values.flatMap { $0.pending ?? [] }
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+        refetchStoresForCounts(delta.entries ?? [:])
+    }
+
+    private func applyTranscript(_ event: TranscriptEvent) {
+        guard let sessionID = event.sessionId, let entry = event.entry else { return }
+        guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return }
+        store.merge([entry])
+        scheduleCacheWrite()
+    }
+
+    private func applyUsage(_ event: UsageEvent) {
+        guard let sessionID = event.sessionId, var session = sessions[sessionID], let usage = event.usage else { return }
+        session.usage = usage
+        sessions[sessionID] = session
+        updateOpenStores(for: session)
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+    }
+
+    private func applySubagents(_ event: SubagentsEvent) {
+        guard let sessionID = event.sessionId, var session = sessions[sessionID], let subagents = event.subagents else { return }
+        session.subagents = subagents
+        sessions[sessionID] = session
+        updateOpenStores(for: session)
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+    }
+
+    private func applyApproval(_ event: ApprovalEvent) {
+        guard let sessionID = event.sessionId, let requestID = event.requestId else { return }
+        var pending = sessions[sessionID]?.pending ?? []
+        let approval = Approval(
+            requestId: requestID,
+            sessionId: sessionID,
+            toolName: event.toolName,
+            toolInput: event.toolInput,
+            toolUseId: event.toolUseId,
+            permissionMode: event.permissionMode,
+            agentType: event.agentType,
+            receivedAt: event.receivedAt,
+            holdLimitMs: event.holdLimitMs,
+            mode: event.mode,
+            status: event.status,
+            timedOutAt: event.timedOutAt,
+            permissionSuggestions: event.permissionSuggestions
+        )
+        pending.removeAll { $0.requestId == requestID }
+        pending.append(approval)
+        updatePending(pending, for: sessionID)
+    }
+
+    private func applyDecision(_ event: DecisionEvent) {
+        guard let sessionID = event.sessionId, let requestID = event.requestId else { return }
+        let pending = (sessions[sessionID]?.pending ?? []).filter { $0.requestId != requestID }
+        updatePending(pending, for: sessionID)
+    }
+
+    private func updatePending(_ pending: [Approval], for sessionID: String) {
+        guard var session = sessions[sessionID] else { return }
+        session.pending = pending
+        if !pending.isEmpty { session.state = .needsYou }
+        sessions[sessionID] = session
+        approvals = sessions.values.flatMap { $0.pending ?? [] }
+        updateOpenStores(for: session)
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+    }
+
+    private func updateOpenStores(for session: Session) {
+        for store in openStores.values where store.sessionID == session.id {
+            store.updateSession(session)
+        }
+    }
+
+    private func refreshAfterRegistryEvent() {
+        guard started else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do { try await self.bootstrapAndReconcile(resetTranscripts: false) }
+            catch { self.handleConnectionError(error) }
+        }
+    }
+
+    private func refetchStoresForCounts(_ counts: [String: Int]) {
+        for store in openStores.values {
+            guard let count = counts[store.sessionID], count > store.entries.count else { continue }
+            Task { try? await store.refetchTail() }
+        }
+    }
+
+    private func openStore(sessionID: String, agentID: String?) -> SessionStore? {
+        guard let session = sessions[sessionID], session.live == true else { return nil }
+        let key = storeKey(sessionID: sessionID, agentID: agentID)
+        if let store = openStores[key] { return store }
+        let entries = cachedTranscripts[key] ?? []
+        let store = SessionStore(session: session, client: client, agentID: agentID, entries: entries)
+        openStores[key] = store
+        Task {
+            do { try await store.loadInitial() }
+            catch { }
+        }
+        return store
+    }
+
+    private func resetOpenTranscripts() {
+        for store in openStores.values { store.resetTranscript() }
+    }
+
+    private func loadCache() async {
+        guard let state = try? await cache.load() else { return }
+        applyState(state.bootstrap.state ?? StateSnapshot())
+        daemon = state.bootstrap.daemon
+        latestBootstrap = state.bootstrap
+        lastUpdated = state.updatedAt
+        cachedTranscripts = state.transcripts
+        connection = .offline(lastUpdated: state.updatedAt, error: nil)
+        for (key, entries) in state.transcripts {
+            let components = key.split(separator: "|", maxSplits: 1).map(String.init)
+            guard let sessionID = components.first, let session = sessions[sessionID] else { continue }
+            let agentID = components.count == 2 ? components[1] : nil
+            openStores[key] = SessionStore(session: session, client: client, agentID: agentID, entries: entries)
+        }
+    }
+
+    private func scheduleCacheWrite() {
+        guard let latestBootstrap else { return }
+        let transcripts = Dictionary(uniqueKeysWithValues: openStores.map { ($0.key, Array($0.value.entries.suffix(400))) })
+        let state = DiskCacheState(bootstrap: Bootstrap(apiVersion: latestBootstrap.apiVersion, daemon: daemon, capabilities: latestBootstrap.capabilities, limits: latestBootstrap.limits, state: StateSnapshot(sessions: Array(sessions.values), entries: latestBootstrap.state?.entries, device: latestBootstrap.state?.device)), transcripts: transcripts, updatedAt: lastUpdated ?? clock.now)
+        Task { await cache.save(state) }
+    }
+
+    private func handleConnectionError(_ error: Error) {
+        let message: String
+        if let apiError = error as? APIError, apiError == .unauthorized {
+            message = "Authentication required"
+        } else {
+            message = error.localizedDescription
+        }
+        connection = .offline(lastUpdated: lastUpdated, error: message)
+        started = false
+    }
+
+    private func storeKey(sessionID: String, agentID: String?) -> String {
+        agentID.map { "\(sessionID)|\($0)" } ?? sessionID
+    }
+
+    private func activityDate(_ session: Session) -> Date {
+        session.startedAt ?? session.idleSince ?? .distantPast
+    }
+}

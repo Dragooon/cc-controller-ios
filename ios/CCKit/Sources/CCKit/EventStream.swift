@@ -3,22 +3,36 @@ import Foundation
 public actor EventStream {
     public nonisolated let events: AsyncStream<LiveEvent>
     public nonisolated let statuses: AsyncStream<ConnectionStatus>
+    public nonisolated let unknownEvents: AsyncStream<String>
 
     private let client: APIClient
     private let session: URLSession
+    private let clock: any CCKitClock
+    private let beforeReconnect: (@Sendable (Int) async -> Bool)?
     private let eventContinuation: AsyncStream<LiveEvent>.Continuation
     private let statusContinuation: AsyncStream<ConnectionStatus>.Continuation
+    private let unknownContinuation: AsyncStream<String>.Continuation
     private var task: Task<Void, Never>?
 
-    public init(client: APIClient, session: URLSession = .shared) {
+    public init(
+        client: APIClient,
+        session: URLSession = .shared,
+        clock: any CCKitClock = SystemCCKitClock(),
+        beforeReconnect: (@Sendable (Int) async -> Bool)? = nil
+    ) {
         self.client = client
         self.session = session
+        self.clock = clock
+        self.beforeReconnect = beforeReconnect
         var eventContinuation: AsyncStream<LiveEvent>.Continuation!
         var statusContinuation: AsyncStream<ConnectionStatus>.Continuation!
+        var unknownContinuation: AsyncStream<String>.Continuation!
         self.events = AsyncStream { eventContinuation = $0 }
         self.statuses = AsyncStream { statusContinuation = $0 }
+        self.unknownEvents = AsyncStream { unknownContinuation = $0 }
         self.eventContinuation = eventContinuation
         self.statusContinuation = statusContinuation
+        self.unknownContinuation = unknownContinuation
     }
 
     public func start() {
@@ -35,13 +49,22 @@ public actor EventStream {
     private func run() async {
         var attempt = 0
         while !Task.isCancelled {
-            if attempt == 0 { statusContinuation.yield(.connecting) }
-            else { statusContinuation.yield(.reconnecting(attempt: attempt)) }
+            if attempt == 0 {
+                statusContinuation.yield(.connecting)
+            } else {
+                let delay = backoff(attempt: attempt)
+                do { try await clock.sleep(for: .nanoseconds(Int64(delay * 1_000_000_000))) } catch { break }
+                guard !Task.isCancelled else { break }
+                if let beforeReconnect, await !beforeReconnect(attempt) { break }
+                statusContinuation.yield(.reconnecting(attempt: attempt))
+            }
             do {
                 var request = await client.eventRequest()
                 request.timeoutInterval = 45
                 let (bytes, response) = try await session.bytes(for: request)
-                guard let response = response as? HTTPURLResponse else { throw APIError.decoding("Event response was not HTTP") }
+                guard let response = response as? HTTPURLResponse else {
+                    throw APIError.decoding("Event response was not HTTP")
+                }
                 guard (200..<300).contains(response.statusCode) else {
                     if response.statusCode == 401 { await client.reportAuthenticationFailure() }
                     throw APIError.http(status: response.statusCode, message: HTTPURLResponse.localizedString(forStatusCode: response.statusCode))
@@ -58,27 +81,34 @@ public actor EventStream {
                 statusContinuation.yield(.offline)
                 if Task.isCancelled { break }
                 attempt += 1
-                let delay = backoff(attempt: attempt)
-                do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { break }
             }
         }
     }
 
     private func consume(_ bytes: URLSession.AsyncBytes) async throws {
         var parser = SSEParser()
-        for try await line in bytes.lines {
-            if let event = parser.consume(line), let decoded = LiveEvent.decode(name: event.name, data: event.data) {
-                eventContinuation.yield(decoded)
+        var line = Data()
+        for try await byte in bytes {
+            if byte == 10 {
+                if let event = parser.consume(String(decoding: line, as: UTF8.self)) { emit(event) }
+                line.removeAll(keepingCapacity: true)
+                continue
             }
+            line.append(byte)
         }
-        if let event = parser.finish(), let decoded = LiveEvent.decode(name: event.name, data: event.data) {
+        if !line.isEmpty, let event = parser.consume(String(decoding: line, as: UTF8.self)) { emit(event) }
+        if let event = parser.finish() { emit(event) }
+    }
+
+    private func emit(_ event: SSEEvent) {
+        if let decoded = LiveEvent.decode(name: event.name, data: event.data) {
             eventContinuation.yield(decoded)
+            return
         }
+        if event.name != "hook" { unknownContinuation.yield(event.name) }
     }
 
     private func backoff(attempt: Int) -> Double {
-        let base = min(15.0, 0.5 * pow(2.0, Double(max(0, attempt - 1))))
-        let jitter = Double.random(in: -0.2...0.2)
-        return max(0.05, base * (1 + jitter))
+        min(15.0, 0.5 * pow(2.0, Double(max(0, attempt - 1))))
     }
 }

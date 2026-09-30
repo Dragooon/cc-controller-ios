@@ -58,7 +58,7 @@ public actor APIClient {
         if let before { query.append(URLQueryItem(name: "before", value: before)) }
         if let limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
         if let agent { query.append(URLQueryItem(name: "agent", value: agent)) }
-        if lastCapabilities?.pagination == false {
+        if lastCapabilities?.pagination != true {
             let entries = try await transcript(sessionID: sessionID, agent: agent)
             return TranscriptPage(entries: entries, total: entries.count, hasMore: false)
         }

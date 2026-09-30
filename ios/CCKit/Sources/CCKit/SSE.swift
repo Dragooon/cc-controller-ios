@@ -75,7 +75,8 @@ public enum LiveEvent: Sendable, Equatable {
         let decoder = JSONDecoder.ccKit()
         switch name {
         case "state":
-            if data.contains("\"sessionId\"") { return try? .stateDelta(decoder.decode(StateDelta.self, from: bytes)) }
+            let object = try? decoder.decode([String: JSONValue].self, from: bytes)
+            if object?["sessionId"] != nil { return try? .stateDelta(decoder.decode(StateDelta.self, from: bytes)) }
             return try? .state(decoder.decode(StateSnapshot.self, from: bytes))
         case "transcript": return try? .transcript(decoder.decode(TranscriptEvent.self, from: bytes))
         case "usage": return try? .usage(decoder.decode(UsageEvent.self, from: bytes))
