@@ -95,7 +95,7 @@ private struct ToolDetailSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 0) {
                     ToolDetailSection(title: "Status") {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
