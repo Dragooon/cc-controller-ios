@@ -1,6 +1,21 @@
 import CCKit
 import SwiftUI
 
+/// Proposes at most `cap` points of height to its single child and reports the child's own size, so the child never grows to the cap.
+struct CappedHeightLayout: Layout {
+    var cap: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let height = min(proposal.height ?? cap, cap)
+        return child.sizeThatFits(ProposedViewSize(width: proposal.width, height: height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
+    }
+}
+
 struct SpinnerGlyph: View {
     let active: Bool
     let frozen: Bool
@@ -128,9 +143,6 @@ struct ApprovalCard: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 14)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
-        .overlay(alignment: .top) {
-            countdownHairline
-        }
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Approval for \(approval.toolName ?? "Tool")")
@@ -189,26 +201,32 @@ struct ApprovalCard: View {
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
             } else {
-                Text(approvalFallbackText(remaining: remainingMilliseconds / 1_000))
-                    .font(.footnote)
-                    .foregroundStyle(.ccSecondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    countdownTrack
+                    Text(approvalFallbackText(remaining: remainingMilliseconds / 1_000))
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var countdownHairline: some View {
-        GeometryReader { proxy in
-            Color.ccAccent
-                .frame(width: proxy.size.width * approvalHoldFraction(
-                    remaining: remainingMilliseconds / 1_000,
-                    total: Double(copy.holdLimitMs) / 1_000
-                ), height: 2, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(height: 2)
-        .clipShape(.rect(cornerRadius: 26))
-        .allowsHitTesting(false)
+    private var countdownTrack: some View {
+        Capsule()
+            .fill(.ccSeparator)
+            .frame(height: 3)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule()
+                        .fill(.ccAccent)
+                        .frame(width: proxy.size.width * approvalHoldFraction(
+                            remaining: remainingMilliseconds / 1_000,
+                            total: Double(copy.holdLimitMs) / 1_000
+                        ))
+                }
+            }
+            .accessibilityHidden(true)
     }
 
     private var fullHeader: some View {

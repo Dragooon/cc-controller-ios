@@ -71,16 +71,17 @@ private struct ApprovalBottomStackView: View {
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 8) {
-                ApprovalCard(
-                    approval: primary,
-                    style: .full,
-                    now: now,
-                    onAllow: {},
-                    onAllowSession: {},
-                    onDeny: {},
-                    glassNamespace: glassNamespace
-                )
-                .frame(maxHeight: cardMaxHeight)
+                CappedHeightLayout(cap: cardMaxHeight) {
+                    ApprovalCard(
+                        approval: primary,
+                        style: .full,
+                        now: now,
+                        onAllow: {},
+                        onAllowSession: {},
+                        onDeny: {},
+                        glassNamespace: glassNamespace
+                    )
+                }
 
                 if let waiting = moreWaitingText(count: max(0, approvals.count - 1)) {
                     Button {} label: {
@@ -104,15 +105,13 @@ private struct ApprovalBottomStackView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 4)
-            .frame(maxHeight: maxHeight, alignment: .bottom)
         }
-        .frame(maxHeight: maxHeight, alignment: .bottom)
-        .background(.ccBackground.opacity(0.88))
     }
 
     private var cardMaxHeight: CGFloat {
         let waitingHeight: CGFloat = moreWaitingText(count: max(0, approvals.count - 1)) == nil ? 0 : 38
-        return max(0, maxHeight - waitingHeight - 8 - 12)
+        let waitingSpacing: CGFloat = waitingHeight == 0 ? 0 : 8
+        return max(0, maxHeight - 8 - 4 - waitingHeight - waitingSpacing)
     }
 }
 
