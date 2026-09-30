@@ -121,20 +121,42 @@ struct ApprovalCard: View {
     }
 
     private var fullCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if !isTerminal {
-                GeometryReader { proxy in
-                    Color.ccAccent
-                        .frame(width: proxy.size.width * approvalHoldFraction(
-                            remaining: remainingMilliseconds / 1_000,
-                            total: Double(copy.holdLimitMs) / 1_000
-                        ), height: 2, alignment: .leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(height: 2)
-                .padding(.horizontal, 14)
-            }
+        ViewThatFits(in: .vertical) {
+            fullCardPlainLayout
+            fullCardScrollableLayout
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .overlay(alignment: .top) {
+            countdownHairline
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Approval for \(approval.toolName ?? "Tool")")
+    }
 
+    private var fullCardPlainLayout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            fullCardBody
+            fullActions
+        }
+    }
+
+    private var fullCardScrollableLayout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.vertical) {
+                fullCardBody
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: .infinity)
+            fullActions
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private var fullCardBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
             fullHeader
 
             if !copy.command.isEmpty {
@@ -142,11 +164,11 @@ struct ApprovalCard: View {
                     Text(copy.command)
                         .font(.callout.monospaced())
                         .foregroundStyle(.ccLabel)
-                        .lineLimit(6)
+                        .lineLimit(commandLineLimit)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
 
-                    if commandLineCount > 6 {
+                    if commandLineCount > commandLineLimit {
                         Button("Show all") {}
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.ccAccent)
@@ -171,15 +193,22 @@ struct ApprovalCard: View {
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
             }
-
-            fullActions
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 1)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
-        .dynamicTypeSize(.accessibility1)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Approval for \(approval.toolName ?? "Tool")")
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var countdownHairline: some View {
+        GeometryReader { proxy in
+            Color.ccAccent
+                .frame(width: proxy.size.width * approvalHoldFraction(
+                    remaining: remainingMilliseconds / 1_000,
+                    total: Double(copy.holdLimitMs) / 1_000
+                ), height: 2, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 2)
+        .clipShape(.rect(cornerRadius: 26))
+        .allowsHitTesting(false)
     }
 
     private var fullHeader: some View {
@@ -257,11 +286,15 @@ struct ApprovalCard: View {
                     .foregroundStyle(.ccSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
             } else if approval.mode == .remote {
-                Button("Allow for this session", action: onAllowSession)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.ccAccent)
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity)
+                Button(action: onAllowSession) {
+                    Text("Allow for this session")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.ccAccent)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: 44)
             }
         }
     }
@@ -294,6 +327,10 @@ struct ApprovalCard: View {
 
     private var commandLineCount: Int {
         copy.command.split(whereSeparator: \.isNewline).count
+    }
+
+    private var commandLineLimit: Int {
+        dynamicTypeSize >= .accessibility1 ? 4 : 6
     }
 
     private static let calendar = Calendar(identifier: .gregorian)

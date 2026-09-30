@@ -28,16 +28,19 @@ private struct ApprovalSessionMock: View {
 
     var body: some View {
         NavigationStack {
-            SessionTranscriptView(
-                turns: MockSessionData.turns,
-                now: MockFixtures.now,
-                showsComposer: false
-            )
-            .safeAreaBar(edge: .bottom, spacing: 0) {
-                ApprovalBottomStackView(
-                    approvals: approvals,
-                    now: MockFixtures.now
+            GeometryReader { proxy in
+                SessionTranscriptView(
+                    turns: MockSessionData.turns,
+                    now: MockFixtures.now,
+                    showsComposer: false
                 )
+                .safeAreaBar(edge: .bottom, spacing: 0) {
+                    ApprovalBottomStackView(
+                        approvals: approvals,
+                        now: MockFixtures.now,
+                        maxHeight: max(0, proxy.size.height - 24)
+                    )
+                }
             }
             .navigationTitle(session.name ?? "Session")
             .navigationSubtitle(sessionDetailSubtitle(session, now: MockFixtures.now))
@@ -59,6 +62,7 @@ private struct ApprovalSessionMock: View {
 private struct ApprovalBottomStackView: View {
     let approvals: [Approval]
     let now: Date
+    let maxHeight: CGFloat
 
     @Namespace private var glassNamespace
 
@@ -76,6 +80,7 @@ private struct ApprovalBottomStackView: View {
                     onDeny: {},
                     glassNamespace: glassNamespace
                 )
+                .frame(maxHeight: cardMaxHeight)
 
                 if let waiting = moreWaitingText(count: max(0, approvals.count - 1)) {
                     Button {} label: {
@@ -90,6 +95,7 @@ private struct ApprovalBottomStackView: View {
                         .padding(.horizontal, 14)
                         .frame(minHeight: 38)
                     }
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .capsule)
                     .accessibilityLabel(waiting)
@@ -98,8 +104,15 @@ private struct ApprovalBottomStackView: View {
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 4)
+            .frame(maxHeight: maxHeight, alignment: .bottom)
         }
+        .frame(maxHeight: maxHeight, alignment: .bottom)
         .background(.ccBackground.opacity(0.88))
+    }
+
+    private var cardMaxHeight: CGFloat {
+        let waitingHeight: CGFloat = moreWaitingText(count: max(0, approvals.count - 1)) == nil ? 0 : 38
+        return max(0, maxHeight - waitingHeight - 8 - 12)
     }
 }
 

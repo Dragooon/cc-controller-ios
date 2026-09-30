@@ -25,7 +25,7 @@ final class MockScreenshotTests: XCTestCase {
         let schemes = ["light", "dark"]
 
         for screen in screens {
-            let sizes = ["sessions", "settings", "onboarding-pair", "session-idle", "session-working", "session-approvals"].contains(screen)
+            let sizes = ["sessions", "settings", "onboarding-pair", "session-idle", "session-working", "session-approvals", "session-terminal-approval"].contains(screen)
                 ? [("default", "UICTContentSizeCategoryLarge"), ("accessibilityXL", "UICTContentSizeCategoryAccessibilityXL")]
                 : [("default", "UICTContentSizeCategoryLarge")]
             for scheme in schemes {
