@@ -3,7 +3,8 @@ import XCTest
 final class ScreenshotTests: XCTestCase {
     func testSessionsAndSelectedSessionScreens() throws {
         let environment = ProcessInfo.processInfo.environment
-        let server = environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"
+        let server = (environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832")
+            .replacingOccurrences(of: "127.0.0.1", with: "localhost")
         let bearer = environment["TEST_RUNNER_BEARER"] ?? ""
         let schemes = ["light", "dark"]
         let sizes = [("default", "UICTContentSizeCategoryLarge"), ("accessibilityXL", "UICTContentSizeCategoryAccessibilityXL")]
@@ -20,6 +21,11 @@ final class ScreenshotTests: XCTestCase {
                     "-UIPreferredContentSizeCategoryName", sizeValue,
                 ]
                 app.launch()
+                addUIInterruptionMonitor(withDescription: "Local Network") { alert in
+                    if alert.buttons["Allow"].exists { alert.buttons["Allow"].tap(); return true }
+                    return false
+                }
+                app.tap()
 
                 let sessions = app.navigationBars["Sessions"]
                 XCTAssertTrue(sessions.waitForExistence(timeout: 15), "Sessions list did not load")

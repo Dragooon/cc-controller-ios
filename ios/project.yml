@@ -32,8 +32,10 @@ targets:
         CFBundleVersion: "1"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
         NSFaceIDUsageDescription: Unlock cc-controller
         NSCameraUsageDescription: Attach photos to a Claude Code session
+        NSLocalNetworkUsageDescription: Connect to the cc-controller daemon on this Mac
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -42,6 +44,10 @@ targets:
     scheme:
       testTargets:
         - CCControllerUITests
+      environmentVariables:
+        TEST_RUNNER_SERVER_URL: "$(TEST_RUNNER_SERVER_URL)"
+        TEST_RUNNER_BEARER: "$(TEST_RUNNER_BEARER)"
+        TEST_RUNNER_ONLY: "$(TEST_RUNNER_ONLY)"
   CCControllerUITests:
     type: bundle.ui-testing
     platform: iOS
