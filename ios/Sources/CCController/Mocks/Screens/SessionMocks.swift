@@ -218,7 +218,7 @@ private struct SelectableCodePanel: View {
             .font(.footnote.monospaced())
             .foregroundStyle(.ccLabel)
             .textSelection(.enabled)
-            .lineSpacing(-2)
+            .lineSpacing(-4)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
