@@ -41,12 +41,13 @@ import json
 import sys
 from pathlib import Path
 value = json.loads(Path(sys.argv[1]).read_text())
-print(f"{value['webPort']}\n{value['bearer']}")
+print(f"{value['webPort']}\n{value['hookPort']}\n{value['bearer']}")
 PY
 )
 CC_FIXTURE_URL="http://127.0.0.1:$(printf '%s\n' "$FIXTURE_VALUES" | awk 'NR==1 { print $1 }')"
-CC_FIXTURE_BEARER=$(printf '%s\n' "$FIXTURE_VALUES" | awk 'NR==2 { print $1 }')
-export CC_FIXTURE_URL CC_FIXTURE_BEARER
+CC_FIXTURE_CONTROL_URL="http://127.0.0.1:$(printf '%s\n' "$FIXTURE_VALUES" | awk 'NR==2 { print $1 }')"
+CC_FIXTURE_BEARER=$(printf '%s\n' "$FIXTURE_VALUES" | awk 'NR==3 { print $1 }')
+export CC_FIXTURE_URL CC_FIXTURE_CONTROL_URL CC_FIXTURE_BEARER
 
 cd "$ROOT/ios/CCKit"
 swift test --filter Live

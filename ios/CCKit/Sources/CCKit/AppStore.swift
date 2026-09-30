@@ -39,10 +39,12 @@ public final class AppStore {
     @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let cache: DiskCache
     @ObservationIgnored private let uploadTimeout: TimeInterval
+    @ObservationIgnored private let authenticationFailureHandler: (@Sendable () async -> Void)?
     @ObservationIgnored private var eventStream: EventStream?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var unknownTask: Task<Void, Never>?
+    @ObservationIgnored private var authenticationFailureTask: Task<Void, Never>?
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var latestBootstrap: Bootstrap?
@@ -58,7 +60,8 @@ public final class AppStore {
         session: URLSession = .shared,
         clock: any CCKitClock = SystemCCKitClock(),
         cacheDirectory: URL,
-        uploadTimeout: TimeInterval = 30
+        uploadTimeout: TimeInterval = 30,
+        authenticationFailureHandler: (@Sendable () async -> Void)? = nil
     ) {
         self.client = APIClient(baseURL: serverURL, session: session)
         self.session = session
@@ -66,12 +69,20 @@ public final class AppStore {
         self.clock = clock
         self.cache = DiskCache(directory: cacheDirectory, clock: clock)
         self.uploadTimeout = uploadTimeout
+        self.authenticationFailureHandler = authenticationFailureHandler
     }
 
     public func start() {
         guard !started else { return }
         started = true
         connection = .connecting
+        authenticationFailureTask = Task { [weak self] in
+            guard let self else { return }
+            for await _ in self.client.authenticationFailures {
+                guard let handler = self.authenticationFailureHandler else { continue }
+                await handler()
+            }
+        }
         lifecycleTask = Task { [weak self] in
             await self?.connectInitially()
         }
@@ -84,9 +95,11 @@ public final class AppStore {
         eventTask?.cancel()
         statusTask?.cancel()
         unknownTask?.cancel()
+        authenticationFailureTask?.cancel()
         eventTask = nil
         statusTask = nil
         unknownTask = nil
+        authenticationFailureTask = nil
         if let eventStream {
             Task { await eventStream.stop() }
         }
@@ -408,9 +421,22 @@ public final class AppStore {
             return started
         } catch let error as APIError {
             if error == .unauthorized {
-                connection = .unauthorized
-                started = false
-                return false
+                guard let handler = authenticationFailureHandler else {
+                    connection = .unauthorized
+                    started = false
+                    return false
+                }
+                await handler()
+                do {
+                    try await authenticate()
+                    try await bootstrapAndReconcile(resetTranscripts: false)
+                    reconnectSince = nil
+                    return started
+                } catch {
+                    connection = .unauthorized
+                    started = false
+                    return false
+                }
             }
             connection = .offline(lastUpdated: lastUpdated, error: error.localizedDescription)
             return started

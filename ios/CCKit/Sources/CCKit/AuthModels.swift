@@ -24,7 +24,11 @@ public struct WhoAmI: Codable, Sendable, Equatable {
     public init(device: Device? = nil, hasPasskey: Bool? = nil, passkeys: Bool? = nil, authenticated: Bool? = nil, sessionExpiresAt: Date? = nil, error: String? = nil) { self.device = device; self.hasPasskey = hasPasskey; self.passkeys = passkeys; self.authenticated = authenticated; self.sessionExpiresAt = sessionExpiresAt; self.error = error }
 }
 
-public struct PairStartResponse: Codable, Sendable, Equatable { public var code: String?; public init(code: String? = nil) { self.code = code } }
+public struct PairStartResponse: Codable, Sendable, Equatable {
+    public var code: String?
+    public var expiresAt: Date?
+    public init(code: String? = nil, expiresAt: Date? = nil) { self.code = code; self.expiresAt = expiresAt }
+}
 public enum PairPollState: Codable, Sendable, Equatable { case pending, expired, confirmed, unknown(String); public init(from d: Decoder) throws { let s = try d.singleValueContainer().decode(String.self); switch s { case "pending":self = .pending; case "expired":self = .expired; case "confirmed":self = .confirmed; default:self = .unknown(s) } }; public func encode(to e: Encoder) throws { var c = e.singleValueContainer(); try c.encode(rawValue) }; public var rawValue:String { switch self { case .pending:"pending"; case .expired:"expired"; case .confirmed:"confirmed"; case .unknown(let s):s } } }
 public struct PairPollResponse: Codable, Sendable, Equatable { public var state: PairPollState?; public var deviceToken: String?; public init(state: PairPollState? = nil, deviceToken: String? = nil) { self.state = state; self.deviceToken = deviceToken } }
 public struct NativeEnrollResponse: Codable, Sendable, Equatable { public var secret: String?; public init(secret: String? = nil) { self.secret = secret } }
