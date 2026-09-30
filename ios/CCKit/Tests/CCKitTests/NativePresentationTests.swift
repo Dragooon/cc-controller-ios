@@ -65,4 +65,18 @@ final class NativePresentationTests: XCTestCase {
             "working · 1h 5m · 2 agents · ctx 32%"
         )
     }
+
+    func testNativeToolRunLabelReflectsRunningMembers() {
+        let running = ToolRun(entries: [
+            ToolEntry(tool: "Read", state: .done),
+            ToolEntry(tool: "Bash", state: .running),
+        ])
+        let finished = ToolRun(entries: [
+            ToolEntry(tool: "Read", state: .done),
+            ToolEntry(tool: "Bash", state: .done),
+        ])
+
+        XCTAssertEqual(nativeToolRunLabel(running), "Running 2 tools")
+        XCTAssertEqual(nativeToolRunLabel(finished), "Ran 2 tools")
+    }
 }

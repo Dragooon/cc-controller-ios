@@ -55,3 +55,8 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
 
     return parts.joined(separator: " · ")
 }
+
+/// Names a native tool group according to whether any member is still running.
+public func nativeToolRunLabel(_ run: ToolRun) -> String {
+    run.isRunning ? "Running \(run.entries.count) tools" : "Ran \(run.entries.count) tools"
+}

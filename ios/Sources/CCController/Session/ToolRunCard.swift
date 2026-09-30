@@ -18,7 +18,7 @@ struct ToolRunCard: View {
                 Button { isExpanded.toggle() } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(run.label)
+                            Text(nativeToolRunLabel(run))
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.ccLabel)
                             Text(run.tallyText)
@@ -48,6 +48,8 @@ struct ToolRunCard: View {
                         ToolRow(entry: entry, onOpen: onTool)
                         if index < run.entries.count - 1 {
                             Divider().overlay(.ccSeparator)
+                                .padding(.horizontal, 0)
+                                .padding(.vertical, 8)
                                 .padding(.leading, 38)
                         }
                     }
@@ -72,27 +74,49 @@ private struct ToolRow: View {
         }
     }
 
+    private var toolTitle: some View {
+        Text(entry.tool ?? "Tool")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.ccLabel)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var argumentView: some View {
+        Text(toolArgument(entry.tool, args: entry.args))
+            .font(.footnote.monospaced())
+            .foregroundStyle(.ccSecondary)
+    }
+
     var body: some View {
         Button { onOpen(entry) } label: {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 ToolSymbol(tool: entry.tool ?? "Tool")
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
                     .frame(width: 20, height: 20)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.bottom]
+                    }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(entry.tool ?? "Tool")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.ccLabel)
-                            .fixedSize(horizontal: true, vertical: false)
-                        Text(toolArgument(entry.tool, args: entry.args))
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.ccSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ToolStatusView(state: state)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            toolTitle
+                            argumentView
+                                .fixedSize(horizontal: true, vertical: false)
+                            ToolStatusView(state: state)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                toolTitle
+                                Spacer(minLength: 0)
+                                ToolStatusView(state: state)
+                            }
+                            argumentView
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                     Text(firstMeaningfulLine(entry.result))
                         .font(.caption.monospaced())
