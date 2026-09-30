@@ -5,25 +5,22 @@ struct InlineMarkdownText: View {
     var heading = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            ForEach(Array(text.runs.enumerated()), id: \.offset) { _, run in
-                let segment = AttributedString(text[run.range])
-                if run.inlinePresentationIntent?.contains(.code) == true {
-                    Text(segment)
-                        .font(.body.monospaced())
-                        .foregroundStyle(.ccLabel)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(.ccCard, in: Capsule())
-                } else {
-                    Text(segment)
-                        .font(heading ? .body.weight(.semibold) : .body)
-                        .foregroundStyle(.ccLabel)
-                }
-            }
+        Text(styledText)
+            .font(heading ? .body.weight(.semibold) : .body)
+            .foregroundStyle(.ccLabel)
+            .tint(.ccAccent)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var styledText: AttributedString {
+        var styled = text
+        for run in styled.runs {
+            guard run.inlinePresentationIntent?.contains(.code) == true else { continue }
+            styled[run.range].font = heading ? .body.monospaced().weight(.semibold) : .body.monospaced()
+            styled[run.range].backgroundColor = .ccCard
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
+        return styled
     }
 }
 
