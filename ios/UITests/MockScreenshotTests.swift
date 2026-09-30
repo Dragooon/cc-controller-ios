@@ -25,7 +25,7 @@ final class MockScreenshotTests: XCTestCase {
         let schemes = ["light", "dark"]
 
         for screen in screens {
-            let sizes = ["sessions", "settings", "onboarding-pair"].contains(screen)
+            let sizes = ["sessions", "settings", "onboarding-pair", "session-idle"].contains(screen)
                 ? [("default", "UICTContentSizeCategoryLarge"), ("accessibilityXL", "UICTContentSizeCategoryAccessibilityXL")]
                 : [("default", "UICTContentSizeCategoryLarge")]
             for scheme in schemes {
@@ -73,6 +73,18 @@ final class MockScreenshotTests: XCTestCase {
                 largeScrollAttachment.name = "inspector-large-scroll-\(scheme)-\(size)"
                 largeScrollAttachment.lifetime = .keepAlways
                 add(largeScrollAttachment)
+            }
+
+            if screen == "session-idle" {
+                let scrollView = app.scrollViews.firstMatch
+                for _ in 0..<8 {
+                    scrollView.swipeDown()
+                }
+                let topAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                topAttachment.name = "session-idle-top-\(scheme)-\(size)"
+                topAttachment.lifetime = .keepAlways
+                add(topAttachment)
+            }
             }
         }
 

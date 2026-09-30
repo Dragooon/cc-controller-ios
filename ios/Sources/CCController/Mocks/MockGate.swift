@@ -62,6 +62,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     case composerAttachments = "composer-attachments"
     case composerKeyboard = "composer-keyboard"
     case toolDetail = "tool-detail"
+    case toolDetailEdit = "tool-detail-edit"
     case subagent
     case inspector
     case settings
@@ -98,6 +99,14 @@ private struct MockScreenView: View {
                 SessionsMocks.offline
             case .sessionsReconnecting:
                 SessionsMocks.reconnecting
+            case .sessionIdle:
+                SessionMocks.idle
+            case .toolDetail:
+                SessionMocks.toolDetail
+            case .toolDetailEdit:
+                SessionMocks.toolDetailEdit
+            case .subagent:
+                SessionMocks.subagent
             case .inspector:
                 SheetMocks.inspector
             case .settings:
