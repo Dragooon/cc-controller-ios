@@ -1,0 +1,30 @@
+{
+  "function": "promptCollapse",
+  "cases": [
+    {
+      "name": "lines",
+      "input": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nb"
+      ],
+      "output": {
+        "collapsed": false,
+        "lineCount": 3,
+        "visibleText": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nb"
+      }
+    },
+    {
+      "name": "paste",
+      "input": [
+        "short",
+        {
+          "hasPaste": true
+        }
+      ],
+      "output": {
+        "collapsed": true,
+        "lineCount": 1,
+        "visibleText": "short"
+      }
+    }
+  ]
+}

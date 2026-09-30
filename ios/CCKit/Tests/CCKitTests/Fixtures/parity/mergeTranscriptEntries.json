@@ -1,0 +1,52 @@
+{
+  "function": "mergeTranscriptEntries",
+  "cases": [
+    {
+      "name": "merge",
+      "input": [
+        [
+          {
+            "id": "p",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "first"
+          }
+        ],
+        [
+          {
+            "id": "a",
+            "kind": "assistant",
+            "ts": "2026-09-30T14:01:00.000Z",
+            "text": "second"
+          },
+          {
+            "id": "p",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "duplicate"
+          }
+        ]
+      ],
+      "output": [
+        {
+          "id": "p",
+          "kind": "prompt",
+          "ts": "2026-09-30T14:00:00.000Z",
+          "text": "first"
+        },
+        {
+          "id": "p",
+          "kind": "prompt",
+          "ts": "2026-09-30T14:00:00.000Z",
+          "text": "duplicate"
+        },
+        {
+          "id": "a",
+          "kind": "assistant",
+          "ts": "2026-09-30T14:01:00.000Z",
+          "text": "second"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "function": "stateLabel",
+  "cases": [
+    {
+      "name": "states",
+      "input": "needs_you",
+      "output": "needs you"
+    },
+    {
+      "name": "future",
+      "input": "future_state",
+      "output": "future state"
+    },
+    {
+      "name": "nil",
+      "input": null,
+      "output": "idle"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "function": "formatCountdown",
+  "cases": [
+    {
+      "name": "zero",
+      "input": 0,
+      "output": "0:00"
+    },
+    {
+      "name": "fraction",
+      "input": 59001,
+      "output": "1:00"
+    },
+    {
+      "name": "negative",
+      "input": -1,
+      "output": "0:00"
+    }
+  ]
+}

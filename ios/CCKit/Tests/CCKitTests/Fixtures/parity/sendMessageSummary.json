@@ -1,0 +1,26 @@
+{
+  "function": "sendMessageSummary",
+  "cases": [
+    {
+      "name": "summary",
+      "input": {
+        "summary": "## Heading\nUseful result"
+      },
+      "output": "Useful result"
+    },
+    {
+      "name": "object",
+      "input": {
+        "message": {
+          "text": "\nbody"
+        }
+      },
+      "output": "body"
+    },
+    {
+      "name": "none",
+      "input": {},
+      "output": ""
+    }
+  ]
+}

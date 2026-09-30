@@ -1,0 +1,33 @@
+{
+  "function": "turnOutputTokens",
+  "cases": [
+    {
+      "name": "usage",
+      "input": [
+        {
+          "kind": "assistant",
+          "usage": {
+            "outputTokens": 84000
+          }
+        },
+        {
+          "kind": "assistant",
+          "usage": {
+            "output_tokens": 1000
+          }
+        }
+      ],
+      "output": 85000
+    },
+    {
+      "name": "none",
+      "input": [
+        {
+          "kind": "assistant",
+          "text": "no usage"
+        }
+      ],
+      "output": null
+    }
+  ]
+}

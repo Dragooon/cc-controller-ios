@@ -6,7 +6,19 @@ public struct PromptEntry: Codable, Sendable, Equatable {
     public var id: String?; public var rev: Int?; public var ts: Date?; public var origin: String?; public var from: String?; public var text: String?; public var command: String?; public var paste: Paste?; public var queued: Bool?; public var forceSent: Bool?; public var attachments: [String]?
     public init(id: String? = nil, rev: Int? = nil, ts: Date? = nil, origin: String? = nil, from: String? = nil, text: String? = nil, command: String? = nil, paste: Paste? = nil, queued: Bool? = nil, forceSent: Bool? = nil, attachments: [String]? = nil) { self.id = id;self.rev = rev;self.ts = ts;self.origin = origin;self.from = from;self.text = text;self.command = command;self.paste = paste;self.queued = queued;self.forceSent = forceSent;self.attachments = attachments }
 }
-public struct AssistantEntry: Codable, Sendable, Equatable { public var id:String?; public var rev:Int?; public var ts:Date?; public var text:String?; public var model:String?; public init(id:String? = nil,rev:Int? = nil,ts:Date? = nil,text:String? = nil,model:String? = nil){self.id = id;self.rev = rev;self.ts = ts;self.text = text;self.model = model} }
+public struct AssistantEntry: Codable, Sendable, Equatable {
+    public var id: String?
+    public var rev: Int?
+    public var ts: Date?
+    public var text: String?
+    public var model: String?
+    public var usage: Usage?
+    public var outputTokensSnake: Int?
+    private enum CodingKeys: String, CodingKey { case id, rev, ts, text, model, usage, outputTokensSnake = "output_tokens" }
+    public init(id: String? = nil, rev: Int? = nil, ts: Date? = nil, text: String? = nil, model: String? = nil, usage: Usage? = nil, outputTokensSnake: Int? = nil) {
+        self.id = id; self.rev = rev; self.ts = ts; self.text = text; self.model = model; self.usage = usage; self.outputTokensSnake = outputTokensSnake
+    }
+}
 public enum ToolState: Codable, Sendable, Equatable { case running, done, unknown(String); public init(from d:Decoder)throws{let s = try d.singleValueContainer().decode(String.self);switch s{case "running":self = .running;case "done":self = .done;default:self = .unknown(s)}};public func encode(to e:Encoder)throws{var c = e.singleValueContainer();try c.encode(rawValue)};public var rawValue:String{switch self{case .running:"running";case .done:"done";case .unknown(let s):s}} }
 public struct ToolEntry: Codable, Sendable, Equatable { public var id:String?;public var rev:Int?;public var ts:Date?;public var toolUseId:String?;public var tool:String?;public var args:JSONValue?;public var text:String?;public var result:String?;public var state:ToolState?; public init(id:String? = nil,rev:Int? = nil,ts:Date? = nil,toolUseId:String? = nil,tool:String? = nil,args:JSONValue? = nil,text:String? = nil,result:String? = nil,state:ToolState? = nil){self.id = id;self.rev = rev;self.ts = ts;self.toolUseId = toolUseId;self.tool = tool;self.args = args;self.text = text;self.result = result;self.state = state} }
 public struct SubagentEntry: Codable, Sendable, Equatable { public var id:String?;public var rev:Int?;public var ts:Date?;public var toolUseId:String?;public var agentId:String?;public var agent:String?;public var text:String?;public var result:String?;public var state:SubagentState?;public var startedAt:Date?;public var finishedAt:Date?; public init(id:String? = nil,rev:Int? = nil,ts:Date? = nil,toolUseId:String? = nil,agentId:String? = nil,agent:String? = nil,text:String? = nil,result:String? = nil,state:SubagentState? = nil,startedAt:Date? = nil,finishedAt:Date? = nil){self.id = id;self.rev = rev;self.ts = ts;self.toolUseId = toolUseId;self.agentId = agentId;self.agent = agent;self.text = text;self.result = result;self.state = state;self.startedAt = startedAt;self.finishedAt = finishedAt} }
@@ -66,9 +78,11 @@ public enum TranscriptEntry: Codable, Sendable, Equatable {
     public var ts: Date? { switch self { case .prompt(let v):v.ts; case .assistant(let v):v.ts; case .tool(let v):v.ts; case .subagent(let v):v.ts; case .subagentResult(let v):v.ts; case .compaction(let v):v.ts; case .interrupt(let v):v.ts; case .turnEnd(let v):v.ts; case .decision(let v):v.ts; case .file(let v):v.ts; case .attention(let v):v.ts; case .unknown(let _, let raw): raw.objectValue?["ts"]?.stringValue.flatMap(CCDateCoding.parse) } }
     public var text: String? { switch self { case .prompt(let v):v.text ?? v.command; case .assistant(let v):v.text; case .tool(let v):v.text; case .subagent(let v):v.text; case .subagentResult(let v):v.text; case .compaction(let v):v.text; case .interrupt: nil; case .turnEnd: nil; case .decision(let v):v.text; case .file: nil; case .attention(let v):v.text; case .unknown(let _, let raw): raw.objectValue?["text"]?.stringValue } }
     public var toolUseId: String? { switch self { case .tool(let v):v.toolUseId; case .subagent(let v):v.toolUseId; case .subagentResult(let v):v.toolUseId; default:nil } }
+    public var isMeta: Bool { if case .unknown(_, let raw) = self, case .object(let object) = raw { return object["isMeta"]?.stringValue == "true" || object["isMeta"]?.boolValue == true }; return false }
 }
 
 private extension JSONValue {
+    var boolValue: Bool? { if case .bool(let value) = self { return value }; return nil }
     var objectValue: [String: JSONValue]? { if case .object(let value) = self { return value }; return nil }
     var intValue: Int? { if case .number(let value) = self { return Int(value) }; return nil }
 }

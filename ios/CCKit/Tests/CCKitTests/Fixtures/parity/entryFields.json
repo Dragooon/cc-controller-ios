@@ -1,0 +1,136 @@
+{
+  "function": "entryFields",
+  "cases": [
+    {
+      "name": "prompt",
+      "input": {
+        "id": "p",
+        "kind": "prompt",
+        "ts": "2026-09-30T14:00:00.000Z",
+        "text": "hello"
+      },
+      "output": {
+        "kind": "prompt",
+        "text": "hello",
+        "attachments": [],
+        "paste": null,
+        "command": null
+      }
+    },
+    {
+      "name": "tool",
+      "input": {
+        "id": "t",
+        "kind": "tool",
+        "ts": "2026-09-30T14:01:00.000Z",
+        "toolUseId": "t",
+        "tool": "Bash",
+        "state": "done",
+        "args": {
+          "command": "npm test"
+        },
+        "text": "done"
+      },
+      "output": {
+        "kind": "tool",
+        "toolUseId": "t",
+        "tool": "Bash",
+        "args": {
+          "command": "npm test"
+        },
+        "result": "",
+        "summary": "done",
+        "state": "done",
+        "time": "2026-09-30T14:01:00.000Z"
+      }
+    },
+    {
+      "name": "decision-deny",
+      "input": {
+        "id": "d",
+        "kind": "decision",
+        "ts": "2026-09-30T14:00:00.000Z",
+        "behavior": "deny"
+      },
+      "output": {
+        "kind": "decision",
+        "text": "Denied from this device, 00:00",
+        "behavior": "deny"
+      }
+    },
+    {
+      "name": "decision-allow",
+      "input": {
+        "id": "d2",
+        "kind": "decision",
+        "ts": "2026-09-30T14:00:00.000Z",
+        "behavior": "allow"
+      },
+      "output": {
+        "kind": "decision",
+        "text": "Allowed from this device, 00:00",
+        "behavior": "allow"
+      }
+    },
+    {
+      "name": "decision-session",
+      "input": {
+        "id": "d3",
+        "kind": "decision",
+        "ts": "2026-09-30T14:00:00.000Z",
+        "behavior": "allow_session"
+      },
+      "output": {
+        "kind": "decision",
+        "text": "Allowed for this session from this device, 00:00",
+        "behavior": "allow_session"
+      }
+    },
+    {
+      "name": "decision-timeout",
+      "input": {
+        "id": "d4",
+        "kind": "decision",
+        "ts": "2026-09-30T14:00:00.000Z",
+        "behavior": "timeout"
+      },
+      "output": {
+        "kind": "decision",
+        "text": "Approval timed out; waiting in the terminal, 00:00",
+        "behavior": "timeout"
+      }
+    },
+    {
+      "name": "decision-other",
+      "input": {
+        "id": "d5",
+        "kind": "decision",
+        "ts": "2026-09-30T14:00:00.000Z",
+        "behavior": "other"
+      },
+      "output": {
+        "kind": "decision",
+        "text": "Approval settled, 00:00",
+        "behavior": "other"
+      }
+    },
+    {
+      "name": "file",
+      "input": {
+        "id": "f",
+        "kind": "file",
+        "name": "out.png",
+        "size": 3,
+        "mime": "image/png",
+        "url": "/file"
+      },
+      "output": {
+        "kind": "file",
+        "name": "out.png",
+        "size": 3,
+        "mime": "image/png",
+        "url": "/file"
+      }
+    }
+  ]
+}

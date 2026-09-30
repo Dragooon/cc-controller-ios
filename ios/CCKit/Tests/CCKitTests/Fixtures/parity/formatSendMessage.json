@@ -1,0 +1,23 @@
+{
+  "function": "formatSendMessage",
+  "cases": [
+    {
+      "name": "target",
+      "input": [
+        {
+          "to": "agent-1",
+          "message": {
+            "text": "Polish four defects"
+          }
+        },
+        [
+          {
+            "agentId": "agent-1",
+            "agent": "engineer"
+          }
+        ]
+      ],
+      "output": "→ engineer · Polish four defects"
+    }
+  ]
+}

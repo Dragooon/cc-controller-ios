@@ -1,0 +1,26 @@
+{
+  "function": "formatContextUsage",
+  "cases": [
+    {
+      "name": "percent",
+      "input": [
+        {
+          "contextPercent": 41.2
+        },
+        false
+      ],
+      "output": "ctx 41%"
+    },
+    {
+      "name": "expanded",
+      "input": [
+        {
+          "contextTokens": 412000,
+          "contextWindow": 1000000
+        },
+        true
+      ],
+      "output": "ctx 412k / 1M"
+    }
+  ]
+}

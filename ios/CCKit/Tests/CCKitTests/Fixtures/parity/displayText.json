@@ -1,0 +1,10 @@
+{
+  "function": "displayText",
+  "cases": [
+    {
+      "name": "home",
+      "input": "/Users/owner/Documents/dev/cc-controller",
+      "output": "~/Documents/dev/cc-controller"
+    }
+  ]
+}

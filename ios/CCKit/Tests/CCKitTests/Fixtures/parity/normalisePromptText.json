@@ -1,0 +1,24 @@
+{
+  "function": "normalisePromptText",
+  "cases": [
+    {
+      "name": "attachments",
+      "input": "Inspect\n\nAttached files:\n- /tmp/report.txt\n- C:\\tmp\\photo.png",
+      "output": {
+        "text": "Inspect",
+        "attachments": [
+          "report.txt",
+          "photo.png"
+        ]
+      }
+    },
+    {
+      "name": "plain",
+      "input": "hello",
+      "output": {
+        "text": "hello",
+        "attachments": []
+      }
+    }
+  ]
+}

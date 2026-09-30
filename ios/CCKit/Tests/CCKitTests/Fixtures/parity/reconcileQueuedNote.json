@@ -1,0 +1,46 @@
+{
+  "function": "reconcileQueuedNote",
+  "cases": [
+    {
+      "name": "prefix",
+      "input": [
+        [
+          {
+            "text": "hello",
+            "queued": true
+          }
+        ],
+        {
+          "id": "p",
+          "kind": "prompt",
+          "ts": "2026-09-30T14:00:00.000Z",
+          "text": "hello world"
+        }
+      ],
+      "output": []
+    },
+    {
+      "name": "different",
+      "input": [
+        [
+          {
+            "text": "hello",
+            "queued": true
+          }
+        ],
+        {
+          "id": "p",
+          "kind": "prompt",
+          "ts": "2026-09-30T14:00:00.000Z",
+          "text": "goodbye"
+        }
+      ],
+      "output": [
+        {
+          "text": "hello",
+          "queued": true
+        }
+      ]
+    }
+  ]
+}

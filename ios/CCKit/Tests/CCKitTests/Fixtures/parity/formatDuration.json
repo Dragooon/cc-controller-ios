@@ -1,0 +1,20 @@
+{
+  "function": "formatDuration",
+  "cases": [
+    {
+      "name": "zero",
+      "input": 0,
+      "output": "0s"
+    },
+    {
+      "name": "seconds",
+      "input": 59000,
+      "output": "59s"
+    },
+    {
+      "name": "hour",
+      "input": 3723000,
+      "output": "1h 2m 3s"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "function": "actionGlyph",
+  "cases": [
+    {
+      "name": "needs",
+      "input": "needs_you",
+      "output": "⏺"
+    },
+    {
+      "name": "working",
+      "input": "working",
+      "output": "✻"
+    },
+    {
+      "name": "idle",
+      "input": "idle",
+      "output": "○"
+    }
+  ]
+}

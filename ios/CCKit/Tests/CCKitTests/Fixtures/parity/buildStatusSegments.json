@@ -1,0 +1,107 @@
+{
+  "function": "buildStatusSegments",
+  "cases": [
+    {
+      "name": "full",
+      "input": [
+        {
+          "id": "session-1",
+          "state": "working",
+          "startedAt": "2026-09-30T13:18:00.000Z",
+          "idleSince": "2026-09-30T13:53:00.000Z",
+          "lastTool": "Bash",
+          "lastToolInput": {
+            "command": "npm test"
+          },
+          "toolRunning": true,
+          "usage": {
+            "model": "claude-fable-5-1[1m]",
+            "contextTokens": 412000,
+            "contextWindow": 1000000,
+            "contextPercent": 41.2,
+            "totalInputTokens": 6000000,
+            "inputTokens": 3100000,
+            "outputTokens": 84000,
+            "cacheHitRate": 0.4666666667
+          },
+          "subagents": [
+            {
+              "agentId": "agent-1",
+              "agent": "engineer",
+              "state": "running"
+            },
+            {
+              "agentId": "agent-2",
+              "agent": "researcher",
+              "state": "done"
+            }
+          ]
+        },
+        {
+          "now": 1790776800000,
+          "contextExpanded": false
+        }
+      ],
+      "output": [
+        "Fable 1[1m] 5",
+        "working 42m 0s",
+        "1 agent ▸",
+        "ctx 41%",
+        "6M in",
+        "84k out",
+        "cache 47%"
+      ]
+    },
+    {
+      "name": "expanded",
+      "input": [
+        {
+          "id": "session-1",
+          "state": "working",
+          "startedAt": "2026-09-30T13:18:00.000Z",
+          "idleSince": "2026-09-30T13:53:00.000Z",
+          "lastTool": "Bash",
+          "lastToolInput": {
+            "command": "npm test"
+          },
+          "toolRunning": true,
+          "usage": {
+            "model": "claude-fable-5-1[1m]",
+            "contextTokens": 412000,
+            "contextWindow": 1000000,
+            "contextPercent": 41.2,
+            "totalInputTokens": 6000000,
+            "inputTokens": 3100000,
+            "outputTokens": 84000,
+            "cacheHitRate": 0.4666666667
+          },
+          "subagents": [
+            {
+              "agentId": "agent-1",
+              "agent": "engineer",
+              "state": "running"
+            },
+            {
+              "agentId": "agent-2",
+              "agent": "researcher",
+              "state": "done"
+            }
+          ]
+        },
+        {
+          "now": 1790776800000,
+          "contextExpanded": true
+        }
+      ],
+      "output": [
+        "Fable 1[1m] 5",
+        "working 42m 0s",
+        "1 agent ▸",
+        "ctx 412k / 1M",
+        "6M in",
+        "84k out",
+        "cache 47%"
+      ]
+    }
+  ]
+}

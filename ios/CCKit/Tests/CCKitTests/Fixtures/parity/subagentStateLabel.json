@@ -1,0 +1,20 @@
+{
+  "function": "subagentStateLabel",
+  "cases": [
+    {
+      "name": "running",
+      "input": "running",
+      "output": "Running"
+    },
+    {
+      "name": "done",
+      "input": "done",
+      "output": "Done"
+    },
+    {
+      "name": "future",
+      "input": "waiting",
+      "output": "waiting"
+    }
+  ]
+}

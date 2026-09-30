@@ -1,0 +1,21 @@
+{
+  "function": "earlierTurnCount",
+  "cases": [
+    {
+      "name": "negative",
+      "input": [
+        5,
+        20
+      ],
+      "output": 0
+    },
+    {
+      "name": "positive",
+      "input": [
+        34,
+        20
+      ],
+      "output": 14
+    }
+  ]
+}

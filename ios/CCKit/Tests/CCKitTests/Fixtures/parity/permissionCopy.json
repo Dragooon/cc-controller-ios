@@ -1,0 +1,40 @@
+{
+  "function": "permissionCopy",
+  "cases": [
+    {
+      "name": "bash",
+      "input": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm test",
+          "description": "Run tests"
+        },
+        "agent_type": "engineer",
+        "holdLimitMs": 590000
+      },
+      "output": {
+        "header": "Bash command",
+        "command": "npm test",
+        "description": "Run tests",
+        "question": "engineer wants to run this. Do you want to proceed?",
+        "holdLimitMs": 590000
+      }
+    },
+    {
+      "name": "read",
+      "input": {
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "/tmp/a.txt"
+        }
+      },
+      "output": {
+        "header": "Read",
+        "command": "/tmp/a.txt",
+        "description": "",
+        "question": "Claude wants to run this. Do you want to proceed?",
+        "holdLimitMs": 600000
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "function": "firstMeaningfulLine",
+  "cases": [
+    {
+      "name": "markdown",
+      "input": "# Heading\n\n**Result**\nUseful result",
+      "output": "Useful result"
+    },
+    {
+      "name": "harness",
+      "input": "[harness: note]\nanswer",
+      "output": "answer"
+    }
+  ]
+}

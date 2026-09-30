@@ -1,0 +1,26 @@
+{
+  "function": "resolveSendMessageTarget",
+  "cases": [
+    {
+      "name": "id",
+      "input": [
+        "agent-1",
+        [
+          {
+            "agentId": "agent-1",
+            "agent": "engineer"
+          }
+        ]
+      ],
+      "output": "engineer"
+    },
+    {
+      "name": "name",
+      "input": [
+        "reviewer",
+        []
+      ],
+      "output": "reviewer"
+    }
+  ]
+}

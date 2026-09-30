@@ -1,0 +1,20 @@
+{
+  "function": "chooseSpinnerVerb",
+  "cases": [
+    {
+      "name": "first",
+      "input": 0,
+      "output": "Accomplishing"
+    },
+    {
+      "name": "middle",
+      "input": 0.5,
+      "output": "Kneading"
+    },
+    {
+      "name": "last",
+      "input": 0.999999,
+      "output": "Zigzagging"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "function": "formatTokenCount",
+  "cases": [
+    {
+      "name": "zero",
+      "input": 0,
+      "output": "0"
+    },
+    {
+      "name": "under-thousand",
+      "input": 999,
+      "output": "999"
+    },
+    {
+      "name": "thousand",
+      "input": 1200,
+      "output": "1.2k"
+    },
+    {
+      "name": "million",
+      "input": 3100000,
+      "output": "3.1M"
+    },
+    {
+      "name": "negative",
+      "input": -1500,
+      "output": "-1.5k"
+    }
+  ]
+}

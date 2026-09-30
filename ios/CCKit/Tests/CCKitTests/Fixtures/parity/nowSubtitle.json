@@ -1,0 +1,21 @@
+{
+  "function": "nowSubtitle",
+  "cases": [
+    {
+      "name": "needs",
+      "input": [
+        3,
+        1
+      ],
+      "output": "3 sessions, 1 needs you"
+    },
+    {
+      "name": "none",
+      "input": [
+        3,
+        0
+      ],
+      "output": "3 sessions"
+    }
+  ]
+}

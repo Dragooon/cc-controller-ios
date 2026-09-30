@@ -1,0 +1,97 @@
+{
+  "function": "toolArgument",
+  "cases": [
+    {
+      "name": "bash",
+      "input": [
+        "Bash",
+        {
+          "command": "npm test"
+        }
+      ],
+      "output": "npm test"
+    },
+    {
+      "name": "path",
+      "input": [
+        "Read",
+        {
+          "file_path": "/tmp/a.txt"
+        }
+      ],
+      "output": "/tmp/a.txt"
+    },
+    {
+      "name": "edit-path",
+      "input": [
+        "Edit",
+        {
+          "path": "/tmp/a.txt"
+        }
+      ],
+      "output": "/tmp/a.txt"
+    },
+    {
+      "name": "pattern",
+      "input": [
+        "Grep",
+        {
+          "pattern": "needle"
+        }
+      ],
+      "output": "needle"
+    },
+    {
+      "name": "agent",
+      "input": [
+        "Agent",
+        {
+          "description": "research"
+        }
+      ],
+      "output": "research"
+    },
+    {
+      "name": "url",
+      "input": [
+        "WebFetch",
+        {
+          "url": "https://example.com"
+        }
+      ],
+      "output": "https://example.com"
+    },
+    {
+      "name": "skill",
+      "input": [
+        "Skill",
+        {
+          "skill": "gitlab"
+        }
+      ],
+      "output": "gitlab"
+    },
+    {
+      "name": "fallback",
+      "input": [
+        "Custom",
+        {
+          "first": "value"
+        }
+      ],
+      "output": "value"
+    },
+    {
+      "name": "key",
+      "input": [
+        "Custom",
+        {
+          "object": {
+            "x": 1
+          }
+        }
+      ],
+      "output": "object"
+    }
+  ]
+}

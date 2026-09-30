@@ -1,0 +1,552 @@
+{
+  "function": "groupTurns",
+  "cases": [
+    {
+      "name": "consecutive-prompts",
+      "input": {
+        "entries": [
+          {
+            "id": "p1",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "first queued prompt"
+          },
+          {
+            "id": "p2",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "second queued prompt"
+          }
+        ],
+        "working": true,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "p1",
+          "prompts": [
+            {
+              "id": "p1",
+              "kind": "prompt",
+              "text": "first queued prompt"
+            },
+            {
+              "id": "p2",
+              "kind": "prompt",
+              "text": "second queued prompt"
+            }
+          ],
+          "items": [],
+          "end": null,
+          "durationMs": 0,
+          "hasBody": false,
+          "live": true,
+          "worked": false
+        }
+      ]
+    },
+    {
+      "name": "before-first-prompt-and-end-duration",
+      "input": {
+        "entries": [
+          {
+            "id": "a0",
+            "kind": "assistant",
+            "ts": "2026-09-30T13:56:00.000Z",
+            "text": "before"
+          },
+          {
+            "id": "p3",
+            "kind": "prompt",
+            "ts": "2026-09-30T13:57:00.000Z",
+            "text": "after"
+          },
+          {
+            "id": "t1",
+            "kind": "tool",
+            "ts": "2026-09-30T13:58:00.000Z",
+            "toolUseId": "t1",
+            "tool": "Read",
+            "state": "done"
+          },
+          {
+            "id": "end",
+            "kind": "turn_end",
+            "ts": "2026-09-30T13:59:00.000Z",
+            "durationMs": 3000
+          }
+        ],
+        "working": false,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "a0",
+          "prompts": [],
+          "items": [
+            {
+              "kind": "assistant",
+              "id": "a0"
+            }
+          ],
+          "end": null,
+          "durationMs": 0,
+          "hasBody": true,
+          "live": false,
+          "worked": false
+        },
+        {
+          "id": "p3",
+          "prompts": [
+            {
+              "id": "p3",
+              "kind": "prompt",
+              "text": "after"
+            }
+          ],
+          "items": [
+            {
+              "kind": "tools",
+              "id": "t1",
+              "count": 1,
+              "running": false,
+              "tools": [
+                "Read"
+              ],
+              "label": "Ran 1 tools",
+              "tally": [
+                [
+                  "Read",
+                  1
+                ]
+              ]
+            }
+          ],
+          "end": "end",
+          "durationMs": 120000,
+          "hasBody": true,
+          "live": false,
+          "worked": false
+        }
+      ]
+    },
+    {
+      "name": "live-last-turn",
+      "input": {
+        "entries": [
+          {
+            "id": "p4",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "live"
+          },
+          {
+            "id": "t2",
+            "kind": "tool",
+            "ts": "2026-09-30T14:01:00.000Z",
+            "toolUseId": "t2",
+            "tool": "Bash",
+            "state": "running"
+          }
+        ],
+        "working": true,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "p4",
+          "prompts": [
+            {
+              "id": "p4",
+              "kind": "prompt",
+              "text": "live"
+            }
+          ],
+          "items": [
+            {
+              "kind": "tools",
+              "id": "t2",
+              "count": 1,
+              "running": true,
+              "tools": [
+                "Bash"
+              ],
+              "label": "Ran 1 tools",
+              "tally": [
+                [
+                  "Bash",
+                  1
+                ]
+              ]
+            }
+          ],
+          "end": null,
+          "durationMs": 0,
+          "hasBody": true,
+          "live": true,
+          "worked": false
+        }
+      ]
+    },
+    {
+      "name": "turn-end-without-duration",
+      "input": {
+        "entries": [
+          {
+            "id": "p4b",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "ended"
+          },
+          {
+            "id": "a4b",
+            "kind": "assistant",
+            "ts": "2026-09-30T14:01:00.000Z",
+            "text": "reply"
+          },
+          {
+            "id": "end2",
+            "kind": "turn_end",
+            "ts": "2026-09-30T14:02:00.000Z"
+          }
+        ],
+        "working": false,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "p4b",
+          "prompts": [
+            {
+              "id": "p4b",
+              "kind": "prompt",
+              "text": "ended"
+            }
+          ],
+          "items": [
+            {
+              "kind": "assistant",
+              "id": "a4b"
+            }
+          ],
+          "end": "end2",
+          "durationMs": 120000,
+          "hasBody": true,
+          "live": false,
+          "worked": true
+        }
+      ]
+    },
+    {
+      "name": "send-message",
+      "input": {
+        "entries": [
+          {
+            "id": "p4c",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "message"
+          },
+          {
+            "id": "t2c",
+            "kind": "tool",
+            "ts": "2026-09-30T14:01:00.000Z",
+            "toolUseId": "t2c",
+            "tool": "SendMessage",
+            "state": "done",
+            "args": {
+              "to": "agent-1",
+              "message": {
+                "text": "Review this"
+              }
+            }
+          }
+        ],
+        "working": false,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "p4c",
+          "prompts": [
+            {
+              "id": "p4c",
+              "kind": "prompt",
+              "text": "message"
+            }
+          ],
+          "items": [
+            {
+              "kind": "sendMessage",
+              "id": "t2c"
+            }
+          ],
+          "end": null,
+          "durationMs": 60000,
+          "hasBody": true,
+          "live": false,
+          "worked": false
+        }
+      ]
+    },
+    {
+      "name": "group-breaks",
+      "input": {
+        "entries": [
+          {
+            "id": "p5",
+            "kind": "prompt",
+            "ts": "2026-09-30T14:00:00.000Z",
+            "text": "tools"
+          },
+          {
+            "id": "t3",
+            "kind": "tool",
+            "ts": "2026-09-30T14:01:00.000Z",
+            "toolUseId": "t3",
+            "tool": "Read",
+            "state": "done"
+          },
+          {
+            "id": "t4",
+            "kind": "tool",
+            "ts": "2026-09-30T14:02:00.000Z",
+            "toolUseId": "t4",
+            "tool": "Bash",
+            "state": "done"
+          },
+          {
+            "id": "sub",
+            "kind": "subagent",
+            "ts": "2026-09-30T14:03:00.000Z",
+            "toolUseId": "task",
+            "agent": "engineer",
+            "state": "running"
+          },
+          {
+            "id": "result",
+            "kind": "subagent_result",
+            "ts": "2026-09-30T14:03:30.000Z",
+            "toolUseId": "task",
+            "agent": "engineer",
+            "state": "done",
+            "result": "done"
+          },
+          {
+            "id": "t5",
+            "kind": "tool",
+            "ts": "2026-09-30T14:04:00.000Z",
+            "toolUseId": "t5",
+            "tool": "Edit",
+            "state": "done"
+          },
+          {
+            "id": "a5",
+            "kind": "assistant",
+            "ts": "2026-09-30T14:05:00.000Z",
+            "text": "reply"
+          },
+          {
+            "id": "unknown",
+            "kind": "future_kind",
+            "ts": "2026-09-30T14:06:00.000Z",
+            "text": "kept"
+          }
+        ],
+        "working": false,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "p5",
+          "prompts": [
+            {
+              "id": "p5",
+              "kind": "prompt",
+              "text": "tools"
+            }
+          ],
+          "items": [
+            {
+              "kind": "tools",
+              "id": "t3",
+              "count": 2,
+              "running": false,
+              "tools": [
+                "Read",
+                "Bash"
+              ],
+              "label": "Ran 2 tools",
+              "tally": [
+                [
+                  "Read",
+                  1
+                ],
+                [
+                  "Bash",
+                  1
+                ]
+              ]
+            },
+            {
+              "kind": "subagent",
+              "id": "sub"
+            },
+            {
+              "kind": "subagent_result",
+              "id": "result"
+            },
+            {
+              "kind": "tools",
+              "id": "t5",
+              "count": 1,
+              "running": false,
+              "tools": [
+                "Edit"
+              ],
+              "label": "Ran 1 tools",
+              "tally": [
+                [
+                  "Edit",
+                  1
+                ]
+              ]
+            },
+            {
+              "kind": "assistant",
+              "id": "a5"
+            },
+            {
+              "kind": "future_kind",
+              "id": "unknown"
+            }
+          ],
+          "end": null,
+          "durationMs": 360000,
+          "hasBody": true,
+          "live": false,
+          "worked": false
+        }
+      ]
+    },
+    {
+      "name": "contract-fixtures",
+      "input": {
+        "entries": [
+          {
+            "kind": "prompt",
+            "origin": "terminal",
+            "text": "Run the focused tests",
+            "ts": "2026-09-30T00:00:00.000Z"
+          },
+          {
+            "kind": "assistant",
+            "model": "claude-fable-5-1",
+            "text": "I will inspect the file.\n\nThen I will report back.",
+            "ts": "2026-09-30T00:00:08.000Z"
+          },
+          {
+            "args": {
+              "command": "ls /tmp"
+            },
+            "kind": "tool",
+            "state": "running",
+            "text": "running",
+            "tool": "Bash",
+            "toolUseId": "toolu_bash",
+            "ts": "2026-09-30T00:00:09.000Z"
+          },
+          {
+            "agent": "engineer",
+            "agentId": "agent-1",
+            "kind": "subagent",
+            "startedAt": "2026-09-30T00:00:11.000Z",
+            "state": "running",
+            "text": "Build the daemon core",
+            "toolUseId": "task-1",
+            "ts": "2026-09-30T00:00:11.000Z"
+          },
+          {
+            "kind": "compaction",
+            "text": "Older tool output was compacted after the context window filled.",
+            "ts": "2026-09-30T00:13:00.000Z"
+          },
+          {
+            "behavior": "allow",
+            "kind": "decision",
+            "requestId": "approval-1",
+            "sessionId": "session-1",
+            "ts": "2026-09-30T00:15:00.000Z",
+            "via": "remote"
+          },
+          {
+            "kind": "file",
+            "mime": "text/csv",
+            "name": "report.csv",
+            "sessionId": "session-1",
+            "size": 12288,
+            "ts": "2026-09-30T00:16:00.000Z",
+            "url": "/api/files/session-1/report.csv"
+          }
+        ],
+        "working": false,
+        "now": "2026-09-30T14:00:00.000Z"
+      },
+      "output": [
+        {
+          "id": "prompt|2026-09-30T00:00:00.000Z|Run the focused tests",
+          "prompts": [
+            {
+              "id": null,
+              "kind": "prompt",
+              "text": "Run the focused tests"
+            }
+          ],
+          "items": [
+            {
+              "kind": "assistant",
+              "id": "assistant|2026-09-30T00:00:08.000Z|I will inspect the file.\n\nThen I will report back."
+            },
+            {
+              "kind": "tools",
+              "id": "tool|toolu_bash",
+              "count": 1,
+              "running": true,
+              "tools": [
+                "Bash"
+              ],
+              "label": "Ran 1 tools",
+              "tally": [
+                [
+                  "Bash",
+                  1
+                ]
+              ]
+            },
+            {
+              "kind": "subagent",
+              "id": "subagent|task-1"
+            },
+            {
+              "kind": "compaction",
+              "id": "compaction|2026-09-30T00:13:00.000Z"
+            },
+            {
+              "kind": "decision",
+              "id": "decision|approval-1|allow"
+            },
+            {
+              "kind": "file",
+              "id": "file|report.csv"
+            }
+          ],
+          "end": null,
+          "durationMs": 960000,
+          "hasBody": true,
+          "live": false,
+          "worked": false
+        }
+      ]
+    }
+  ]
+}
