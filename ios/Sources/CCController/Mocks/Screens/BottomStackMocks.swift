@@ -8,15 +8,15 @@ enum BottomStackMocks {
     }
 
     static var slash: some View {
-        ComposerMock(title: "Slash commands", configuration: MockBottomStackData.slashBottomStack)
+        ComposerMock(configuration: MockBottomStackData.slashBottomStack)
     }
 
     static var attachments: some View {
-        ComposerMock(title: "Attachments", configuration: MockBottomStackData.attachmentBottomStack)
+        ComposerMock(configuration: MockBottomStackData.attachmentBottomStack)
     }
 
     static var keyboard: some View {
-        ComposerMock(title: "Keyboard", configuration: MockBottomStackData.keyboardBottomStack)
+        ComposerMock(configuration: MockBottomStackData.keyboardBottomStack)
     }
 }
 
@@ -48,19 +48,27 @@ private struct WorkingSessionMock: View {
 }
 
 private struct ComposerMock: View {
-    let title: String
     let configuration: BottomStackConfiguration
 
     var body: some View {
         NavigationStack {
             SessionTranscriptView(
-                turns: [],
+                turns: MockSessionData.turns,
                 now: MockFixtures.now,
-                showsWorkedFooter: false,
+                showsWorkedFooter: true,
                 bottomStackConfiguration: configuration
             )
-            .navigationTitle(title)
+            .navigationTitle("cc-controller native app")
+            .navigationSubtitle(sessionDetailSubtitle(MockSessionData.session, now: MockFixtures.now))
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {} label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("Session info")
+                }
+            }
         }
         .tint(.ccAccent)
         .background(.ccBackground)

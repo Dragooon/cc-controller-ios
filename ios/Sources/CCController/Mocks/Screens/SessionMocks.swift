@@ -276,7 +276,7 @@ private struct MockDiffLine {
     let isRemoved: Bool
 }
 
-private enum MockSessionData {
+enum MockSessionData {
     static let session = MockFixtures.sessions.first(where: { $0.name == "Eval dataset versioning" }) ?? Session(
         id: "mock-session",
         name: "Eval dataset versioning",
@@ -306,7 +306,7 @@ private enum MockSessionData {
         state: .done
     )
 
-    static let editDiff = [
+    fileprivate static let editDiff = [
         MockDiffLine(prefix: "−", text: "let status = \"loading\"", isRemoved: true),
         MockDiffLine(prefix: "−", text: "Text(status)", isRemoved: true),
         MockDiffLine(prefix: "+", text: "let status = \"ready\"", isRemoved: false),

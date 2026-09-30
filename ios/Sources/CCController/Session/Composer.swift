@@ -57,7 +57,6 @@ struct ComposerView: View {
                 .lineLimit(1...6)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
-                .submitLabel(.send)
                 .accessibilityIdentifier("composer-text")
 
             HStack(spacing: 8) {
@@ -69,6 +68,7 @@ struct ComposerView: View {
                 }
                 sendButton
             }
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -85,19 +85,19 @@ struct ComposerView: View {
         } label: {
             Image(systemName: "plus")
                 .font(.body.weight(.medium))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
         .accessibilityLabel("Add attachment")
     }
 
     private var modelButton: some View {
         Button {} label: {
             Text(configuration.modelName)
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundStyle(.ccLabel)
                 .lineLimit(1)
-                .fixedSize()
                 .padding(.horizontal, 11)
                 .frame(minHeight: 32)
                 .glassEffect(.regular.interactive(), in: .capsule)
@@ -110,9 +110,10 @@ struct ComposerView: View {
         Button(action: onStop) {
             Image(systemName: "stop.fill")
                 .font(.footnote.weight(.bold))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
         .tint(.ccAccent)
         .accessibilityLabel("Stop session")
     }
@@ -122,9 +123,10 @@ struct ComposerView: View {
         let button = Button(action: onSend) {
             Image(systemName: "arrow.up")
                 .font(.body.weight(.bold))
-                .frame(width: 34, height: 34)
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.glassProminent)
+        .buttonBorderShape(.circle)
         .tint(.ccAccent)
         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")

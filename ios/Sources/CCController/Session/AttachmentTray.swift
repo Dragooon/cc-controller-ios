@@ -22,15 +22,16 @@ struct AttachmentTrayView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 ForEach(attachments) { attachment in
                     attachmentView(attachment)
                 }
             }
-            .padding(.horizontal, 1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 7)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 56)
+        .frame(height: 70)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pending attachments")
     }
@@ -49,47 +50,53 @@ struct AttachmentTrayView: View {
                         .frame(width: 56, height: 56)
                         .background(.ccBackground.opacity(0.38), in: .rect(cornerRadius: 10))
                 }
-                removeButton(for: attachment)
+                removeButton(for: attachment, name: resourceName)
             }
             .frame(width: 56, height: 56)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel(resourceName)
         case .file(let name):
-            HStack(spacing: 7) {
-                Image(systemName: "doc.text")
-                    .font(.caption)
-                    .foregroundStyle(.ccSecondary)
-                Text(name)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.ccLabel)
-                    .lineLimit(1)
-                removeButton(for: attachment)
+            ZStack(alignment: .topTrailing) {
+                HStack(spacing: 7) {
+                    Image(systemName: "doc.text")
+                        .font(.subheadline)
+                        .foregroundStyle(.ccSecondary)
+                    Text(name)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.ccLabel)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 10)
+                .frame(width: 154, height: 56)
+                .background(.ccCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(.ccSeparator, lineWidth: 0.5)
+                }
+                removeButton(for: attachment, name: name)
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 3)
-            .frame(height: 40)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .frame(width: 154, height: 56)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(name)
         }
     }
 
-    private func removeButton(for attachment: ComposerAttachment) -> some View {
-        ZStack {
-            Circle()
-                .fill(.clear)
-                .frame(width: 22, height: 22)
-                .glassEffect(.regular, in: .circle)
+    private func removeButton(for attachment: ComposerAttachment, name: String) -> some View {
+        Button { onRemove(attachment) } label: {
             Image(systemName: "xmark")
-                .font(.caption2.weight(.bold))
-            Button { onRemove(attachment) } label: {
-                Color.clear
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove attachment")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 22, height: 22)
+                .background(Color.white.opacity(0.96), in: Circle())
+                .overlay {
+                    Circle().stroke(Color.black.opacity(0.22), lineWidth: 0.5)
+                }
         }
-        .frame(width: 32, height: 32)
-        .fixedSize()
+        .buttonStyle(.plain)
+        .offset(x: 6, y: -6)
+        .accessibilityLabel("Remove \(name)")
     }
 }
 

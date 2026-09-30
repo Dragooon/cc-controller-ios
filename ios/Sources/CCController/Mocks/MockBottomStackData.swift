@@ -33,15 +33,15 @@ enum MockBottomStackData {
         startedAt: MockFixtures.now.addingTimeInterval(-42)
     )
 
-    static let statusSegments = buildStatusSegments(workingSession, now: MockFixtures.now)
+    static let statusSegments = ["3.1M in", "84k out", "cache 92%"]
 
     static let activityFooter: ActivityFooter = {
         let activitySession = Session(
             lastTool: "Bash",
             lastToolInput: .object(["command": .string("npm test")]),
             toolRunning: true,
-            usage: Usage(outputTokens: 22_000),
-            startedAt: MockFixtures.now.addingTimeInterval(-1_877)
+            usage: Usage(outputTokens: 1_200),
+            startedAt: MockFixtures.now.addingTimeInterval(-42)
         )
         return activityFooterText(activitySession, now: MockFixtures.now, verb: "Contemplating")
     }()
@@ -65,7 +65,7 @@ enum MockBottomStackData {
     )
 
     static let slashBottomStack = BottomStackConfiguration(
-        composer: ComposerConfiguration(initialText: "/co"),
+        composer: ComposerConfiguration(initialText: "/"),
         statusSegments: statusSegments,
         slashCommands: slashCommands
     )

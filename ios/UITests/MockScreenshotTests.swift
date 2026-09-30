@@ -48,20 +48,6 @@ final class MockScreenshotTests: XCTestCase {
         let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
         XCTAssertTrue(ready.waitForExistence(timeout: 15), "Mock \(screen) did not load")
         if ready.exists {
-            if screen == "composer-keyboard" {
-                let systemApps = [
-                    XCUIApplication(bundleIdentifier: "com.apple.TextInput.kbd"),
-                    XCUIApplication(bundleIdentifier: "com.apple.springboard")
-                ]
-                for systemApp in systemApps {
-                    let continueButton = systemApp.buttons["Continue"]
-                    if continueButton.waitForExistence(timeout: 2) {
-                        continueButton.tap()
-                        break
-                    }
-                }
-            }
-
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = "\(screen)-\(scheme)-\(size)"
             attachment.lifetime = .keepAlways

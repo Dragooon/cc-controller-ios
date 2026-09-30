@@ -34,6 +34,11 @@ simulator_udids() {
   xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const mode=process.argv[1],state=process.argv[2],values=new Set(process.argv.slice(3));for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){const matchesState=state==="all"||x.state===state;const matchesName=mode==="exact"?values.has(x.name):x.name.startsWith(process.argv[3]);if(matchesState&&matchesName) console.log(x.udid)}}})' "$mode" "$state" "$@"
 }
 
+configure_keyboard() {
+  local udid=$1
+  xcrun simctl spawn "$udid" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
+}
+
 cleanup_shots() {
   if [[ -n "$STARTED_DAEMON" ]] && kill -0 "$STARTED_DAEMON" 2>/dev/null; then
     kill -TERM "$STARTED_DAEMON" 2>/dev/null || true
@@ -73,6 +78,7 @@ ensure_device() {
   fi
   xcrun simctl boot "$udid" >/dev/null 2>&1 || true
   xcrun simctl bootstatus "$udid" -b >/dev/null
+  configure_keyboard "$udid"
   xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
   xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
   printf '%s\n' "$udid"
