@@ -208,6 +208,7 @@ private struct ToolDetailSection<Content: View>: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.ccSecondary)
             content()
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
