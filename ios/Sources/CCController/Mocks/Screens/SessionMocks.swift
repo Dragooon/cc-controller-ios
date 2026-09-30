@@ -110,11 +110,7 @@ private struct ToolDetailSheet: View {
                         SelectableCodePanel(text: toolArgument(tool.tool, args: tool.args))
                     }
                     ToolDetailSection(title: "Output") {
-                        SelectableCodePanel(
-                            text: MockSessionData.npmOutput,
-                            axes: [.horizontal, .vertical],
-                            maxHeight: 420
-                        )
+                        SelectableCodePanel(text: MockSessionData.npmOutput)
                     }
                 }
                 .padding(20)
@@ -124,10 +120,17 @@ private struct ToolDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Copy") {}
+                    Button(role: .close) {}
+                        .buttonStyle(.glass)
+                        .accessibilityLabel("Close")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {}
+                    Menu {
+                        Button("Copy input") {}
+                        Button("Copy output") {}
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
                 }
             }
         }
@@ -150,25 +153,22 @@ private struct ToolEditDetailSheet: View {
                             Spacer(minLength: 0)
                         }
                     }
-                    ToolDetailSection(title: "Input") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift")
-                                .font(.footnote.monospaced())
-                                .foregroundStyle(.ccSecondary)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                VStack(alignment: .leading, spacing: 0) {
-                                    ForEach(Array(MockSessionData.editDiff.enumerated()), id: \.offset) { _, line in
-                                        DiffLine(line: line)
-                                    }
-                                }
-                                .fixedSize(horizontal: true, vertical: true)
-                                .padding(10)
+                    ToolDetailSection(title: "FILE") {
+                        Text("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift")
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.ccSecondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ToolDetailSection(title: "CHANGES") {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(MockSessionData.editDiff.enumerated()), id: \.offset) { _, line in
+                                DiffLine(line: line)
                             }
-                            .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
                 .padding(20)
@@ -178,10 +178,17 @@ private struct ToolEditDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Copy") {}
+                    Button(role: .close) {}
+                        .buttonStyle(.glass)
+                        .accessibilityLabel("Close")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {}
+                    Menu {
+                        Button("Copy path") {}
+                        Button("Copy diff") {}
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
                 }
             }
         }
@@ -205,27 +212,16 @@ private struct ToolDetailSection<Content: View>: View {
 
 private struct SelectableCodePanel: View {
     let text: String
-    let axes: Axis.Set
-    let maxHeight: CGFloat?
-
-    init(text: String, axes: Axis.Set = .horizontal, maxHeight: CGFloat? = nil) {
-        self.text = text
-        self.axes = axes
-        self.maxHeight = maxHeight
-    }
 
     var body: some View {
-        ScrollView(axes, showsIndicators: true) {
-            Text(text)
-                .font(.footnote.monospaced())
-                .foregroundStyle(.ccLabel)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: true, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxHeight: maxHeight)
-        .padding(12)
-        .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        Text(text)
+            .font(.footnote.monospaced())
+            .foregroundStyle(.ccLabel)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -239,7 +235,7 @@ private struct DiffLine: View {
                 .frame(width: 14, alignment: .leading)
             Text(line.text)
                 .foregroundStyle(.ccLabel)
-                .fixedSize(horizontal: true, vertical: false)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .font(.footnote.monospaced())
         .padding(.horizontal, 5)
@@ -252,18 +248,28 @@ private struct DiffLine: View {
 private struct SubagentMock: View {
     let turns: [Turn]
     let now: Date
+    @State private var isPushed = true
 
     var body: some View {
         NavigationStack {
             SessionTranscriptView(
-                turns: turns,
+                turns: MockSessionData.turns,
                 now: now,
                 showsComposer: false,
                 showsWorkedFooter: false
             )
-            .navigationTitle("researcher")
-            .navigationSubtitle("Done · 4m")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Eval dataset versioning")
+            .navigationDestination(isPresented: $isPushed) {
+                SessionTranscriptView(
+                    turns: turns,
+                    now: now,
+                    showsComposer: false,
+                    showsWorkedFooter: false
+                )
+                .navigationTitle("researcher")
+                .navigationSubtitle("done · 4m")
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -389,6 +395,8 @@ enum MockSessionData {
     private static let subagentJSON = #"""
     [
       {"kind":"prompt","id":"sub-prompt","ts":"2026-09-30T03:31:00Z","text":"Check the rollout events and compare the desired agent image with the running pods."},
+      {"kind":"tool","id":"sub-bash-rollout","ts":"2026-09-30T03:32:00Z","toolUseId":"sub-bash-rollout","tool":"Bash","args":{"command":"kubectl rollout status deploy/agent -n atlas"},"result":"deployment \"agent\" successfully rolled out","state":"done"},
+      {"kind":"tool","id":"sub-bash-pods","ts":"2026-09-30T03:32:08Z","toolUseId":"sub-bash-pods","tool":"Bash","args":{"command":"kubectl get pods -n atlas"},"result":"3 running, 1 terminating","state":"done"},
       {"kind":"assistant","id":"sub-assistant","ts":"2026-09-30T03:35:00Z","text":"## Rollout comparison\n\nThe deployment is healthy; one pod is being replaced after the image digest changed.\n\nThe new digest is registered and the final pod is progressing through readiness."},
       {"kind":"turn_end","id":"sub-end","ts":"2026-09-30T03:35:00Z","durationMs":240000}
     ]
