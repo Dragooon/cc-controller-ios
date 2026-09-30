@@ -113,7 +113,9 @@ private struct ToolDetailSheet: View {
                         SelectableCodePanel(text: MockSessionData.npmOutput)
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
             }
             .background(.ccBackground)
             .navigationTitle(tool.tool ?? "Bash")
