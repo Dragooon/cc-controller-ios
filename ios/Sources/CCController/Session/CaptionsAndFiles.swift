@@ -1,5 +1,6 @@
 import CCKit
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct DecisionCaption: View {
@@ -99,8 +100,13 @@ struct FileEntryView: View {
 
     var body: some View {
         if isImage {
-            MockImageThumbnail(resourceName: "rollout", contentMode: .fit, cornerRadius: 12)
-                .frame(width: 220, height: 477)
+            MockImageThumbnail(
+                resourceName: "rollout",
+                contentMode: .fit,
+                maxWidth: 220,
+                maxHeight: 280,
+                cornerRadius: 12
+            )
         } else {
             HStack(spacing: 10) {
                 Image(systemName: fileSymbol)
@@ -150,14 +156,39 @@ struct WorkedFooter: View {
 struct MockImageThumbnail: View {
     let resourceName: String
     let contentMode: ContentMode
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
     let cornerRadius: CGFloat
 
     var body: some View {
-        Image(resourceName, bundle: .main)
-            .resizable()
-            .aspectRatio(contentMode: contentMode)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .accessibilityLabel(resourceName)
+        if let image {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: contentMode)
+                .frame(width: previewWidth, height: previewHeight)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(.ccSeparator, lineWidth: 0.5)
+                }
+                .accessibilityLabel(resourceName)
+        }
+    }
+
+    private var image: UIImage? {
+        guard let url = Bundle.main.url(forResource: resourceName, withExtension: "png") else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    private var previewWidth: CGFloat {
+        guard contentMode == .fit, let image else { return maxWidth }
+        return min(maxWidth, maxHeight * image.size.width / image.size.height)
+    }
+
+    private var previewHeight: CGFloat {
+        guard contentMode == .fit, let image else { return maxHeight }
+        return min(maxHeight, maxWidth * image.size.height / image.size.width)
     }
 }
 

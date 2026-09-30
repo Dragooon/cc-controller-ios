@@ -27,9 +27,10 @@ struct PromptBubble: View {
                             MockImageThumbnail(
                                 resourceName: "judge-alignment",
                                 contentMode: .fill,
+                                maxWidth: 64,
+                                maxHeight: 64,
                                 cornerRadius: 10
                             )
-                            .frame(width: 64, height: 64)
                         }
                     }
                 }
