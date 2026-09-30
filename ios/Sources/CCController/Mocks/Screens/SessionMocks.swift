@@ -258,6 +258,7 @@ private struct SubagentMock: View {
                         onSubagent: { _ in }
                     )
                 }
+                Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 18)
