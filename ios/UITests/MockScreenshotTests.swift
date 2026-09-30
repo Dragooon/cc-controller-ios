@@ -60,6 +60,20 @@ final class MockScreenshotTests: XCTestCase {
                 bottomAttachment.lifetime = .keepAlways
                 add(bottomAttachment)
             }
+
+            if screen == "inspector" {
+                app.swipeUp()
+                let largeAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                largeAttachment.name = "inspector-large-\(scheme)-\(size)"
+                largeAttachment.lifetime = .keepAlways
+                add(largeAttachment)
+
+                app.swipeUp()
+                let largeScrollAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                largeScrollAttachment.name = "inspector-large-scroll-\(scheme)-\(size)"
+                largeScrollAttachment.lifetime = .keepAlways
+                add(largeScrollAttachment)
+            }
         }
 
         do {

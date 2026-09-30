@@ -10,9 +10,9 @@ struct InspectorView: View {
     let onApprovalMode: (ApprovalMode) -> Void
 
     private let approvalModes: [(mode: ApprovalMode, title: String, description: String)] = [
-        (.auto, "Auto", "Use the terminal when it is attached; otherwise ask on this iPhone."),
-        (.remote, "Remote", "Ask on this iPhone instead of waiting in the terminal."),
-        (.terminal, "Terminal", "Keep approval prompts in the Mac's terminal."),
+        (.auto, "Auto", "Ask in the terminal when it's open on the Mac, otherwise on this iPhone."),
+        (.remote, "Remote", "Ask on this iPhone first. After about 10 minutes the terminal takes over."),
+        (.terminal, "Terminal", "Always ask in the Mac's terminal."),
     ]
 
     private var usage: Usage { session.usage ?? Usage() }
@@ -37,7 +37,7 @@ struct InspectorView: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
             .background(.ccBackground)
-            .navigationTitle("Inspector")
+            .navigationTitle("Details")
             .navigationBarTitleDisplayMode(.inline)
             .tint(.ccAccent)
         }
@@ -68,13 +68,20 @@ struct InspectorView: View {
 
     private var contextSection: some View {
         Section("Context") {
-            Gauge(value: contextPercent / 100, in: 0...1) {
-                Text("Context")
-            } currentValueLabel: {
+            HStack(alignment: .center, spacing: 12) {
+                Gauge(value: contextPercent / 100, in: 0...1) {
+                    EmptyView()
+                } currentValueLabel: {
+                    EmptyView()
+                }
+                .gaugeStyle(.linearCapacity)
+                .tint(.ccAccent)
+                .frame(maxWidth: .infinity)
+
                 Text("\(Int(contextPercent.rounded()))%")
-                    .font(.caption.monospacedDigit())
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.ccLabel)
             }
-            .tint(.ccAccent)
 
             Text("\(formatTokenCount(usage.contextTokens)) of \(formatTokenCount(usage.contextWindow)) tokens")
                 .font(.footnote)

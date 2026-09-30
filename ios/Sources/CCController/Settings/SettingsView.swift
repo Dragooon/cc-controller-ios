@@ -163,11 +163,15 @@ struct SettingsView: View {
         } header: {
             Text("Paired devices")
         } footer: {
-            Text("Revoke a device on the Mac with cc-gateway revoke <name>.")
-                .font(.footnote)
-                .foregroundStyle(.ccSecondary)
-                .monospaced()
-                .textSelection(.enabled)
+            (
+                Text("Revoke a device on the Mac with ")
+                + Text("cc-gateway revoke <name>")
+                    .font(.footnote.monospaced())
+                + Text(".")
+            )
+            .font(.footnote)
+            .foregroundStyle(.ccSecondary)
+            .textSelection(.enabled)
         }
     }
 
