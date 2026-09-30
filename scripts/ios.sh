@@ -77,7 +77,7 @@ cmd_generate() {
 
 cmd_build() {
   [[ -d "$PROJECT" ]] || cmd_generate
-  xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" CODE_SIGNING_ALLOWED=NO build
+  xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 }
 
 cmd_test() {
@@ -143,12 +143,91 @@ cmd_shots() {
   printf '%s\n' "shots written to $IOS/shots"
 }
 
+cmd_mocks() {
+  local only=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --only) only=$2; shift 2;;
+      *) printf 'unknown mocks option: %s\n' "$1" >&2; exit 2;;
+    esac
+  done
+
+  local mock_root="$IOS/shots/mocks"
+  MOCK_RUN_DIR=$(mktemp -d -t cc-controller-mock-run.XXXXXX)
+  rm -rf "$mock_root"
+  mkdir -p "$mock_root"
+
+  cleanup_mocks() {
+    rm -rf "$MOCK_RUN_DIR"
+    while read -r udid; do
+      [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+    done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("ccmock-")&&x.state==="Booted") console.log(x.udid)}}})')
+  }
+  trap cleanup_mocks EXIT
+
+  ensure_mock_device() {
+    local device=$1
+    local name="ccmock-$device"
+    local udid
+    udid=$(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name===process.argv[1]){process.stdout.write(x.udid);process.exit(0)}}}})' "$name")
+    if [[ -z "$udid" ]]; then
+      udid=$(xcrun simctl create "$name" "$device" "$RUNTIME")
+      printf '%s\n' "created $name" >&2
+    else
+      printf '%s\n' "reusing $name" >&2
+    fi
+    xcrun simctl boot "$udid" >/dev/null 2>&1 || true
+    xcrun simctl bootstatus "$udid" -b >/dev/null
+    xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+    xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
+    printf '%s\n' "$udid"
+  }
+
+  [[ -d "$PROJECT" ]] || cmd_generate
+  rm -rf "$DERIVED"
+  step build cmd_build
+
+  local audit="$mock_root/audit.txt"
+  : > "$audit"
+  local device
+  for device in "iPhone 16 Plus" "iPhone 18 Pro"; do
+    local udid result exported output_dir device_derived
+    udid=$(ensure_mock_device "$device")
+    result="$IOS/build/MockScreenshot-$(echo "$device" | tr ' ()' '---').xcresult"
+    exported="$MOCK_RUN_DIR/$(echo "$device" | tr ' ()' '---')"
+    output_dir="$mock_root/$(echo "$device" | tr ' ()' '---')"
+    device_derived="$IOS/build/mock-derived-$(echo "$device" | tr ' ()' '---')"
+    rm -rf "$result" "$exported" "$output_dir" "$device_derived"
+    mkdir -p "$exported" "$output_dir"
+    local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$device_derived" -resultBundlePath "$result" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:CCControllerUITests/MockScreenshotTests test)
+    TEST_RUNNER_MOCKS="$only" step "mocks $device" "${args[@]}"
+    xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null
+    local manifest="$exported/manifest.json"
+    node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+    find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
+    if [[ -f "$exported/audit.txt" ]]; then
+      printf '## %s\n' "$device" >> "$audit"
+      cat "$exported/audit.txt" >> "$audit"
+      printf '\n' >> "$audit"
+    fi
+    for scheme in light dark; do
+      local images=()
+      while IFS= read -r image; do images+=("$image"); done < <(find "$output_dir" -maxdepth 1 -type f -name "*-$scheme-*.png" | sort)
+      if [[ ${#images[@]} -gt 0 ]]; then
+        swift "$IOS/Scripts/contact-sheet.swift" "$mock_root/contact-$(echo "$device" | tr ' ()' '---')-$scheme.png" "${images[@]}"
+      fi
+    done
+  done
+  printf '%s\n' "mock shots written to $mock_root"
+}
+
 case "${1:-}" in
   generate) shift; step generate cmd_generate "$@";;
   build) shift; step build cmd_build "$@";;
   test) shift; step test cmd_test "$@";;
   shots) shift; cmd_shots "$@";;
+  mocks) shift; cmd_mocks "$@";;
   clean) shift; step clean rm -rf "$DERIVED"; xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-"))process.stdout.write(x.udid+"\n")}}})' | while read -r udid; do xcrun simctl delete "$udid"; done;;
   install) printf '%s\n' 'install requires a DEVELOPMENT_TEAM and a paired physical device; no install was attempted.' >&2; exit 2;;
-  *) printf 'Usage: %s {generate|build|test|shots|clean|install}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|shots|mocks|clean|install}\n' "$0" >&2; exit 2;;
 esac

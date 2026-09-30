@@ -4,6 +4,9 @@ options:
   deploymentTarget:
     iOS: "27.0"
   defaultConfig: Debug
+packages:
+  CCKit:
+    path: CCKit
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -18,6 +21,10 @@ targets:
     sources:
       - Sources/CCController
       - Resources
+    resources:
+      - Sources/CCController/Mocks/Data
+    dependencies:
+      - package: CCKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller
@@ -49,6 +56,7 @@ targets:
         TEST_RUNNER_SERVER_URL: "$(TEST_RUNNER_SERVER_URL)"
         TEST_RUNNER_BEARER: "$(TEST_RUNNER_BEARER)"
         TEST_RUNNER_ONLY: "$(TEST_RUNNER_ONLY)"
+        TEST_RUNNER_MOCKS: "$(TEST_RUNNER_MOCKS)"
   CCControllerUITests:
     type: bundle.ui-testing
     platform: iOS

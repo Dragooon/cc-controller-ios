@@ -1,0 +1,80 @@
+{
+  "sessions": [
+    {
+      "id": "session-atlas-judge-alignment",
+      "name": "Atlas judge alignment",
+      "project": "atlas",
+      "state": "needs_you",
+      "startedAt": "2026-09-30T03:50:00Z",
+      "lastTool": "Bash",
+      "toolRunning": false,
+      "usage": { "model": "claude-fable-5-1", "contextPercent": 58 },
+      "pending": [
+        {
+          "requestId": "approval-atlas-push",
+          "sessionId": "session-atlas-judge-alignment",
+          "tool_name": "Bash",
+          "tool_input": {
+            "command": "git push origin work/2026-09-30",
+            "description": "Push the rebased work branch"
+          },
+          "agent_type": "engineer",
+          "receivedAt": "2026-09-30T04:02:00Z",
+          "holdLimitMs": 252000,
+          "mode": "remote",
+          "status": "remote"
+        }
+      ]
+    },
+    {
+      "id": "session-native-app",
+      "name": "cc-controller native app",
+      "project": "cc-controller",
+      "state": "working",
+      "startedAt": "2026-09-30T03:31:00Z",
+      "lastTool": "Bash",
+      "lastToolInput": { "command": "xcodebuild test -scheme CCController" },
+      "toolRunning": true,
+      "usage": { "model": "claude-fable-5-1", "contextPercent": 41 }
+    },
+    {
+      "id": "session-staff-exclusions",
+      "name": "Staff account exclusions",
+      "project": "atlas",
+      "state": "working",
+      "startedAt": "2026-09-30T03:54:00Z",
+      "toolRunning": false,
+      "usage": { "model": "claude-fable-5-1", "contextPercent": 22 },
+      "subagents": [
+        { "agentId": "researcher-1", "agent": "researcher", "state": "running", "startedAt": "2026-09-30T03:54:30Z" },
+        { "agentId": "engineer-1", "agent": "engineer", "state": "running", "startedAt": "2026-09-30T03:55:00Z" }
+      ]
+    },
+    {
+      "id": "session-langfuse-bump",
+      "name": "Langfuse image bump",
+      "project": "cloud-container-image-ci",
+      "state": "working",
+      "startedAt": "2026-09-30T04:00:00Z",
+      "toolRunning": false,
+      "lastText": "thinking",
+      "usage": { "model": "claude-fable-5-1", "contextPercent": 9 }
+    },
+    {
+      "id": "session-eval-dataset",
+      "name": "Eval dataset versioning",
+      "project": "atlas",
+      "state": "idle",
+      "idleSince": "2026-09-30T03:20:00Z",
+      "usage": { "model": "claude-fable-5-1", "contextPercent": 67 }
+    },
+    {
+      "id": "session-dependency",
+      "name": "Dependency remediation agent",
+      "project": "atlas",
+      "state": "idle",
+      "idleSince": "2026-09-29T23:41:00Z",
+      "usage": { "model": "claude-fable-5-1", "contextPercent": 12 }
+    }
+  ]
+}

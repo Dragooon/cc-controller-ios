@@ -154,7 +154,7 @@ struct CCControllerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            SessionsView(model: model)
+            MockGate { SessionsView(model: model) }
                 .preferredColorScheme(model.colorScheme)
         }
     }
