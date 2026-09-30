@@ -220,7 +220,7 @@ private struct SelectableCodePanel: View {
             .font(.footnote.monospaced())
             .foregroundStyle(.ccLabel)
             .textSelection(.enabled)
-            .lineSpacing(-4)
+            .lineSpacing(-8)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
