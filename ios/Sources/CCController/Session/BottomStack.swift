@@ -30,6 +30,7 @@ struct BottomStackView: View {
     let configuration: BottomStackConfiguration
     @State private var text: String
     @FocusState private var composerFocused: Bool
+    @Namespace private var glassNamespace
 
     init(configuration: BottomStackConfiguration) {
         self.configuration = configuration
@@ -55,7 +56,8 @@ struct BottomStackView: View {
                 ComposerView(
                     text: $text,
                     isFocused: $composerFocused,
-                    configuration: configuration.composer
+                    configuration: configuration.composer,
+                    glassNamespace: glassNamespace
                 )
             }
             .padding(.horizontal, 12)

@@ -60,3 +60,37 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
 public func nativeToolRunLabel(_ run: ToolRun) -> String {
     run.isRunning ? "Running \(run.entries.count) tools" : "Ran \(run.entries.count) tools"
 }
+
+/// Formats the fallback countdown shown on a remote approval card.
+public func approvalFallbackText(remaining: TimeInterval) -> String {
+    let seconds = max(0, Int(ceil(remaining)))
+    return "falls back to the terminal in \(seconds / 60):\(String(format: "%02d", seconds % 60))"
+}
+
+/// Formats the terminal handoff time using the user's short time convention.
+public func approvalWaitingText(
+    since: Date,
+    calendar: Calendar = .current,
+    timeZone: TimeZone = .current,
+    locale: Locale = .current
+) -> String {
+    var calendar = calendar
+    calendar.timeZone = timeZone
+    let formatter = DateFormatter()
+    formatter.calendar = calendar
+    formatter.locale = locale
+    formatter.timeZone = timeZone
+    formatter.dateStyle = .none
+    formatter.timeStyle = .short
+    return "Waiting in the terminal since \(formatter.string(from: since))"
+}
+
+public func moreWaitingText(count: Int) -> String? {
+    guard count > 0 else { return nil }
+    return "\(count) more waiting"
+}
+
+public func approvalHoldFraction(remaining: TimeInterval, total: TimeInterval) -> Double {
+    guard total > 0 else { return 0 }
+    return min(1, max(0, remaining / total))
+}

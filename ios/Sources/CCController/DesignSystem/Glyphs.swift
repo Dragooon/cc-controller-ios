@@ -68,6 +68,27 @@ struct ApprovalCard: View {
     let onAllow: () -> Void
     let onAllowSession: () -> Void
     let onDeny: () -> Void
+    let glassNamespace: Namespace.ID?
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    init(
+        approval: Approval,
+        style: Style,
+        now: Date,
+        onAllow: @escaping () -> Void = {},
+        onAllowSession: @escaping () -> Void = {},
+        onDeny: @escaping () -> Void = {},
+        glassNamespace: Namespace.ID? = nil
+    ) {
+        self.approval = approval
+        self.style = style
+        self.now = now
+        self.onAllow = onAllow
+        self.onAllowSession = onAllowSession
+        self.onDeny = onDeny
+        self.glassNamespace = glassNamespace
+    }
 
     private var copy: PermissionCopy {
         permissionCopy(approval, timeZone: Self.sydney, locale: Self.english)
@@ -82,10 +103,200 @@ struct ApprovalCard: View {
 
     var body: some View {
         switch style {
-        case .compact, .full:
+        case .compact:
             compactBody
+        case .full:
+            fullBody
         }
     }
+
+    private var fullBody: some View {
+        Group {
+            if let glassNamespace {
+                fullCard.glassEffectID("approval-card", in: glassNamespace)
+            } else {
+                fullCard
+            }
+        }
+    }
+
+    private var fullCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !isTerminal {
+                GeometryReader { proxy in
+                    Color.ccAccent
+                        .frame(width: proxy.size.width * approvalHoldFraction(
+                            remaining: remainingMilliseconds / 1_000,
+                            total: Double(copy.holdLimitMs) / 1_000
+                        ), height: 2, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 2)
+                .padding(.horizontal, 14)
+            }
+
+            fullHeader
+
+            if !copy.command.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(copy.command)
+                        .font(.callout.monospaced())
+                        .foregroundStyle(.ccLabel)
+                        .lineLimit(6)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+
+                    if commandLineCount > 6 {
+                        Button("Show all") {}
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.ccAccent)
+                            .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            if !copy.description.isEmpty {
+                Text(copy.description)
+                    .font(.subheadline)
+                    .foregroundStyle(.ccSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if isTerminal {
+                Text(approvalWaitingText(since: approval.timedOutAt ?? approval.receivedAt ?? now, calendar: Self.calendar, timeZone: Self.sydney, locale: Self.english))
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+            } else {
+                Text(approvalFallbackText(remaining: remainingMilliseconds / 1_000))
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+            }
+
+            fullActions
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 1)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .dynamicTypeSize(.accessibility1)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Approval for \(approval.toolName ?? "Tool")")
+    }
+
+    private var fullHeader: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                toolHeader
+                if let agentType = approval.agentType {
+                    Text("\(agentType) wants to run this")
+                        .font(.subheadline)
+                        .foregroundStyle(.ccSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                permissionModeChip
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    toolHeader
+                    Spacer(minLength: 4)
+                    permissionModeChip
+                }
+                if let agentType = approval.agentType {
+                    Text("\(agentType) wants to run this")
+                        .font(.subheadline)
+                        .foregroundStyle(.ccSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var toolHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            ToolSymbol(tool: approval.toolName ?? "Tool")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.ccLabel)
+            Text(approval.toolName ?? "Tool")
+                .font(.headline)
+                .foregroundStyle(.ccLabel)
+                .lineLimit(1)
+        }
+    }
+
+    @ViewBuilder
+    private var permissionModeChip: some View {
+        if let permissionMode = approval.permissionMode, permissionMode != "default" {
+            Text(permissionMode)
+                .font(.caption)
+                .foregroundStyle(.ccSecondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.ccSecondary.opacity(0.12), in: Capsule())
+        }
+    }
+
+    private var fullActions: some View {
+        VStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                if dynamicTypeSize < .accessibility1 {
+                    HStack(spacing: 12) {
+                        fullDenyButton
+                        fullAllowButton
+                    }
+                }
+                VStack(spacing: 8) {
+                    fullAllowButton
+                    fullDenyButton
+                }
+            }
+
+            if isTerminal {
+                Text("Your answer is typed into the terminal.")
+                    .font(.caption)
+                    .foregroundStyle(.ccSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if approval.mode == .remote {
+                Button("Allow for this session", action: onAllowSession)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.ccAccent)
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var fullDenyButton: some View {
+        Button(role: .destructive, action: onDeny) {
+            Text("Deny")
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.glass)
+        .tint(.ccRed)
+        .controlSize(.large)
+        .accessibilityLabel(isTerminal ? "Deny in the terminal" : "Deny")
+    }
+
+    private var fullAllowButton: some View {
+        Button(action: onAllow) {
+            Text("Allow")
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.glassProminent)
+        .tint(.ccAccent)
+        .controlSize(.large)
+        .accessibilityLabel(isTerminal ? "Allow in the terminal" : "Allow")
+    }
+
+    private var isTerminal: Bool {
+        approval.mode == .terminal || approval.status == .terminal
+    }
+
+    private var commandLineCount: Int {
+        copy.command.split(whereSeparator: \.isNewline).count
+    }
+
+    private static let calendar = Calendar(identifier: .gregorian)
 
     private var compactBody: some View {
         VStack(alignment: .leading, spacing: 10) {

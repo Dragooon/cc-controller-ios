@@ -32,6 +32,7 @@ struct ComposerView: View {
     let onStop: () -> Void
     let onSend: () -> Void
     let onSendNow: () -> Void
+    let glassNamespace: Namespace.ID?
 
     init(
         text: Binding<String>,
@@ -39,7 +40,8 @@ struct ComposerView: View {
         configuration: ComposerConfiguration,
         onStop: @escaping () -> Void = {},
         onSend: @escaping () -> Void = {},
-        onSendNow: @escaping () -> Void = {}
+        onSendNow: @escaping () -> Void = {},
+        glassNamespace: Namespace.ID? = nil
     ) {
         _text = text
         _isFocused = isFocused
@@ -47,9 +49,25 @@ struct ComposerView: View {
         self.onStop = onStop
         self.onSend = onSend
         self.onSendNow = onSendNow
+        self.glassNamespace = glassNamespace
     }
 
     var body: some View {
+        bodyContent
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Message composer")
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        if let glassNamespace {
+            composerLayout.glassEffectID("composer", in: glassNamespace)
+        } else {
+            composerLayout
+        }
+    }
+
+    private var composerLayout: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField(configuration.placeholder, text: $text, axis: .vertical)
                 .font(.body)
@@ -73,8 +91,6 @@ struct ComposerView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Message composer")
     }
 
     private var attachmentMenu: some View {

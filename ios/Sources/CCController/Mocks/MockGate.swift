@@ -102,6 +102,10 @@ private struct MockScreenView: View {
                 SessionsMocks.reconnecting
             case .sessionIdle:
                 SessionMocks.idle
+            case .sessionApprovals:
+                ApprovalMocks.stacked
+            case .sessionTerminalApproval:
+                ApprovalMocks.terminal
             case .sessionWorking:
                 BottomStackMocks.working
             case .composerSlash:
