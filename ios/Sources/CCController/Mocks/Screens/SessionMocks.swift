@@ -209,6 +209,7 @@ private struct ToolDetailSection<Content: View>: View {
                 .foregroundStyle(.ccSecondary)
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
