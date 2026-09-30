@@ -11,6 +11,9 @@ STARTED_DAEMON=""
 FIXTURE_OUT=""
 RUN_DIR=""
 DIAG_DIR=""
+MOCK_PREFIX=""
+MOCK_RUN_DIR=""
+MOCK_DEVICE_NAMES=()
 
 step() {
   local name=$1; shift
@@ -22,6 +25,13 @@ step() {
 
 json_value() {
   node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(value[process.argv[2]]);' "$1" "$2"
+}
+
+simulator_udids() {
+  local mode=$1
+  local state=$2
+  shift 2
+  xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const mode=process.argv[1],state=process.argv[2],values=new Set(process.argv.slice(3));for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){const matchesState=state==="all"||x.state===state;const matchesName=mode==="exact"?values.has(x.name):x.name.startsWith(process.argv[3]);if(matchesState&&matchesName) console.log(x.udid)}}})' "$mode" "$state" "$@"
 }
 
 cleanup_shots() {
@@ -38,7 +48,7 @@ cleanup_shots() {
     cp "$IOS/shots/fixture-daemon.log" "$DIAG_DIR/fixture-daemon.log" 2>/dev/null || true
     while read -r udid; do
       [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true
-    done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-")&&x.state==="Booted") console.log(x.udid)}}})')
+    done < <(simulator_udids exact Booted "cc-${DEFAULT_DEVICES[0]}" "cc-${DEFAULT_DEVICES[1]}" "cc-${DEFAULT_DEVICES[2]}")
     mkdir -p "$DIAG_DIR/attachments"
     for result in "$IOS"/build/*.xcresult; do
       [[ -d "$result" ]] || continue
@@ -47,7 +57,7 @@ cleanup_shots() {
   fi
   while read -r udid; do
     [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-  done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-")&&x.state==="Booted") console.log(x.udid)}}})')
+  done < <(simulator_udids exact Booted "cc-${DEFAULT_DEVICES[0]}" "cc-${DEFAULT_DEVICES[1]}" "cc-${DEFAULT_DEVICES[2]}")
 }
 
 ensure_device() {
@@ -76,11 +86,12 @@ cmd_generate() {
 }
 
 cmd_build() {
-  [[ -d "$PROJECT" ]] || cmd_generate
+  cmd_generate
   xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
 }
 
 cmd_test() {
+  cmd_generate
   if [[ -d "$IOS/CCKit" ]]; then
     (cd "$IOS/CCKit" && swift test)
   else
@@ -89,6 +100,7 @@ cmd_test() {
 }
 
 cmd_shots() {
+  cmd_generate
   local devices=() only=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -152,10 +164,14 @@ cmd_mocks() {
     esac
   done
 
+  cmd_generate
   local lane="${CC_MOCK_LANE:-}"
   MOCK_PREFIX="ccmock-"
   if [[ -n "$lane" ]]; then
     MOCK_PREFIX="ccmock-$lane-"
+    MOCK_DEVICE_NAMES=()
+  else
+    MOCK_DEVICE_NAMES=("ccmock-iPhone 16 Plus" "ccmock-iPhone 18 Pro")
   fi
   local mock_root="$IOS/shots/mocks"
   if [[ -n "$lane" ]]; then mock_root="$mock_root/$lane"; fi
@@ -166,9 +182,15 @@ cmd_mocks() {
 
   cleanup_mocks() {
     rm -rf "$MOCK_RUN_DIR"
-    while read -r udid; do
-      [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-    done < <(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const prefix=process.argv[1];for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith(prefix)&&x.state==="Booted") console.log(x.udid)}}})' "$MOCK_PREFIX")
+    if [[ ${#MOCK_DEVICE_NAMES[@]} -eq 0 ]]; then
+      while read -r udid; do
+        [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+      done < <(simulator_udids prefix Booted "$MOCK_PREFIX")
+    else
+      while read -r udid; do
+        [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+      done < <(simulator_udids exact Booted "${MOCK_DEVICE_NAMES[@]}")
+    fi
   }
   trap cleanup_mocks EXIT
 
@@ -190,7 +212,6 @@ cmd_mocks() {
     printf '%s\n' "$udid"
   }
 
-  [[ -d "$PROJECT" ]] || cmd_generate
   rm -rf "$DERIVED"
   step build cmd_build
 
@@ -228,13 +249,26 @@ cmd_mocks() {
   printf '%s\n' "mock shots written to $mock_root"
 }
 
+cmd_clean() {
+  step clean rm -rf "$DERIVED"
+  while read -r udid; do
+    [[ -z "$udid" ]] || xcrun simctl delete "$udid"
+  done < <(simulator_udids exact all "cc-${DEFAULT_DEVICES[0]}" "cc-${DEFAULT_DEVICES[1]}" "cc-${DEFAULT_DEVICES[2]}")
+}
+
+cmd_install() {
+  cmd_generate
+  printf '%s\n' 'install requires a DEVELOPMENT_TEAM and a paired physical device; no install was attempted.' >&2
+  return 2
+}
+
 case "${1:-}" in
   generate) shift; step generate cmd_generate "$@";;
   build) shift; step build cmd_build "$@";;
   test) shift; step test cmd_test "$@";;
   shots) shift; cmd_shots "$@";;
   mocks) shift; cmd_mocks "$@";;
-  clean) shift; step clean rm -rf "$DERIVED"; xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name.startsWith("cc-"))process.stdout.write(x.udid+"\n")}}})' | while read -r udid; do xcrun simctl delete "$udid"; done;;
-  install) printf '%s\n' 'install requires a DEVELOPMENT_TEAM and a paired physical device; no install was attempted.' >&2; exit 2;;
+  clean) shift; cmd_clean "$@";;
+  install) shift; cmd_install "$@";;
   *) printf 'Usage: %s {generate|build|test|shots|mocks|clean|install}\n' "$0" >&2; exit 2;;
 esac
