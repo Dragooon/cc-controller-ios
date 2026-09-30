@@ -78,6 +78,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     var isBuilt: Bool {
         switch self {
         case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting,
+             .sessionWorking, .composerSlash, .composerAttachments, .composerKeyboard,
              .inspector, .settings, .onboardingWelcome, .onboardingConnect,
              .onboardingPair, .onboardingFaceID, .lock, .privacyCover: true
         default: false
@@ -101,6 +102,14 @@ private struct MockScreenView: View {
                 SessionsMocks.reconnecting
             case .sessionIdle:
                 SessionMocks.idle
+            case .sessionWorking:
+                BottomStackMocks.working
+            case .composerSlash:
+                BottomStackMocks.slash
+            case .composerAttachments:
+                BottomStackMocks.attachments
+            case .composerKeyboard:
+                BottomStackMocks.keyboard
             case .toolDetail:
                 SessionMocks.toolDetail
             case .toolDetailEdit:

@@ -6,6 +6,8 @@ struct SessionTranscriptView: View {
     let now: Date
     let showsComposer: Bool
     let showsWorkedFooter: Bool
+    let bottomStackConfiguration: BottomStackConfiguration?
+    let activityFooter: CCKit.ActivityFooter?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
 
@@ -14,6 +16,8 @@ struct SessionTranscriptView: View {
         now: Date,
         showsComposer: Bool = true,
         showsWorkedFooter: Bool = true,
+        bottomStackConfiguration: BottomStackConfiguration? = nil,
+        activityFooter: CCKit.ActivityFooter? = nil,
         onTool: @escaping (ToolEntry) -> Void = { _ in },
         onSubagent: @escaping (SubagentEntry) -> Void = { _ in }
     ) {
@@ -21,6 +25,8 @@ struct SessionTranscriptView: View {
         self.now = now
         self.showsComposer = showsComposer
         self.showsWorkedFooter = showsWorkedFooter
+        self.bottomStackConfiguration = bottomStackConfiguration
+        self.activityFooter = activityFooter
         self.onTool = onTool
         self.onSubagent = onSubagent
     }
@@ -28,23 +34,19 @@ struct SessionTranscriptView: View {
     @ViewBuilder
     var body: some View {
         if showsComposer {
-            VStack(spacing: 0) {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 20) {
-                        transcriptRows
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 18)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    transcriptRows
                 }
-                .defaultScrollAnchor(.bottom)
-                .scrollDismissesKeyboard(.interactively)
-
-                ComposerPlaceholder()
-                    .padding(.horizontal, 12)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
             }
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
             .background(.ccBackground)
+            .safeAreaBar(edge: .bottom, spacing: 0) {
+                BottomStackView(configuration: bottomStackConfiguration ?? BottomStackConfiguration())
+            }
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
@@ -66,6 +68,7 @@ struct SessionTranscriptView: View {
                 turn: turn,
                 now: now,
                 showsWorkedFooter: showsWorkedFooter,
+                activityFooter: turn.id == turns.last?.id ? activityFooter : nil,
                 onTool: onTool,
                 onSubagent: onSubagent
             )
@@ -74,27 +77,29 @@ struct SessionTranscriptView: View {
     }
 }
 
-struct ComposerPlaceholder: View {
-    var body: some View {
-        HStack {
-            Text("Message")
-                .font(.body)
-                .foregroundStyle(.ccSecondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
-        .accessibilityLabel("Message")
-    }
-}
-
 struct TranscriptTurnView: View {
     let turn: Turn
     let now: Date
     let showsWorkedFooter: Bool
+    let activityFooter: CCKit.ActivityFooter?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+
+    init(
+        turn: Turn,
+        now: Date,
+        showsWorkedFooter: Bool,
+        activityFooter: CCKit.ActivityFooter? = nil,
+        onTool: @escaping (ToolEntry) -> Void,
+        onSubagent: @escaping (SubagentEntry) -> Void
+    ) {
+        self.turn = turn
+        self.now = now
+        self.showsWorkedFooter = showsWorkedFooter
+        self.activityFooter = activityFooter
+        self.onTool = onTool
+        self.onSubagent = onSubagent
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -108,6 +113,10 @@ struct TranscriptTurnView: View {
 
             if showsWorkedFooter && turn.hasWorkedFooter {
                 WorkedFooter(durationMs: turn.durationMs)
+            }
+
+            if let activityFooter {
+                LiveActivityFooterView(footer: activityFooter)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
