@@ -8,7 +8,7 @@ struct SubagentCard: View {
 
     private var state: SubagentState { entry.state ?? .done }
     private var durationText: String {
-        guard let start = entry.startedAt else { return "0s" }
+        guard let start = entry.startedAt else { return displayDuration(0) }
         let end = entry.finishedAt ?? now
         return displayDuration(max(0, Int((end.timeIntervalSince(start) * 1000).rounded())))
     }

@@ -100,20 +100,21 @@ private struct ToolDetailSheet: View {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(.ccGreen)
-                            Text("Done")
+                            Text("Done · \(displayDuration(2_400))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.ccLabel)
                             Spacer(minLength: 0)
-                            Text("2.4 s")
-                                .font(.footnote.monospacedDigit())
-                                .foregroundStyle(.ccSecondary)
                         }
                     }
                     ToolDetailSection(title: "Input") {
                         SelectableCodePanel(text: toolArgument(tool.tool, args: tool.args))
                     }
                     ToolDetailSection(title: "Output") {
-                        SelectableCodePanel(text: MockSessionData.npmOutput)
+                        SelectableCodePanel(
+                            text: MockSessionData.npmOutput,
+                            axes: [.horizontal, .vertical],
+                            maxHeight: 420
+                        )
                     }
                 }
                 .padding(20)
@@ -123,10 +124,7 @@ private struct ToolDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {} label: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .accessibilityLabel("Copy tool details")
+                    Button("Copy") {}
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {}
@@ -146,29 +144,32 @@ private struct ToolEditDetailSheet: View {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(.ccGreen)
-                            Text("Done")
+                            Text("Done · \(displayDuration(1_100))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.ccLabel)
                             Spacer(minLength: 0)
-                            Text("1.1 s")
-                                .font(.footnote.monospacedDigit())
-                                .foregroundStyle(.ccSecondary)
                         }
                     }
                     ToolDetailSection(title: "Input") {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(MockSessionData.editDiff.enumerated()), id: \.offset) { _, line in
-                                DiffLine(line: line)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift")
+                                .font(.footnote.monospaced())
+                                .foregroundStyle(.ccSecondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    ForEach(Array(MockSessionData.editDiff.enumerated()), id: \.offset) { _, line in
+                                        DiffLine(line: line)
+                                    }
+                                }
+                                .fixedSize(horizontal: true, vertical: true)
+                                .padding(10)
                             }
+                            .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                        .padding(10)
-                        .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    Text("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift")
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.ccLabel)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(20)
             }
@@ -177,10 +178,7 @@ private struct ToolEditDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {} label: {
-                        Image(systemName: "doc.on.doc")
-                    }
-                    .accessibilityLabel("Copy edit")
+                    Button("Copy") {}
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {}
@@ -207,15 +205,25 @@ private struct ToolDetailSection<Content: View>: View {
 
 private struct SelectableCodePanel: View {
     let text: String
+    let axes: Axis.Set
+    let maxHeight: CGFloat?
+
+    init(text: String, axes: Axis.Set = .horizontal, maxHeight: CGFloat? = nil) {
+        self.text = text
+        self.axes = axes
+        self.maxHeight = maxHeight
+    }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(axes, showsIndicators: true) {
             Text(text)
                 .font(.footnote.monospaced())
                 .foregroundStyle(.ccLabel)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: true, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxHeight: maxHeight)
         .padding(12)
         .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -231,7 +239,7 @@ private struct DiffLine: View {
                 .frame(width: 14, alignment: .leading)
             Text(line.text)
                 .foregroundStyle(.ccLabel)
-                .fixedSize(horizontal: false, vertical: true)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .font(.footnote.monospaced())
         .padding(.horizontal, 5)
@@ -244,26 +252,15 @@ private struct DiffLine: View {
 private struct SubagentMock: View {
     let turns: [Turn]
     let now: Date
-    @State private var scrollPosition: String? = "subagent-top"
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 20) {
-                ForEach(turns) { turn in
-                    TranscriptTurnView(
-                        turn: turn,
-                        now: now,
-                        showsWorkedFooter: false,
-                        onTool: { _ in },
-                        onSubagent: { _ in }
-                    )
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(.ccBackground)
+            SessionTranscriptView(
+                turns: turns,
+                now: now,
+                showsComposer: false,
+                showsWorkedFooter: false
+            )
             .navigationTitle("researcher")
             .navigationSubtitle("Done · 4m")
             .navigationBarTitleDisplayMode(.inline)

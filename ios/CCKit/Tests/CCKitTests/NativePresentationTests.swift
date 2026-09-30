@@ -28,10 +28,14 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(displayDuration(2 * 60 * 60_000), "2h")
     }
 
-    func testDisplayDurationRoundsToNearestSecondAndClampsNegativeValues() {
-        XCTAssertEqual(displayDuration(1_499), "1s")
-        XCTAssertEqual(displayDuration(1_500), "2s")
-        XCTAssertEqual(displayDuration(-1), "0s")
+    func testDisplayDurationUsesTenthsBelowTenSeconds() {
+        XCTAssertEqual(displayDuration(2_400), "2.4s")
+        XCTAssertEqual(displayDuration(9_950), "10.0s")
+        XCTAssertEqual(displayDuration(10_000), "10s")
+    }
+
+    func testDisplayDurationClampsNegativeValues() {
+        XCTAssertEqual(displayDuration(-1), "0.0s")
     }
 
     func testSessionDetailSubtitleUsesNativeDurationAndPercentComposition() {

@@ -120,7 +120,7 @@ private struct ToolStatusView: View {
         case .running:
             HStack(spacing: 4) {
                 SpinnerGlyph(active: true, frozen: true)
-                Text("12s")
+                Text(displayDuration(12_000))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.ccAccent)
             }

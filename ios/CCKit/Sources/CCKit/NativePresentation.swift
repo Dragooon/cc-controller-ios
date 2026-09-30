@@ -14,7 +14,13 @@ public func sessionsSubtitle(_ sessions: [Session]) -> String? {
 
 /// Formats elapsed milliseconds without trailing zero-valued units.
 public func displayDuration(_ milliseconds: Int) -> String {
-    let totalSeconds = max(0, Int((Double(milliseconds) / 1000).rounded()))
+    let clampedMilliseconds = max(0, milliseconds)
+    if clampedMilliseconds < 10_000 {
+        let seconds = Double(clampedMilliseconds) / 1000
+        return String(format: "%.1fs", locale: Locale(identifier: "en_US_POSIX"), seconds)
+    }
+
+    let totalSeconds = Int((Double(clampedMilliseconds) / 1000).rounded())
     let hours = totalSeconds / 3600
     let minutes = (totalSeconds % 3600) / 60
     let seconds = totalSeconds % 60

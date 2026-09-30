@@ -46,11 +46,15 @@ struct SessionTranscriptView: View {
             }
             .background(.ccBackground)
         } else {
-            VStack(alignment: .leading, spacing: 20) {
-                transcriptRows
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    transcriptRows
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+            .defaultScrollAnchor(.top)
+            .scrollDismissesKeyboard(.interactively)
             .background(.ccBackground)
         }
     }
