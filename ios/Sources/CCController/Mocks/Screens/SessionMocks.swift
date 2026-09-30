@@ -167,7 +167,7 @@ private struct ToolEditDetailSheet: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
+                        .padding(.vertical, 10)
                         .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                 }
