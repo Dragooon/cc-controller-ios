@@ -78,7 +78,7 @@ final class AppModel {
                 ?? state.sessions.first?.id
             connectionError = nil
         } catch {
-            connectionError = "Can't reach the Mac (\(error.localizedDescription))"
+            connectionError = "Can't reach the Mac"
         }
     }
 
