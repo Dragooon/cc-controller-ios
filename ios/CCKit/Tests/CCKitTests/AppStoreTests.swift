@@ -27,6 +27,21 @@ final class AppStoreTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
     }
 
+    func testReconnectBackoffSequenceUsesInjectedClock() async throws {
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(500, body: Data("{}".utf8)) }
+        let clock = RecordingClock()
+        let client = APIClient(baseURL: URL(string: "http://localhost:47832")!, session: URLProtocolStub.session)
+        let stream = EventStream(client: client, session: URLProtocolStub.session, clock: clock)
+        await stream.start()
+        for _ in 0..<50 {
+            if await clock.values().count >= 8 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await stream.stop()
+        let delays = Array((await clock.values()).prefix(8))
+        XCTAssertEqual(delays, [.milliseconds(500), .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(15), .seconds(15)])
+    }
+
     func testStreamDropRebootstrapsAfterBackoff() async throws {
         var bootstrapCalls = 0
         URLProtocolStub.handler = { request in
@@ -46,6 +61,118 @@ final class AppStoreTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(700))
         XCTAssertGreaterThanOrEqual(bootstrapCalls, 2)
         app.suspend()
+    }
+
+    func testStateDeltaPresenceAndNullsFollowDaemonStateModel() throws {
+        let app = makeApp()
+        let initial = Self.session(state: .working)
+        var seeded = initial
+        seeded.lastTool = "Bash"
+        seeded.lastToolInput = .object(["command": .string("npm test")])
+        seeded.toolRunning = true
+        seeded.usage = Usage(model: "old", inputTokens: 10, outputTokens: 2)
+        app.apply(.state(StateSnapshot(sessions: [seeded], entries: ["session-1": 1])))
+
+        let omitted = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"action\":\"still working\"}"))
+        app.apply(omitted)
+        XCTAssertEqual(app.sessions["session-1"]?.lastTool, "Bash")
+        XCTAssertEqual(app.sessions["session-1"]?.toolRunning, true)
+
+        let cleared = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"toolRunning\":false,\"lastTool\":null,\"lastToolInput\":null,\"usage\":{\"model\":\"new\",\"outputTokens\":3}}"))
+        app.apply(cleared)
+        XCTAssertNil(app.sessions["session-1"]?.lastTool)
+        XCTAssertNil(app.sessions["session-1"]?.lastToolInput)
+        XCTAssertEqual(app.sessions["session-1"]?.toolRunning, false)
+        XCTAssertEqual(app.sessions["session-1"]?.usage?.model, "new")
+        XCTAssertNil(app.sessions["session-1"]?.usage?.inputTokens)
+        XCTAssertEqual(app.sessions["session-1"]?.usage?.outputTokens, 3)
+    }
+
+    func testSuspendClosesStreamAndResumeRebootstraps() async throws {
+        var bootstrapCalls = 0
+        var eventRequests = 0
+        URLProtocolStub.keepEvents = true
+        defer { URLProtocolStub.keepEvents = false }
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" {
+                bootstrapCalls += 1
+                return URLProtocolStub.json(Self.bootstrapJSON)
+            }
+            if request.url?.path == "/api/events" { eventRequests += 1 }
+            return URLProtocolStub.json(Data("{}".utf8), contentType: request.url?.path == "/api/events" ? "text/event-stream" : "application/json")
+        }
+        let app = makeApp()
+        app.start()
+        try await waitUntil { bootstrapCalls >= 1 && eventRequests >= 1 }
+        app.suspend()
+        let stoppedRequests = eventRequests
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(eventRequests, stoppedRequests)
+        app.resume()
+        try await waitUntil { bootstrapCalls >= 2 }
+        app.suspend()
+    }
+
+    func testStateEventAppliesSnapshot() {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 4])))
+        XCTAssertEqual(app.sessions["session-1"]?.id, "session-1")
+    }
+
+    func testRegistryEventIsHandled() {
+        let app = makeApp()
+        app.apply(.registry(RegistryEvent(sessions: [])))
+        XCTAssertTrue(app.sessions.isEmpty)
+    }
+
+    func testTranscriptEventMergesOpenSession() throws {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        _ = try XCTUnwrap(app.openSession("session-1"))
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "event-entry"), entryCount: 1)))
+        XCTAssertEqual(app.openSession("session-1")?.entries.first?.id, "event-entry")
+    }
+
+    func testUsageEventReplacesUsageSnapshot() {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        app.apply(.usage(UsageEvent(sessionId: "session-1", usage: Usage(model: "next", outputTokens: 3))))
+        XCTAssertEqual(app.sessions["session-1"]?.usage?.model, "next")
+    }
+
+    func testSubagentsEventReplacesSubagentSnapshot() {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [Subagent(agentId: "agent-1", state: .running)])))
+        XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-1")
+    }
+
+    func testApprovalEventAddsPendingApproval() {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        app.apply(.approval(ApprovalEvent(sessionId: "session-1", requestId: "request-1", toolName: "Bash")))
+        XCTAssertEqual(app.approvals(for: "session-1").first?.requestId, "request-1")
+    }
+
+    func testDecisionEventRemovesPendingApproval() {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        app.apply(.approval(ApprovalEvent(sessionId: "session-1", requestId: "request-1")))
+        app.apply(.decision(DecisionEvent(sessionId: "session-1", requestId: "request-1", behavior: .allow)))
+        XCTAssertTrue(app.approvals.isEmpty)
+    }
+
+    func testFileEventDoesNotCreateDurableTranscriptEntry() {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = app.openSession("session-1")
+        app.apply(.file(FileEvent(sessionId: "session-1", name: "out.txt")))
+        XCTAssertTrue(store?.entries.isEmpty == true)
+    }
+
+    func testEntryCountGapRefetchesOnlyGapPlusMargin() {
+        XCTAssertEqual(AppStore.gapFetchLimit(missing: 12), 32)
+        XCTAssertEqual(AppStore.gapFetchLimit(missing: 600), 400)
     }
 
     func testEveryContractEventUpdatesTheRightState() async throws {
@@ -103,14 +230,24 @@ final class AppStoreTests: XCTestCase {
         let cached = DiskCacheState(bootstrap: Bootstrap(apiVersion: 2, daemon: DaemonInfo(version: "cached"), state: StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])), transcripts: ["session-1": [Self.entry(id: "cached-entry")]], updatedAt: Date(timeIntervalSince1970: 10))
         await cache.save(cached)
         await cache.flush()
+        URLProtocolStub.keepEvents = false
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" {
+                let body = "event: state\ndata: {\"sessions\":[],\"entries\":{}}\n\n"
+                return URLProtocolStub.json(Data(body.utf8), contentType: "text/event-stream")
+            }
             return URLProtocolStub.json(Data("{}".utf8))
         }
-        let app = AppStore(serverURL: URL(string: "http://localhost:47832")!, bearerProvider: { "test-token" }, session: URLProtocolStub.session, cacheDirectory: directory)
+        let app = AppStore(serverURL: URL(string: "http://localhost:47832")!, bearerProvider: {
+            try await Task.sleep(for: .milliseconds(150))
+            return "test-token"
+        }, session: URLProtocolStub.session, cacheDirectory: directory)
         app.start()
-        try await waitUntil { app.sessions["session-1"] != nil }
+        try await waitUntil { if case .offline(let updated, _) = app.connection { return updated != nil }; return false }
         XCTAssertEqual(app.sessions["session-1"]?.name, "Fixture")
+        app.apply(.connected)
+        XCTAssertEqual(app.connection, .live)
         app.suspend()
     }
 
@@ -119,8 +256,7 @@ final class AppStoreTests: XCTestCase {
         let app = makeApp()
         app.start()
         try await Task.sleep(for: .milliseconds(100))
-        guard case .offline(_, let error) = app.connection else { return XCTFail("Expected offline state") }
-        XCTAssertEqual(error, "Authentication required")
+        XCTAssertEqual(app.connection, .unauthorized)
         app.suspend()
     }
 
@@ -151,8 +287,8 @@ final class AppStoreTests: XCTestCase {
 
     private static let bootstrapJSON = bootstrapJSON()
 
-    private static func bootstrapJSON(startedAt: Date = Date(timeIntervalSince1970: 1)) -> Data {
-        let value = Bootstrap(apiVersion: 2, daemon: DaemonInfo(version: "fixture", startedAt: startedAt), capabilities: Capabilities(pagination: true), state: StateSnapshot(sessions: [session(state: .working)], entries: ["session-1": 0]))
+    private static func bootstrapJSON(startedAt: Date = Date(timeIntervalSince1970: 1), entryCount: Int = 0) -> Data {
+        let value = Bootstrap(apiVersion: 2, daemon: DaemonInfo(version: "fixture", startedAt: startedAt), capabilities: Capabilities(pagination: true), state: StateSnapshot(sessions: [session(state: .working)], entries: ["session-1": entryCount]))
         return try! JSONEncoder.ccKit().encode(value)
     }
 
@@ -161,8 +297,21 @@ final class AppStoreTests: XCTestCase {
     }
 }
 
+private actor RecordingClock: CCKitClock {
+    nonisolated let now = Date(timeIntervalSince1970: 1)
+    private var recorded: [Duration] = []
+
+    func sleep(for duration: Duration) async throws {
+        recorded.append(duration)
+        try Task.checkCancellation()
+    }
+
+    func values() -> [Duration] { recorded }
+}
+
 private final class URLProtocolStub: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var keepEvents = false
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -177,7 +326,7 @@ private final class URLProtocolStub: URLProtocol {
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         if request.url?.path == "/api/events" {
             client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
+            if !Self.keepEvents { client?.urlProtocolDidFinishLoading(self) }
             return
         }
         client?.urlProtocol(self, didLoad: data)

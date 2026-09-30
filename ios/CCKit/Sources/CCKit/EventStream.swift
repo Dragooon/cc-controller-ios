@@ -109,6 +109,6 @@ public actor EventStream {
     }
 
     private func backoff(attempt: Int) -> Double {
-        min(15.0, 0.5 * pow(2.0, Double(max(0, attempt - 1))))
+        ConnectionBackoff.seconds(attempt: attempt)
     }
 }

@@ -50,17 +50,27 @@ public final class SessionStore {
     }
 
     @discardableResult
-    public func merge(_ incoming: [TranscriptEntry], replace: Bool = false) -> TranscriptChangeSet {
+    public func merge(_ incoming: [TranscriptEntry], replace: Bool = false, entryCount: Int? = nil) -> TranscriptChangeSet {
         let change = transcriptStore.merge(incoming, replace: replace)
+        if let entryCount { totalEntries = max(totalEntries, entryCount) }
+        else if !hasLoaded { totalEntries = max(totalEntries, transcriptStore.entries.count) }
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
         return change
     }
 
     public func refetchTail(reset: Bool = false) async throws {
+        try await refetchTail(limit: 400, reset: reset)
+    }
+
+    public func refetchGap(limit: Int) async throws {
+        try await refetchTail(limit: limit)
+    }
+
+    public func refetchTail(limit: Int, reset: Bool = false) async throws {
         guard canFetch, !loading else { return }
         loading = true
         defer { loading = false }
-        let page = try await client.transcriptPage(sessionID: sessionID, tail: 400, agent: agentID)
+        let page = try await client.transcriptPage(sessionID: sessionID, tail: min(400, max(1, limit)), agent: agentID)
         if reset {
             _ = transcriptStore.replaceAll(with: page.entries)
         } else {

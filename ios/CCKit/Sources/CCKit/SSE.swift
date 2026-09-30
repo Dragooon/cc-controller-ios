@@ -76,7 +76,11 @@ public enum LiveEvent: Sendable, Equatable {
         switch name {
         case "state":
             let object = try? decoder.decode([String: JSONValue].self, from: bytes)
-            if object?["sessionId"] != nil { return try? .stateDelta(decoder.decode(StateDelta.self, from: bytes)) }
+            if let object, object["sessionId"] != nil {
+                guard var delta = try? decoder.decode(StateDelta.self, from: bytes) else { return nil }
+                delta.rawObject = object
+                return .stateDelta(delta)
+            }
             return try? .state(decoder.decode(StateSnapshot.self, from: bytes))
         case "transcript": return try? .transcript(decoder.decode(TranscriptEvent.self, from: bytes))
         case "usage": return try? .usage(decoder.decode(UsageEvent.self, from: bytes))

@@ -42,6 +42,8 @@ public final class AppStore {
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var latestBootstrap: Bootstrap?
+    @ObservationIgnored private var sessionSnapshots: [String: [String: JSONValue]] = [:]
+    @ObservationIgnored private var serverEntryCounts: [String: Int] = [:]
     @ObservationIgnored private var openStores: [String: SessionStore] = [:]
     @ObservationIgnored private var cachedTranscripts: [String: [TranscriptEntry]] = [:]
     @ObservationIgnored private var reconnectSince: Date?
@@ -208,7 +210,7 @@ public final class AppStore {
             return started
         } catch let error as APIError {
             if error == .unauthorized {
-                connection = .offline(lastUpdated: lastUpdated, error: "Authentication required")
+                connection = .unauthorized
                 started = false
                 return false
             }
@@ -241,10 +243,13 @@ public final class AppStore {
     }
 
     private func applyState(_ snapshot: StateSnapshot) {
-        sessions = Dictionary(uniqueKeysWithValues: (snapshot.sessions ?? []).compactMap { session in
+        let liveSessions = (snapshot.sessions ?? []).compactMap { session -> (String, Session)? in
             guard let id = session.id else { return nil }
             return (id, session)
-        })
+        }
+        sessions = Dictionary(uniqueKeysWithValues: liveSessions)
+        sessionSnapshots = Dictionary(uniqueKeysWithValues: liveSessions.map { ($0.0, jsonObject($0.1)) })
+        serverEntryCounts = snapshot.entries ?? [:]
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         for store in openStores.values {
             if let session = sessions[store.sessionID] {
@@ -261,19 +266,14 @@ public final class AppStore {
     }
 
     private func applyStateDelta(_ delta: StateDelta) {
-        guard let id = delta.sessionId, var session = sessions[id] else { return }
-        if let state = delta.state { session.state = state }
-        if let action = delta.action { session.action = action }
-        if let startedAt = delta.startedAt { session.startedAt = startedAt }
-        if let idleSince = delta.idleSince { session.idleSince = idleSince }
-        if let lastTool = delta.lastTool { session.lastTool = lastTool }
-        if let lastToolInput = delta.lastToolInput { session.lastToolInput = lastToolInput }
-        if let toolRunning = delta.toolRunning { session.toolRunning = toolRunning }
-        if let lastText = delta.lastText { session.lastText = lastText }
-        if let usage = delta.usage { session.usage = usage }
-        if let subagents = delta.subagents { session.subagents = subagents }
-        if let pending = delta.pending { session.pending = pending }
+        guard let id = delta.sessionId, let current = sessions[id] else { return }
+        var object = sessionSnapshots[id] ?? jsonObject(current)
+        let values = delta.rawObject.isEmpty ? jsonObject(delta) : delta.rawObject
+        for (key, value) in values where key != "sessionId" && key != "entries" { object[key] = value }
+        guard let session = decodeSession(object) else { return }
+        sessionSnapshots[id] = object
         sessions[id] = session
+        if let counts = delta.entries { serverEntryCounts.merge(counts) { _, new in new } }
         updateOpenStores(for: session)
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         lastUpdated = clock.now
@@ -284,7 +284,13 @@ public final class AppStore {
     private func applyTranscript(_ event: TranscriptEvent) {
         guard let sessionID = event.sessionId, let entry = event.entry else { return }
         guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return }
-        store.merge([entry])
+        let countBefore = store.totalEntries
+        let change = store.merge([entry], replace: event.replace == true, entryCount: event.entryCount)
+        let expectedCount = countBefore + (change.inserted.isEmpty ? 0 : 1)
+        if let entryCount = event.entryCount {
+            serverEntryCounts[sessionID] = entryCount
+            if entryCount > expectedCount { refetchStoreGap(store, missing: entryCount - expectedCount) }
+        }
         scheduleCacheWrite()
     }
 
@@ -347,7 +353,9 @@ public final class AppStore {
     }
 
     private func updateOpenStores(for session: Session) {
-        for store in openStores.values where store.sessionID == session.id {
+        guard let id = session.id else { return }
+        sessionSnapshots[id] = jsonObject(session)
+        for store in openStores.values where store.sessionID == id {
             store.updateSession(session)
         }
     }
@@ -363,9 +371,18 @@ public final class AppStore {
 
     private func refetchStoresForCounts(_ counts: [String: Int]) {
         for store in openStores.values {
-            guard let count = counts[store.sessionID], count > store.entries.count else { continue }
-            Task { try? await store.refetchTail() }
+            guard let count = counts[store.sessionID], count > store.totalEntries else { continue }
+            refetchStoreGap(store, missing: count - store.totalEntries)
         }
+    }
+
+    static func gapFetchLimit(missing: Int) -> Int {
+        min(400, max(1, missing + 20))
+    }
+
+    private func refetchStoreGap(_ store: SessionStore, missing: Int) {
+        let limit = Self.gapFetchLimit(missing: missing)
+        Task { try? await store.refetchGap(limit: limit) }
     }
 
     private func openStore(sessionID: String, agentID: String?) -> SessionStore? {
@@ -405,19 +422,29 @@ public final class AppStore {
     private func scheduleCacheWrite() {
         guard let latestBootstrap else { return }
         let transcripts = Dictionary(uniqueKeysWithValues: openStores.map { ($0.key, Array($0.value.entries.suffix(400))) })
-        let state = DiskCacheState(bootstrap: Bootstrap(apiVersion: latestBootstrap.apiVersion, daemon: daemon, capabilities: latestBootstrap.capabilities, limits: latestBootstrap.limits, state: StateSnapshot(sessions: Array(sessions.values), entries: latestBootstrap.state?.entries, device: latestBootstrap.state?.device)), transcripts: transcripts, updatedAt: lastUpdated ?? clock.now)
+        let state = DiskCacheState(bootstrap: Bootstrap(apiVersion: latestBootstrap.apiVersion, daemon: daemon, capabilities: latestBootstrap.capabilities, limits: latestBootstrap.limits, state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device)), transcripts: transcripts, updatedAt: lastUpdated ?? clock.now)
         Task { await cache.save(state) }
     }
 
     private func handleConnectionError(_ error: Error) {
-        let message: String
         if let apiError = error as? APIError, apiError == .unauthorized {
-            message = "Authentication required"
-        } else {
-            message = error.localizedDescription
+            connection = .unauthorized
+            started = false
+            return
         }
+        let message = error.localizedDescription
         connection = .offline(lastUpdated: lastUpdated, error: message)
         started = false
+    }
+
+    private func jsonObject<T: Encodable>(_ value: T) -> [String: JSONValue] {
+        guard let data = try? JSONEncoder.ccKit().encode(value), let object = try? JSONDecoder.ccKit().decode([String: JSONValue].self, from: data) else { return [:] }
+        return object
+    }
+
+    private func decodeSession(_ object: [String: JSONValue]) -> Session? {
+        guard let data = try? JSONEncoder.ccKit().encode(JSONValue.object(object)) else { return nil }
+        return try? JSONDecoder.ccKit().decode(Session.self, from: data)
     }
 
     private func storeKey(sessionID: String, agentID: String?) -> String {
