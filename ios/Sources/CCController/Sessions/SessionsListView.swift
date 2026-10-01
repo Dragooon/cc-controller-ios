@@ -26,6 +26,10 @@ struct SessionsListView: View {
     let onDeny: (Approval) -> Void
     let onRetry: () -> Void
     let onSettings: () -> Void
+    let onRefresh: () async -> Void
+    let onInterrupt: (Session) -> Void
+    let onSetApprovalMode: (Session, ApprovalMode) -> Void
+    let onCopySessionID: (Session) -> Void
 
     @State private var searchText = ""
 
@@ -40,7 +44,11 @@ struct SessionsListView: View {
         onAllow: @escaping (Approval) -> Void = { _ in },
         onDeny: @escaping (Approval) -> Void = { _ in },
         onRetry: @escaping () -> Void = {},
-        onSettings: @escaping () -> Void = {}
+        onSettings: @escaping () -> Void = {},
+        onRefresh: @escaping () async -> Void = {},
+        onInterrupt: @escaping (Session) -> Void = { _ in },
+        onSetApprovalMode: @escaping (Session, ApprovalMode) -> Void = { _, _ in },
+        onCopySessionID: @escaping (Session) -> Void = { _ in }
     ) {
         self.sessions = sessions
         self.approvals = approvals
@@ -53,6 +61,10 @@ struct SessionsListView: View {
         self.onDeny = onDeny
         self.onRetry = onRetry
         self.onSettings = onSettings
+        self.onRefresh = onRefresh
+        self.onInterrupt = onInterrupt
+        self.onSetApprovalMode = onSetApprovalMode
+        self.onCopySessionID = onCopySessionID
     }
 
     private var filteredSessions: [Session] {
@@ -69,7 +81,7 @@ struct SessionsListView: View {
     private var idle: [Session] { filteredSessions.filter { $0.state == .idle } }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             list
                 .navigationTitle("Sessions")
                 .navigationSubtitle(subtitle ?? "")
@@ -83,6 +95,7 @@ struct SessionsListView: View {
                 }
                 .searchable(text: $searchText, prompt: "Search sessions")
                 .searchToolbarBehavior(.minimize)
+                .refreshable { await onRefresh() }
                 .safeAreaBar(edge: .top, spacing: 8) {
                     if case .live = connection {
                         EmptyView()
@@ -90,8 +103,6 @@ struct SessionsListView: View {
                         ConnectionCapsule(connection: connection, now: now, onRetry: onRetry)
                     }
                 }
-        } detail: {
-            EmptyView()
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -131,7 +142,10 @@ struct SessionsListView: View {
                     dimmed: connection.isFrozen,
                     onOpen: { onOpen(session) },
                     onAllow: onAllow,
-                    onDeny: onDeny
+                    onDeny: onDeny,
+                    onInterrupt: { onInterrupt(session) },
+                    onSetApprovalMode: { mode in onSetApprovalMode(session, mode) },
+                    onCopySessionID: { onCopySessionID(session) }
                 )
                 .listRowBackground(Color.ccCard)
                 .listRowSeparatorTint(.ccSeparator)
@@ -209,6 +223,9 @@ private struct SessionRow: View {
     let onOpen: () -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
+    let onInterrupt: () -> Void
+    let onSetApprovalMode: (ApprovalMode) -> Void
+    let onCopySessionID: () -> Void
 
     @ScaledMetric(relativeTo: .title3) private var glyphWidth = 28
 
@@ -224,6 +241,7 @@ private struct SessionRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
 
             if let approval {
                 ApprovalCard(
@@ -239,13 +257,15 @@ private struct SessionRow: View {
         .padding(.vertical, 7)
         .contextMenu {
             Button("Open", action: onOpen)
-            Button("Interrupt", role: .destructive) {}
-            Menu("Approvals mode") {
-                Button("Auto") {}
-                Button("Remote") {}
-                Button("Terminal") {}
+            if session.tmuxPane != nil {
+                Button("Interrupt", role: .destructive, action: onInterrupt)
             }
-            Button("Copy session ID") {}
+            Menu("Approvals mode") {
+                Button("Auto") { onSetApprovalMode(.auto) }
+                Button("Remote") { onSetApprovalMode(.remote) }
+                Button("Terminal") { onSetApprovalMode(.terminal) }
+            }
+            Button("Copy session ID", action: onCopySessionID)
         }
     }
 }
