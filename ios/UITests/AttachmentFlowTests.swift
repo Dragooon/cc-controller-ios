@@ -62,13 +62,13 @@ final class AttachmentFlowTests: XCTestCase {
         let app = launchFixture(with: slowPath.path)
         defer {
             audit(app, name: "attachment-upload-waiting")
-            addScreenshot(named: "attachment-upload-waiting")
             app.terminate()
         }
         openLongSession(in: app)
 
         let waiting = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'waiting for server'")).firstMatch
         XCTAssertTrue(waiting.waitForExistence(timeout: 3), "Upload did not reach the all-bytes-sent waiting state")
+        addScreenshot(named: "attachment-upload-waiting")
     }
 
     func testTooLargeAttachmentShowsInlineRetryCaption() throws {
