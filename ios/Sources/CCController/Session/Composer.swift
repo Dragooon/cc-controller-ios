@@ -34,6 +34,9 @@ struct ComposerView: View {
     let onSendNow: () -> Void
     let glassNamespace: Namespace.ID?
 
+    @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
+    @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
+
     init(
         text: Binding<String>,
         isFocused: FocusState<Bool>.Binding,
@@ -100,11 +103,13 @@ struct ComposerView: View {
             Button("Files", systemImage: "folder") {}
         } label: {
             Image(systemName: "plus")
-                .font(.body.weight(.medium))
-                .frame(width: 44, height: 44)
+                .font(.body.weight(.semibold))
+                .frame(width: visibleCircleSize, height: visibleCircleSize)
+                .glassEffect(.regular.interactive(), in: .circle)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
+        .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+        .contentShape(Rectangle())
         .accessibilityLabel("Add attachment")
     }
 
@@ -115,22 +120,26 @@ struct ComposerView: View {
                 .foregroundStyle(.ccLabel)
                 .lineLimit(1)
                 .padding(.horizontal, 11)
-                .frame(minHeight: 32)
+                .frame(height: visibleChipHeight)
                 .glassEffect(.regular.interactive(), in: .capsule)
         }
         .buttonStyle(.plain)
+        .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
+        .contentShape(Rectangle())
         .accessibilityLabel("Model \(configuration.modelName)")
     }
 
     private var stopButton: some View {
         Button(action: onStop) {
             Image(systemName: "stop.fill")
-                .font(.footnote.weight(.bold))
-                .frame(width: 44, height: 44)
+                .font(.body.weight(.semibold))
+                .frame(width: visibleCircleSize, height: visibleCircleSize)
+                .foregroundStyle(.ccLabel)
+                .glassEffect(.regular.interactive(), in: .circle)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .tint(.ccAccent)
+        .buttonStyle(.plain)
+        .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+        .contentShape(Rectangle())
         .accessibilityLabel("Stop session")
     }
 
@@ -138,12 +147,14 @@ struct ComposerView: View {
     private var sendButton: some View {
         let button = Button(action: onSend) {
             Image(systemName: "arrow.up")
-                .font(.body.weight(.bold))
-                .frame(width: 44, height: 44)
+                .font(.body.weight(.semibold))
+                .frame(width: visibleCircleSize, height: visibleCircleSize)
+                .foregroundStyle(.white)
+                .glassEffect(.regular.tint(.ccAccent).interactive(), in: .circle)
         }
-        .buttonStyle(.glassProminent)
-        .buttonBorderShape(.circle)
-        .tint(.ccAccent)
+        .buttonStyle(.plain)
+        .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+        .contentShape(Rectangle())
         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")
 
@@ -154,5 +165,13 @@ struct ComposerView: View {
         } else {
             button
         }
+    }
+
+    private var visibleCircleSize: CGFloat {
+        min(circleSize, 48)
+    }
+
+    private var visibleChipHeight: CGFloat {
+        chipHeight
     }
 }

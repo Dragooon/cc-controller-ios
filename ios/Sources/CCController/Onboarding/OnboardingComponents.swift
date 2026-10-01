@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let onboardingPrimaryHeight: CGFloat = 50
+
 struct OnboardingPage<Content: View>: View {
     let step: String
     let buttonTitle: String?
@@ -36,16 +38,21 @@ struct OnboardingPage<Content: View>: View {
             if let buttonTitle {
                 Button(action: action) {
                     Text(buttonTitle)
-                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(.white)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: onboardingPrimaryHeight, maxHeight: onboardingPrimaryHeight)
+                        .glassEffect(.regular.tint(.ccAccent).interactive(), in: .capsule)
                 }
-                .buttonStyle(.glassProminent)
-                .tint(.ccAccent)
-                .controlSize(.large)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: onboardingPrimaryHeight)
+                .contentShape(Rectangle())
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
             } else {
                 Button("Start over", action: action)
                     .foregroundStyle(.ccSecondary)
+                    .buttonStyle(.plain)
+                    .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
+                    .contentShape(Rectangle())
                     .padding(.bottom, 20)
             }
         }

@@ -66,6 +66,7 @@ private struct ApprovalBottomStackView: View {
     let maxHeight: CGFloat
 
     @Namespace private var glassNamespace
+    @ScaledMetric(relativeTo: .body) private var waitingRowHeight = 36
 
     private var primary: Approval { approvals[0] }
 
@@ -95,11 +96,13 @@ private struct ApprovalBottomStackView: View {
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.ccLabel)
                         .padding(.horizontal, 14)
-                        .frame(minHeight: 38)
+                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleWaitingRowHeight, maxHeight: visibleWaitingRowHeight)
+                        .glassEffect(.regular.interactive(), in: .capsule)
                     }
                     .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+                    .contentShape(Rectangle())
                     .accessibilityLabel(waiting)
                 }
             }
@@ -109,8 +112,12 @@ private struct ApprovalBottomStackView: View {
         }
     }
 
+    private var visibleWaitingRowHeight: CGFloat {
+        min(waitingRowHeight, 44)
+    }
+
     private var cardMaxHeight: CGFloat {
-        let waitingHeight: CGFloat = moreWaitingText(count: max(0, approvals.count - 1)) == nil ? 0 : 38
+        let waitingHeight: CGFloat = moreWaitingText(count: max(0, approvals.count - 1)) == nil ? 0 : visibleWaitingRowHeight
         let waitingSpacing: CGFloat = waitingHeight == 0 ? 0 : 8
         return max(0, maxHeight - 8 - 4 - waitingHeight - waitingSpacing)
     }

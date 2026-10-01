@@ -86,6 +86,8 @@ struct ApprovalCard: View {
     let glassNamespace: Namespace.ID?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var fullActionHeight = CCMetrics.actionHeight
+    @ScaledMetric(relativeTo: .body) private var compactActionHeight = CCMetrics.compactActionHeight
 
     init(
         approval: Approval,
@@ -306,13 +308,13 @@ struct ApprovalCard: View {
             } else if approval.mode == .remote {
                 Button(action: onAllowSession) {
                     Text("Allow for this session")
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
                         .contentShape(Rectangle())
                 }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.ccAccent)
                 .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
             }
         }
     }
@@ -320,23 +322,35 @@ struct ApprovalCard: View {
     private var fullDenyButton: some View {
         Button(role: .destructive, action: onDeny) {
             Text("Deny")
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(.ccRed)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleFullActionHeight, maxHeight: visibleFullActionHeight)
+                .glassEffect(.regular.interactive(), in: .capsule)
         }
-        .buttonStyle(.glass)
-        .tint(.ccRed)
-        .controlSize(.large)
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+        .contentShape(Rectangle())
         .accessibilityLabel(isTerminal ? "Deny in the terminal" : "Deny")
     }
 
     private var fullAllowButton: some View {
         Button(action: onAllow) {
             Text("Allow")
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(.white)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleFullActionHeight, maxHeight: visibleFullActionHeight)
+                .glassEffect(.regular.tint(.ccAccent).interactive(), in: .capsule)
         }
-        .buttonStyle(.glassProminent)
-        .tint(.ccAccent)
-        .controlSize(.large)
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+        .contentShape(Rectangle())
         .accessibilityLabel(isTerminal ? "Allow in the terminal" : "Allow")
+    }
+
+    private var visibleFullActionHeight: CGFloat {
+        min(fullActionHeight, 56)
+    }
+
+    private var visibleCompactActionHeight: CGFloat {
+        min(compactActionHeight, 44)
     }
 
     private var isTerminal: Bool {
@@ -440,21 +454,25 @@ struct ApprovalCard: View {
     private var denyButton: some View {
         Button(action: onDeny) {
             Text("Deny")
-                .frame(maxWidth: .infinity)
+                .foregroundStyle(.ccRed)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleCompactActionHeight, maxHeight: visibleCompactActionHeight)
+                .glassEffect(.regular.interactive(), in: .capsule)
         }
-        .buttonStyle(.glass)
-        .tint(.ccLabel)
-        .controlSize(.large)
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+        .contentShape(Rectangle())
     }
 
     private var allowButton: some View {
         Button(action: onAllow) {
             Text("Allow")
-                .frame(maxWidth: .infinity)
+                .foregroundStyle(.white)
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleCompactActionHeight, maxHeight: visibleCompactActionHeight)
+                .glassEffect(.regular.tint(.ccAccent).interactive(), in: .capsule)
         }
-        .buttonStyle(.glassProminent)
-        .tint(.ccAccent)
-        .controlSize(.large)
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+        .contentShape(Rectangle())
     }
 
     private static let sydney = TimeZone(identifier: "Australia/Sydney")!
