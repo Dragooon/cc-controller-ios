@@ -4,6 +4,7 @@ import SwiftUI
 struct SessionTranscriptView: View {
     let turns: [Turn]
     let now: Date
+    let subagents: [Subagent]
     let showsComposer: Bool
     let showsWorkedFooter: Bool
     let bottomStackConfiguration: BottomStackConfiguration?
@@ -19,6 +20,7 @@ struct SessionTranscriptView: View {
         showsWorkedFooter: Bool = true,
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         activityFooter: CCKit.ActivityFooter? = nil,
+        subagents: [Subagent] = [],
         onTool: @escaping (ToolEntry) -> Void = { _ in },
         onSubagent: @escaping (SubagentEntry) -> Void = { _ in },
         scrollAnchor: UnitPoint = .top
@@ -29,6 +31,7 @@ struct SessionTranscriptView: View {
         self.showsWorkedFooter = showsWorkedFooter
         self.bottomStackConfiguration = bottomStackConfiguration
         self.activityFooter = activityFooter
+        self.subagents = subagents
         self.onTool = onTool
         self.onSubagent = onSubagent
         self.scrollAnchor = scrollAnchor
@@ -70,6 +73,7 @@ struct SessionTranscriptView: View {
             TranscriptTurnView(
                 turn: turn,
                 now: now,
+                subagents: subagents,
                 showsWorkedFooter: showsWorkedFooter,
                 activityFooter: turn.id == turns.last?.id ? activityFooter : nil,
                 onTool: onTool,
@@ -83,6 +87,7 @@ struct SessionTranscriptView: View {
 struct TranscriptTurnView: View {
     let turn: Turn
     let now: Date
+    let subagents: [Subagent]
     let showsWorkedFooter: Bool
     let activityFooter: CCKit.ActivityFooter?
     let onTool: (ToolEntry) -> Void
@@ -91,6 +96,7 @@ struct TranscriptTurnView: View {
     init(
         turn: Turn,
         now: Date,
+        subagents: [Subagent] = [],
         showsWorkedFooter: Bool,
         activityFooter: CCKit.ActivityFooter? = nil,
         onTool: @escaping (ToolEntry) -> Void,
@@ -98,6 +104,7 @@ struct TranscriptTurnView: View {
     ) {
         self.turn = turn
         self.now = now
+        self.subagents = subagents
         self.showsWorkedFooter = showsWorkedFooter
         self.activityFooter = activityFooter
         self.onTool = onTool
@@ -111,7 +118,7 @@ struct TranscriptTurnView: View {
             }
 
             ForEach(turn.items) { item in
-                TurnItemView(item: item, now: now, onTool: onTool, onSubagent: onSubagent)
+                TurnItemView(item: item, now: now, subagents: subagents, onTool: onTool, onSubagent: onSubagent)
             }
 
             if showsWorkedFooter && turn.hasWorkedFooter {
@@ -129,8 +136,23 @@ struct TranscriptTurnView: View {
 struct TurnItemView: View {
     let item: TurnItem
     let now: Date
+    let subagents: [Subagent]
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+
+    init(
+        item: TurnItem,
+        now: Date,
+        subagents: [Subagent] = [],
+        onTool: @escaping (ToolEntry) -> Void,
+        onSubagent: @escaping (SubagentEntry) -> Void
+    ) {
+        self.item = item
+        self.now = now
+        self.subagents = subagents
+        self.onTool = onTool
+        self.onSubagent = onSubagent
+    }
 
     @ViewBuilder
     var body: some View {
@@ -144,7 +166,7 @@ struct TurnItemView: View {
         case .subagentResult(let entry):
             SubagentResultView(entry: entry)
         case .sendMessage(let entry):
-            SendMessageView(entry: entry)
+            SendMessageView(entry: entry, subagents: subagents)
         case .decision(let entry):
             DecisionCaption(entry: entry)
         case .interrupt:

@@ -52,6 +52,11 @@ final class NativePresentationTests: XCTestCase {
         )
     }
 
+    func testContextUsageOmitsDaemonPlaceholderZeros() {
+        XCTAssertEqual(formatContextUsage(Usage(contextTokens: 0, contextWindow: 200_000, contextPercent: 0, messages: 0)), "")
+        XCTAssertEqual(sessionDetailSubtitle(Session(state: .idle, usage: Usage(contextPercent: 0))), "idle")
+    }
+
     func testSessionDetailSubtitleIncludesAgentCount() {
         let session = Session(
             state: .working,

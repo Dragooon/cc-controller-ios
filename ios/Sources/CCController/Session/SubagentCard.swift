@@ -133,11 +133,19 @@ struct SubagentResultView: View {
 
 struct SendMessageView: View {
     let entry: ToolEntry
+    let subagents: [Subagent]
+
+    init(entry: ToolEntry, subagents: [Subagent] = []) {
+        self.entry = entry
+        self.subagents = subagents
+    }
 
     private var messageText: String {
-        let formatted = formatSendMessage(args: entry.args?.objectValue ?? [:])
-        guard formatted.hasPrefix("→") else { return formatted }
-        return String(formatted.dropFirst()).trimmingCharacters(in: .whitespaces)
+        let args = entry.args?.objectValue ?? [:]
+        let rawTarget = args["to"]?.stringValue ?? args["recipient"]?.stringValue ?? ""
+        let target = resolveSendMessageTarget(rawTarget, subagents: subagents)
+        let summary = sendMessageSummary(args: args)
+        return [target, summary].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     var body: some View {

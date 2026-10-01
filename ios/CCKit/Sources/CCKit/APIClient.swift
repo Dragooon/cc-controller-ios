@@ -109,6 +109,7 @@ public actor APIClient {
         var request = URLRequest(url: endpoint("/api/events"))
         request.httpMethod = "GET"
         applyHeaders(to: &request)
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         return request
     }
 

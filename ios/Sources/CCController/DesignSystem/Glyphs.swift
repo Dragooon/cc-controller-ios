@@ -452,13 +452,16 @@ struct ApprovalCard: View {
     }
 
     private var denyButton: some View {
-        Button(action: onDeny) {
+        Button(role: .destructive, action: onDeny) {
             Text("Deny")
-                .foregroundStyle(.ccRed)
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleCompactActionHeight, maxHeight: visibleCompactActionHeight)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                .foregroundColor(.ccRed)
+                .foregroundStyle(.ccRed)
         }
+        .tint(.ccRed)
         .buttonStyle(.plain)
+        .foregroundStyle(.ccRed)
         .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
         .contentShape(Rectangle())
     }

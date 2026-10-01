@@ -339,7 +339,7 @@ public func formatContextUsage(_ usage: Usage? = nil, expanded: Bool = false) ->
     if expanded, let contextTokens = usage.contextTokens, let contextWindow = usage.contextWindow {
         return "ctx \(formatTokenCount(contextTokens)) / \(formatTokenCount(contextWindow))"
     }
-    guard let percent = usage.contextPercent else { return "" }
+    guard let percent = usage.contextPercent, percent.rounded() > 0 else { return "" }
     return "ctx \(formatTokenCount(Double(percent.rounded())))%"
 }
 
@@ -399,8 +399,10 @@ public func sendMessageSummary(args: [String: JSONValue] = [:]) -> String {
 }
 
 public func formatSendMessage(args: [String: JSONValue] = [:], subagents: [Subagent] = []) -> String {
-    let target = resolveSendMessageTarget(args["to"]?.stringValue, subagents: subagents)
+    let rawTarget = args["to"]?.stringValue ?? args["recipient"]?.stringValue
+    let target = resolveSendMessageTarget(rawTarget, subagents: subagents)
     let summary = sendMessageSummary(args: args)
+    if target.isEmpty { return summary.isEmpty ? "→" : "→ \(summary)" }
     return summary.isEmpty ? "→ \(target)" : "→ \(target) · \(summary)"
 }
 

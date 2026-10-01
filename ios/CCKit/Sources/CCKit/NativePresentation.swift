@@ -49,8 +49,9 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
         parts.append("\(count) agent\(count == 1 ? "" : "s")")
     }
 
-    if let percent = session.usage?.contextPercent {
-        parts.append("ctx \(formatTokenCount(Double(percent.rounded())))%")
+    let context = formatContextUsage(session.usage)
+    if !context.isEmpty {
+        parts.append(context)
     }
 
     return parts.joined(separator: " · ")

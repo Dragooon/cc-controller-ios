@@ -351,9 +351,17 @@ private struct SessionText: View {
     }
 
     private var metaStateText: String {
-        [sessionStateSegment(session), formatContextUsage(session.usage)]
+        [sessionStateSegment(session), contextUsageText]
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
+    }
+
+    private var contextUsageText: String {
+        guard let usage = session.usage,
+              (usage.messages ?? 0) > 0 || (usage.contextTokens ?? 0) > 0 || (usage.contextPercent ?? 0).rounded() > 0 else {
+            return ""
+        }
+        return formatContextUsage(usage)
     }
 
     private var shouldWrapMeta: Bool {

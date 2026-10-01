@@ -25,6 +25,17 @@ final class PresentationParityTests: XCTestCase {
         }
     }
 
+    func testSendMessageAcceptsFixtureRecipientAndOmitsEmptyTargetSeparator() {
+        XCTAssertEqual(
+            formatSendMessage(args: ["recipient": .string("engineer"), "message": .string("Polish four defects")]),
+            "→ engineer · Polish four defects"
+        )
+        XCTAssertEqual(
+            formatSendMessage(args: ["message": .string("Please polish the evidence summary")]),
+            "→ Please polish the evidence summary"
+        )
+    }
+
     func testToolTallyUsesNativeSeparator() {
         // app/app.js:561-566 defines the web tally; native intentionally uses one middle dot.
         let run = ToolRun(entries: [

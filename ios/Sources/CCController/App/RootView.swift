@@ -14,7 +14,6 @@ struct RootView: View {
         }
         .tint(.ccAccent)
         .onAppear {
-            model.startStoreIfNeeded()
             model.scenePhaseDidChange(scenePhase)
         }
         .onChange(of: model.phase) { _, _ in

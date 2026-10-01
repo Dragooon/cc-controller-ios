@@ -30,7 +30,11 @@ struct SessionScreen: View {
                 subtitle: sessionDetailSubtitle(sessionStore.session, now: now)
             ) {
                 if sessionStore.isLoaded {
-                    SessionTranscriptView(turns: sessionStore.turns, now: now)
+                    SessionTranscriptView(
+                        turns: sessionStore.turns,
+                        now: now,
+                        subagents: sessionStore.session.subagents ?? []
+                    )
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -52,7 +56,7 @@ struct SessionScreen: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
-            .navigationTitle(name)
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {

@@ -22,6 +22,14 @@ final class APIClientTests: XCTestCase {
         XCTAssertNotNil(signal)
     }
 
+    func testEventRequestUsesSSEAcceptAndBearerHeaders() async throws {
+        let client = makeClient(token: "token")
+        let request = await client.eventRequest()
+        XCTAssertEqual(request.url?.path, "/api/events")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "text/event-stream")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
+    }
+
     func testMessageNowAndMultipartUpload() async throws {
         var bodies: [Data] = []
         var contentTypes: [String?] = []
