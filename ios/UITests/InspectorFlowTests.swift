@@ -45,6 +45,7 @@ final class InspectorFlowTests: XCTestCase {
             app.buttons["subagent-card-agent-done"].waitForExistence(timeout: 15),
             "Engineer subagent card was not retained after returning"
         )
+        attach(named: "after-back")
     }
 
     func testInspectorSubagentPush() throws {
@@ -114,10 +115,6 @@ final class InspectorFlowTests: XCTestCase {
         app.launchArguments = ["-CCServer", environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"]
         app.launchEnvironment["CCBearer"] = environment["TEST_RUNNER_BEARER"] ?? ""
         app.launch()
-        let sheetGrabber = app.buttons["Sheet Grabber"]
-        if sheetGrabber.waitForExistence(timeout: 15) {
-            sheetGrabber.swipeDown()
-        }
         return app
     }
 
@@ -126,7 +123,7 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff session row did not load")
         staffRow.tap()
         XCTAssertTrue(
-            app.buttons["session-info"].waitForExistence(timeout: 120),
+            app.buttons["session-info"].waitForExistence(timeout: 30),
             "Staff session did not open"
         )
     }
@@ -141,8 +138,11 @@ final class InspectorFlowTests: XCTestCase {
     }
 
     private func reveal(_ element: XCUIElement, in scrollView: XCUIElement, above bottomStack: XCUIElement) -> Bool {
-        for _ in 0..<8 {
-            if element.exists && element.isHittable && element.frame.maxY <= bottomStack.frame.minY {
+        for index in 0..<8 {
+            let timeout: TimeInterval = index == 0 ? 30 : 1
+            if element.waitForExistence(timeout: timeout),
+               element.isHittable,
+               element.frame.maxY <= bottomStack.frame.minY {
                 return true
             }
             scrollView.swipeDown()

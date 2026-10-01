@@ -21,6 +21,7 @@ struct SessionScreen: View {
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
     @State private var inspectorPresented = false
+    @State private var inspectorPresentationReady = false
     @State private var destination: SessionDestination?
     @State private var pendingInspectorDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
@@ -30,8 +31,10 @@ struct SessionScreen: View {
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            screen(now: context.date)
+        presentationContent {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                screen(now: context.date)
+            }
         }
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
@@ -41,18 +44,15 @@ struct SessionScreen: View {
         .onChange(of: approvalRequestIDs) { _, requestIDs in
             announceNewApprovals(requestIDs)
         }
+        .onAppear {
+            inspectorPresented = false
+            inspectorPresentationReady = false
+            DispatchQueue.main.async {
+                inspectorPresentationReady = true
+            }
+        }
         .onChange(of: sessionID) { _, _ in
             knownApprovalIDs = []
-        }
-        .sheet(isPresented: compactInspectorBinding, onDismiss: presentPendingInspectorDestination) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                inspectorContent(now: context.date)
-            }
-        }
-        .inspector(isPresented: regularInspectorBinding) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                inspectorContent(now: context.date)
-            }
         }
         .navigationDestination(item: $destination) { destination in
             SubagentScreen(
@@ -75,8 +75,42 @@ struct SessionScreen: View {
             }
         }
         .onDisappear {
+            inspectorPresented = false
+            inspectorPresentationReady = false
             guard destination == nil else { return }
             model.store.closeSession(sessionID)
+        }
+    }
+
+    @ViewBuilder
+    private func presentationContent<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if inspectorPresentationReady {
+            inspectorPresentation(content: content)
+        } else {
+            content()
+        }
+    }
+
+    @ViewBuilder
+    private func inspectorPresentation<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if isCompact {
+            content()
+                .sheet(isPresented: $inspectorPresented, onDismiss: presentPendingInspectorDestination) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        inspectorContent(now: context.date)
+                    }
+                }
+        } else {
+            content()
+                .inspector(isPresented: $inspectorPresented) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        inspectorContent(now: context.date)
+                    }
+                }
         }
     }
 
@@ -341,24 +375,6 @@ struct SessionScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.ccBackground)
         }
-    }
-
-    private var compactInspectorBinding: Binding<Bool> {
-        Binding(
-            get: { inspectorPresented && isCompact },
-            set: { presented in
-                if !presented { inspectorPresented = false }
-            }
-        )
-    }
-
-    private var regularInspectorBinding: Binding<Bool> {
-        Binding(
-            get: { inspectorPresented && !isCompact },
-            set: { presented in
-                if !presented { inspectorPresented = false }
-            }
-        )
     }
 
     private func setApprovalMode(_ mode: ApprovalMode) {
