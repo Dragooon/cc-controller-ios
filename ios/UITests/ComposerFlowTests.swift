@@ -66,10 +66,11 @@ final class ComposerFlowTests: XCTestCase {
         )
         let initialHeight = field.frame.height
         let composer = app.otherElements["Message composer"]
-        let initialComposerHeight = composer.frame.height
+        let unfocusedComposerHeight = composer.frame.height
 
         let marker = "dune-part-three-imax-tickets"
         field.tap()
+        let focusedComposerHeight = composer.frame.height
         field.typeText(marker)
         let send = app.buttons["composer-queue"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Queue button did not load while working")
@@ -81,9 +82,9 @@ final class ComposerFlowTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(1.4))
         let settledComposerHeight = composer.frame.height
         attach(named: "composer-queued-1.5s")
-        print("composer queue timing glassInitial=\(initialComposerHeight) glassAt0.1=\(earlyComposerHeight) glassAt1.5=\(settledComposerHeight)")
-        XCTAssertLessThanOrEqual(abs(earlyComposerHeight - initialComposerHeight), 2, "Composer glass grew during queue reset: initial \(initialComposerHeight), at 0.1s \(earlyComposerHeight)")
-        XCTAssertLessThanOrEqual(abs(settledComposerHeight - initialComposerHeight), 2, "Composer glass did not settle: initial \(initialComposerHeight), at 1.5s \(settledComposerHeight)")
+        print("composer queue timing glassUnfocused=\(unfocusedComposerHeight) glassFocused=\(focusedComposerHeight) glassAt0.1=\(earlyComposerHeight) glassAt1.5=\(settledComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(earlyComposerHeight - focusedComposerHeight), 2, "Composer glass grew during queue reset: focused \(focusedComposerHeight), at 0.1s \(earlyComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(settledComposerHeight - focusedComposerHeight), 2, "Composer glass did not settle: focused \(focusedComposerHeight), at 1.5s \(settledComposerHeight)")
 
         XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
         XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 15), "Queued caption did not render")
@@ -93,8 +94,8 @@ final class ComposerFlowTests: XCTestCase {
         let resetHeight = resetField.frame.height
         XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height while queueing: initial \(initialHeight), reset \(resetHeight)")
         let resetComposerHeight = composer.frame.height
-        print("composer queue heights fieldInitial=\(initialHeight) fieldReset=\(resetHeight) glassInitial=\(initialComposerHeight) glassReset=\(resetComposerHeight)")
-        XCTAssertLessThanOrEqual(abs(resetComposerHeight - initialComposerHeight), 2, "Composer glass did not reset height while queueing: initial \(initialComposerHeight), reset \(resetComposerHeight)")
+        print("composer queue heights fieldInitial=\(initialHeight) fieldReset=\(resetHeight) glassFocused=\(focusedComposerHeight) glassReset=\(resetComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(resetComposerHeight - focusedComposerHeight), 2, "Composer glass did not reset height while queueing: focused \(focusedComposerHeight), reset \(resetComposerHeight)")
         let contextSubtitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "ctx 6%")).firstMatch
         XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 6%")
     }
