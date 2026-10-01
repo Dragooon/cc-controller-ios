@@ -20,6 +20,7 @@ struct SessionTranscriptView: View {
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
     @State private var newestIsVisible = true
+    @State private var topVisibleTurnID: Turn.ID?
     @State private var pagingError: String?
     @State private var transcriptHeight: CGFloat = 0
 
@@ -61,13 +62,16 @@ struct SessionTranscriptView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
-                    pagingRow(proxy: proxy)
+                    pagingRow
                     transcriptRows
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
+                .scrollTargetLayout()
             }
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .scrollPosition(id: $topVisibleTurnID, anchor: .top)
             .scrollDismissesKeyboard(.interactively)
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
@@ -76,7 +80,7 @@ struct SessionTranscriptView: View {
             }
             .background(.ccBackground)
             .onScrollGeometryChange(for: Bool.self) { geometry in
-                let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+                let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
                 return visibleBottom >= geometry.contentSize.height - 36
             } action: { _, isAtBottom in
                 newestIsVisible = isAtBottom
@@ -124,7 +128,7 @@ struct SessionTranscriptView: View {
     }
 
     @ViewBuilder
-    private func pagingRow(proxy: ScrollViewProxy) -> some View {
+    private var pagingRow: some View {
         if hasMoreEarlier || isLoadingEarlier {
             HStack {
                 if isLoadingEarlier {
@@ -136,7 +140,7 @@ struct SessionTranscriptView: View {
             .frame(height: 24)
             .id("transcript-paging-top")
             .onAppear {
-                loadEarlierIfNeeded(proxy: proxy)
+                loadEarlierIfNeeded()
             }
             .onDisappear {
                 didTriggerPaging = false
@@ -144,17 +148,14 @@ struct SessionTranscriptView: View {
         }
     }
 
-    private func loadEarlierIfNeeded(proxy: ScrollViewProxy) {
+    private func loadEarlierIfNeeded() {
         guard hasMoreEarlier, !isLoadingEarlier, !didTriggerPaging, let loadEarlier else { return }
+        topVisibleTurnID = turns.first?.id
         didTriggerPaging = true
         isLoadingEarlier = true
-        let anchorID = turns.first?.id
         Task { @MainActor in
             do {
                 try await loadEarlier()
-                if let anchorID {
-                    proxy.scrollTo(anchorID, anchor: .top)
-                }
             } catch {
                 pagingError = error.localizedDescription
             }

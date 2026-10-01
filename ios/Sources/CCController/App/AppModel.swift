@@ -43,6 +43,15 @@ final class AppModel {
         let credentials = KeychainCredentialStore()
         self.credentials = credentials
         let cacheDirectory = Self.cacheDirectory()
+        #if DEBUG
+        if arguments.contains("-CCResetCache"), FileManager.default.fileExists(atPath: cacheDirectory.path) {
+            do {
+                try FileManager.default.removeItem(at: cacheDirectory)
+            } catch {
+                assertionFailure("Could not reset fixture cache: \(error)")
+            }
+        }
+        #endif
         let auth = AuthSession(
             serverURL: serverURL,
             credentials: credentials,

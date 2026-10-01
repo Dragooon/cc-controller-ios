@@ -76,29 +76,94 @@ final class TranscriptFlowTests: XCTestCase {
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        let jump = app.buttons["Jump to latest"]
+        XCTAssertFalse(jump.exists, "Jump to latest is visible while the long session is bottom-anchored")
         let scrollView = app.scrollViews.firstMatch
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
 
-        let initialPromptCount = promptCount(in: app)
-        let older = app.staticTexts["Long-session prompt 100: inspect the next checkpoint."]
-        for _ in 0..<24 {
-            scrollView.swipeDown()
-            if older.exists || promptCount(in: app) > initialPromptCount {
+        let pagingTop = app.descendants(matching: .any).matching(identifier: "transcript-paging-top").firstMatch
+        let older = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
+        var sawJump = false
+        for _ in 0..<60 {
+            scrollView.swipeDown(velocity: .fast)
+            sawJump = sawJump || jump.exists
+            if pagingTop.exists || older.exists {
                 break
             }
         }
+        XCTAssertTrue(sawJump, "Jump to latest did not appear while paging through older history")
         XCTAssertTrue(
-            older.waitForExistence(timeout: 20) || promptCount(in: app) > initialPromptCount,
-            "Paging did not reveal older history or grow the loaded transcript"
+            pagingTop.exists || older.exists,
+            "Paging did not reach the top row or prompt 299"
+        )
+        XCTAssertTrue(
+            older.waitForExistence(timeout: 20),
+            "Paging did not load prompt 299 below the initial boundary of 300"
+        )
+
+        let initialPrompt = app.staticTexts["Long-session prompt 300: inspect the next checkpoint."]
+        XCTAssertTrue(initialPrompt.isHittable, "Initial prompt 300 is no longer visible after paging")
+        XCTAssertTrue(
+            scrollView.frame.contains(initialPrompt.frame),
+            "Initial prompt 300 is outside the transcript scroll view"
         )
         attach(named: "transcript-paging")
 
-        let jump = app.buttons["Jump to latest"]
         XCTAssertTrue(jump.waitForExistence(timeout: 10), "Jump to latest did not appear")
-        attach(named: "transcript-jump-to-latest")
         jump.tap()
-        XCTAssertTrue(newest.waitForExistence(timeout: 15), "Jump to latest did not reveal newest entry")
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 10), "Jump to latest did not disappear after tapping")
         XCTAssertTrue(newest.isHittable, "Jump to latest did not make newest entry visible")
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "Transcript composer did not load")
+        XCTAssertLessThanOrEqual(
+            newest.frame.maxY,
+            composer.frame.minY,
+            "Newest checkpoint is not above the composer"
+        )
+        attach(named: "transcript-jump-to-latest")
+    }
+
+    func testJumpHiddenOnShortSession() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "short-session-jump")
+            app.terminate()
+        }
+
+        let approvalSession = app.buttons["session-approval-flow-light-mode"]
+        XCTAssertTrue(approvalSession.waitForExistence(timeout: 75), "Approval fixture session did not load")
+        approvalSession.tap()
+
+        let transcript = app.staticTexts["The session is ready to ask the owner before running the verification command."]
+        XCTAssertTrue(transcript.waitForExistence(timeout: 20), "Short-session transcript did not load")
+        XCTAssertFalse(app.buttons["Jump to latest"].exists, "Jump to latest is visible for a fully visible short transcript")
+    }
+
+    func testJumpHiddenAfterLiveAppendAtBottom() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "live-append-jump")
+            app.terminate()
+        }
+
+        let liveRow = app.buttons["session-dune-part-three-imax-tickets"]
+        XCTAssertTrue(liveRow.waitForExistence(timeout: 15), "Dune session row did not load")
+        let workingPredicate = NSPredicate(format: "value == %@", "working")
+        let workingExpectation = XCTNSPredicateExpectation(predicate: workingPredicate, object: liveRow)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [workingExpectation], timeout: 45),
+            .completed,
+            "Live event did not change Dune session to working"
+        )
+        liveRow.tap()
+
+        let prompt = app.staticTexts["Find three good seats for Dune Part Three IMAX."]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 20), "Dune transcript did not load")
+        let workingStatus = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH[c] 'working '")
+        ).firstMatch
+        XCTAssertTrue(workingStatus.waitForExistence(timeout: 15), "Working Dune status did not load")
+        XCTAssertFalse(app.buttons["Jump to latest"].exists, "Jump to latest is visible after a live append at the bottom")
     }
 
     private func promptCount(in app: XCUIApplication) -> Int {
@@ -112,7 +177,7 @@ final class TranscriptFlowTests: XCTestCase {
         let server = environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"
         let bearer = environment["TEST_RUNNER_BEARER"] ?? ""
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", server]
+        app.launchArguments = ["-CCServer", server, "-CCResetCache"]
         app.launchEnvironment["CCBearer"] = bearer
         app.launch()
         return app
