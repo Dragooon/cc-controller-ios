@@ -25,7 +25,7 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(subagentNavigationBar.waitForExistence(timeout: 15), "Subagent screen did not load")
         XCTAssertTrue(subagentNavigationBar.buttons.element(boundBy: 0).exists, "Subagent back button did not load")
         attach(named: "subagent-pushed")
-        audit(app, name: "subagent-pushed")
+        audit(app: app, name: "subagent-pushed")
 
         subagentNavigationBar.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 15))
@@ -41,7 +41,7 @@ final class InspectorFlowTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
         attach(named: "inspector-medium")
-        audit(app, name: "inspector-medium")
+        audit(app: app, name: "inspector-medium")
 
         let picker = app.buttons["approval-mode-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 15), "Approval mode picker did not load")
@@ -57,7 +57,7 @@ final class InspectorFlowTests: XCTestCase {
         auto.tap()
         XCTAssertEqual(picker.value as? String, "Auto")
         attach(named: "inspector-auto")
-        audit(app, name: "inspector-auto")
+        audit(app: app, name: "inspector-auto")
 
         app.swipeDown()
         XCTAssertFalse(app.staticTexts["Status"].exists, "Inspector sheet did not close")
@@ -85,7 +85,7 @@ final class InspectorFlowTests: XCTestCase {
     private func audit(app: XCUIApplication, name: String) {
         do {
             try app.performAccessibilityAudit { issue in
-                auditLines.append("\(name): \(issue)")
+                self.auditLines.append("\(name): \(issue)")
                 return true
             }
         } catch {

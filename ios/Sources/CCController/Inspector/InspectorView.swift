@@ -244,7 +244,7 @@ struct InspectorView: View {
     @ViewBuilder
     private var actionsSection: some View {
         Section("Actions") {
-            if session.tmuxPane != nil {
+            if nonEmpty(session.tmuxPane) != nil {
                 Button {
                     isInterruptConfirmationPresented = true
                 } label: {

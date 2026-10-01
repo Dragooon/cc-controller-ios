@@ -180,6 +180,27 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(app.sessions["session-1"]?.mode)
     }
 
+    func testApprovalModeFailureRevertsOptimisticSession() async {
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/sessions/session-1/mode" {
+                return URLProtocolStub.json(500, body: Data("{\"error\":\"mode failed\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        var session = Self.session()
+        session.mode = .remote
+        app.apply(.state(StateSnapshot(sessions: [session], entries: ["session-1": 0])))
+
+        let result = await app.setApprovalMode(sessionID: "session-1", mode: .terminal)
+
+        guard case .failure(.server(status: 500, message: "mode failed")) = result else {
+            XCTFail("Mode failure was not surfaced as a server action error: \(result)")
+            return
+        }
+        XCTAssertEqual(app.sessions["session-1"]?.mode, .remote)
+    }
+
     func testApprovalEventAddsPendingApproval() {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
