@@ -22,6 +22,15 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15), "Transcript did not load")
         let bottomStack = app.descendants(matching: .any)["bottom-stack"]
         XCTAssertTrue(bottomStack.waitForExistence(timeout: 15), "Bottom stack did not load")
+        let staffDeny = app.buttons["approval-staff-account-exclusions-deny"]
+        XCTAssertTrue(staffDeny.waitForExistence(timeout: 15), "Staff approval deny button did not load")
+        staffDeny.tap()
+        let marker = "typed-nav-marker"
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 15), "Composer did not load")
+        composer.tap()
+        composer.typeText(marker)
+        XCTAssertEqual(composer.value as? String, marker)
         XCTAssertTrue(
             reveal(engineer, in: scrollView, above: bottomStack),
             "Engineer subagent card did not load above the bottom stack"
@@ -31,12 +40,6 @@ final class InspectorFlowTests: XCTestCase {
             bottomStack.frame.minY,
             "Engineer subagent card overlaps the bottom stack"
         )
-        let marker = "typed-nav-marker"
-        let composer = app.textFields["composer-text"]
-        XCTAssertTrue(composer.waitForExistence(timeout: 15), "Composer did not load")
-        composer.tap()
-        composer.typeText(marker)
-        XCTAssertEqual(composer.value as? String, marker)
         engineer.tap()
 
         let subagentNavigationBar = app.navigationBars["engineer"]
@@ -131,7 +134,7 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff session row did not load")
         staffRow.tap()
         XCTAssertTrue(
-            app.buttons["session-info"].waitForExistence(timeout: 30),
+            app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 30),
             "Staff session did not open"
         )
     }
