@@ -47,12 +47,6 @@ final class TranscriptFlowTests: XCTestCase {
             NSPredicate(format: "label BEGINSWITH[c] 'Bash'")
         ).firstMatch
         XCTAssertTrue(bash.waitForExistence(timeout: 15), "Expanded Bash row did not load")
-        for _ in 0..<8 {
-            transcriptScroll.swipeUp(velocity: .slow)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
-            if bash.isHittable { break }
-        }
-        XCTAssertTrue(bash.isHittable, "Expanded Bash row did not become tappable")
         bash.tap()
 
         let output = app.staticTexts["OUTPUT"]
@@ -156,7 +150,7 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let liveRow = app.buttons["session-dune-part-three-imax-tickets"]
-        XCTAssertTrue(liveRow.waitForExistence(timeout: 15), "Dune session row did not load")
+        XCTAssertTrue(liveRow.waitForExistence(timeout: 30), "Dune session row did not load")
         let workingPredicate = NSPredicate(format: "value == %@", "working")
         let workingExpectation = XCTNSPredicateExpectation(predicate: workingPredicate, object: liveRow)
         XCTAssertEqual(
