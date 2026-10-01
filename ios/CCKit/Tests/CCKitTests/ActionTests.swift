@@ -102,6 +102,20 @@ final class ActionTests: XCTestCase {
         XCTAssertTrue(app.queuedNotes(for: "s").isEmpty)
     }
 
+    func testSentNoteClearsWhenPromptArrives() async throws {
+        ActionURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true { return ActionURLProtocol.json(Data("{\"delivered\":true,\"queued\":false,\"route\":\"socket\"}".utf8)) }
+            return ActionURLProtocol.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [session()], entries: ["s": 0])))
+        _ = await app.send(text: "sent now", to: "s")
+        XCTAssertEqual(app.queuedNotes(for: "s"), [QueuedNote(text: "sent now")])
+        _ = app.openSession("s")
+        app.apply(.transcript(TranscriptEvent(sessionId: "s", entry: .prompt(PromptEntry(text: "sent now")))) )
+        XCTAssertTrue(app.queuedNotes(for: "s").isEmpty)
+    }
+
     func testLogoutStopsAndClearsState() async throws {
         ActionURLProtocol.handler = { request in
             if request.url?.path == "/api/auth/logout" { return ActionURLProtocol.json(Data("{\"loggedOut\":true}".utf8)) }

@@ -104,7 +104,7 @@ struct SessionScreen: View {
                             liveSession: model.store.sessions[sessionID],
                             transcriptEntries: sessionStore.entries
                         ),
-                        queuedNotes: model.store.queuedNotes(for: sessionID).filter(\.queued),
+                        queuedNotes: model.store.queuedNotes(for: sessionID),
                         subagents: sessionStore.session.subagents ?? [],
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
                         loadEarlier: { try await sessionStore.loadEarlier() },

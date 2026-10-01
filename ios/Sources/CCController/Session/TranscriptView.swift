@@ -83,6 +83,12 @@ struct SessionTranscriptView: View {
                 }
                 pagingAnchorID = nil
             }
+            .onChange(of: turns.count) { _, _ in
+                scrollToNewest(using: proxy)
+            }
+            .onChange(of: queuedNotes) { _, _ in
+                scrollToNewest(using: proxy)
+            }
             .background(.ccBackground)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
@@ -168,6 +174,19 @@ struct SessionTranscriptView: View {
         }
     }
 
+    private func scrollToNewest(using proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return
+            }
+            withAnimation(.snappy) {
+                proxy.scrollTo("transcript-bottom", anchor: .bottom)
+            }
+        }
+    }
+
     @ViewBuilder
     private var transcriptRows: some View {
         ForEach(turns) { turn in
@@ -186,25 +205,33 @@ struct SessionTranscriptView: View {
         }
 
         ForEach(Array(queuedNotes.enumerated()), id: \.offset) { _, note in
-            QueuedPromptView(text: note.text)
+            PendingPromptView(note: note)
         }
+
+        Color.clear
+            .frame(height: 1)
+            .id("transcript-bottom")
+            .accessibilityHidden(true)
     }
 }
 
-private struct QueuedPromptView: View {
-    let text: String
+private struct PendingPromptView: View {
+    let note: QueuedNote
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            PromptBubble(prompt: PromptEntry(text: text))
+            PromptBubble(prompt: PromptEntry(text: note.text))
                 .opacity(0.55)
-            Text("Queued")
-                .font(.caption)
-                .foregroundStyle(.ccSecondary)
+            if note.queued {
+                Text("Queued")
+                    .font(.caption)
+                    .foregroundStyle(.ccSecondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(text), Queued")
+        .accessibilityIdentifier("pending-prompt")
+        .accessibilityLabel(note.queued ? "\(note.text), Queued" : note.text)
     }
 }
 

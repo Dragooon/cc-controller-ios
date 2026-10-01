@@ -37,6 +37,11 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not load for an idle session")
         send.tap()
 
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        XCTAssertTrue(pending.waitForExistence(timeout: 2), "Sent marker did not appear as a pending prompt")
+        XCTAssertTrue(pending.label.contains(marker), "Pending bubble did not contain the sent marker")
+        let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
+
         let resetField = composerField(in: app)
         XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not reappear after send")
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after send")
@@ -45,8 +50,9 @@ final class ComposerFlowTests: XCTestCase {
         print("composer heights initial=\(initialHeight) wrapped=\(wrappedHeight ?? field.frame.height) reset=\(resetHeight)")
         resetField.typeText("f")
         XCTAssertEqual(resetField.value as? String, "f", "Composer did not retain keyboard focus after send")
-        let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
-        XCTAssertTrue(prompt.waitForExistence(timeout: 20), "Sent marker did not appear in the transcript")
+        XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
+        app.swipeUp()
+        XCTAssertTrue(prompt.waitForExistence(timeout: 15), "Delivered sent marker did not remain in the transcript")
         XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
     }
 
@@ -172,6 +178,15 @@ final class ComposerFlowTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+@MainActor
+private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "exists == false"),
+        object: element
+    )
+    return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
 }
 
 @MainActor
