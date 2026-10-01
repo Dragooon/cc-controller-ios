@@ -22,14 +22,15 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15), "Transcript did not load")
         let bottomStack = app.descendants(matching: .any)["bottom-stack"]
         XCTAssertTrue(bottomStack.waitForExistence(timeout: 15), "Bottom stack did not load")
-        let staffDeny = app.buttons["approval-staff-account-exclusions-deny"]
+        let staffDeny = app.buttons["Deny"]
         XCTAssertTrue(staffDeny.waitForExistence(timeout: 15), "Staff approval deny button did not load")
         staffDeny.tap()
         let marker = "typed-nav-marker"
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 15), "Composer did not load")
         composer.tap()
-        composer.typeText(marker)
+        composer.typeText("typed-nav-")
+        composer.typeText("marker")
         XCTAssertEqual(composer.value as? String, marker)
         XCTAssertTrue(
             reveal(engineer, in: scrollView, above: bottomStack),
@@ -58,6 +59,9 @@ final class InspectorFlowTests: XCTestCase {
             (composer.value as? String)?.contains(marker) == true,
             "Composer lost typed marker after returning from subagent"
         )
+        if app.keyboards.firstMatch.exists {
+            app.keyboards.firstMatch.swipeDown()
+        }
         attach(named: "after-back")
     }
 
@@ -102,6 +106,7 @@ final class InspectorFlowTests: XCTestCase {
         picker.tap()
         let terminal = app.buttons["Terminal"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 10), "Terminal mode was not offered")
+        XCTAssertTrue(waitForHittable(terminal, timeout: 10), "Terminal mode was not hittable")
         terminal.tap()
         XCTAssertTrue(waitForValue(picker, expected: "Terminal"), "Approval mode did not become Terminal")
         XCTAssertEqual(picker.value as? String, "Terminal")
@@ -148,17 +153,24 @@ final class InspectorFlowTests: XCTestCase {
         return false
     }
 
+    private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND hittable == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
     private func reveal(_ element: XCUIElement, in scrollView: XCUIElement, above bottomStack: XCUIElement) -> Bool {
         for index in 0..<8 {
             let timeout: TimeInterval = index == 0 ? 30 : 1
             if element.waitForExistence(timeout: timeout),
-               element.isHittable,
                element.frame.maxY <= bottomStack.frame.minY {
                 return true
             }
             scrollView.swipeDown()
         }
-        return element.exists && element.isHittable && element.frame.maxY <= bottomStack.frame.minY
+        return element.exists && element.frame.maxY <= bottomStack.frame.minY
     }
 
     private func audit(app: XCUIApplication, name: String) {

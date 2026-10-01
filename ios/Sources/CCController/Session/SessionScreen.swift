@@ -54,12 +54,20 @@ struct SessionScreen: View {
                 inspectorContent(now: context.date)
             }
         }
-        .navigationDestination(item: $destination) { destination in
-            SubagentScreen(
-                sessionID: destination.sessionID,
-                agentID: destination.agentID,
-                model: model
-            )
+        .background {
+            // TODO: move to navigationDestination once the split-view detail stack keeps the toolbar (see tasks/native-app.md Open)
+            NavigationLink(isActive: destinationBinding) {
+                if let destination {
+                    SubagentScreen(
+                        sessionID: destination.sessionID,
+                        agentID: destination.agentID,
+                        model: model
+                    )
+                }
+            } label: {
+                EmptyView()
+            }
+            .hidden()
         }
         .task(id: sessionLoadKey) {
             let key = sessionLoadKey
@@ -258,6 +266,15 @@ struct SessionScreen: View {
 
     private var sessionLoadKey: SessionLoadKey {
         SessionLoadKey(sessionID: sessionID, hasSession: model.store.sessions[sessionID] != nil)
+    }
+
+    private var destinationBinding: Binding<Bool> {
+        Binding(
+            get: { destination != nil },
+            set: { isPresented in
+                if !isPresented { destination = nil }
+            }
+        )
     }
 
     private func openSubagent(_ entry: SubagentEntry) {

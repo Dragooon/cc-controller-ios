@@ -68,17 +68,15 @@ struct MainSplitView: View {
                 }
             )
         } detail: {
-            NavigationStack {
-                if let selectedSessionID = model.selectedSessionID {
-                    SessionScreen(sessionID: selectedSessionID, model: model)
-                } else {
-                    ContentUnavailableView(
-                        "No session selected",
-                        systemImage: "rectangle.stack",
-                        description: Text("Choose a session to view its transcript.")
-                    )
-                    .background(.ccBackground)
-                }
+            if let selectedSessionID = model.selectedSessionID {
+                SessionScreen(sessionID: selectedSessionID, model: model)
+            } else {
+                ContentUnavailableView(
+                    "No session selected",
+                    systemImage: "rectangle.stack",
+                    description: Text("Choose a session to view its transcript.")
+                )
+                .background(.ccBackground)
             }
         }
         .navigationSplitViewStyle(.balanced)
