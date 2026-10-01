@@ -44,6 +44,9 @@ struct InspectorView: View {
 
     private var usage: Usage? { session.usage }
     private var currentMode: String { session.mode?.rawValue ?? "auto" }
+    private var currentModeTitle: String {
+        approvalModes.first(where: { $0.mode == currentMode })?.title ?? ""
+    }
     private var sortedSubagents: [Subagent] {
         (session.subagents ?? []).sorted { left, right in
             (left.state == .running ? 0 : 1) < (right.state == .running ? 0 : 1)
@@ -216,6 +219,7 @@ struct InspectorView: View {
             }
             .pickerStyle(.menu)
             .accessibilityIdentifier("approval-mode-picker")
+            .accessibilityValue(currentModeTitle)
 
             if let selected = approvalModes.first(where: { $0.mode == currentMode }) {
                 Text(selected.description)
