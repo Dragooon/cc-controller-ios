@@ -71,6 +71,21 @@ final class NativePresentationTests: XCTestCase {
         )
     }
 
+    func testSubagentSubtitleUsesLowercaseStateAndElapsedTime() {
+        let startedAt = Date(timeIntervalSince1970: 2_000)
+        let subagent = Subagent(
+            state: .running,
+            startedAt: startedAt
+        )
+
+        XCTAssertEqual(subagentSubtitle(subagent, now: startedAt.addingTimeInterval(3 * 60)), "running · 3m")
+    }
+
+    func testSubagentSubtitleUsesFinishedTimeAndOmitsUnknownValues() {
+        let subagent = Subagent(state: .done)
+        XCTAssertEqual(subagentSubtitle(subagent), "done")
+    }
+
     func testNativeToolRunLabelReflectsRunningMembers() {
         let running = ToolRun(entries: [
             ToolEntry(tool: "Read", state: .done),

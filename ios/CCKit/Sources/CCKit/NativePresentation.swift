@@ -57,6 +57,20 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
     return parts.joined(separator: " · ")
 }
 
+/// Formats a subagent's lowercase state and elapsed time for its navigation subtitle.
+public func subagentSubtitle(_ subagent: Subagent, now: Date = .now) -> String {
+    var parts: [String] = []
+    if let state = subagent.state {
+        parts.append(state.rawValue.lowercased().replacingOccurrences(of: "_", with: " "))
+    }
+    if let started = subagent.startedAt {
+        let end = subagent.finishedAt ?? now
+        let milliseconds = max(0, Int(started.distance(to: end) * 1000.0))
+        parts.append(displayDuration(milliseconds))
+    }
+    return parts.joined(separator: " · ")
+}
+
 /// Names a native tool group according to whether any member is still running.
 public func nativeToolRunLabel(_ run: ToolRun) -> String {
     run.isRunning ? "Running \(run.entries.count) tools" : "Ran \(run.entries.count) tools"

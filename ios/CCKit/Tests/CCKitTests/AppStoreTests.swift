@@ -147,6 +147,39 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-1")
     }
 
+    func testApprovalModeUpdatesSessionFromModeRoute() async {
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/sessions/session-1/mode" {
+                return URLProtocolStub.json(Data("{\"mode\":\"terminal\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+
+        let result = await app.setApprovalMode(sessionID: "session-1", mode: .terminal)
+
+        guard case .success = result else {
+            XCTFail("Approval mode request failed: \(result)")
+            return
+        }
+        XCTAssertEqual(app.sessions["session-1"]?.mode, .terminal)
+    }
+
+    func testApprovalModeRejectsUnsupportedModeWithoutChangingSession() async {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+
+        let result = await app.setApprovalMode(sessionID: "session-1", mode: .unknown("future"))
+
+        guard case .failure(.invalid(let message)) = result else {
+            XCTFail("Unsupported approval mode was accepted")
+            return
+        }
+        XCTAssertEqual(message, "Approval mode is not supported.")
+        XCTAssertNil(app.sessions["session-1"]?.mode)
+    }
+
     func testApprovalEventAddsPendingApproval() {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))

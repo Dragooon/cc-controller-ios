@@ -121,9 +121,11 @@ public final class AppStore {
     }
 
     public func closeSession(_ id: String) {
-        openStores = openStores.filter { key, store in
-            store.sessionID != id && key != id
-        }
+        openStores.removeValue(forKey: id)
+    }
+
+    public func closeSubagent(sessionID: String, agentID: String) {
+        openStores.removeValue(forKey: "\(sessionID)|\(agentID)")
     }
 
     public func approvals(for sessionID: String) -> [Approval] {
@@ -165,6 +167,12 @@ public final class AppStore {
 
     public func setApprovalMode(sessionID: String, mode: ApprovalMode) async -> Result<Void, ActionError> {
         guard mode == .auto || mode == .remote || mode == .terminal else { return .failure(.invalid("Approval mode is not supported.")) }
+        let previousMode = sessions[sessionID]?.mode
+        if var session = sessions[sessionID] {
+            session.mode = mode
+            sessions[sessionID] = session
+            updateOpenStores(for: session)
+        }
         do {
             let result = try await client.mode(sessionID: sessionID, mode: mode)
             guard var session = sessions[sessionID] else { return .failure(.invalid("Session is not live.")) }
@@ -174,6 +182,11 @@ public final class AppStore {
             scheduleCacheWrite()
             return .success(())
         } catch {
+            if var session = sessions[sessionID] {
+                session.mode = previousMode
+                sessions[sessionID] = session
+                updateOpenStores(for: session)
+            }
             return .failure(actionError(for: error))
         }
     }
