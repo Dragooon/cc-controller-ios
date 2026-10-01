@@ -180,7 +180,7 @@ cmd_shots() {
   bearer=$(json_value "$FIXTURE_OUT" bearer)
   local index_file="$IOS/shots/index.html"
   printf '%s\n' '<!doctype html><meta charset="utf-8"><title>cc-controller iOS shots</title><style>body{font:15px system-ui;background:#121110;color:#eee;margin:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}figure{margin:0}img{display:block;max-width:100%;border-radius:16px}figcaption{padding-top:8px;color:#bbb}</style><main>' > "$index_file"
-  trap 'status=$?; cleanup_shots; exit "$status"' EXIT
+  trap 'status=$?; cleanup_shots || true; exit "$status"' EXIT
   for device in "${devices[@]}"; do
     local udid result exported output_dir
     udid=$(ensure_device "$device" | tail -1)
@@ -272,8 +272,8 @@ cmd_flows() {
   DIAG_DIR="$IOS/build/diag"
   mkdir -p "$DIAG_DIR"
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
-  FIXTURE_LOG="$RUN_DIR/fixture-daemon.log"
-  trap 'status=$?; cleanup_shots; exit "$status"' EXIT
+  FIXTURE_LOG="$IOS/shots/flows/fixture-daemon.log"
+  trap 'status=$?; cleanup_shots || true; exit "$status"' EXIT
   local fixture_started=$SECONDS
   node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
   STARTED_DAEMON=$!
@@ -351,8 +351,9 @@ cmd_mocks() {
         [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
       done < <(simulator_udids exact Booted "${MOCK_DEVICE_NAMES[@]}")
     fi
+    return 0
   }
-  trap 'status=$?; cleanup_mocks; exit "$status"' EXIT
+  trap 'status=$?; cleanup_mocks || true; exit "$status"' EXIT
 
   ensure_mock_device() {
     local device=$1
