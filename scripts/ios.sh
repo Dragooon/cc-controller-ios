@@ -328,6 +328,9 @@ cmd_flows() {
 
       stop_fixture_daemon
       udid=$(ensure_device "$device" | tail -1)
+      if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
+        xcrun simctl addmedia "$udid" "$IOS/UITests/Fixtures/attachment.jpg"
+      fi
       xcrun simctl ui "$udid" appearance light
       xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
       if ! xcrun simctl install "$udid" "$app_bundle"; then

@@ -12,6 +12,10 @@ public final class AppStore {
     public private(set) var deciding: Set<String> = []
     public private(set) var queuedNotes: [String: [QueuedNote]] = [:]
     public private(set) var uploads: [String: UploadProgress] = [:]
+    public private(set) var attachments: [String: [AttachmentItem]] = [:]
+    public private(set) var attachmentNotices: [String: String] = [:]
+    public private(set) var attachmentRevision = 0
+    private var debugAttachmentSessions: Set<String> = []
 
     public var sortedSessions: [Session] {
         let priority: (Session) -> Int = { session in
@@ -156,6 +160,100 @@ public final class AppStore {
         }
     }
 
+    public func attachments(for sessionID: String) -> [AttachmentItem] {
+        attachments[sessionID] ?? []
+    }
+
+    @discardableResult
+    public func addAttachment(_ file: UploadFile, to sessionID: String) -> AttachmentItem? {
+        guard attachments(for: sessionID).count < 10 else {
+            attachmentNotices[sessionID] = "At most 10 attachments per message."
+            return nil
+        }
+        let item = AttachmentItem(file: file)
+        attachments[sessionID, default: []].append(item)
+        attachmentRevision += 1
+        attachmentNotices.removeValue(forKey: sessionID)
+        if file.data.count > uploadLimit {
+            updateAttachment(item.id, sessionID: sessionID) { $0.state = .failed(.tooLarge(fileName: file.name, limitBytes: self.uploadLimit)) }
+            return item
+        }
+        startAttachmentUpload(item, sessionID: sessionID)
+        return item
+    }
+
+    public func addDebugAttachments(_ urls: [URL], to sessionID: String) {
+        guard !debugAttachmentSessions.contains(sessionID) else { return }
+        debugAttachmentSessions.insert(sessionID)
+        for url in urls {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let mimeType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.preferredMIMEType
+            addAttachment(AttachmentNormalizer.prepareFile(data: data, name: url.lastPathComponent, mimeType: mimeType), to: sessionID)
+        }
+    }
+
+    public func removeAttachment(id: String, from sessionID: String) {
+        attachments[sessionID]?.removeAll { $0.id == id }
+        if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
+        attachmentRevision += 1
+    }
+
+    public func retryAttachment(id: String, sessionID: String) {
+        guard let item = attachments(for: sessionID).first(where: { $0.id == id }) else { return }
+        updateAttachment(item.id, sessionID: sessionID) { $0.state = .uploading(progress: 0) }
+        startAttachmentUpload(item, sessionID: sessionID)
+    }
+
+    public func sendComposer(text: String, to sessionID: String, now: Bool = false) async -> Result<Void, ActionError> {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = attachments(for: sessionID)
+        guard !trimmed.isEmpty || !pending.isEmpty else { return .failure(.invalid("Message text is required.")) }
+        guard !pending.contains(where: { if case .failed = $0.state { return true }; return false }) else {
+            return .failure(.invalid("Remove or retry the failed attachment"))
+        }
+        while attachments(for: sessionID).contains(where: { if case .uploading = $0.state { return true }; return false }) {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        let finished = attachments(for: sessionID)
+        guard !finished.contains(where: { if case .failed = $0.state { return true }; return false }) else {
+            return .failure(.invalid("Remove or retry the failed attachment"))
+        }
+        let names = finished.compactMap { item -> String? in
+            guard case .attached(let file) = item.state else { return nil }
+            return file.name
+        }
+        let result = await send(text: trimmed.isEmpty ? "See attached." : trimmed, attachments: names, to: sessionID, now: now)
+        if case .success = result {
+            attachments.removeValue(forKey: sessionID)
+            attachmentRevision += 1
+        }
+        return result
+    }
+
+    private var uploadLimit: Int {
+        latestBootstrap?.limits?.uploadMaxBytes ?? AttachmentNormalizer.maxFileBytes
+    }
+
+    private func startAttachmentUpload(_ item: AttachmentItem, sessionID: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let uploaded = try await self.client.uploadFile(sessionID: sessionID, data: item.data, filename: item.name, mimeType: item.mimeType, timeout: self.uploadTimeout)
+                self.updateAttachment(item.id, sessionID: sessionID) { $0.state = .attached(uploaded) }
+            } catch {
+                let mapped = self.actionError(for: error, fileName: item.name, limitBytes: self.uploadLimit)
+                self.updateAttachment(item.id, sessionID: sessionID) { $0.state = .failed(mapped) }
+            }
+        }
+    }
+
+    private func updateAttachment(_ id: String, sessionID: String, update: (inout AttachmentItem) -> Void) {
+        guard var items = attachments[sessionID], let index = items.firstIndex(where: { $0.id == id }) else { return }
+        update(&items[index])
+        attachments[sessionID] = items
+        attachmentRevision += 1
+    }
+
     public func interrupt(sessionID: String) async -> Result<Void, ActionError> {
         do {
             _ = try await client.escape(sessionID: sessionID)
@@ -236,6 +334,9 @@ public final class AppStore {
             deciding.removeAll()
             queuedNotes.removeAll()
             uploads.removeAll()
+            attachments.removeAll()
+            attachmentNotices.removeAll()
+            debugAttachmentSessions.removeAll()
             openStores.removeAll()
             cachedTranscripts.removeAll()
             sessionSnapshots.removeAll()

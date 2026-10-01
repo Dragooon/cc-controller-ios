@@ -1,4 +1,8 @@
+import CCKit
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
 
 struct ComposerConfiguration {
     let initialText: String
@@ -8,6 +12,7 @@ struct ComposerConfiguration {
     let hasTmuxPane: Bool
     let focusesOnAppear: Bool
     var isSending: Bool
+    var hasAttachments: Bool
 
     init(
         initialText: String = "",
@@ -16,7 +21,8 @@ struct ComposerConfiguration {
         isWorking: Bool = false,
         hasTmuxPane: Bool = false,
         focusesOnAppear: Bool = false,
-        isSending: Bool = false
+        isSending: Bool = false,
+        hasAttachments: Bool = false
     ) {
         self.initialText = initialText
         self.modelName = modelName
@@ -25,6 +31,7 @@ struct ComposerConfiguration {
         self.hasTmuxPane = hasTmuxPane
         self.focusesOnAppear = focusesOnAppear
         self.isSending = isSending
+        self.hasAttachments = hasAttachments
     }
 }
 
@@ -48,10 +55,16 @@ struct ComposerView: View {
     let onStop: () -> Void
     let onSend: () -> Void
     let onSendNow: () -> Void
+    let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
     let glassNamespace: Namespace.ID?
     let resetGeneration: Int
 
     @State private var fieldGeneration = 0
+    @State private var photosPresented = false
+    @State private var filesPresented = false
+    @State private var cameraPresented = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var pickedFeedbackCount = 0
     @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
     @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
 
@@ -63,6 +76,7 @@ struct ComposerView: View {
         onStop: @escaping () -> Void = {},
         onSend: @escaping () -> Void = {},
         onSendNow: @escaping () -> Void = {},
+        onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
         glassNamespace: Namespace.ID? = nil,
         resetGeneration: Int = 0
     ) {
@@ -73,14 +87,30 @@ struct ComposerView: View {
         self.onStop = onStop
         self.onSend = onSend
         self.onSendNow = onSendNow
+        self.onAddAttachment = onAddAttachment
         self.glassNamespace = glassNamespace
         self.resetGeneration = resetGeneration
     }
 
     var body: some View {
         bodyContent
+            .photosPicker(isPresented: $photosPresented, selection: $selectedPhotos, maxSelectionCount: 10, matching: .images)
+            .fileImporter(isPresented: $filesPresented, allowedContentTypes: [.item], allowsMultipleSelection: true, onCompletion: handleFileImport)
+            .fullScreenCover(isPresented: $cameraPresented) {
+                CameraPicker { image in
+                    cameraPresented = false
+                    guard let data = image.jpegData(compressionQuality: 0.85),
+                          let file = try? AttachmentNormalizer.normalizeImage(data: data, sequence: 1) else { return }
+                    add(file)
+                }
+                .ignoresSafeArea()
+            }
+            .onChange(of: selectedPhotos) { _, items in
+                loadPhotos(items)
+            }
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Message composer")
+            .sensoryFeedback(.impact(weight: .light), trigger: pickedFeedbackCount)
     }
 
     @ViewBuilder
@@ -132,9 +162,11 @@ struct ComposerView: View {
 
     private var attachmentMenu: some View {
         Menu {
-            Button("Photos", systemImage: "photo") {}
-            Button("Camera", systemImage: "camera") {}
-            Button("Files", systemImage: "folder") {}
+            Button("Photos", systemImage: "photo") { photosPresented = true }
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Camera", systemImage: "camera") { cameraPresented = true }
+            }
+            Button("Files", systemImage: "folder") { filesPresented = true }
         } label: {
             Image(systemName: "plus")
                 .font(.body.weight(.semibold))
@@ -201,7 +233,7 @@ struct ComposerView: View {
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
         .contentShape(Rectangle())
-        .disabled(configuration.isSending || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(configuration.isSending || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !configuration.hasAttachments))
         .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")
         .accessibilityIdentifier(configuration.isWorking ? "composer-queue" : "composer-send")
 
@@ -220,5 +252,69 @@ struct ComposerView: View {
 
     private var visibleChipHeight: CGFloat {
         chipHeight
+    }
+
+    private func add(_ file: UploadFile) {
+        onAddAttachment(file)
+        pickedFeedbackCount += 1
+    }
+
+    private func loadPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        selectedPhotos = []
+        Task { @MainActor in
+            for (index, item) in items.enumerated() {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let file = try? AttachmentNormalizer.normalizeImage(data: data, sequence: index + 1) else { continue }
+                add(file)
+            }
+        }
+    }
+
+    private func handleFileImport(_ result: Result<[URL], any Error>) {
+        guard case .success(let urls) = result else { return }
+        for url in urls {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let mimeType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.preferredMIMEType
+            add(AttachmentNormalizer.prepareFile(data: data, name: url.lastPathComponent, mimeType: mimeType))
+        }
+    }
+}
+
+private struct CameraPicker: UIViewControllerRepresentable {
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(onImage: onImage, dismiss: dismiss) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        picker.allowsEditing = false
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onImage: (UIImage) -> Void
+        let dismiss: DismissAction
+
+        init(onImage: @escaping (UIImage) -> Void, dismiss: DismissAction) {
+            self.onImage = onImage
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { onImage(image) }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { dismiss() }
     }
 }

@@ -23,7 +23,7 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
         case .waitingInTerminal: "This approval is waiting in the terminal and cannot be answered here."
         case .noPane: "This session has no tmux pane for that action."
         case .invalid(let message): message
-        case .tooLarge(let fileName, let limitBytes): "\(fileName) is too large. The limit is \(limitBytes) bytes."
+        case .tooLarge: "Too large (max 25 MB)"
         case .network(let message): "The Mac could not be reached: \(message)"
         case .timeout: "The Mac did not finish that action in time."
         case .server(let status, let message): "The Mac returned HTTP \(status): \(message)"
@@ -37,11 +37,15 @@ public struct UploadFile: Sendable, Equatable {
     public let name: String
     public let data: Data
     public let mimeType: String?
+    public let isImage: Bool
+    public let thumbnailData: Data?
 
-    public init(name: String, data: Data, mimeType: String? = nil) {
+    public init(name: String, data: Data, mimeType: String? = nil, isImage: Bool = false, thumbnailData: Data? = nil) {
         self.name = name
         self.data = data
         self.mimeType = mimeType
+        self.isImage = isImage
+        self.thumbnailData = thumbnailData
     }
 }
 
@@ -55,12 +59,14 @@ public struct UploadProgress: Sendable, Equatable {
     public let fileName: String
     public let completed: Int
     public let total: Int
+    public let fraction: Double
     public let state: UploadState
 
-    public init(fileName: String, completed: Int, total: Int, state: UploadState) {
+    public init(fileName: String, completed: Int, total: Int, fraction: Double = 0, state: UploadState) {
         self.fileName = fileName
         self.completed = completed
         self.total = total
+        self.fraction = fraction
         self.state = state
     }
 }

@@ -129,6 +129,44 @@ final class ActionTests: XCTestCase {
         XCTAssertEqual(app.connection, .offline(lastUpdated: nil, error: nil))
     }
 
+    func testComposerAttachmentBecomesAttached() async throws {
+        ActionURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/files") == true {
+                return ActionURLProtocol.json(Data("{\"files\":[{\"name\":\"a.png\",\"size\":3,\"mime\":\"image/png\"}]}".utf8))
+            }
+            return ActionURLProtocol.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+        }
+        let app = makeApp()
+        app.addAttachment(UploadFile(name: "a.png", data: Data([1, 2, 3]), mimeType: "image/png", isImage: true), to: "s")
+        for _ in 0..<20 {
+            if case .attached = app.attachments(for: "s").first?.state { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTFail("Attachment did not finish uploading")
+    }
+
+    func testComposerSendIncludesFilesAndUsesSeeAttached() async throws {
+        var requestBody = ""
+        ActionURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                if let body = request.httpBody { requestBody = String(decoding: body, as: UTF8.self) }
+            }
+            return ActionURLProtocol.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+        }
+        let app = makeApp()
+        guard case .success = await app.send(text: "See attached.", attachments: ["a.txt"], to: "s") else { return XCTFail("Attachment send failed") }
+        XCTAssertTrue(requestBody.contains("See attached."))
+        XCTAssertTrue(requestBody.contains("a.txt"))
+    }
+
+    func testComposerSendBlocksFailedAttachment() async {
+        ActionURLProtocol.handler = { _ in ActionURLProtocol.json(413, body: Data("{\"error\":\"too large\"}".utf8)) }
+        let app = makeApp()
+        app.addAttachment(UploadFile(name: "a.txt", data: Data([1]), mimeType: "text/plain"), to: "s")
+        for _ in 0..<20 { if case .failed = app.attachments(for: "s").first?.state { break }; try? await Task.sleep(for: .milliseconds(10)) }
+        guard case .failure(.invalid("Remove or retry the failed attachment")) = await app.sendComposer(text: "hello", to: "s") else { return XCTFail("Failed attachment did not block send") }
+    }
+
     func testUploadTooLargeServerNetworkAndTimeoutAlwaysFinish() async throws {
         let tooLarge = UploadFile(name: "large.bin", data: Data(repeating: 0, count: 25 * 1024 * 1024 + 1))
         let app = makeApp(uploadTimeout: 0.01)

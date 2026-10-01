@@ -66,8 +66,9 @@ struct SessionScreen: View {
         .task(id: sessionLoadKey) {
             let key = sessionLoadKey
             guard key.hasSession,
-                  let sessionStore = model.store.openSession(key.sessionID),
-                  !sessionStore.isLoaded else { return }
+                  let sessionStore = model.store.openSession(key.sessionID) else { return }
+            model.store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
+            guard !sessionStore.isLoaded else { return }
             do {
                 try await sessionStore.loadInitial()
             } catch is CancellationError {
@@ -75,6 +76,9 @@ struct SessionScreen: View {
             } catch {
                 model.actionError = .network(error.localizedDescription)
             }
+        }
+        .onAppear {
+            model.store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
         }
         .onDisappear {
             guard destination == nil else { return }
@@ -84,6 +88,7 @@ struct SessionScreen: View {
 
     @ViewBuilder
     private func screen() -> some View {
+        let _ = model.store.attachmentRevision
         if let sessionStore = model.store.openSession(sessionID) {
             contentNavigation(
                 name: sessionStore.session.name ?? "Session",
@@ -160,10 +165,21 @@ struct SessionScreen: View {
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
             slashCommands: commands,
+            attachments: (model.store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
+            attachmentNotice: model.store.attachmentNotices[sessionID],
             approvals: pendingApprovals,
             deciding: model.store.deciding,
             onSend: { [model] text, now in
                 await send(text: text, to: session.id ?? sessionID, now: now, using: model)
+            },
+            onAddAttachment: { [model] file in
+                model.store.addAttachment(file, to: sessionID)
+            },
+            onRemoveAttachment: { [model] id in
+                model.store.removeAttachment(id: id, from: sessionID)
+            },
+            onRetryAttachment: { [model] id in
+                model.store.retryAttachment(id: id, sessionID: sessionID)
             },
             onStop: { [model] in
                 await interrupt(sessionID: session.id ?? sessionID, using: model)
@@ -182,7 +198,7 @@ struct SessionScreen: View {
 
     @MainActor
     private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<Void, ActionError> {
-        let result = await model.store.send(text: text, to: sessionID, now: now)
+        let result = await model.store.sendComposer(text: text, to: sessionID, now: now)
         if case .failure(let error) = result {
             model.actionError = error
         }

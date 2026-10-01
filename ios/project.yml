@@ -43,7 +43,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSFaceIDUsageDescription: Unlock cc-controller
-        NSCameraUsageDescription: Attach photos to a Claude Code session
+        NSCameraUsageDescription: Take a photo to send to a session.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

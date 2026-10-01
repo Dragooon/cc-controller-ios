@@ -22,6 +22,7 @@ final class AppModel {
     var colorScheme: ColorScheme?
     var isSettingsPresented = false
     var actionError: ActionError?
+    let debugAttachmentPaths: [URL]
 
     private let credentials: any CredentialStore
     private let fixtureMode: Bool
@@ -39,6 +40,11 @@ final class AppModel {
         let isFixture = false
         #endif
         fixtureMode = isFixture
+        #if DEBUG
+        debugAttachmentPaths = Self.argumentValues("-CCAttachFile", in: arguments).map { URL(fileURLWithPath: $0) }
+        #else
+        debugAttachmentPaths = []
+        #endif
 
         let credentials = KeychainCredentialStore()
         self.credentials = credentials
@@ -178,6 +184,13 @@ final class AppModel {
         guard let index = arguments.firstIndex(of: name),
               arguments.indices.contains(index + 1) else { return nil }
         return arguments[index + 1]
+    }
+
+    private static func argumentValues(_ name: String, in arguments: [String]) -> [String] {
+        arguments.indices.compactMap { index in
+            guard arguments[index] == name, arguments.indices.contains(index + 1) else { return nil }
+            return arguments[index + 1]
+        }
     }
 
     private static func cacheDirectory() -> URL {

@@ -13,10 +13,14 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let statusSegments: [String]
     let slashCommands: [SlashCommand]
     let attachments: [ComposerAttachment]
+    let attachmentNotice: String?
     let approvals: [Approval]
     let deciding: Set<String>
     let transcriptHeight: CGFloat
     let onSend: @MainActor @Sendable (String, Bool) async -> Result<Void, ActionError>
+    let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
+    let onRemoveAttachment: @MainActor @Sendable (String) -> Void
+    let onRetryAttachment: @MainActor @Sendable (String) -> Void
     let onStop: @MainActor @Sendable () async -> Result<Void, ActionError>
     let onModel: @MainActor @Sendable () -> Void
     let onAllow: (Approval) -> Void
@@ -28,10 +32,14 @@ struct BottomStackConfiguration: @unchecked Sendable {
         statusSegments: [String] = [],
         slashCommands: [SlashCommand] = [],
         attachments: [ComposerAttachment] = [],
+        attachmentNotice: String? = nil,
         approvals: [Approval] = [],
         deciding: Set<String> = [],
         transcriptHeight: CGFloat = 0,
         onSend: @escaping @MainActor @Sendable (String, Bool) async -> Result<Void, ActionError> = { _, _ in .success(()) },
+        onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
+        onRemoveAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        onRetryAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         onStop: @escaping @MainActor @Sendable () async -> Result<Void, ActionError> = { .success(()) },
         onModel: @escaping @MainActor @Sendable () -> Void = {},
         onAllow: @escaping (Approval) -> Void = { _ in },
@@ -42,10 +50,14 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.statusSegments = statusSegments
         self.slashCommands = slashCommands
         self.attachments = attachments
+        self.attachmentNotice = attachmentNotice
         self.approvals = approvals
         self.deciding = deciding
         self.transcriptHeight = transcriptHeight
         self.onSend = onSend
+        self.onAddAttachment = onAddAttachment
+        self.onRemoveAttachment = onRemoveAttachment
+        self.onRetryAttachment = onRetryAttachment
         self.onStop = onStop
         self.onModel = onModel
         self.onAllow = onAllow
@@ -59,10 +71,14 @@ struct BottomStackConfiguration: @unchecked Sendable {
             statusSegments: statusSegments,
             slashCommands: slashCommands,
             attachments: attachments,
+            attachmentNotice: attachmentNotice,
             approvals: approvals,
             deciding: deciding,
             transcriptHeight: height,
             onSend: onSend,
+            onAddAttachment: onAddAttachment,
+            onRemoveAttachment: onRemoveAttachment,
+            onRetryAttachment: onRetryAttachment,
             onStop: onStop,
             onModel: onModel,
             onAllow: onAllow,
@@ -79,6 +95,7 @@ struct BottomStackView: View {
     @State private var fieldResetGeneration = 0
     @State private var sendFeedbackCount = 0
     @State private var stopFeedbackCount = 0
+    @State private var pulseFailedAttachments = false
     @FocusState private var composerFocused: Bool
     @Namespace private var glassNamespace
 
@@ -98,7 +115,18 @@ struct BottomStackView: View {
                 }
 
                 if !configuration.attachments.isEmpty {
-                    AttachmentTrayView(attachments: configuration.attachments)
+                    AttachmentTrayView(
+                        attachments: configuration.attachments,
+                        notice: configuration.attachmentNotice,
+                        pulseFailed: pulseFailedAttachments,
+                        onRemove: configuration.onRemoveAttachment,
+                        onRetry: configuration.onRetryAttachment
+                    )
+                } else if let notice = configuration.attachmentNotice {
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.ccSecondary)
+                        .padding(.horizontal, 8)
                 }
 
                 if !configuration.approvals.isEmpty {
@@ -128,6 +156,7 @@ struct BottomStackView: View {
                         onStop: stop,
                         onSend: send,
                         onSendNow: sendNow,
+                        onAddAttachment: configuration.onAddAttachment,
                         glassNamespace: glassNamespace,
                         resetGeneration: fieldResetGeneration
                     )
@@ -158,7 +187,8 @@ struct BottomStackView: View {
             isWorking: configuration.composer.isWorking,
             hasTmuxPane: configuration.composer.hasTmuxPane,
             focusesOnAppear: configuration.composer.focusesOnAppear,
-            isSending: isSending
+            isSending: isSending,
+            hasAttachments: !configuration.attachments.isEmpty
         )
     }
 
@@ -178,7 +208,7 @@ struct BottomStackView: View {
 
     private func submit(now: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isSending else { return }
+        guard (!trimmed.isEmpty || !configuration.attachments.isEmpty), !isSending else { return }
         isSending = true
         Task { @MainActor in
             let result = await configuration.onSend(trimmed, now)
@@ -192,8 +222,14 @@ struct BottomStackView: View {
                     fieldResetGeneration += 1
                 }
                 sendFeedbackCount += 1
-            case .failure:
-                break
+            case .failure(let error):
+                if case .invalid("Remove or retry the failed attachment") = error {
+                    pulseFailedAttachments = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(220))
+                        pulseFailedAttachments = false
+                    }
+                }
             }
         }
     }
