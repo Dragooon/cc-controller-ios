@@ -397,6 +397,9 @@ public func sessionStateSegment(_ session: Session, now: Date = .now) -> String 
     if session.state == .idle, let idleSince = session.idleSince {
         return "idle \(formatDuration(elapsedMilliseconds(from: idleSince, to: now)))"
     }
+    if session.state == .needsYou, let receivedAt = session.pending?.first?.receivedAt {
+        return "needs you \(formatDuration(elapsedMilliseconds(from: receivedAt, to: now)))"
+    }
     return stateLabel(state: session.state?.rawValue)
 }
 

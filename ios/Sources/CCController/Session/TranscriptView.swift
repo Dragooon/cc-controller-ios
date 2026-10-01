@@ -3,13 +3,13 @@ import SwiftUI
 
 struct SessionTranscriptView: View {
     let turns: [Turn]
-    let now: Date
     let subagents: [Subagent]
     let showsComposer: Bool
     let showsWorkedFooter: Bool
     let bottomStackConfiguration: BottomStackConfiguration?
     let queuedNotes: [QueuedNote]
     let activityFooter: CCKit.ActivityFooter?
+    let liveSession: Session?
     let hasMoreEarlier: Bool
     let loadEarlier: (() async throws -> Void)?
     let onTool: (ToolEntry) -> Void
@@ -26,12 +26,12 @@ struct SessionTranscriptView: View {
 
     init(
         turns: [Turn],
-        now: Date,
         showsComposer: Bool = true,
         showsWorkedFooter: Bool = true,
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         queuedNotes: [QueuedNote] = [],
         activityFooter: CCKit.ActivityFooter? = nil,
+        liveSession: Session? = nil,
         subagents: [Subagent] = [],
         hasMoreEarlier: Bool = false,
         loadEarlier: (() async throws -> Void)? = nil,
@@ -42,12 +42,12 @@ struct SessionTranscriptView: View {
         scrollAnchor: UnitPoint = .top
     ) {
         self.turns = turns
-        self.now = now
         self.showsComposer = showsComposer
         self.showsWorkedFooter = showsWorkedFooter
         self.bottomStackConfiguration = bottomStackConfiguration
         self.queuedNotes = queuedNotes
         self.activityFooter = activityFooter
+        self.liveSession = liveSession
         self.subagents = subagents
         self.hasMoreEarlier = hasMoreEarlier
         self.loadEarlier = loadEarlier
@@ -194,10 +194,10 @@ struct SessionTranscriptView: View {
         ForEach(turns) { turn in
             TranscriptTurnView(
                 turn: turn,
-                now: now,
                 subagents: subagents,
                 showsWorkedFooter: showsWorkedFooter,
                 activityFooter: turn.id == turns.last?.id ? activityFooter : nil,
+                liveSession: liveSession,
                 onTool: onTool,
                 onSubagent: onSubagent,
                 onCompaction: onCompaction,
@@ -239,10 +239,10 @@ private struct PendingPromptView: View {
 
 struct TranscriptTurnView: View {
     let turn: Turn
-    let now: Date
     let subagents: [Subagent]
     let showsWorkedFooter: Bool
     let activityFooter: CCKit.ActivityFooter?
+    let liveSession: Session?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
     let onCompaction: (CompactionEntry) -> Void
@@ -250,20 +250,20 @@ struct TranscriptTurnView: View {
 
     init(
         turn: Turn,
-        now: Date,
         subagents: [Subagent] = [],
         showsWorkedFooter: Bool,
         activityFooter: CCKit.ActivityFooter? = nil,
+        liveSession: Session? = nil,
         onTool: @escaping (ToolEntry) -> Void,
         onSubagent: @escaping (SubagentEntry) -> Void,
         onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
         self.turn = turn
-        self.now = now
         self.subagents = subagents
         self.showsWorkedFooter = showsWorkedFooter
         self.activityFooter = activityFooter
+        self.liveSession = liveSession
         self.onTool = onTool
         self.onSubagent = onSubagent
         self.onCompaction = onCompaction
@@ -279,7 +279,6 @@ struct TranscriptTurnView: View {
             ForEach(turn.items) { item in
                 TurnItemView(
                     item: item,
-                    now: now,
                     subagents: subagents,
                     onTool: onTool,
                     onSubagent: onSubagent,
@@ -293,7 +292,7 @@ struct TranscriptTurnView: View {
             }
 
             if let activityFooter {
-                LiveActivityFooterView(footer: activityFooter)
+                LiveActivityFooterView(footer: activityFooter, session: liveSession)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -302,7 +301,6 @@ struct TranscriptTurnView: View {
 
 struct TurnItemView: View {
     let item: TurnItem
-    let now: Date
     let subagents: [Subagent]
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
@@ -311,7 +309,6 @@ struct TurnItemView: View {
 
     init(
         item: TurnItem,
-        now: Date,
         subagents: [Subagent] = [],
         onTool: @escaping (ToolEntry) -> Void,
         onSubagent: @escaping (SubagentEntry) -> Void,
@@ -319,7 +316,6 @@ struct TurnItemView: View {
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
         self.item = item
-        self.now = now
         self.subagents = subagents
         self.onTool = onTool
         self.onSubagent = onSubagent
@@ -335,7 +331,7 @@ struct TurnItemView: View {
         case .tools(let run):
             ToolRunCard(run: run, onTool: onTool)
         case .subagent(let entry):
-            SubagentCard(entry: entry, now: now, onOpen: onSubagent)
+            SubagentCard(entry: entry, onOpen: onSubagent)
         case .subagentResult(let entry):
             SubagentResultView(entry: entry)
         case .sendMessage(let entry):

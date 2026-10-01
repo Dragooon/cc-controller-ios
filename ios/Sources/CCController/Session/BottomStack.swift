@@ -105,7 +105,6 @@ struct BottomStackView: View {
                     ApprovalBottomStackView(
                         approvals: configuration.approvals,
                         deciding: configuration.deciding,
-                        now: .now,
                         maxHeight: max(0, configuration.transcriptHeight - 180),
                         onAllow: configuration.onAllow,
                         onAllowSession: configuration.onAllowSession,

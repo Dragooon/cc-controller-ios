@@ -9,9 +9,7 @@ struct MainSplitView: View {
     @State private var denyFeedbackCount = 0
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            splitView(now: context.date)
-        }
+        splitView()
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .alert(
@@ -32,14 +30,13 @@ struct MainSplitView: View {
         }
     }
 
-    private func splitView(now: Date) -> some View {
+    private func splitView() -> some View {
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             SessionsListView(
                 sessions: model.store.sortedSessions,
                 approvals: model.store.approvals,
                 deciding: model.store.deciding,
                 connection: connection,
-                now: now,
                 subtitleOverride: model.selectedSessionID == nil ? nil : "",
                 onOpen: {
                     model.selectedSessionID = $0.id

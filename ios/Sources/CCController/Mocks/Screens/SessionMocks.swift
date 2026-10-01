@@ -42,7 +42,7 @@ private struct SessionMockScreen: View {
 
     var body: some View {
         NavigationStack {
-            SessionTranscriptView(turns: turns, now: now)
+            SessionTranscriptView(turns: turns)
                 .navigationTitle(session.name ?? "Session")
                 .navigationSubtitle(sessionDetailSubtitle(session, now: now))
                 .navigationBarTitleDisplayMode(.inline)
@@ -99,7 +99,6 @@ private struct SubagentMock: View {
         NavigationStack {
             SessionTranscriptView(
                 turns: MockSessionData.turns,
-                now: now,
                 showsComposer: false,
                 showsWorkedFooter: false
             )
@@ -107,7 +106,6 @@ private struct SubagentMock: View {
             .navigationDestination(isPresented: $isPushed) {
                 SessionTranscriptView(
                     turns: turns,
-                    now: now,
                     showsComposer: false,
                     showsWorkedFooter: false
                 )

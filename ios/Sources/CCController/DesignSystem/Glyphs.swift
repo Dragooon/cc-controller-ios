@@ -79,7 +79,6 @@ struct ApprovalCard: View {
 
     let approval: Approval
     let style: Style
-    let now: Date
     let onOpen: () -> Void
     let onAllow: () -> Void
     let onAllowSession: () -> Void
@@ -93,7 +92,6 @@ struct ApprovalCard: View {
     init(
         approval: Approval,
         style: Style,
-        now: Date,
         onOpen: @escaping () -> Void = {},
         onAllow: @escaping () -> Void = {},
         onAllowSession: @escaping () -> Void = {},
@@ -102,7 +100,6 @@ struct ApprovalCard: View {
     ) {
         self.approval = approval
         self.style = style
-        self.now = now
         self.onOpen = onOpen
         self.onAllow = onAllow
         self.onAllowSession = onAllowSession
@@ -114,12 +111,6 @@ struct ApprovalCard: View {
         permissionCopy(approval, timeZone: Self.sydney, locale: Self.english)
     }
 
-    private var remainingMilliseconds: Double {
-        guard let receivedAt = approval.receivedAt else { return Double(approval.holdLimitMs ?? 0) }
-        let limit = Double(approval.holdLimitMs ?? 600_000)
-        let elapsed = max(0, now.timeIntervalSince(receivedAt) * 1000)
-        return max(0, limit - elapsed)
-    }
 
     var body: some View {
         switch style {
@@ -202,36 +193,15 @@ struct ApprovalCard: View {
             }
 
             if isTerminal {
-                Text(approvalWaitingText(since: approval.timedOutAt ?? approval.receivedAt ?? now, calendar: Self.calendar, timeZone: Self.sydney, locale: Self.english))
-                    .font(.footnote)
-                    .foregroundStyle(.ccSecondary)
+                ApprovalWaitingText(approval: approval)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    countdownTrack
-                    Text(approvalFallbackText(remaining: remainingMilliseconds / 1_000))
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
+                    ApprovalCountdownTrack(approval: approval)
+                    ApprovalFallbackText(approval: approval)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var countdownTrack: some View {
-        Capsule()
-            .fill(.ccSeparator)
-            .frame(height: 3)
-            .overlay(alignment: .leading) {
-                GeometryReader { proxy in
-                    Capsule()
-                        .fill(.ccAccent)
-                        .frame(width: proxy.size.width * approvalHoldFraction(
-                            remaining: remainingMilliseconds / 1_000,
-                            total: Double(copy.holdLimitMs) / 1_000
-                        ))
-                }
-            }
-            .accessibilityHidden(true)
     }
 
     private var fullHeader: some View {
@@ -464,11 +434,7 @@ struct ApprovalCard: View {
     }
 
     private var countdown: some View {
-        Text(formatCountdown(remainingMilliseconds))
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.ccSecondary)
-            .fixedSize()
-            .accessibilityLabel("Time remaining \(formatCountdown(remainingMilliseconds))")
+        ApprovalCountdownText(approval: approval)
     }
 
     private var denyButton: some View {
@@ -502,4 +468,108 @@ struct ApprovalCard: View {
 
     private static let sydney = TimeZone(identifier: "Australia/Sydney")!
     private static let english = Locale(identifier: "en_AU")
+}
+
+private func approvalRemainingMilliseconds(_ approval: Approval, now: Date) -> Double {
+    guard let receivedAt = approval.receivedAt else { return Double(approval.holdLimitMs ?? 0) }
+    let limit = Double(approval.holdLimitMs ?? 600_000)
+    let elapsed = max(0, now.timeIntervalSince(receivedAt) * 1000)
+    return max(0, limit - elapsed)
+}
+
+private struct ApprovalWaitingText: View {
+    let approval: Approval
+
+    var body: some View {
+        Text(approvalWaitingText(
+            since: approval.timedOutAt ?? approval.receivedAt ?? .now,
+            calendar: Calendar(identifier: .gregorian),
+            timeZone: TimeZone(identifier: "Australia/Sydney")!,
+            locale: Locale(identifier: "en_AU")
+        ))
+        .font(.footnote)
+        .foregroundStyle(.ccSecondary)
+    }
+}
+
+private struct ApprovalFallbackText: View {
+    let approval: Approval
+
+    var body: some View {
+        timed { now in
+            Text(approvalFallbackText(remaining: approvalRemainingMilliseconds(approval, now: now) / 1_000))
+                .font(.footnote)
+                .foregroundStyle(.ccSecondary)
+        }
+    }
+
+    @ViewBuilder
+    private func timed<Content: View>(_ content: @escaping (Date) -> Content) -> some View {
+        if approval.receivedAt != nil {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                content(context.date)
+            }
+        } else {
+            content(.now)
+        }
+    }
+}
+
+private struct ApprovalCountdownTrack: View {
+    let approval: Approval
+
+    var body: some View {
+        timed { now in
+            Capsule()
+                .fill(.ccSeparator)
+                .frame(height: 3)
+                .overlay(alignment: .leading) {
+                    GeometryReader { proxy in
+                        Capsule()
+                            .fill(.ccAccent)
+                            .frame(width: proxy.size.width * approvalHoldFraction(
+                                remaining: approvalRemainingMilliseconds(approval, now: now) / 1_000,
+                                total: Double(approval.holdLimitMs ?? 600_000) / 1_000
+                            ))
+                    }
+                }
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private func timed<Content: View>(_ content: @escaping (Date) -> Content) -> some View {
+        if approval.receivedAt != nil {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                content(context.date)
+            }
+        } else {
+            content(.now)
+        }
+    }
+}
+
+private struct ApprovalCountdownText: View {
+    let approval: Approval
+
+    var body: some View {
+        timed { now in
+            Text(formatCountdown(approvalRemainingMilliseconds(approval, now: now)))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.ccSecondary)
+                .fixedSize()
+                .accessibilityLabel("Time remaining \(formatCountdown(approvalRemainingMilliseconds(approval, now: now)))")
+        }
+    }
+
+    @ViewBuilder
+    private func timed<Content: View>(_ content: @escaping (Date) -> Content) -> some View {
+        if approval.receivedAt != nil {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                content(context.date)
+            }
+        } else {
+            content(.now)
+        }
+    }
 }

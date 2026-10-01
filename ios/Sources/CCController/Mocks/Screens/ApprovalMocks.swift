@@ -31,14 +31,12 @@ private struct ApprovalSessionMock: View {
             GeometryReader { proxy in
                 SessionTranscriptView(
                     turns: MockSessionData.turns,
-                    now: MockFixtures.now,
                     showsComposer: false,
                     scrollAnchor: .bottom
                 )
                 .safeAreaBar(edge: .bottom, spacing: 0) {
                     ApprovalBottomStackView(
                         approvals: approvals,
-                        now: MockFixtures.now,
                         maxHeight: max(0, proxy.size.height - 24)
                     )
                 }

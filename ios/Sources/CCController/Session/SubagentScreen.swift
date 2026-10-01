@@ -7,9 +7,7 @@ struct SubagentScreen: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            screen(now: context.date)
-        }
+        screen()
         .task(id: "\(sessionID)|\(agentID)") {
             guard let store = model.store.openSubagent(sessionID: sessionID, agentID: agentID) else { return }
             do {
@@ -30,17 +28,30 @@ struct SubagentScreen: View {
     }
 
     @ViewBuilder
-    private func screen(now: Date) -> some View {
+    private func screen() -> some View {
         if let store = model.store.openSubagent(sessionID: sessionID, agentID: agentID) {
             SessionTranscriptView(
                 turns: store.turns,
-                now: now,
                 showsComposer: false,
                 subagents: store.session.subagents ?? [],
                 scrollAnchor: .top
             )
             .navigationTitle(subagent?.agent ?? agentID)
-            .navigationSubtitle(subagent.map { subagentSubtitle($0, now: now) } ?? "")
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 0) {
+                        Text(subagent?.agent ?? agentID)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if let subagent {
+                            SubagentSubtitleView(subagent: subagent)
+                                .font(.caption)
+                                .foregroundStyle(.ccSecondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .tint(.ccAccent)
             .background(.ccBackground)

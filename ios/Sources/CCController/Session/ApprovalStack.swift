@@ -4,7 +4,6 @@ import SwiftUI
 struct ApprovalBottomStackView: View {
     let approvals: [Approval]
     let deciding: Set<String>
-    let now: Date
     let maxHeight: CGFloat
     let onAllow: (Approval) -> Void
     let onAllowSession: (Approval) -> Void
@@ -19,7 +18,6 @@ struct ApprovalBottomStackView: View {
     init(
         approvals: [Approval],
         deciding: Set<String> = [],
-        now: Date,
         maxHeight: CGFloat,
         onAllow: @escaping (Approval) -> Void = { _ in },
         onAllowSession: @escaping (Approval) -> Void = { _ in },
@@ -29,7 +27,6 @@ struct ApprovalBottomStackView: View {
     ) {
         self.approvals = approvals
         self.deciding = deciding
-        self.now = now
         self.maxHeight = maxHeight
         self.onAllow = onAllow
         self.onAllowSession = onAllowSession
@@ -55,7 +52,6 @@ struct ApprovalBottomStackView: View {
                     ApprovalCard(
                         approval: approval,
                         style: .full,
-                        now: now,
                         onAllow: { onAllow(approval) },
                         onAllowSession: { onAllowSession(approval) },
                         onDeny: { onDeny(approval) },

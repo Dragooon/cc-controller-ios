@@ -30,7 +30,7 @@ struct SessionScreen: View {
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
     var body: some View {
-        screen(now: .now)
+        screen()
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: pendingApprovalCount) { oldCount, newCount in
@@ -83,22 +83,22 @@ struct SessionScreen: View {
     }
 
     @ViewBuilder
-    private func screen(now: Date) -> some View {
+    private func screen() -> some View {
         if let sessionStore = model.store.openSession(sessionID) {
             contentNavigation(
                 name: sessionStore.session.name ?? "Session",
-                subtitle: sessionDetailSubtitle(sessionStore.session, now: now)
+                session: sessionStore.session
             ) {
                 if sessionStore.isLoaded {
                     SessionTranscriptView(
                         turns: sessionStore.turns,
-                        now: now,
                         bottomStackConfiguration: bottomStackConfiguration(
                             for: sessionStore.session,
                             liveSession: model.store.sessions[sessionID],
                             transcriptEntries: sessionStore.entries
                         ),
                         queuedNotes: model.store.queuedNotes(for: sessionID),
+                        liveSession: sessionStore.session,
                         subagents: sessionStore.session.subagents ?? [],
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
                         loadEarlier: { try await sessionStore.loadEarlier() },
@@ -303,7 +303,7 @@ struct SessionScreen: View {
 
     private func contentNavigation<Content: View>(
         name: String,
-        subtitle: String,
+        session: Session,
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
@@ -316,10 +316,11 @@ struct SessionScreen: View {
                             .font(.headline)
                             .lineLimit(1)
                             .accessibilityIdentifier("selected-session-name")
-                        Text(subtitle)
+                        SessionSubtitleView(session: session)
                             .font(.caption)
                             .foregroundStyle(.ccSecondary)
                             .lineLimit(1)
+                            .accessibilityIdentifier("selected-session-subtitle")
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -341,7 +342,6 @@ struct SessionScreen: View {
         if let session = model.store.openSession(sessionID)?.session {
             InspectorView(
                 session: session,
-                freezeWorkingGlyphs: true,
                 onInterrupt: interrupt,
                 onCopySessionID: { UIPasteboard.general.string = sessionID },
                 onApprovalMode: setApprovalMode,

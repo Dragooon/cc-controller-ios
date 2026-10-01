@@ -19,9 +19,7 @@ struct SessionsListView: View {
     let approvals: [Approval]
     let deciding: Set<String>
     let connection: Connection
-    let now: Date
     let subtitleOverride: String?
-    let freezeWorkingGlyphs: Bool
     let onOpen: (Session) -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -39,9 +37,7 @@ struct SessionsListView: View {
         approvals: [Approval] = [],
         deciding: Set<String> = [],
         connection: Connection = .live,
-        now: Date = .now,
         subtitleOverride: String? = nil,
-        freezeWorkingGlyphs: Bool = false,
         onOpen: @escaping (Session) -> Void = { _ in },
         onAllow: @escaping (Approval) -> Void = { _ in },
         onDeny: @escaping (Approval) -> Void = { _ in },
@@ -56,9 +52,7 @@ struct SessionsListView: View {
         self.approvals = approvals
         self.deciding = deciding
         self.connection = connection
-        self.now = now
         self.subtitleOverride = subtitleOverride
-        self.freezeWorkingGlyphs = freezeWorkingGlyphs
         self.onOpen = onOpen
         self.onAllow = onAllow
         self.onDeny = onDeny
@@ -103,7 +97,7 @@ struct SessionsListView: View {
                     if case .live = connection {
                         EmptyView()
                     } else {
-                        ConnectionCapsule(connection: connection, now: now, onRetry: onRetry)
+                        ConnectionCapsule(connection: connection, onRetry: onRetry)
                     }
                 }
         }
@@ -142,8 +136,7 @@ struct SessionsListView: View {
                     session: session,
                     approval: approval(for: session),
                     deciding: deciding,
-                    now: now,
-                    frozen: connection.isFrozen || freezeWorkingGlyphs,
+                    frozen: connection.isFrozen,
                     dimmed: connection.isFrozen,
                     onOpen: { onOpen(session) },
                     onAllow: onAllow,
@@ -180,7 +173,6 @@ struct SessionsListView: View {
 
 private struct ConnectionCapsule: View {
     let connection: SessionsListView.Connection
-    let now: Date
     let onRetry: () -> Void
 
     var body: some View {
@@ -189,7 +181,7 @@ private struct ConnectionCapsule: View {
             case .offline:
                 Image(systemName: "wifi.exclamationmark")
                     .foregroundStyle(.ccAccent)
-                Text("Can't reach the Mac · updated \(formatTime(now, timeZone: Self.sydney, locale: Self.english))")
+                Text("Can't reach the Mac · updated \(formatTime(.now, timeZone: Self.sydney, locale: Self.english))")
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Button("Retry", action: onRetry)
@@ -233,7 +225,6 @@ private struct SessionRow: View {
     let session: Session
     let approval: Approval?
     let deciding: Set<String>
-    let now: Date
     let frozen: Bool
     let dimmed: Bool
     let onOpen: () -> Void
@@ -251,7 +242,7 @@ private struct SessionRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     SessionGlyph(session: session, frozen: frozen, dimmed: dimmed)
                         .frame(width: glyphWidth, alignment: .center)
-                    SessionText(session: session, approval: approval, now: now)
+                    SessionText(session: session, approval: approval)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -264,7 +255,6 @@ private struct SessionRow: View {
                 ApprovalCard(
                     approval: approval,
                     style: .compact,
-                    now: now,
                     onOpen: onOpen,
                     onAllow: { onAllow(approval) },
                     onAllowSession: {},
@@ -319,7 +309,6 @@ private struct SessionGlyph: View {
 private struct SessionText: View {
     let session: Session
     let approval: Approval?
-    let now: Date
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -351,42 +340,27 @@ private struct SessionText: View {
                     Text(session.project ?? "unknown project")
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    metaState
+                    SessionStateSegmentView(session: session)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: true)
                 }
             } else {
-                Text(verbatim: inlineMetaText)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(session.project ?? "unknown project")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text("·")
+                    SessionStateSegmentView(session: session)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .font(.subheadline)
         .foregroundStyle(.ccSecondary)
     }
 
-    private var metaState: some View {
-        Text(verbatim: metaStateText)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: true)
-    }
 
-    private var inlineMetaText: String {
-        [session.project ?? "unknown project", metaStateText]
-            .joined(separator: " · ")
-    }
-
-    private var metaStateText: String {
-        [sessionStateSegment(session), contextUsageText]
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
-    }
-
-    private var contextUsageText: String {
-        guard let usage = session.usage,
-              (usage.messages ?? 0) > 0 || (usage.contextTokens ?? 0) > 0 || (usage.contextPercent ?? 0).rounded() > 0 else {
-            return ""
-        }
-        return formatContextUsage(usage)
-    }
 
     private var shouldWrapMeta: Bool {
         (session.project ?? "").count > 10 || dynamicTypeSize >= .accessibility1
@@ -403,8 +377,4 @@ private struct SessionText: View {
         return activityLineText(session)
     }
 
-    private func sessionStateSegment(_ session: Session) -> String {
-        let value = CCKit.sessionStateSegment(session, now: now)
-        return value.replacingOccurrences(of: " 0s", with: "")
-    }
 }

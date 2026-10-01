@@ -4,16 +4,13 @@ extension SessionsMocks {
     static var sessions: some View {
         SessionsListView(
             sessions: MockFixtures.sessions,
-            approvals: MockFixtures.approvals,
-            now: MockFixtures.now,
-            freezeWorkingGlyphs: true
+            approvals: MockFixtures.approvals
         )
     }
 
     static var empty: some View {
         SessionsListView(
-            sessions: [],
-            now: MockFixtures.now
+            sessions: []
         )
     }
 
@@ -22,7 +19,6 @@ extension SessionsMocks {
             sessions: MockFixtures.sessions,
             approvals: MockFixtures.approvals,
             connection: .offline(updatedAt: MockFixtures.now),
-            now: MockFixtures.now,
             subtitleOverride: "Offline"
         )
     }
@@ -32,7 +28,6 @@ extension SessionsMocks {
             sessions: MockFixtures.sessions,
             approvals: MockFixtures.approvals,
             connection: .reconnecting,
-            now: MockFixtures.now,
             subtitleOverride: "Offline"
         )
     }

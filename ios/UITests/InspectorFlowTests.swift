@@ -29,8 +29,7 @@ final class InspectorFlowTests: XCTestCase {
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 15), "Composer did not load")
         composer.tap()
-        composer.typeText("typed-nav-")
-        composer.typeText("marker")
+        composer.typeText("typed-nav-marker")
         XCTAssertEqual(composer.value as? String, marker)
         XCTAssertTrue(
             reveal(engineer, in: scrollView, above: bottomStack),
@@ -93,6 +92,18 @@ final class InspectorFlowTests: XCTestCase {
         info.tap()
 
         XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
+        let subtitle = app.descendants(matching: .any).matching(identifier: "selected-session-subtitle").firstMatch
+        XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "Session subtitle did not load")
+        let subtitleBefore = elementText(subtitle)
+        XCTAssertTrue(waitForChange(subtitle, from: subtitleBefore, timeout: 3), "Session subtitle did not tick: \(subtitleBefore) -> \(elementText(subtitle)) / label \(subtitle.label)")
+        let elapsed = app.descendants(matching: .any).matching(identifier: "inspector-elapsed").firstMatch
+        XCTAssertTrue(elapsed.waitForExistence(timeout: 10), "Elapsed row did not load")
+        let elapsedBefore = elementText(elapsed)
+        XCTAssertTrue(waitForChange(elapsed, from: elapsedBefore, timeout: 3), "Details elapsed value did not tick")
+        attach(named: "session-live-subtitle")
+        attach(named: "inspector-details")
+        // Exclude dynamic type and clipped-text audits because they stall a presented sheet on iOS 27.0; AccessibilityXL screenshots cover text sizes.
+        auditPresentedSheet(app)
         attach(named: "inspector-medium")
         let expandGrabber = app.buttons["Sheet Grabber"]
         if expandGrabber.exists {
@@ -144,6 +155,20 @@ final class InspectorFlowTests: XCTestCase {
         )
     }
 
+    private func elementText(_ element: XCUIElement) -> String {
+        if !element.label.isEmpty { return element.label }
+        return (element.value as? String) ?? ""
+    }
+
+    private func waitForChange(_ element: XCUIElement, from initial: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if elementText(element) != initial { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return false
+    }
+
     private func waitForValue(_ element: XCUIElement, expected: String) -> Bool {
         let deadline = Date().addingTimeInterval(15)
         repeat {
@@ -171,6 +196,17 @@ final class InspectorFlowTests: XCTestCase {
             scrollView.swipeDown()
         }
         return element.exists && element.frame.maxY <= bottomStack.frame.minY
+    }
+
+    private func auditPresentedSheet(_ app: XCUIApplication) {
+        do {
+            try app.performAccessibilityAudit(for: XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .textClipped])) { issue in
+                self.auditLines.append("inspector-sheet: \(issue)")
+                return true
+            }
+        } catch {
+            auditLines.append("inspector-sheet: audit failed: \(error)")
+        }
     }
 
     private func audit(app: XCUIApplication, name: String) {

@@ -3,15 +3,9 @@ import SwiftUI
 
 struct SubagentCard: View {
     let entry: SubagentEntry
-    let now: Date
     let onOpen: (SubagentEntry) -> Void
 
     private var state: SubagentState { entry.state ?? .done }
-    private var durationText: String {
-        guard let start = entry.startedAt else { return displayDuration(0) }
-        let end = entry.finishedAt ?? now
-        return displayDuration(max(0, Int((end.timeIntervalSince(start) * 1000).rounded())))
-    }
     private var linked: Bool { !(entry.agentId ?? "").isEmpty }
 
     var body: some View {
@@ -25,10 +19,17 @@ struct SubagentCard: View {
                             .foregroundStyle(.ccLabel)
                             .lineLimit(1)
                         Spacer(minLength: 4)
-                        Text("\(stateLabel) · \(durationText)")
+                        Text("\(stateLabel) ·")
                             .font(.caption)
                             .foregroundStyle(.ccSecondary)
-                            .lineLimit(1)
+                        LiveElapsedText(
+                            startedAt: entry.startedAt,
+                            finishedAt: entry.finishedAt,
+                            isLive: state == .running,
+                            fallback: nil
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.ccSecondary)
                     }
                     Text(firstMeaningfulLine(entry.text))
                         .font(.footnote)
@@ -67,7 +68,7 @@ struct SubagentCard: View {
     private var statusDot: some View {
         switch state {
         case .running:
-            SpinnerGlyph(active: true, frozen: true)
+            SpinnerGlyph(active: true, frozen: false)
                 .font(.caption)
         case .done:
             Text("●")

@@ -39,7 +39,12 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
     let state = session.state == .needsYou ? "needs you" : session.state?.rawValue ?? "idle"
     var parts = [state]
 
-    if let started = session.state == .working ? session.startedAt : session.idleSince {
+    let started = session.state == .working
+        ? session.startedAt
+        : session.state == .needsYou
+            ? session.pending?.first?.receivedAt ?? session.idleSince
+            : session.idleSince
+    if let started {
         let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
         parts.append(displayDuration(milliseconds))
     }

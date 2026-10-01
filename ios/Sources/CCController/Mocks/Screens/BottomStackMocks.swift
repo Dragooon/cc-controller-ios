@@ -25,7 +25,6 @@ private struct WorkingSessionMock: View {
         NavigationStack {
             SessionTranscriptView(
                 turns: MockBottomStackData.workingTurns,
-                now: MockFixtures.now,
                 showsWorkedFooter: false,
                 bottomStackConfiguration: MockBottomStackData.workingBottomStack,
                 activityFooter: MockBottomStackData.activityFooter
@@ -54,7 +53,6 @@ private struct ComposerMock: View {
         NavigationStack {
             SessionTranscriptView(
                 turns: MockSessionData.turns,
-                now: MockFixtures.now,
                 showsWorkedFooter: true,
                 bottomStackConfiguration: configuration
             )

@@ -5,8 +5,6 @@ struct InspectorView: View {
     let session: Session
     let elapsed: String?
     let branch: String?
-    let now: Date
-    let freezeWorkingGlyphs: Bool
     let onInterrupt: () -> Void
     let onCopySessionID: () -> Void
     let onApprovalMode: (ApprovalMode) -> Void
@@ -24,8 +22,6 @@ struct InspectorView: View {
         session: Session,
         elapsed: String? = nil,
         branch: String? = nil,
-        now: Date = .now,
-        freezeWorkingGlyphs: Bool = false,
         onInterrupt: @escaping () -> Void = {},
         onCopySessionID: @escaping () -> Void = {},
         onApprovalMode: @escaping (ApprovalMode) -> Void = { _ in },
@@ -34,8 +30,6 @@ struct InspectorView: View {
         self.session = session
         self.elapsed = elapsed
         self.branch = branch
-        self.now = now
-        self.freezeWorkingGlyphs = freezeWorkingGlyphs
         self.onInterrupt = onInterrupt
         self.onCopySessionID = onCopySessionID
         self.onApprovalMode = onApprovalMode
@@ -92,18 +86,24 @@ struct InspectorView: View {
                 LabeledContent("State") {
                     HStack(spacing: 7) {
                         if state == .working {
-                            SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
+                            SpinnerGlyph(active: true, frozen: false)
                         }
                         Text(stateLabel(state: state.rawValue))
                             .foregroundStyle(.ccLabel)
                     }
                 }
             }
-            if let displayedElapsed {
+            if elapsed != nil || elapsedAnchor != nil {
                 LabeledContent("Elapsed") {
-                    Text(displayedElapsed)
-                        .font(.body.monospacedDigit())
-                        .foregroundStyle(.ccLabel)
+                    LiveElapsedText(
+                        startedAt: elapsedAnchor,
+                        finishedAt: nil,
+                        isLive: isSessionLive,
+                        fallback: elapsed
+                    )
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(.ccLabel)
+                    .accessibilityIdentifier("inspector-elapsed")
                 }
             }
             if let model = formattedModel {
@@ -168,7 +168,7 @@ struct InspectorView: View {
                 Button { onSubagent(subagent) } label: {
                     HStack(spacing: 10) {
                         if subagent.state == .running {
-                            SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
+                            SpinnerGlyph(active: true, frozen: false)
                                 .font(.subheadline)
                                 .frame(width: 18)
                         } else {
@@ -190,10 +190,15 @@ struct InspectorView: View {
                             }
                         }
                         Spacer(minLength: 8)
-                        if let elapsed = subagentElapsed(subagent) {
-                            Text(elapsed)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.ccSecondary)
+                        if subagent.startedAt != nil {
+                            LiveElapsedText(
+                                startedAt: subagent.startedAt,
+                                finishedAt: subagent.finishedAt,
+                                isLive: subagent.state == .running,
+                                fallback: nil
+                            )
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.ccSecondary)
                         }
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
@@ -265,21 +270,20 @@ struct InspectorView: View {
         }
     }
 
-    private var displayedElapsed: String? {
-        if let elapsed, !elapsed.isEmpty { return elapsed }
-        let anchor = session.state == .working ? session.startedAt : session.idleSince
-        guard let anchor else { return nil }
-        return displayDuration(max(0, Int(anchor.distance(to: now) * 1000)))
+    private var elapsedAnchor: Date? {
+        switch session.state {
+        case .working: session.startedAt
+        case .needsYou: session.pending?.first?.receivedAt ?? session.idleSince
+        default: session.idleSince
+        }
+    }
+
+    private var isSessionLive: Bool {
+        session.state == .working || session.state == .needsYou
     }
 
     private var formattedModel: String? {
         nonEmpty(formatModelName(usage?.model))
-    }
-
-    private func subagentElapsed(_ subagent: Subagent) -> String? {
-        guard let started = subagent.startedAt else { return nil }
-        let end = subagent.finishedAt ?? now
-        return displayDuration(max(0, Int(started.distance(to: end) * 1000)))
     }
 
     private func approvalMode(for rawValue: String) -> ApprovalMode {
