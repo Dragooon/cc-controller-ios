@@ -30,9 +30,7 @@ struct SessionScreen: View {
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            screen(now: context.date)
-        }
+        screen(now: .now)
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: pendingApprovalCount) { oldCount, newCount in
@@ -45,14 +43,10 @@ struct SessionScreen: View {
             knownApprovalIDs = []
         }
         .sheet(isPresented: compactInspectorBinding, onDismiss: presentPendingInspectorDestination) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                inspectorContent(now: context.date)
-            }
+            inspectorContent()
         }
         .inspector(isPresented: regularInspectorBinding) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                inspectorContent(now: context.date)
-            }
+            inspectorContent()
         }
         .background {
             // TODO: move to navigationDestination once the split-view detail stack keeps the toolbar (see tasks/native-app.md Open)
@@ -343,11 +337,11 @@ struct SessionScreen: View {
     }
 
     @ViewBuilder
-    private func inspectorContent(now: Date) -> some View {
+    private func inspectorContent() -> some View {
         if let session = model.store.openSession(sessionID)?.session {
             InspectorView(
                 session: session,
-                now: now,
+                freezeWorkingGlyphs: true,
                 onInterrupt: interrupt,
                 onCopySessionID: { UIPasteboard.general.string = sessionID },
                 onApprovalMode: setApprovalMode,
