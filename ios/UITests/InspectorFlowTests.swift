@@ -16,15 +16,24 @@ final class InspectorFlowTests: XCTestCase {
     func testSubagentPush() throws {
         let app = launch()
         openStaffSession(app)
-        if app.navigationBars["Details"].exists {
-            app.terminate()
-            Thread.sleep(forTimeInterval: 2)
-            app.launch()
-            openStaffSession(app)
-        }
 
-        let engineer = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "engineer")).firstMatch
-        XCTAssertTrue(engineer.waitForExistence(timeout: 15), "Engineer subagent card did not load")
+        let engineer = app.buttons["subagent-card-agent-done"]
+        let scrollView = app.scrollViews.firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 15), "Transcript did not load")
+        let bottomStack = app.descendants(matching: .any)["bottom-stack"]
+        XCTAssertTrue(bottomStack.waitForExistence(timeout: 15), "Bottom stack did not load")
+        XCTAssertTrue(engineer.waitForExistence(timeout: 30), "Engineer subagent card did not load")
+        if engineer.exists && engineer.frame.maxY > bottomStack.frame.minY {
+            for _ in 0..<8 {
+                guard engineer.frame.maxY > bottomStack.frame.minY else { break }
+                scrollView.swipeDown()
+            }
+        }
+        XCTAssertLessThanOrEqual(
+            engineer.frame.maxY,
+            bottomStack.frame.minY,
+            "Engineer subagent card overlaps the bottom stack"
+        )
         engineer.tap()
 
         let subagentNavigationBar = app.navigationBars["engineer"]
@@ -35,6 +44,29 @@ final class InspectorFlowTests: XCTestCase {
 
         subagentNavigationBar.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 15))
+        XCTAssertTrue(
+            app.buttons["subagent-card-agent-done"].waitForExistence(timeout: 15),
+            "Engineer subagent card was not retained after returning"
+        )
+    }
+
+    func testInspectorSubagentPush() throws {
+        let app = launch()
+        openStaffSession(app)
+
+        let info = app.buttons["session-info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 15), "Session info button did not load")
+        info.tap()
+
+        XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
+        app.swipeUp()
+        let engineer = app.buttons["inspector-subagent-agent-done"]
+        XCTAssertTrue(engineer.waitForExistence(timeout: 15), "Inspector engineer row did not load")
+        engineer.tap()
+
+        let subagentNavigationBar = app.navigationBars["engineer"]
+        XCTAssertTrue(subagentNavigationBar.waitForExistence(timeout: 15), "Inspector subagent screen did not load")
+        XCTAssertFalse(app.navigationBars["Details"].exists, "Inspector sheet remained visible after push")
     }
 
     func testInspectorSheet() throws {
@@ -48,7 +80,12 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
         attach(named: "inspector-medium")
         audit(app: app, name: "inspector-medium")
-        app.swipeUp()
+        let expandGrabber = app.buttons["Sheet Grabber"]
+        if expandGrabber.exists {
+            expandGrabber.swipeUp()
+        } else {
+            app.swipeUp()
+        }
 
         let picker = app.buttons["approval-mode-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 15), "Approval mode picker did not load")
@@ -56,12 +93,14 @@ final class InspectorFlowTests: XCTestCase {
         let terminal = app.buttons["Terminal"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 10), "Terminal mode was not offered")
         terminal.tap()
+        XCTAssertTrue(waitForValue(picker, expected: "Terminal"), "Approval mode did not become Terminal")
         XCTAssertEqual(picker.value as? String, "Terminal")
 
         picker.tap()
         let auto = app.buttons["Auto"]
         XCTAssertTrue(auto.waitForExistence(timeout: 10), "Auto mode was not offered")
         auto.tap()
+        XCTAssertTrue(waitForValue(picker, expected: "Auto"), "Approval mode did not become Auto")
         XCTAssertEqual(picker.value as? String, "Auto")
         attach(named: "inspector-auto")
         audit(app: app, name: "inspector-auto")
@@ -70,8 +109,6 @@ final class InspectorFlowTests: XCTestCase {
         if sheetGrabber.exists {
             sheetGrabber.swipeDown()
         }
-        app.terminate()
-        Thread.sleep(forTimeInterval: 2)
     }
 
     private func launch() -> XCUIApplication {
@@ -91,6 +128,15 @@ final class InspectorFlowTests: XCTestCase {
             app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 15),
             "Staff session did not open"
         )
+    }
+
+    private func waitForValue(_ element: XCUIElement, expected: String) -> Bool {
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if element.value as? String == expected { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return false
     }
 
     private func audit(app: XCUIApplication, name: String) {

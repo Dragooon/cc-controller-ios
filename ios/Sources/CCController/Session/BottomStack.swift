@@ -97,6 +97,8 @@ struct BottomStackView: View {
             .padding(.bottom, 4)
         }
         .background(.ccBackground.opacity(0.88))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bottom-stack")
         .onAppear {
             guard configuration.composer.focusesOnAppear else { return }
             DispatchQueue.main.async {

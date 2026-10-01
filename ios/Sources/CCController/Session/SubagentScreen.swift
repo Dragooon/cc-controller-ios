@@ -14,7 +14,7 @@ struct SubagentScreen: View {
             guard let store = model.store.openSubagent(sessionID: sessionID, agentID: agentID) else { return }
             do {
                 try await store.loadInitial()
-                while !Task.isCancelled {
+                while !Task.isCancelled, subagentIsRunning(in: store) {
                     try await Task.sleep(for: .seconds(2))
                     try await store.refetchTail()
                 }
@@ -55,5 +55,9 @@ struct SubagentScreen: View {
 
     private var subagent: Subagent? {
         model.store.sessions[sessionID]?.subagents?.first { $0.agentId == agentID }
+    }
+
+    private func subagentIsRunning(in store: SessionStore) -> Bool {
+        store.session.subagents?.first { $0.agentId == agentID }?.state == .running
     }
 }

@@ -3,11 +3,12 @@ import Foundation
 import SwiftUI
 import UIKit
 
+struct SessionDestination: Hashable {
+    let sessionID: String
+    let agentID: String
+}
+
 struct SessionScreen: View {
-    private struct SessionDestination: Hashable {
-        let sessionID: String
-        let agentID: String
-    }
 
     let sessionID: String
     @Bindable var model: AppModel
