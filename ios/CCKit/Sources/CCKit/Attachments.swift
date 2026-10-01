@@ -124,4 +124,18 @@ public struct AttachmentItem: Identifiable, Sendable, Equatable {
     }
 
     public var size: Int { data.count }
+
+    public var isRetryableFailure: Bool {
+        guard case .failed(let error) = state else { return false }
+        if case .tooLarge = error { return false }
+        return true
+    }
+
+    public static func sendBlockedCaption(for items: [AttachmentItem]) -> String? {
+        let failed = items.filter { if case .failed = $0.state { return true }; return false }
+        guard !failed.isEmpty else { return nil }
+        return failed.contains(where: \.isRetryableFailure)
+            ? "Remove or retry the failed attachment"
+            : "Remove the file that is too large"
+    }
 }

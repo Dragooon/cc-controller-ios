@@ -200,7 +200,8 @@ public final class AppStore {
     }
 
     public func retryAttachment(id: String, sessionID: String) {
-        guard let item = attachments(for: sessionID).first(where: { $0.id == id }) else { return }
+        guard let item = attachments(for: sessionID).first(where: { $0.id == id }),
+              item.isRetryableFailure else { return }
         attachmentProgressDates.removeValue(forKey: item.id)
         updateAttachment(item.id, sessionID: sessionID) { $0.state = .uploading(progress: 0) }
         startAttachmentUpload(item, sessionID: sessionID)
@@ -210,16 +211,16 @@ public final class AppStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let pending = attachments(for: sessionID)
         guard !trimmed.isEmpty || !pending.isEmpty else { return .failure(.invalid("Message text is required.")) }
-        guard !pending.contains(where: { if case .failed = $0.state { return true }; return false }) else {
-            return .failure(.invalid("Remove or retry the failed attachment"))
+        if let caption = AttachmentItem.sendBlockedCaption(for: pending) {
+            return .failure(.invalid(caption))
         }
         let pendingIDs = Set(pending.map(\.id))
         while attachments(for: sessionID).contains(where: { pendingIDs.contains($0.id) && isUploading($0) }) {
             try? await Task.sleep(for: .milliseconds(25))
         }
         let finished = attachments(for: sessionID).filter { pendingIDs.contains($0.id) }
-        guard !finished.contains(where: { if case .failed = $0.state { return true }; return false }) else {
-            return .failure(.invalid("Remove or retry the failed attachment"))
+        if let caption = AttachmentItem.sendBlockedCaption(for: finished) {
+            return .failure(.invalid(caption))
         }
         let sentIDs = Set(finished.compactMap { item -> String? in
             guard case .attached = item.state else { return nil }

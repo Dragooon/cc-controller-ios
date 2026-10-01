@@ -31,6 +31,22 @@ final class AttachmentTests: XCTestCase {
         XCTAssertFalse(file.isImage)
     }
 
+    func testTooLargeFailureIsNotRetryableAndCaptionReflectsRetryability() {
+        let tooLarge = AttachmentItem(
+            file: UploadFile(name: "too-large.bin", data: Data([1])),
+            state: .failed(.tooLarge(fileName: "too-large.bin", limitBytes: AttachmentNormalizer.maxFileBytes))
+        )
+        XCTAssertFalse(tooLarge.isRetryableFailure)
+        XCTAssertEqual(AttachmentItem.sendBlockedCaption(for: [tooLarge]), "Remove the file that is too large")
+
+        let retryable = AttachmentItem(
+            file: UploadFile(name: "failed.png", data: Data([1]), isImage: true),
+            state: .failed(.server(status: 500, message: "upload failed"))
+        )
+        XCTAssertTrue(retryable.isRetryableFailure)
+        XCTAssertEqual(AttachmentItem.sendBlockedCaption(for: [tooLarge, retryable]), "Remove or retry the failed attachment")
+    }
+
     private func imageData(type: CFString, width: Int, height: Int) throws -> Data {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, type, 1, nil),

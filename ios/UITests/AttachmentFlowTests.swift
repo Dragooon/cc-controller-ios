@@ -87,8 +87,28 @@ final class AttachmentFlowTests: XCTestCase {
         let failed = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'failed'")).firstMatch
         XCTAssertTrue(failed.waitForExistence(timeout: 10), "Too-large attachment did not fail")
         app.buttons["composer-send"].tap()
+        let caption = app.staticTexts["Remove the file that is too large"]
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Too-large attachment caption did not appear")
+        XCTAssertFalse(app.alerts["Action failed"].exists, "Blocked attachment send showed an alert")
+    }
+
+    func testFailedImageAttachmentShowsRetryCaption() throws {
+        let failedPath = outputFile("fail-attachment.png")
+        try FileManager.default.copyItem(atPath: fixture("attachment.png"), toPath: failedPath.path)
+        defer { try? FileManager.default.removeItem(at: failedPath) }
+
+        let app = launchFixture(with: failedPath.path)
+        defer {
+            audit(app, name: "attachment-failed-image")
+            addScreenshot(named: "attachment-failed-image")
+            app.terminate()
+        }
+        openLongSession(in: app)
+
+        let failed = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'failed'")).firstMatch
+        XCTAssertTrue(failed.waitForExistence(timeout: 10), "Retryable image attachment did not fail")
         let caption = app.staticTexts["Remove or retry the failed attachment"]
-        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Failed attachment retry caption did not appear")
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Retryable attachment caption did not appear")
     }
 
     func testRemoveAttachmentRemovesOnlyTrayTile() throws {

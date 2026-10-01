@@ -199,10 +199,16 @@ struct SessionScreen: View {
     @MainActor
     private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<Void, ActionError> {
         let result = await model.store.sendComposer(text: text, to: sessionID, now: now)
-        if case .failure(let error) = result {
+        if case .failure(let error) = result, shouldPresentSendError(error) {
             model.actionError = error
         }
         return result
+    }
+
+    private func shouldPresentSendError(_ error: ActionError) -> Bool {
+        guard case .invalid(let message) = error else { return true }
+        return message != "Remove or retry the failed attachment"
+            && message != "Remove the file that is too large"
     }
 
     @MainActor

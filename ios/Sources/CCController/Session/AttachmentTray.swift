@@ -17,6 +17,7 @@ struct ComposerAttachment: Identifiable {
     let thumbnailData: Data?
     let resourceName: String?
     let state: State
+    let canRetry: Bool
 
     init(item: AttachmentItem) {
         id = item.id
@@ -25,6 +26,7 @@ struct ComposerAttachment: Identifiable {
         isImage = item.isImage
         thumbnailData = item.thumbnailData
         resourceName = nil
+        canRetry = item.isRetryableFailure
         switch item.state {
         case .uploading(let progress): state = .uploading(progress: progress)
         case .attached: state = .attached
@@ -47,6 +49,7 @@ struct ComposerAttachment: Identifiable {
             isImage = true
             thumbnailData = nil
             self.resourceName = resourceName
+            canRetry = false
             state = progress.map { .uploading(progress: $0) } ?? .attached
         case .file(let name):
             self.name = name
@@ -54,6 +57,7 @@ struct ComposerAttachment: Identifiable {
             isImage = false
             thumbnailData = nil
             resourceName = nil
+            canRetry = false
             state = .attached
         }
     }
@@ -100,7 +104,7 @@ struct AttachmentTrayView: View {
                     .padding(.horizontal, 8)
             }
             if attachments.contains(where: { if case .failed = $0.state { return true }; return false }) {
-                Text("Remove or retry the failed attachment")
+                Text(failureCaption)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 8)
@@ -138,7 +142,7 @@ struct AttachmentTrayView: View {
         .accessibilityLabel(accessibilityLabel(for: attachment))
         .accessibilityIdentifier("attachment-tile")
         .onTapGesture {
-            if isFailed(attachment) { onRetry(attachment.id) }
+            if isFailed(attachment), attachment.canRetry { onRetry(attachment.id) }
         }
     }
 
@@ -151,7 +155,7 @@ struct AttachmentTrayView: View {
             } else {
                 Color.ccCard.overlay { Image(systemName: "photo").foregroundStyle(.ccSecondary) }
             }
-            tileOverlay(for: attachment)
+            tileOverlay(for: attachment, showFailureBadge: true)
         }
         .frame(width: 56, height: 56)
         .clipped()
@@ -182,9 +186,16 @@ struct AttachmentTrayView: View {
     private func fileView(for attachment: ComposerAttachment) -> some View {
         ZStack {
             HStack(spacing: 7) {
-                Image(systemName: fileSymbol(for: attachment.name))
-                    .font(.subheadline)
-                    .foregroundStyle(.ccSecondary)
+                Group {
+                    if isFailed(attachment) {
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .foregroundStyle(.red)
+                    } else {
+                        Image(systemName: fileSymbol(for: attachment.name))
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                .font(.subheadline)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(attachment.name)
                         .font(.subheadline)
@@ -202,7 +213,7 @@ struct AttachmentTrayView: View {
             }
             .padding(.leading, 10)
             .padding(.trailing, 32)
-            tileOverlay(for: attachment)
+            tileOverlay(for: attachment, showFailureBadge: false)
         }
         .frame(width: 220, height: 56)
         .background(.ccCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -210,7 +221,7 @@ struct AttachmentTrayView: View {
     }
 
     @ViewBuilder
-    private func tileOverlay(for attachment: ComposerAttachment) -> some View {
+    private func tileOverlay(for attachment: ComposerAttachment, showFailureBadge: Bool) -> some View {
         switch attachment.state {
         case .uploading(let progress):
             ZStack {
@@ -229,12 +240,16 @@ struct AttachmentTrayView: View {
         case .attached:
             EmptyView()
         case .failed:
-            Circle()
-                .fill(.red)
-                .frame(width: 22, height: 22)
-                .overlay { Image(systemName: "exclamationmark").font(.caption2.weight(.bold)).foregroundStyle(.white) }
-                .padding(5)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            if showFailureBadge {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 22, height: 22)
+                    .overlay { Image(systemName: "exclamationmark").font(.caption2.weight(.bold)).foregroundStyle(.white) }
+                    .padding(5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            } else {
+                EmptyView()
+            }
         }
     }
 
@@ -252,6 +267,12 @@ struct AttachmentTrayView: View {
         .contentShape(Rectangle())
         .offset(x: 6, y: -6)
         .accessibilityLabel("Remove \(attachment.name)")
+    }
+
+    private var failureCaption: String {
+        attachments.contains(where: { if case .failed = $0.state { return $0.canRetry }; return false })
+            ? "Remove or retry the failed attachment"
+            : "Remove the file that is too large"
     }
 
     private func isFailed(_ attachment: ComposerAttachment) -> Bool {

@@ -157,13 +157,32 @@ final class ActionTests: XCTestCase {
     }
 
     func testComposerSendBlocksFailedAttachment() async {
-        ActionURLProtocol.handler = { _ in ActionURLProtocol.json(413, body: Data("{\"error\":\"too large\"}".utf8)) }
+        ActionURLProtocol.handler = { _ in ActionURLProtocol.json(500, body: Data("{\"error\":\"upload failed\"}".utf8)) }
         let app = makeApp()
         app.addAttachment(UploadFile(name: "a.txt", data: Data([1]), mimeType: "text/plain"), to: "s")
         for _ in 0..<20 { if case .failed = app.attachments(for: "s").first?.state { break }; try? await Task.sleep(for: .milliseconds(10)) }
         guard case .failure(.invalid("Remove or retry the failed attachment")) = await app.sendComposer(text: "hello", to: "s") else { return XCTFail("Failed attachment did not block send") }
     }
 
+    func testTooLargeAttachmentDoesNotRetryUpload() async throws {
+        var uploadCalls = 0
+        ActionURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/files") == true { uploadCalls += 1 }
+            return ActionURLProtocol.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.addAttachment(
+            UploadFile(name: "too-large.bin", data: Data(repeating: 0, count: AttachmentNormalizer.maxFileBytes + 1)),
+            to: "s"
+        )
+        let id = try XCTUnwrap(app.attachments(for: "s").first?.id)
+        app.retryAttachment(id: id, sessionID: "s")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(uploadCalls, 0)
+        guard case .failed(.tooLarge) = app.attachments(for: "s").first?.state else {
+            return XCTFail("Too-large attachment became retryable")
+        }
+    }
 
     func testComposerSendWaitsForUploadAndKeepsAttachmentAddedDuringWait() async throws {
         let uploadStarted = expectation(description: "upload started")
