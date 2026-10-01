@@ -50,8 +50,8 @@ public final class SessionStore {
     }
 
     @discardableResult
-    public func merge(_ incoming: [TranscriptEntry], replace: Bool = false, entryCount: Int? = nil) -> TranscriptChangeSet {
-        let change = transcriptStore.merge(incoming, replace: replace)
+    public func merge(_ incoming: [TranscriptEntry], replace: Bool = false, entryCount: Int? = nil, appendNewEntries: Bool = false) -> TranscriptChangeSet {
+        let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: appendNewEntries)
         if let entryCount { totalEntries = max(totalEntries, entryCount) }
         else if !hasLoaded { totalEntries = max(totalEntries, transcriptStore.entries.count) }
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }

@@ -16,7 +16,7 @@ public struct TranscriptStore: Sendable, Equatable {
     }
 
     @discardableResult
-    public mutating func merge(_ incoming: [TranscriptEntry], replace: Bool = false) -> TranscriptChangeSet {
+    public mutating func merge(_ incoming: [TranscriptEntry], replace: Bool = false, appendNewEntries: Bool = false) -> TranscriptChangeSet {
         var inserted: [TranscriptEntry] = []
         var updatedIDs: [String] = []
         for entry in incoming {
@@ -28,7 +28,7 @@ public struct TranscriptStore: Sendable, Equatable {
                 updatedIDs.append(entry.id ?? key)
                 continue
             }
-            let index = insertionIndex(for: entry)
+            let index = appendNewEntries ? entries.count : insertionIndex(for: entry)
             entries.insert(entry, at: index)
             inserted.append(entry)
         }

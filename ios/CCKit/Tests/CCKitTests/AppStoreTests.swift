@@ -145,6 +145,49 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.openSession("session-1")?.entries.first?.id, "event-entry")
     }
 
+    func testLiveAppendAfterTailBecomesNewestTurn() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/sessions/session-1/message" {
+                return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1000])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        let tailStart = try JSONDecoder.ccKit().decode(
+            Date.self,
+            from: Data("\"2026-10-01T13:55:01.785Z\"".utf8)
+        )
+        let tail = (0..<200).flatMap { index -> [TranscriptEntry] in
+            let promptDate = tailStart.addingTimeInterval(Double(index * 2))
+            let assistantDate = promptDate.addingTimeInterval(1)
+            return [
+                .prompt(PromptEntry(id: "tail-prompt-\(index)", rev: index * 2, ts: promptDate, text: "Tail prompt \(index)")),
+                .assistant(AssistantEntry(id: "tail-assistant-\(index)", rev: index * 2 + 1, ts: assistantDate, text: "Tail response \(index)")),
+            ]
+        }
+        _ = store.merge(tail, entryCount: 1000)
+
+        let marker = "root-cause-live-append"
+        guard case .success = await app.send(text: marker, to: "session-1") else {
+            XCTFail("Failed to create pending sent prompt")
+            return
+        }
+        XCTAssertEqual(app.queuedNotes(for: "session-1"), [QueuedNote(text: marker)])
+        let rawEvent = """
+        {"sessionId":"session-1","path":"/tmp/long-session.jsonl","entry":{"ts":"2026-10-01T13:54:32.914Z","kind":"prompt","origin":"device","text":"\(marker)","id":"synthetic:339c819273ef8130","rev":1038},"entryCount":1001,"replace":false}
+        """
+        let transcriptEvent = try JSONDecoder.ccKit().decode(
+            TranscriptEvent.self,
+            from: Data(rawEvent.utf8)
+        )
+        app.apply(.transcript(transcriptEvent))
+
+        XCTAssertEqual(store.entries.last?.id, "synthetic:339c819273ef8130")
+        XCTAssertEqual(store.turns.last?.prompts.first?.text, marker)
+    }
+
     func testUsageEventReplacesUsageSnapshot() {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))

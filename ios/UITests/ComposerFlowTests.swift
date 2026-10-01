@@ -16,8 +16,8 @@ final class ComposerFlowTests: XCTestCase {
     func testSendFromIdleSession() throws {
         let app = launchFixture()
         defer {
-            audit(app: app, name: "composer-sent")
             attach(named: "composer-sent")
+            audit(app: app, name: "composer-sent")
             app.terminate()
         }
 
@@ -38,9 +38,8 @@ final class ComposerFlowTests: XCTestCase {
         send.tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 2), "Sent marker did not appear as a pending prompt")
+        XCTAssertTrue(pending.waitForExistence(timeout: 5), "Sent marker did not appear as a pending prompt")
         XCTAssertTrue(pending.label.contains(marker), "Pending bubble did not contain the sent marker")
-        let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
 
         let resetField = composerField(in: app)
         XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not reappear after send")
@@ -51,8 +50,11 @@ final class ComposerFlowTests: XCTestCase {
         resetField.typeText("f")
         XCTAssertEqual(resetField.value as? String, "f", "Composer did not retain keyboard focus after send")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
-        app.swipeUp()
-        XCTAssertTrue(prompt.waitForExistence(timeout: 15), "Delivered sent marker did not remain in the transcript")
+        let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: 15), "Delivered sent marker did not render in the transcript")
+        XCTAssertTrue(waitForHittable(prompt, timeout: 15), "Delivered sent marker was not hittable in the transcript")
+        let matchingPrompts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker))
+        XCTAssertEqual(matchingPrompts.count, 1, "Sent marker appeared in both pending and delivered prompts")
         XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
     }
 
@@ -187,6 +189,16 @@ private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval)
         object: element
     )
     return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+}
+
+@MainActor
+private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if element.exists && element.isHittable { return true }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while Date() < deadline
+    return false
 }
 
 @MainActor

@@ -534,10 +534,18 @@ public final class AppStore {
     private func applyTranscript(_ event: TranscriptEvent) {
         guard let sessionID = event.sessionId, let entry = event.entry else { return }
         guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return }
-        let pending = reconcileQueuedNote(queuedNotes[sessionID] ?? [], promptEntry: entry)
-        if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) } else { queuedNotes[sessionID] = pending }
         let countBefore = store.totalEntries
-        let change = store.merge([entry], replace: event.replace == true, entryCount: event.entryCount)
+        let change = store.merge(
+            [entry],
+            replace: event.replace == true,
+            entryCount: event.entryCount,
+            appendNewEntries: true
+        )
+        let entryMatched = store.entries.contains(where: { $0 == entry })
+        if entryMatched {
+            let pending = reconcileQueuedNote(queuedNotes[sessionID] ?? [], promptEntry: entry)
+            if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) } else { queuedNotes[sessionID] = pending }
+        }
         let expectedCount = countBefore + (change.inserted.isEmpty ? 0 : 1)
         if let entryCount = event.entryCount {
             serverEntryCounts[sessionID] = entryCount

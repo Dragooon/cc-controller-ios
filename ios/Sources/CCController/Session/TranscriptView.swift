@@ -83,7 +83,7 @@ struct SessionTranscriptView: View {
                 }
                 pagingAnchorID = nil
             }
-            .onChange(of: turns.count) { _, _ in
+            .onChange(of: turns.last?.id) { _, _ in
                 scrollToNewest(using: proxy)
             }
             .onChange(of: queuedNotes) { _, _ in
@@ -95,12 +95,13 @@ struct SessionTranscriptView: View {
                 return visibleBottom >= geometry.contentSize.height - 36
             } action: { _, isAtBottom in
                 newestIsVisible = isAtBottom
+                if !isAtBottom { loadEarlierIfNeeded() }
             }
             .overlay(alignment: .bottomTrailing) {
                 if !newestIsVisible, let newestID = turns.last?.id {
                     Button {
                         withAnimation(.snappy) {
-                            proxy.scrollTo(newestID, anchor: .bottom)
+                            proxy.scrollTo("transcript-bottom", anchor: .bottom)
                         }
                     } label: {
                         Image(systemName: "arrow.down")
@@ -177,10 +178,11 @@ struct SessionTranscriptView: View {
     private func scrollToNewest(using proxy: ScrollViewProxy) {
         Task { @MainActor in
             do {
-                try await Task.sleep(for: .milliseconds(50))
+                try await Task.sleep(for: .milliseconds(250))
             } catch {
                 return
             }
+            guard newestIsVisible else { return }
             withAnimation(.snappy) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
