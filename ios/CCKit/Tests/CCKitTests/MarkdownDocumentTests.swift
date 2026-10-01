@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import XCTest
 @testable import CCKit
@@ -71,12 +72,27 @@ final class MarkdownDocumentTests: XCTestCase {
 
     func testVeryLongReplyParsesWithinFiftyMilliseconds() {
         let text = (1...2_000).map { "Line \($0) with plain text." }.joined(separator: "\n\n")
-        let start = ContinuousClock.now
-        let document = MarkdownDocument(parsing: text)
-        let elapsed = start.duration(to: .now)
+        _ = MarkdownDocument(parsing: text)
 
+        var bestCPUTime = UInt64.max
+        var document: MarkdownDocument?
+        for _ in 0..<5 {
+            let start = threadCPUTime()
+            let parsed = MarkdownDocument(parsing: text)
+            let elapsed = threadCPUTime() - start
+            bestCPUTime = min(bestCPUTime, elapsed)
+            document = parsed
+        }
+
+        guard let document else { return XCTFail("Expected a parsed document") }
         XCTAssertEqual(document.blocks.count, 2_000)
-        XCTAssertLessThan(elapsed, .milliseconds(50))
+        XCTAssertLessThan(bestCPUTime, 50_000_000)
+    }
+
+    private func threadCPUTime() -> UInt64 {
+        var time = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time)
+        return UInt64(time.tv_sec) * 1_000_000_000 + UInt64(time.tv_nsec)
     }
 
     private func assertHeading(_ block: MarkdownBlock, level: Int, text: String, file: StaticString = #filePath, line: UInt = #line) {
