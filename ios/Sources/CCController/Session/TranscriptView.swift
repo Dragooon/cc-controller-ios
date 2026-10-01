@@ -20,7 +20,7 @@ struct SessionTranscriptView: View {
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
     @State private var newestIsVisible = true
-    @State private var topVisibleTurnID: Turn.ID?
+    @State private var pagingAnchorID: Turn.ID?
     @State private var pagingError: String?
     @State private var transcriptHeight: CGFloat = 0
 
@@ -70,13 +70,18 @@ struct SessionTranscriptView: View {
                 .scrollTargetLayout()
             }
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
-            .scrollPosition(id: $topVisibleTurnID, anchor: .top)
             .scrollDismissesKeyboard(.interactively)
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
             } action: { _, height in
                 transcriptHeight = height
+            }
+            .onChange(of: turns.first?.id) { _, newID in
+                guard let anchorID = pagingAnchorID, newID != anchorID else { return }
+                withTransaction(Transaction(animation: nil)) {
+                    proxy.scrollTo(anchorID, anchor: .top)
+                }
+                pagingAnchorID = nil
             }
             .background(.ccBackground)
             .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -150,7 +155,7 @@ struct SessionTranscriptView: View {
 
     private func loadEarlierIfNeeded() {
         guard hasMoreEarlier, !isLoadingEarlier, !didTriggerPaging, let loadEarlier else { return }
-        topVisibleTurnID = turns.first?.id
+        pagingAnchorID = turns.first?.id
         didTriggerPaging = true
         isLoadingEarlier = true
         Task { @MainActor in

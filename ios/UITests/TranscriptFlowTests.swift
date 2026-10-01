@@ -33,6 +33,9 @@ final class TranscriptFlowTests: XCTestCase {
             transcriptScroll.swipeDown()
         }
         XCTAssertTrue(toolGroup.isHittable, "Tool group did not become tappable")
+        for _ in 0..<3 {
+            transcriptScroll.swipeUp(velocity: .fast)
+        }
         toolGroup.tap()
 
         let expandedToolGroup = app.buttons.matching(
@@ -40,10 +43,20 @@ final class TranscriptFlowTests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(expandedToolGroup.waitForExistence(timeout: 10), "Tool group did not expand")
 
+        let jumpToLatest = app.buttons["Jump to latest"]
+        if jumpToLatest.waitForExistence(timeout: 5) {
+            jumpToLatest.tap()
+            _ = jumpToLatest.waitForNonExistence(timeout: 5)
+        }
         let bash = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Bash'")
         ).firstMatch
         XCTAssertTrue(bash.waitForExistence(timeout: 15), "Expanded Bash row did not load")
+        for _ in 0..<12 {
+            app.swipeUp(velocity: .fast)
+            if bash.isHittable { break }
+        }
+        XCTAssertTrue(bash.isHittable, "Expanded Bash row did not become tappable")
         bash.tap()
 
         let output = app.staticTexts["OUTPUT"]
