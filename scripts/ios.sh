@@ -345,7 +345,7 @@ cmd_flows() {
         web_port=$(json_value "$FIXTURE_OUT" webPort)
         bearer=$(json_value "$FIXTURE_OUT" bearer)
         local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
-        if TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" step "flows $flow_class/$flow_method $device" "${args[@]}" 2>&1 | tee -a "$method_log"; then
+        if CC_FLOW_OUTPUT_DIR="$output_dir" TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" step "flows $flow_class/$flow_method $device" "${args[@]}" 2>&1 | tee -a "$method_log"; then
           xcode_status=0
         else
           xcode_status=$?

@@ -1,4 +1,5 @@
 import CCKit
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,7 @@ struct ComposerAttachment: Identifiable {
     let size: Int
     let isImage: Bool
     let thumbnailData: Data?
+    let resourceName: String?
     let state: State
 
     init(item: AttachmentItem) {
@@ -22,6 +24,7 @@ struct ComposerAttachment: Identifiable {
         size = item.size
         isImage = item.isImage
         thumbnailData = item.thumbnailData
+        resourceName = nil
         switch item.state {
         case .uploading(let progress): state = .uploading(progress: progress)
         case .attached: state = .attached
@@ -43,12 +46,14 @@ struct ComposerAttachment: Identifiable {
             size = 0
             isImage = true
             thumbnailData = nil
+            self.resourceName = resourceName
             state = progress.map { .uploading(progress: $0) } ?? .attached
         case .file(let name):
             self.name = name
             size = 0
             isImage = false
             thumbnailData = nil
+            resourceName = nil
             state = .attached
         }
     }
@@ -139,10 +144,10 @@ struct AttachmentTrayView: View {
 
     private func imageView(for attachment: ComposerAttachment) -> some View {
         ZStack {
-            if let data = attachment.thumbnailData, let image = UIImage(data: data) {
+            if let image = thumbnailImage(for: attachment) {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
             } else {
                 Color.ccCard.overlay { Image(systemName: "photo").foregroundStyle(.ccSecondary) }
             }
@@ -154,6 +159,26 @@ struct AttachmentTrayView: View {
         .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.ccSeparator, lineWidth: 0.5) }
     }
 
+    private func thumbnailImage(for attachment: ComposerAttachment) -> UIImage? {
+        let data: Data?
+        if let thumbnailData = attachment.thumbnailData {
+            data = thumbnailData
+        } else if let resourceName = attachment.resourceName,
+                  let url = Bundle.main.url(forResource: resourceName, withExtension: "png") {
+            data = try? Data(contentsOf: url)
+        } else {
+            data = nil
+        }
+        guard let data,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 168,
+              ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
     private func fileView(for attachment: ComposerAttachment) -> some View {
         ZStack {
             HStack(spacing: 7) {
@@ -162,22 +187,24 @@ struct AttachmentTrayView: View {
                     .foregroundStyle(.ccSecondary)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(attachment.name)
-                        .font(.footnote.monospaced())
+                        .font(.subheadline)
                         .foregroundStyle(.ccLabel)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                        .frame(maxWidth: 180, alignment: .leading)
                     if attachment.size > 0 {
                         Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.size), countStyle: .file))
-                            .font(.caption2)
+                            .font(.caption)
                             .foregroundStyle(.ccSecondary)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: 180, alignment: .leading)
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 10)
+            .padding(.trailing, 32)
             tileOverlay(for: attachment)
         }
-        .frame(width: 154, height: 56)
+        .frame(width: 220, height: 56)
         .background(.ccCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.ccSeparator, lineWidth: 0.5) }
     }
@@ -188,10 +215,16 @@ struct AttachmentTrayView: View {
         case .uploading(let progress):
             ZStack {
                 Color.ccBackground.opacity(0.38)
-                ProgressView(value: progress)
-                    .progressViewStyle(.circular)
-                    .tint(.ccAccent)
-                    .scaleEffect(0.85)
+                if progress >= 1 {
+                    ProgressView()
+                        .tint(.ccAccent)
+                        .scaleEffect(0.85)
+                } else {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.circular)
+                        .tint(.ccAccent)
+                        .scaleEffect(0.85)
+                }
             }
         case .attached:
             EmptyView()
@@ -228,7 +261,8 @@ struct AttachmentTrayView: View {
 
     private func accessibilityLabel(for attachment: ComposerAttachment) -> String {
         switch attachment.state {
-        case .uploading(let progress): "\(attachment.name), uploading \(Int(progress * 100)) percent"
+        case .uploading(let progress):
+            progress >= 1 ? "\(attachment.name), uploaded, waiting for server" : "\(attachment.name), uploading \(Int(progress * 100)) percent"
         case .attached: "\(attachment.name), attached"
         case .failed: "\(attachment.name), failed"
         }

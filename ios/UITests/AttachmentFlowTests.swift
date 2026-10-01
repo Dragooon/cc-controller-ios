@@ -37,6 +37,60 @@ final class AttachmentFlowTests: XCTestCase {
         XCTAssertFalse(tray.waitForExistence(timeout: 15), "Attachment tray remained after send")
     }
 
+    func testTrayBeforeSendShowsRealThumbnailAndCSV() throws {
+        let app = launchFixture(with: [fixture("attachment.png"), fixture("evidence.csv")])
+        defer {
+            audit(app, name: "attachment-tray-before-send")
+            addScreenshot(named: "attachment-tray-before-send")
+            app.terminate()
+        }
+        openLongSession(in: app)
+
+        let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
+        XCTAssertTrue(tray.waitForExistence(timeout: 10), "Attachment tray did not appear")
+        let csv = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'evidence.csv'")).firstMatch
+        XCTAssertTrue(csv.waitForExistence(timeout: 10), "CSV attachment chip did not appear")
+        let attached = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'attached'")).firstMatch
+        XCTAssertTrue(attached.waitForExistence(timeout: 10), "PNG attachment did not finish uploading")
+    }
+
+    func testUploadWaitingStateShowsIndeterminateTile() throws {
+        let slowPath = outputFile("slow-attachment.png")
+        try FileManager.default.copyItem(atPath: fixture("attachment.png"), toPath: slowPath.path)
+        defer { try? FileManager.default.removeItem(at: slowPath) }
+
+        let app = launchFixture(with: slowPath.path)
+        defer {
+            audit(app, name: "attachment-upload-waiting")
+            addScreenshot(named: "attachment-upload-waiting")
+            app.terminate()
+        }
+        openLongSession(in: app)
+
+        let waiting = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'waiting for server'")).firstMatch
+        XCTAssertTrue(waiting.waitForExistence(timeout: 3), "Upload did not reach the all-bytes-sent waiting state")
+    }
+
+    func testTooLargeAttachmentShowsInlineRetryCaption() throws {
+        let largePath = outputFile("too-large.bin")
+        try Data(repeating: 0, count: 26 * 1024 * 1024).write(to: largePath)
+        defer { try? FileManager.default.removeItem(at: largePath) }
+
+        let app = launchFixture(with: largePath.path)
+        defer {
+            audit(app, name: "attachment-too-large")
+            addScreenshot(named: "attachment-too-large")
+            app.terminate()
+        }
+        openLongSession(in: app)
+
+        let failed = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'failed'")).firstMatch
+        XCTAssertTrue(failed.waitForExistence(timeout: 10), "Too-large attachment did not fail")
+        app.buttons["composer-send"].tap()
+        let caption = app.staticTexts["Remove or retry the failed attachment"]
+        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Failed attachment retry caption did not appear")
+    }
+
     func testRemoveAttachmentRemovesOnlyTrayTile() throws {
         let app = launchFixture(with: fixture("attachment.png"))
         defer {
@@ -86,15 +140,19 @@ final class AttachmentFlowTests: XCTestCase {
     }
 
     private func launchFixture(with path: String? = nil) -> XCUIApplication {
+        launchFixture(with: path.map { [$0] } ?? [])
+    }
+
+    private func launchFixture(with paths: [String]) -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
         let server = environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"
         let bearer = environment["TEST_RUNNER_BEARER"] ?? ""
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server, "-CCResetCache"]
-        if let path {
+        for path in paths {
             app.launchArguments += ["-CCAttachFile", path]
-            app.launchEnvironment["CCAttachFile"] = path
         }
+        app.launchEnvironment["CCAttachFile"] = paths.joined(separator: "\n")
         app.launchEnvironment["CCBearer"] = bearer
         app.launch()
         return app
@@ -120,6 +178,14 @@ final class AttachmentFlowTests: XCTestCase {
             .appendingPathComponent("Fixtures")
             .appendingPathComponent(name)
             .path
+    }
+
+    private func outputFile(_ name: String) -> URL {
+        let directory = ProcessInfo.processInfo.environment["CC_FLOW_OUTPUT_DIR"]
+            .map(URL.init(fileURLWithPath:))
+            ?? FileManager.default.temporaryDirectory
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent(name)
     }
 
     private func audit(_ app: XCUIApplication, name: String) {
