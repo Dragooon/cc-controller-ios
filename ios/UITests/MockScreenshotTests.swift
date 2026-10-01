@@ -4,6 +4,33 @@ import XCTest
 final class MockScreenshotTests: XCTestCase {
     private var auditLines: [String] = []
 
+    // MockScreen is internal to the app target and is not visible to this UI test target.
+    // Keep these ids in sync with MockScreen in Sources/CCController/Mocks/MockGate.swift.
+    private static let allMockScreens = [
+        "sessions",
+        "sessions-empty",
+        "sessions-offline",
+        "sessions-reconnecting",
+        "session-idle",
+        "session-working",
+        "session-approvals",
+        "session-terminal-approval",
+        "composer-slash",
+        "composer-attachments",
+        "composer-keyboard",
+        "tool-detail",
+        "tool-detail-edit",
+        "subagent",
+        "inspector",
+        "settings",
+        "onboarding-welcome",
+        "onboarding-connect",
+        "onboarding-pair",
+        "onboarding-faceid",
+        "lock",
+        "privacy-cover",
+    ]
+
     override func tearDown() {
         let report = auditLines.isEmpty ? "No accessibility issues reported." : auditLines.joined(separator: "\n")
         let attachment = XCTAttachment(data: Data(report.utf8), uniformTypeIdentifier: "public.plain-text")
@@ -19,9 +46,11 @@ final class MockScreenshotTests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(separator: ",")
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-        let defaultScreens = ["sessions", "sessions-empty", "sessions-offline", "sessions-reconnecting"]
-        let screens = requested?.isEmpty == false ? requested! : defaultScreens
-            .filter { defaultScreens.contains($0) }
+        let screens = if let requested, !requested.isEmpty {
+            requested
+        } else {
+            Self.allMockScreens
+        }
         let schemes = ["light", "dark"]
 
         for screen in screens {
