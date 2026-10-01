@@ -14,6 +14,8 @@ DIAG_DIR=""
 MOCK_PREFIX=""
 MOCK_RUN_DIR=""
 MOCK_DEVICE_NAMES=()
+SHOT_PREFIX="cc-"
+SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
 
 step() {
   local name=$1; shift
@@ -53,7 +55,13 @@ cleanup_shots() {
     cp "$IOS/shots/fixture-daemon.log" "$DIAG_DIR/fixture-daemon.log" 2>/dev/null || true
     while read -r udid; do
       [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true
-    done < <(simulator_udids exact Booted "cc-${DEFAULT_DEVICES[0]}" "cc-${DEFAULT_DEVICES[1]}" "cc-${DEFAULT_DEVICES[2]}")
+    done < <(
+      if [[ ${#SHOT_DEVICE_NAMES[@]} -eq 0 ]]; then
+        simulator_udids prefix Booted "$SHOT_PREFIX"
+      else
+        simulator_udids exact Booted "${SHOT_DEVICE_NAMES[@]}"
+      fi
+    )
     mkdir -p "$DIAG_DIR/attachments"
     for result in "$IOS"/build/*.xcresult; do
       [[ -d "$result" ]] || continue
@@ -62,12 +70,18 @@ cleanup_shots() {
   fi
   while read -r udid; do
     [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-  done < <(simulator_udids exact Booted "cc-${DEFAULT_DEVICES[0]}" "cc-${DEFAULT_DEVICES[1]}" "cc-${DEFAULT_DEVICES[2]}")
+  done < <(
+    if [[ ${#SHOT_DEVICE_NAMES[@]} -eq 0 ]]; then
+      simulator_udids prefix Booted "$SHOT_PREFIX"
+    else
+      simulator_udids exact Booted "${SHOT_DEVICE_NAMES[@]}"
+    fi
+  )
 }
 
 ensure_device() {
   local device=$1
-  local name="cc-$device"
+  local name="$SHOT_PREFIX$device"
   local udid
   udid=$(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name===process.argv[1]){console.log(x.udid);process.exit(0)}}}})' "$name")
   if [[ -z "$udid" ]]; then
@@ -116,6 +130,14 @@ cmd_shots() {
     esac
   done
   [[ ${#devices[@]} -gt 0 ]] || devices=("${DEFAULT_DEVICES[@]}")
+  local lane="${CC_MOCK_LANE:-}"
+  if [[ -n "$lane" ]]; then
+    SHOT_PREFIX="ccshot-$lane-"
+    SHOT_DEVICE_NAMES=()
+  else
+    SHOT_PREFIX="cc-"
+    SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
+  fi
   rm -rf "$IOS/shots"
   mkdir -p "$IOS/shots"
   RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
