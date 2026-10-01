@@ -209,6 +209,10 @@ public final class AppStore {
         await upload(files, to: sessionID)
     }
 
+    public func downloadFile(sessionID: String, name: String) async throws -> (data: Data, mime: String?) {
+        try await client.downloadFile(sessionID: sessionID, name: name)
+    }
+
     public func logout() async -> Result<Void, ActionError> {
         do {
             _ = try await client.logout()

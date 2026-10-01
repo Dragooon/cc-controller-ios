@@ -170,6 +170,18 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(store?.entries.isEmpty == true)
     }
 
+    func testDownloadFileDelegatesDownloadRoute() async throws {
+        URLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/files/session-1/report.csv")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), nil)
+            return URLProtocolStub.json(Data("a,b\n1,2\n".utf8), contentType: "text/csv")
+        }
+        let app = makeApp()
+        let downloaded = try await app.downloadFile(sessionID: "session-1", name: "report.csv")
+        XCTAssertEqual(downloaded.data, Data("a,b\n1,2\n".utf8))
+        XCTAssertEqual(downloaded.mime, "text/csv")
+    }
+
     func testEntryCountGapRefetchesOnlyGapPlusMargin() {
         XCTAssertEqual(AppStore.gapFetchLimit(missing: 12), 32)
         XCTAssertEqual(AppStore.gapFetchLimit(missing: 600), 400)

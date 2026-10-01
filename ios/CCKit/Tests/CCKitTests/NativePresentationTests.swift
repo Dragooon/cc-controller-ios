@@ -85,6 +85,14 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(nativeToolRunLabel(finished), "Ran 2 tools")
     }
 
+    func testToolEntryPreservesDurationForDetailPresentation() throws {
+        let original = ToolEntry(tool: "Bash", result: "ok", state: .done, durationMs: 2_400)
+        let data = try JSONEncoder.ccKit().encode(original)
+        let decoded = try JSONDecoder.ccKit().decode(ToolEntry.self, from: data)
+        XCTAssertEqual(decoded.durationMs, 2_400)
+        XCTAssertEqual(decoded, original)
+    }
+
     func testApprovalFallbackTextClampsAndFormatsMinutes() {
         XCTAssertEqual(approvalFallbackText(remaining: 252), "falls back to the terminal in 4:12")
         XCTAssertEqual(approvalFallbackText(remaining: 5), "falls back to the terminal in 0:05")
