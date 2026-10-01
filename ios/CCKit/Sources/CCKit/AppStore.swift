@@ -11,10 +11,10 @@ public final class AppStore {
     public private(set) var unknownEventCount = 0
     public private(set) var deciding: Set<String> = []
     public private(set) var queuedNotes: [String: [QueuedNote]] = [:]
-    public private(set) var uploads: [String: UploadProgress] = [:]
     public private(set) var attachments: [String: [AttachmentItem]] = [:]
     public private(set) var attachmentNotices: [String: String] = [:]
     public private(set) var attachmentRevision = 0
+    private var attachmentProgressDates: [String: Date] = [:]
     private var debugAttachmentSessions: Set<String> = []
 
     public var sortedSessions: [Session] {
@@ -195,11 +195,13 @@ public final class AppStore {
     public func removeAttachment(id: String, from sessionID: String) {
         attachments[sessionID]?.removeAll { $0.id == id }
         if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
+        attachmentProgressDates.removeValue(forKey: id)
         attachmentRevision += 1
     }
 
     public func retryAttachment(id: String, sessionID: String) {
         guard let item = attachments(for: sessionID).first(where: { $0.id == id }) else { return }
+        attachmentProgressDates.removeValue(forKey: item.id)
         updateAttachment(item.id, sessionID: sessionID) { $0.state = .uploading(progress: 0) }
         startAttachmentUpload(item, sessionID: sessionID)
     }
@@ -211,20 +213,27 @@ public final class AppStore {
         guard !pending.contains(where: { if case .failed = $0.state { return true }; return false }) else {
             return .failure(.invalid("Remove or retry the failed attachment"))
         }
-        while attachments(for: sessionID).contains(where: { if case .uploading = $0.state { return true }; return false }) {
+        let pendingIDs = Set(pending.map(\.id))
+        while attachments(for: sessionID).contains(where: { pendingIDs.contains($0.id) && isUploading($0) }) {
             try? await Task.sleep(for: .milliseconds(25))
         }
-        let finished = attachments(for: sessionID)
+        let finished = attachments(for: sessionID).filter { pendingIDs.contains($0.id) }
         guard !finished.contains(where: { if case .failed = $0.state { return true }; return false }) else {
             return .failure(.invalid("Remove or retry the failed attachment"))
         }
+        let sentIDs = Set(finished.compactMap { item -> String? in
+            guard case .attached = item.state else { return nil }
+            return item.id
+        })
         let names = finished.compactMap { item -> String? in
             guard case .attached(let file) = item.state else { return nil }
             return file.name
         }
         let result = await send(text: trimmed.isEmpty ? "See attached." : trimmed, attachments: names, to: sessionID, now: now)
         if case .success = result {
-            attachments.removeValue(forKey: sessionID)
+            attachments[sessionID]?.removeAll { sentIDs.contains($0.id) }
+            attachmentProgressDates = attachmentProgressDates.filter { !sentIDs.contains($0.key) }
+            if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
             attachmentRevision += 1
         }
         return result
@@ -234,17 +243,59 @@ public final class AppStore {
         latestBootstrap?.limits?.uploadMaxBytes ?? AttachmentNormalizer.maxFileBytes
     }
 
+    static func uploadProgress(totalBytesSent: Int64, totalBytesExpectedToSend: Int64) -> Double {
+        guard totalBytesExpectedToSend > 0 else { return 0 }
+        return min(1, max(0, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
+    }
+
     private func startAttachmentUpload(_ item: AttachmentItem, sessionID: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let uploaded = try await self.client.uploadFile(sessionID: sessionID, data: item.data, filename: item.name, mimeType: item.mimeType, timeout: self.uploadTimeout)
+                let uploaded = try await self.client.uploadFile(
+                    sessionID: sessionID,
+                    data: item.data,
+                    filename: item.name,
+                    mimeType: item.mimeType,
+                    timeout: self.uploadTimeout,
+                    progress: { [weak self] totalBytesSent, totalBytesExpectedToSend in
+                        Task { @MainActor [weak self] in
+                            self?.updateAttachmentProgress(
+                                item.id,
+                                sessionID: sessionID,
+                                totalBytesSent: totalBytesSent,
+                                totalBytesExpectedToSend: totalBytesExpectedToSend
+                            )
+                        }
+                    }
+                )
+                self.attachmentProgressDates.removeValue(forKey: item.id)
                 self.updateAttachment(item.id, sessionID: sessionID) { $0.state = .attached(uploaded) }
             } catch {
+                self.attachmentProgressDates.removeValue(forKey: item.id)
                 let mapped = self.actionError(for: error, fileName: item.name, limitBytes: self.uploadLimit)
                 self.updateAttachment(item.id, sessionID: sessionID) { $0.state = .failed(mapped) }
             }
         }
+    }
+
+    private func updateAttachmentProgress(
+        _ id: String,
+        sessionID: String,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        let progress = Self.uploadProgress(totalBytesSent: totalBytesSent, totalBytesExpectedToSend: totalBytesExpectedToSend)
+        let now = clock.now
+        let isFinal = progress >= 1
+        if !isFinal, let lastUpdate = attachmentProgressDates[id], now.timeIntervalSince(lastUpdate) < 0.1 { return }
+        attachmentProgressDates[id] = now
+        updateAttachment(id, sessionID: sessionID) { $0.state = .uploading(progress: progress) }
+    }
+
+    private func isUploading(_ item: AttachmentItem) -> Bool {
+        if case .uploading = item.state { return true }
+        return false
     }
 
     private func updateAttachment(_ id: String, sessionID: String, update: (inout AttachmentItem) -> Void) {
@@ -289,37 +340,6 @@ public final class AppStore {
         }
     }
 
-    public func upload(_ files: [UploadFile], to sessionID: String) async -> Result<[UploadedFile], ActionError> {
-        guard !files.isEmpty else { return .success([]) }
-        let limit = latestBootstrap?.limits?.uploadMaxBytes ?? 25 * 1024 * 1024
-        var uploaded: [UploadedFile] = []
-        var firstFailure: ActionError?
-        for (index, file) in files.enumerated() {
-            uploads[file.name] = UploadProgress(fileName: file.name, completed: index, total: files.count, state: .uploading)
-            if file.data.count > limit {
-                let error = ActionError.tooLarge(fileName: file.name, limitBytes: limit)
-                uploads[file.name] = UploadProgress(fileName: file.name, completed: index + 1, total: files.count, state: .failed(error))
-                firstFailure = firstFailure ?? error
-                continue
-            }
-            do {
-                let result = try await client.uploadFile(sessionID: sessionID, data: file.data, filename: file.name, mimeType: file.mimeType, timeout: uploadTimeout)
-                uploaded.append(result)
-                uploads[file.name] = UploadProgress(fileName: file.name, completed: index + 1, total: files.count, state: .succeeded)
-            } catch {
-                let actionError = actionError(for: error, fileName: file.name, limitBytes: limit)
-                uploads[file.name] = UploadProgress(fileName: file.name, completed: index + 1, total: files.count, state: .failed(actionError))
-                firstFailure = firstFailure ?? actionError
-            }
-        }
-        if let firstFailure { return .failure(firstFailure) }
-        return .success(uploaded)
-    }
-
-    public func upload(_ files: [UploadFile], sessionID: String) async -> Result<[UploadedFile], ActionError> {
-        await upload(files, to: sessionID)
-    }
-
     public func downloadFile(sessionID: String, name: String) async throws -> (data: Data, mime: String?) {
         try await client.downloadFile(sessionID: sessionID, name: name)
     }
@@ -333,8 +353,8 @@ public final class AppStore {
             approvals.removeAll()
             deciding.removeAll()
             queuedNotes.removeAll()
-            uploads.removeAll()
             attachments.removeAll()
+            attachmentProgressDates.removeAll()
             attachmentNotices.removeAll()
             debugAttachmentSessions.removeAll()
             openStores.removeAll()

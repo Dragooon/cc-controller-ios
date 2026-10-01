@@ -49,24 +49,3 @@ public struct UploadFile: Sendable, Equatable {
     }
 }
 
-public enum UploadState: Sendable, Equatable {
-    case uploading
-    case succeeded
-    case failed(ActionError)
-}
-
-public struct UploadProgress: Sendable, Equatable {
-    public let fileName: String
-    public let completed: Int
-    public let total: Int
-    public let fraction: Double
-    public let state: UploadState
-
-    public init(fileName: String, completed: Int, total: Int, fraction: Double = 0, state: UploadState) {
-        self.fileName = fileName
-        self.completed = completed
-        self.total = total
-        self.fraction = fraction
-        self.state = state
-    }
-}

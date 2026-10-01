@@ -76,10 +76,25 @@ public actor APIClient {
     public func mode(sessionID: String, mode: ApprovalMode) async throws -> ModeResult { try await post("/api/sessions/\(pathComponent(sessionID))/mode", body: ModeRequest(mode: mode.rawValue)) }
     public func decision(sessionID: String, requestID: String, behavior: DecisionBehavior) async throws -> Decision { try await post("/api/sessions/\(pathComponent(sessionID))/decision", body: DecisionRequest(requestId: requestID, behavior: behavior.rawValue), staleDecision: true) }
 
-    public func uploadFile(sessionID: String, data: Data, filename: String, mimeType: String? = nil, timeout: TimeInterval = 30) async throws -> UploadedFile {
+    public func uploadFile(
+        sessionID: String,
+        data: Data,
+        filename: String,
+        mimeType: String? = nil,
+        timeout: TimeInterval = 30,
+        progress: (@Sendable (Int64, Int64) -> Void)? = nil
+    ) async throws -> UploadedFile {
         let boundary = "CCKit-\(UUID().uuidString)"
         let body = multipartBody(boundary: boundary, filename: filename, mimeType: mimeType ?? "application/octet-stream", data: data)
-        let response: UploadResponse = try await request("/api/sessions/\(pathComponent(sessionID))/files", method: "POST", body: body, contentType: "multipart/form-data; boundary=\(boundary)", timeoutInterval: timeout)
+        let delegate = progress.map(UploadProgressDelegate.init(handler:))
+        let response: UploadResponse = try await request(
+            "/api/sessions/\(pathComponent(sessionID))/files",
+            method: "POST",
+            body: body,
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            timeoutInterval: timeout,
+            delegate: delegate
+        )
         guard let file = response.files?.first else { throw APIError.decoding("Upload response contained no file") }
         return file
     }
@@ -125,12 +140,39 @@ public actor APIClient {
         return try await request(path, method: "POST", body: data, contentType: "application/json", staleDecision: staleDecision)
     }
 
-    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, staleDecision: Bool = false, timeoutInterval: TimeInterval? = nil) async throws -> T {
-        let (data, _) = try await requestData(path, method: method, query: query, body: body, contentType: contentType, staleDecision: staleDecision, timeoutInterval: timeoutInterval)
+    private func request<T: Decodable>(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem] = [],
+        body: Data? = nil,
+        contentType: String? = nil,
+        staleDecision: Bool = false,
+        timeoutInterval: TimeInterval? = nil,
+        delegate: (any URLSessionTaskDelegate)? = nil
+    ) async throws -> T {
+        let (data, _) = try await requestData(
+            path,
+            method: method,
+            query: query,
+            body: body,
+            contentType: contentType,
+            staleDecision: staleDecision,
+            timeoutInterval: timeoutInterval,
+            delegate: delegate
+        )
         do { return try JSONDecoder.ccKit().decode(T.self, from: data) } catch { throw APIError.decoding(error.localizedDescription) }
     }
 
-    private func requestData(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, staleDecision: Bool = false, timeoutInterval: TimeInterval? = nil) async throws -> (Data, HTTPURLResponse) {
+    private func requestData(
+        _ path: String,
+        method: String = "GET",
+        query: [URLQueryItem] = [],
+        body: Data? = nil,
+        contentType: String? = nil,
+        staleDecision: Bool = false,
+        timeoutInterval: TimeInterval? = nil,
+        delegate: (any URLSessionTaskDelegate)? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: endpoint(path, query: query))
         request.httpMethod = method
         request.httpBody = body
@@ -138,7 +180,12 @@ public actor APIClient {
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         applyHeaders(to: &request)
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response): (Data, URLResponse)
+            if let delegate, let body {
+                (data, response) = try await session.upload(for: request, from: body, delegate: delegate)
+            } else {
+                (data, response) = try await session.data(for: request)
+            }
             guard let http = response as? HTTPURLResponse else { throw APIError.decoding("Response was not HTTP") }
             guard (200..<300).contains(http.statusCode) else { throw await mappedError(status: http.statusCode, data: data, staleDecision: staleDecision) }
             return (data, http)
@@ -176,6 +223,24 @@ public actor APIClient {
         request.setValue("gzip", forHTTPHeaderField: "Accept-Encoding")
     }
     private func multipartBody(boundary: String, filename: String, mimeType: String, data: Data) -> Data { var body = Data(); body.append(Data("--\(boundary)\r\n".utf8)); body.append(Data("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename.replacingOccurrences(of: "\"", with: "_"))\"\r\n".utf8)); body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8)); body.append(data); body.append(Data("\r\n--\(boundary)--\r\n".utf8)); return body }
+}
+
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let handler: @Sendable (Int64, Int64) -> Void
+
+    init(handler: @escaping @Sendable (Int64, Int64) -> Void) {
+        self.handler = handler
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        handler(totalBytesSent, totalBytesExpectedToSend)
+    }
 }
 
 private struct EmptyBody: Encodable { }

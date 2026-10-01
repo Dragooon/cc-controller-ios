@@ -24,9 +24,6 @@ final class ActionTests: XCTestCase {
         guard case .success = await app.send(text: "run", to: "s", now: true) else { return XCTFail("Send failed") }
         guard case .success = await app.interrupt(sessionID: "s") else { return XCTFail("Interrupt failed") }
         guard case .success = await app.setApprovalMode(sessionID: "s", mode: .remote) else { return XCTFail("Mode failed") }
-        let upload = await app.upload([UploadFile(name: "a.png", data: Data([1, 2, 3]), mimeType: "image/png")], to: "s")
-        XCTAssertEqual(upload, .success([UploadedFile(name: "a.png", size: 3, mime: "image/png")]))
-        XCTAssertEqual(app.uploads["a.png"]?.state, .succeeded)
     }
 
     func testDecisionFailureRestoresOptimisticApproval() async throws {
@@ -149,7 +146,7 @@ final class ActionTests: XCTestCase {
         var requestBody = ""
         ActionURLProtocol.handler = { request in
             if request.url?.path.hasSuffix("/message") == true {
-                if let body = request.httpBody { requestBody = String(decoding: body, as: UTF8.self) }
+                requestBody = String(decoding: ActionURLProtocol.bodyData(for: request) ?? Data(), as: UTF8.self)
             }
             return ActionURLProtocol.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
         }
@@ -167,30 +164,55 @@ final class ActionTests: XCTestCase {
         guard case .failure(.invalid("Remove or retry the failed attachment")) = await app.sendComposer(text: "hello", to: "s") else { return XCTFail("Failed attachment did not block send") }
     }
 
-    func testUploadTooLargeServerNetworkAndTimeoutAlwaysFinish() async throws {
-        let tooLarge = UploadFile(name: "large.bin", data: Data(repeating: 0, count: 25 * 1024 * 1024 + 1))
-        let app = makeApp(uploadTimeout: 0.01)
-        let tooLargeResult = await app.upload([tooLarge], to: "s")
-        guard case .failure(.tooLarge) = tooLargeResult else { return XCTFail("Expected size failure") }
-        guard case .failed(.tooLarge) = app.uploads["large.bin"]?.state else { return XCTFail("Expected terminal size progress") }
 
-        ActionURLProtocol.handler = { _ in ActionURLProtocol.json(413, body: Data("{\"error\":\"Upload exceeds 25 MB per file\"}".utf8)) }
-        let serverResult = await app.upload([UploadFile(name: "server.bin", data: Data([1]))], to: "s")
-        guard case .failure(.tooLarge) = serverResult else { return XCTFail("Expected server size failure") }
-        guard case .failed(.tooLarge) = app.uploads["server.bin"]?.state else { return XCTFail("Expected terminal server progress") }
-
-        ActionURLProtocol.handler = { _ in ActionURLProtocol.failure(URLError(.notConnectedToInternet)) }
-        let networkResult = await app.upload([UploadFile(name: "network.bin", data: Data([1]))], to: "s")
-        guard case .failure(.network) = networkResult else { return XCTFail("Expected network failure") }
-        guard case .failed(.network) = app.uploads["network.bin"]?.state else { return XCTFail("Expected terminal network progress") }
-
+    func testComposerSendWaitsForUploadAndKeepsAttachmentAddedDuringWait() async throws {
+        let uploadStarted = expectation(description: "upload started")
+        var messageBodies: [String] = []
+        await ActionURLProtocol.beginHoldingUploads(uploadStarted: uploadStarted)
         ActionURLProtocol.handler = { request in
-            XCTAssertLessThanOrEqual(request.timeoutInterval, 0.01)
-            return ActionURLProtocol.failure(URLError(.timedOut))
+            if request.url?.path.hasSuffix("/message") == true {
+                messageBodies.append(String(decoding: ActionURLProtocol.bodyData(for: request) ?? Data(), as: UTF8.self))
+            }
+            return ActionURLProtocol.json(Data("{\"files\":[{\"name\":\"a.txt\",\"size\":1}],\"delivered\":true,\"queued\":false}".utf8))
         }
-        let timeoutResult = await app.upload([UploadFile(name: "timeout.bin", data: Data([1]))], to: "s")
-        guard case .failure(.timeout) = timeoutResult else { return XCTFail("Expected timeout failure") }
-        guard case .failed(.timeout) = app.uploads["timeout.bin"]?.state else { return XCTFail("Expected terminal timeout progress") }
+        defer { ActionURLProtocol.stopHoldingUploads() }
+
+        let app = makeApp()
+        app.addAttachment(UploadFile(name: "a.txt", data: Data([1]), mimeType: "text/plain"), to: "s")
+        let sending = Task { @MainActor in await app.sendComposer(text: "hello", to: "s") }
+        await fulfillment(of: [uploadStarted], timeout: 2)
+        XCTAssertTrue(messageBodies.isEmpty, "Message request started before upload completed")
+
+        app.addAttachment(UploadFile(name: "later.txt", data: Data([2]), mimeType: "text/plain"), to: "s")
+        await ActionURLProtocol.releaseUploads()
+        guard case .success = await sending.value else { return XCTFail("Composer send failed") }
+        XCTAssertEqual(messageBodies.count, 1)
+        XCTAssertTrue(messageBodies[0].contains("a.txt"))
+        XCTAssertFalse(messageBodies[0].contains("later.txt"))
+        XCTAssertEqual(app.attachments(for: "s").map(\.name), ["later.txt"])
+    }
+
+    func testUploadCompletingAfterRemovalDoesNotRestoreTile() async throws {
+        let uploadStarted = expectation(description: "upload started")
+        await ActionURLProtocol.beginHoldingUploads(uploadStarted: uploadStarted)
+        ActionURLProtocol.handler = { _ in ActionURLProtocol.json(Data("{\"files\":[{\"name\":\"removed.txt\",\"size\":1}]}".utf8)) }
+        defer { ActionURLProtocol.stopHoldingUploads() }
+
+        let app = makeApp()
+        app.addAttachment(UploadFile(name: "removed.txt", data: Data([1]), mimeType: "text/plain"), to: "s")
+        await fulfillment(of: [uploadStarted], timeout: 2)
+        let id = try XCTUnwrap(app.attachments(for: "s").first?.id)
+        app.removeAttachment(id: id, from: "s")
+        await ActionURLProtocol.releaseUploads()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(app.attachments(for: "s").isEmpty)
+    }
+
+    func testUploadProgressMappingIsBoundedAndDeterminate() {
+        XCTAssertEqual(AppStore.uploadProgress(totalBytesSent: 40, totalBytesExpectedToSend: 100), 0.4, accuracy: 0.001)
+        XCTAssertEqual(AppStore.uploadProgress(totalBytesSent: 100, totalBytesExpectedToSend: 100), 1)
+        XCTAssertEqual(AppStore.uploadProgress(totalBytesSent: 200, totalBytesExpectedToSend: 100), 1)
+        XCTAssertEqual(AppStore.uploadProgress(totalBytesSent: 1, totalBytesExpectedToSend: 0), 0)
     }
 
     private func makeApp(uploadTimeout: TimeInterval = 30) -> AppStore {
@@ -202,7 +224,41 @@ final class ActionTests: XCTestCase {
 
 private final class ActionURLProtocol: URLProtocol {
     enum Outcome { case response(HTTPURLResponse, Data); case failure(URLError) }
+
+    private final class UncheckedSendableBox<Value>: @unchecked Sendable {
+        let value: Value
+
+        init(_ value: Value) {
+            self.value = value
+        }
+    }
+
+    private actor UploadGate {
+        private var continuations: [CheckedContinuation<Void, Never>] = []
+        private var released = false
+
+        func reset() {
+            released = false
+        }
+
+        func wait() async {
+            if released { return }
+            await withCheckedContinuation { continuation in
+                continuations.append(continuation)
+            }
+        }
+
+        func resume() {
+            released = true
+            continuations.forEach { $0.resume() }
+            continuations.removeAll()
+        }
+    }
+
     nonisolated(unsafe) static var handler: ((URLRequest) -> Outcome)?
+    nonisolated(unsafe) static var holdUploads = false
+    nonisolated(unsafe) static var uploadStarted: XCTestExpectation?
+    private static let uploadGate = UploadGate()
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ActionURLProtocol.self]
@@ -212,6 +268,24 @@ private final class ActionURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        if Self.holdUploads, request.url?.path.hasSuffix("/files") == true {
+            Self.uploadStarted?.fulfill()
+            guard let client else { return }
+            let protocolBox = UncheckedSendableBox(self)
+            let clientBox = UncheckedSendableBox(client)
+            let filename = Self.filename(for: request)
+            Task { @MainActor in
+                await Self.uploadGate.wait()
+                let protocolObject = protocolBox.value
+                let client = clientBox.value
+                let body = Data("{\"files\":[{\"name\":\"\(filename)\",\"size\":1}]}".utf8)
+                guard case .response(let response, let data) = Self.json(body) else { return }
+                client.urlProtocol(protocolObject, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client.urlProtocol(protocolObject, didLoad: data)
+                client.urlProtocolDidFinishLoading(protocolObject)
+            }
+            return
+        }
         guard let outcome = Self.handler?(request) else { fatalError("No action URLProtocol handler") }
         switch outcome {
         case .response(let response, let data):
@@ -222,6 +296,46 @@ private final class ActionURLProtocol: URLProtocol {
         }
     }
     override func stopLoading() {}
+
+    static func beginHoldingUploads(uploadStarted: XCTestExpectation) async {
+        await uploadGate.reset()
+        holdUploads = true
+        Self.uploadStarted = uploadStarted
+    }
+
+    static func stopHoldingUploads() {
+        holdUploads = false
+        uploadStarted = nil
+        Task { await uploadGate.resume() }
+    }
+
+    static func releaseUploads() async {
+        holdUploads = false
+        await uploadGate.resume()
+    }
+
+    static func bodyData(for request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
+
+    private static func filename(for request: URLRequest) -> String {
+        let body = String(decoding: bodyData(for: request) ?? Data(), as: UTF8.self)
+        let marker = "filename=\""
+        guard let start = body.range(of: marker)?.upperBound,
+              let end = body[start...].firstIndex(of: "\"") else { return "uploaded.txt" }
+        return String(body[start..<end])
+    }
 
     static func json(_ body: Data) -> Outcome { json(200, body: body) }
     static func json(_ status: Int, body: Data) -> Outcome {
