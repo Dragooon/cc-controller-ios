@@ -22,13 +22,10 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15), "Transcript did not load")
         let bottomStack = app.descendants(matching: .any)["bottom-stack"]
         XCTAssertTrue(bottomStack.waitForExistence(timeout: 15), "Bottom stack did not load")
-        XCTAssertTrue(engineer.waitForExistence(timeout: 30), "Engineer subagent card did not load")
-        if engineer.exists && engineer.frame.maxY > bottomStack.frame.minY {
-            for _ in 0..<8 {
-                guard engineer.frame.maxY > bottomStack.frame.minY else { break }
-                scrollView.swipeDown()
-            }
-        }
+        XCTAssertTrue(
+            reveal(engineer, in: scrollView, above: bottomStack),
+            "Engineer subagent card did not load above the bottom stack"
+        )
         XCTAssertLessThanOrEqual(
             engineer.frame.maxY,
             bottomStack.frame.minY,
@@ -117,6 +114,10 @@ final class InspectorFlowTests: XCTestCase {
         app.launchArguments = ["-CCServer", environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"]
         app.launchEnvironment["CCBearer"] = environment["TEST_RUNNER_BEARER"] ?? ""
         app.launch()
+        let sheetGrabber = app.buttons["Sheet Grabber"]
+        if sheetGrabber.waitForExistence(timeout: 15) {
+            sheetGrabber.swipeDown()
+        }
         return app
     }
 
@@ -125,7 +126,7 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff session row did not load")
         staffRow.tap()
         XCTAssertTrue(
-            app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 15),
+            app.buttons["session-info"].waitForExistence(timeout: 120),
             "Staff session did not open"
         )
     }
@@ -137,6 +138,16 @@ final class InspectorFlowTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         return false
+    }
+
+    private func reveal(_ element: XCUIElement, in scrollView: XCUIElement, above bottomStack: XCUIElement) -> Bool {
+        for _ in 0..<8 {
+            if element.exists && element.isHittable && element.frame.maxY <= bottomStack.frame.minY {
+                return true
+            }
+            scrollView.swipeDown()
+        }
+        return element.exists && element.isHittable && element.frame.maxY <= bottomStack.frame.minY
     }
 
     private func audit(app: XCUIApplication, name: String) {

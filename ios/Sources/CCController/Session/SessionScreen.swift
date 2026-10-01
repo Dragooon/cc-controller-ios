@@ -8,6 +8,11 @@ struct SessionDestination: Hashable {
     let agentID: String
 }
 
+private struct SessionLoadKey: Hashable {
+    let sessionID: String
+    let hasSession: Bool
+}
+
 struct SessionScreen: View {
 
     let sessionID: String
@@ -49,23 +54,20 @@ struct SessionScreen: View {
                 inspectorContent(now: context.date)
             }
         }
-        .background {
-            NavigationLink(isActive: destinationBinding) {
-                if let destination {
-                    SubagentScreen(
-                        sessionID: destination.sessionID,
-                        agentID: destination.agentID,
-                        model: model
-                    )
-                }
-            } label: {
-                EmptyView()
-            }
-            .hidden()
+        .navigationDestination(item: $destination) { destination in
+            SubagentScreen(
+                sessionID: destination.sessionID,
+                agentID: destination.agentID,
+                model: model
+            )
         }
-        .task(id: sessionID) {
+        .task(id: sessionLoadKey) {
+            let key = sessionLoadKey
+            guard key.hasSession,
+                  let sessionStore = model.store.openSession(key.sessionID),
+                  !sessionStore.isLoaded else { return }
             do {
-                try await loadSession()
+                try await sessionStore.loadInitial()
             } catch is CancellationError {
                 return
             } catch {
@@ -254,26 +256,8 @@ struct SessionScreen: View {
         )
     }
 
-    private func loadSession() async throws {
-        while !Task.isCancelled {
-            guard let sessionStore = model.store.openSession(sessionID) else {
-                try await Task.sleep(for: .milliseconds(100))
-                continue
-            }
-            guard !sessionStore.isLoaded else { return }
-            try await sessionStore.loadInitial()
-            if sessionStore.isLoaded { return }
-            try await Task.sleep(for: .milliseconds(100))
-        }
-    }
-
-    private var destinationBinding: Binding<Bool> {
-        Binding(
-            get: { destination != nil },
-            set: { isPresented in
-                if !isPresented { destination = nil }
-            }
-        )
+    private var sessionLoadKey: SessionLoadKey {
+        SessionLoadKey(sessionID: sessionID, hasSession: model.store.sessions[sessionID] != nil)
     }
 
     private func openSubagent(_ entry: SubagentEntry) {
