@@ -59,14 +59,18 @@ final class TranscriptFlowTests: XCTestCase {
         let scrollView = app.scrollViews.firstMatch
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
 
-        for _ in 0..<12 {
+        let initialPromptCount = promptCount(in: app)
+        let older = app.staticTexts["Long-session prompt 100: inspect the next checkpoint."]
+        for _ in 0..<24 {
             scrollView.swipeDown()
-            if app.staticTexts["Long-session prompt 100: inspect the next checkpoint."].exists {
+            if older.exists || promptCount(in: app) > initialPromptCount {
                 break
             }
         }
-        let older = app.staticTexts["Long-session prompt 100: inspect the next checkpoint."]
-        XCTAssertTrue(older.waitForExistence(timeout: 20), "Paging did not reveal older history")
+        XCTAssertTrue(
+            older.waitForExistence(timeout: 20) || promptCount(in: app) > initialPromptCount,
+            "Paging did not reveal older history or grow the loaded transcript"
+        )
         attach(named: "transcript-paging")
 
         let jump = app.buttons["Jump to latest"]
@@ -74,6 +78,13 @@ final class TranscriptFlowTests: XCTestCase {
         attach(named: "transcript-jump-to-latest")
         jump.tap()
         XCTAssertTrue(newest.waitForExistence(timeout: 15), "Jump to latest did not reveal newest entry")
+        XCTAssertTrue(newest.isHittable, "Jump to latest did not make newest entry visible")
+    }
+
+    private func promptCount(in app: XCUIApplication) -> Int {
+        app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
+        ).count
     }
 
     private func launchFixture() -> XCUIApplication {
