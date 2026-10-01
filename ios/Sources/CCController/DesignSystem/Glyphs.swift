@@ -80,6 +80,7 @@ struct ApprovalCard: View {
     let approval: Approval
     let style: Style
     let now: Date
+    let onOpen: () -> Void
     let onAllow: () -> Void
     let onAllowSession: () -> Void
     let onDeny: () -> Void
@@ -93,6 +94,7 @@ struct ApprovalCard: View {
         approval: Approval,
         style: Style,
         now: Date,
+        onOpen: @escaping () -> Void = {},
         onAllow: @escaping () -> Void = {},
         onAllowSession: @escaping () -> Void = {},
         onDeny: @escaping () -> Void = {},
@@ -101,6 +103,7 @@ struct ApprovalCard: View {
         self.approval = approval
         self.style = style
         self.now = now
+        self.onOpen = onOpen
         self.onAllow = onAllow
         self.onAllowSession = onAllowSession
         self.onDeny = onDeny
@@ -357,6 +360,14 @@ struct ApprovalCard: View {
         approval.mode == .terminal || approval.status == .terminal
     }
 
+    private var cardIdentifier: String {
+        "approval-card-\(approval.sessionId ?? approval.requestId ?? "unknown")"
+    }
+
+    private var actionIdentifierPrefix: String {
+        "approval-\(approval.sessionId ?? approval.requestId ?? "unknown")"
+    }
+
     private var commandLineCount: Int {
         copy.command.split(whereSeparator: \.isNewline).count
     }
@@ -368,6 +379,32 @@ struct ApprovalCard: View {
     private static let calendar = Calendar(identifier: .gregorian)
 
     private var compactBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            compactContent
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    denyButton
+                    allowButton
+                }
+                VStack(spacing: 12) {
+                    allowButton
+                    denyButton
+                }
+            }
+        }
+        .padding(13)
+        .background(.ccBackground.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.ccAccent.opacity(0.35), lineWidth: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Approval for \(copy.header)")
+        .accessibilityIdentifier(cardIdentifier)
+    }
+
+    private var compactContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
                 compactHeader
@@ -389,26 +426,9 @@ struct ApprovalCard: View {
                     .foregroundStyle(.ccSecondary)
                     .lineLimit(2)
             }
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    denyButton
-                    allowButton
-                }
-                VStack(spacing: 12) {
-                    allowButton
-                    denyButton
-                }
-            }
         }
-        .padding(13)
-        .background(.ccBackground.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(.ccAccent.opacity(0.35), lineWidth: 0.5)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Approval for \(copy.header)")
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
     }
 
     private var compactHeader: some View {
@@ -464,6 +484,7 @@ struct ApprovalCard: View {
         .foregroundStyle(.ccRed)
         .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("\(actionIdentifierPrefix)-deny")
     }
 
     private var allowButton: some View {
@@ -476,6 +497,7 @@ struct ApprovalCard: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
         .contentShape(Rectangle())
+        .accessibilityIdentifier("\(actionIdentifierPrefix)-allow")
     }
 
     private static let sydney = TimeZone(identifier: "Australia/Sydney")!

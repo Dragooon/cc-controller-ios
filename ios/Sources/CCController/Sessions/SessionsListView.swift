@@ -17,6 +17,7 @@ struct SessionsListView: View {
 
     let sessions: [Session]
     let approvals: [Approval]
+    let deciding: Set<String>
     let connection: Connection
     let now: Date
     let subtitleOverride: String?
@@ -36,6 +37,7 @@ struct SessionsListView: View {
     init(
         sessions: [Session],
         approvals: [Approval] = [],
+        deciding: Set<String> = [],
         connection: Connection = .live,
         now: Date = .now,
         subtitleOverride: String? = nil,
@@ -52,6 +54,7 @@ struct SessionsListView: View {
     ) {
         self.sessions = sessions
         self.approvals = approvals
+        self.deciding = deciding
         self.connection = connection
         self.now = now
         self.subtitleOverride = subtitleOverride
@@ -127,6 +130,7 @@ struct SessionsListView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(.ccBackground)
+            .animation(.smooth, value: listAnimationKey)
         }
     }
 
@@ -137,6 +141,7 @@ struct SessionsListView: View {
                 SessionRow(
                     session: session,
                     approval: approval(for: session),
+                    deciding: deciding,
                     now: now,
                     frozen: connection.isFrozen || freezeWorkingGlyphs,
                     dimmed: connection.isFrozen,
@@ -155,6 +160,16 @@ struct SessionsListView: View {
 
     private var subtitle: String? {
         subtitleOverride ?? sessionsSubtitle(sessions)
+    }
+
+    private var listAnimationKey: [String] {
+        filteredSessions.map { session in
+            [
+                session.id ?? "",
+                session.state?.rawValue ?? "",
+                approval(for: session)?.requestId ?? "",
+            ].joined(separator: ":")
+        }
     }
 
     private func approval(for session: Session) -> Approval? {
@@ -217,6 +232,7 @@ private struct ConnectionCapsule: View {
 private struct SessionRow: View {
     let session: Session
     let approval: Approval?
+    let deciding: Set<String>
     let now: Date
     let frozen: Bool
     let dimmed: Bool
@@ -249,10 +265,12 @@ private struct SessionRow: View {
                     approval: approval,
                     style: .compact,
                     now: now,
+                    onOpen: onOpen,
                     onAllow: { onAllow(approval) },
                     onAllowSession: {},
                     onDeny: { onDeny(approval) }
                 )
+                .disabled(isDeciding(approval))
             }
         }
         .padding(.vertical, 7)
@@ -268,6 +286,11 @@ private struct SessionRow: View {
             }
             Button("Copy session ID", action: onCopySessionID)
         }
+    }
+
+    private func isDeciding(_ approval: Approval) -> Bool {
+        guard let key = approvalDecisionKey(approval) else { return false }
+        return deciding.contains(key)
     }
 }
 

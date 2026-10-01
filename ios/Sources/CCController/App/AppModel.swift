@@ -2,6 +2,7 @@ import CCKit
 import Foundation
 import Observation
 import SwiftUI
+import UserNotifications
 
 @MainActor @Observable
 final class AppModel {
@@ -66,6 +67,10 @@ final class AppModel {
                 _ = await auth.handleUnauthorized()
             }
         )
+        observeApprovalCount()
+        Task { @MainActor [weak self] in
+            await self?.updateBadgeCount()
+        }
 
         guard !fixtureMode else { return }
         Task { [weak self, credentials] in
@@ -86,6 +91,9 @@ final class AppModel {
             return
         }
         store.start()
+        Task { @MainActor in
+            await updateBadgeCount()
+        }
     }
 
     func scenePhaseDidChange(_ scenePhase: ScenePhase) {
@@ -105,13 +113,35 @@ final class AppModel {
             if !fixtureMode, lockPolicy.shouldLockOnForeground(after: backgroundDate, now: Date()) {
                 phase = .locked
                 store.suspend()
-                Task { _ = await auth.logout() }
+                Task { @MainActor in
+                    await updateBadgeCount(0)
+                    _ = await auth.logout()
+                }
             } else {
                 store.resume()
             }
         default:
             break
         }
+    }
+
+    private func observeApprovalCount() {
+        withObservationTracking {
+            _ = store.approvals.count
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await updateBadgeCount()
+                observeApprovalCount()
+            }
+        }
+    }
+
+    private func updateBadgeCount(_ count: Int? = nil) async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.badgeSetting == .enabled else { return }
+        // TODO(M3 onboarding): request notification authorization before enabling approval badges.
+        try? await UNUserNotificationCenter.current().setBadgeCount(count ?? store.approvals.count)
     }
 
     private static func serverURL(arguments: [String]) -> URL {

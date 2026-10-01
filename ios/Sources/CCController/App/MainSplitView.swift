@@ -5,11 +5,15 @@ import UIKit
 struct MainSplitView: View {
     @Bindable var model: AppModel
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
+    @State private var allowFeedbackCount = 0
+    @State private var denyFeedbackCount = 0
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             splitView(now: context.date)
         }
+        .sensoryFeedback(.success, trigger: allowFeedbackCount)
+        .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .alert(
             "Action failed",
             isPresented: Binding(
@@ -33,6 +37,7 @@ struct MainSplitView: View {
             SessionsListView(
                 sessions: model.store.sortedSessions,
                 approvals: model.store.approvals,
+                deciding: model.store.deciding,
                 connection: connection,
                 now: now,
                 subtitleOverride: model.selectedSessionID == nil ? nil : "",
@@ -41,10 +46,10 @@ struct MainSplitView: View {
                     preferredCompactColumn = .detail
                 },
                 onAllow: { approval in
-                    runAction { await model.store.allow(approval) }
+                    performApprovalDecision(approval, scope: .once)
                 },
                 onDeny: { approval in
-                    runAction { await model.store.deny(approval) }
+                    performApprovalDeny(approval)
                 },
                 onRetry: { model.store.resume() },
                 onSettings: { model.isSettingsPresented = true },
@@ -89,6 +94,30 @@ struct MainSplitView: View {
             return .offline(updatedAt: lastUpdated ?? model.store.lastUpdated ?? .now)
         case .unauthorized:
             return .offline(updatedAt: model.store.lastUpdated ?? .now)
+        }
+    }
+
+    private func performApprovalDecision(_ approval: Approval, scope: ApprovalScope) {
+        Task { @MainActor in
+            let result = await model.store.allow(approval, scope: scope)
+            switch result {
+            case .success:
+                allowFeedbackCount += 1
+            case .failure(let error):
+                model.actionError = error
+            }
+        }
+    }
+
+    private func performApprovalDeny(_ approval: Approval) {
+        Task { @MainActor in
+            let result = await model.store.deny(approval)
+            switch result {
+            case .success:
+                denyFeedbackCount += 1
+            case .failure(let error):
+                model.actionError = error
+            }
         }
     }
 
