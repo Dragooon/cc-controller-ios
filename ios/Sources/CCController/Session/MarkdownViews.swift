@@ -1,5 +1,6 @@
 import CCKit
 import SwiftUI
+import UIKit
 
 struct AssistantReplyView: View {
     let text: String
@@ -9,7 +10,7 @@ struct AssistantReplyView: View {
             MarkdownView(markdown: text)
                 .textSelection(.enabled)
 
-            Button {} label: {
+            Button { UIPasteboard.general.string = text } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)

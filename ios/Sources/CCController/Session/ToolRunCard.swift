@@ -34,8 +34,11 @@ struct ToolRunCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(nativeToolRunLabel(run))
+                .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
+                .animation(.snappy, value: isExpanded)
 
                 if isExpanded {
                     Divider().overlay(.ccSeparator)

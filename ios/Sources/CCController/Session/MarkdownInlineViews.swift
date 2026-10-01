@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct InlineMarkdownText: View {
     let text: AttributedString
@@ -29,7 +30,7 @@ struct CodeBlockView: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Button {} label: {
+            Button { UIPasteboard.general.string = code } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.caption)
                     .foregroundStyle(.ccSecondary)

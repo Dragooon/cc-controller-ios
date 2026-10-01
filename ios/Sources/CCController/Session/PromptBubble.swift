@@ -55,9 +55,9 @@ struct PromptBubble: View {
                             .multilineTextAlignment(.leading)
                             .textSelection(.enabled)
 
-                        if collapse.collapsed && !isExpanded {
-                            Button { isExpanded = true } label: {
-                                Text("Show more")
+                        if collapse.collapsed {
+                            Button { isExpanded.toggle() } label: {
+                                Text(isExpanded ? "Show less" : "Show more")
                                     .font(.footnote)
                                     .foregroundStyle(.ccAccent)
                             }

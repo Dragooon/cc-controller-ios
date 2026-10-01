@@ -2,6 +2,7 @@ import CCKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import QuickLook
 
 struct DecisionCaption: View {
     let entry: DecisionEntry
@@ -54,8 +55,34 @@ struct CaptionRow: View {
 
 struct CompactionDivider: View {
     let entry: CompactionEntry
+    let onOpen: (CompactionEntry) -> Void
+
+    init(entry: CompactionEntry, onOpen: @escaping (CompactionEntry) -> Void = { _ in }) {
+        self.entry = entry
+        self.onOpen = onOpen
+    }
+
+    private var hasSummary: Bool {
+        !(entry.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
+        Group {
+            if hasSummary {
+                Button { onOpen(entry) } label: {
+                    dividerContent
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .accessibilityLabel("Context compacted")
+            } else {
+                dividerContent
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var dividerContent: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Rectangle()
@@ -75,7 +102,6 @@ struct CompactionDivider: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16)
         }
-        .frame(maxWidth: .infinity)
     }
 
     private var caption: some View {
@@ -90,8 +116,40 @@ struct CompactionDivider: View {
     }
 }
 
+struct CompactionSummarySheet: View {
+    let entry: CompactionEntry
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                MarkdownView(markdown: entry.text ?? "")
+                    .padding(20)
+            }
+            .background(.ccBackground)
+            .navigationTitle("Context compacted")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(role: .close) { dismiss() }
+                }
+            }
+        }
+        .tint(.ccAccent)
+    }
+}
+
 struct FileEntryView: View {
     let entry: FileEntry
+    let download: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+    @State private var isDownloading = false
+    @State private var previewURL: URL?
+    @State private var errorMessage: String?
+
+    init(entry: FileEntry, download: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil) {
+        self.entry = entry
+        self.download = download
+    }
 
     private var fileName: String { entry.name ?? "Untitled file" }
     private var isImage: Bool {
@@ -99,6 +157,36 @@ struct FileEntryView: View {
     }
 
     var body: some View {
+        Button(action: beginDownload) {
+            ZStack {
+                fileTile
+                if isDownloading {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(10)
+                        .background(.regularMaterial, in: Capsule())
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(download == nil || isDownloading)
+        .accessibilityLabel("Open \(fileName)")
+        .quickLookPreview($previewURL)
+        .alert(
+            "Couldn't open file",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "The file could not be downloaded.")
+        }
+    }
+
+    @ViewBuilder
+    private var fileTile: some View {
         if isImage {
             MockImageThumbnail(
                 resourceName: "rollout",
@@ -124,6 +212,19 @@ struct FileEntryView: View {
             }
             .padding(12)
             .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+    }
+
+    private func beginDownload() {
+        guard let download, !isDownloading else { return }
+        isDownloading = true
+        Task { @MainActor in
+            do {
+                previewURL = try await download(entry)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isDownloading = false
         }
     }
 

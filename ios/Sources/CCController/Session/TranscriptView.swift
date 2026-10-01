@@ -9,9 +9,17 @@ struct SessionTranscriptView: View {
     let showsWorkedFooter: Bool
     let bottomStackConfiguration: BottomStackConfiguration?
     let activityFooter: CCKit.ActivityFooter?
+    let hasMoreEarlier: Bool
+    let loadEarlier: (() async throws -> Void)?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let onCompaction: (CompactionEntry) -> Void
+    let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
     let scrollAnchor: UnitPoint
+    @State private var isLoadingEarlier = false
+    @State private var didTriggerPaging = false
+    @State private var newestIsVisible = true
+    @State private var pagingError: String?
 
     init(
         turns: [Turn],
@@ -21,8 +29,12 @@ struct SessionTranscriptView: View {
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         activityFooter: CCKit.ActivityFooter? = nil,
         subagents: [Subagent] = [],
+        hasMoreEarlier: Bool = false,
+        loadEarlier: (() async throws -> Void)? = nil,
         onTool: @escaping (ToolEntry) -> Void = { _ in },
         onSubagent: @escaping (SubagentEntry) -> Void = { _ in },
+        onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
+        downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil,
         scrollAnchor: UnitPoint = .top
     ) {
         self.turns = turns
@@ -32,38 +44,108 @@ struct SessionTranscriptView: View {
         self.bottomStackConfiguration = bottomStackConfiguration
         self.activityFooter = activityFooter
         self.subagents = subagents
+        self.hasMoreEarlier = hasMoreEarlier
+        self.loadEarlier = loadEarlier
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.onCompaction = onCompaction
+        self.downloadFile = downloadFile
         self.scrollAnchor = scrollAnchor
     }
 
-    @ViewBuilder
     var body: some View {
-        if showsComposer {
+        ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
+                    pagingRow(proxy: proxy)
                     transcriptRows
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
             }
-            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor)
             .scrollDismissesKeyboard(.interactively)
             .background(.ccBackground)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+                return visibleBottom >= geometry.contentSize.height - 36
+            } action: { _, isAtBottom in
+                newestIsVisible = isAtBottom
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !newestIsVisible, let newestID = turns.last?.id {
+                    Button {
+                        withAnimation(.snappy) {
+                            proxy.scrollTo(newestID, anchor: .bottom)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.body.weight(.semibold))
+                            .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
+                    }
+                    .buttonStyle(.glass)
+                    .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+                    .accessibilityLabel("Jump to latest")
+                    .padding(.trailing, 16)
+                    .padding(.bottom, showsComposer ? CCMetrics.actionHeight + 36 : 16)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
             .safeAreaBar(edge: .bottom, spacing: 0) {
-                BottomStackView(configuration: bottomStackConfiguration ?? BottomStackConfiguration())
-            }
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    transcriptRows
+                if showsComposer {
+                    BottomStackView(configuration: bottomStackConfiguration ?? BottomStackConfiguration())
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 18)
             }
-            .defaultScrollAnchor(scrollAnchor)
-            .scrollDismissesKeyboard(.interactively)
-            .background(.ccBackground)
+            .alert(
+                "Couldn't load earlier transcript",
+                isPresented: Binding(
+                    get: { pagingError != nil },
+                    set: { if !$0 { pagingError = nil } }
+                )
+            ) {
+                Button("OK") { pagingError = nil }
+            } message: {
+                Text(pagingError ?? "The earlier transcript could not be loaded.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pagingRow(proxy: ScrollViewProxy) -> some View {
+        if hasMoreEarlier || isLoadingEarlier {
+            HStack {
+                if isLoadingEarlier {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 24)
+            .id("transcript-paging-top")
+            .onAppear {
+                loadEarlierIfNeeded(proxy: proxy)
+            }
+            .onDisappear {
+                didTriggerPaging = false
+            }
+        }
+    }
+
+    private func loadEarlierIfNeeded(proxy: ScrollViewProxy) {
+        guard hasMoreEarlier, !isLoadingEarlier, !didTriggerPaging, let loadEarlier else { return }
+        didTriggerPaging = true
+        isLoadingEarlier = true
+        let anchorID = turns.first?.id
+        Task { @MainActor in
+            do {
+                try await loadEarlier()
+                if let anchorID {
+                    proxy.scrollTo(anchorID, anchor: .top)
+                }
+            } catch {
+                pagingError = error.localizedDescription
+            }
+            isLoadingEarlier = false
         }
     }
 
@@ -77,7 +159,9 @@ struct SessionTranscriptView: View {
                 showsWorkedFooter: showsWorkedFooter,
                 activityFooter: turn.id == turns.last?.id ? activityFooter : nil,
                 onTool: onTool,
-                onSubagent: onSubagent
+                onSubagent: onSubagent,
+                onCompaction: onCompaction,
+                downloadFile: downloadFile
             )
             .id(turn.id)
         }
@@ -92,6 +176,8 @@ struct TranscriptTurnView: View {
     let activityFooter: CCKit.ActivityFooter?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let onCompaction: (CompactionEntry) -> Void
+    let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
 
     init(
         turn: Turn,
@@ -100,7 +186,9 @@ struct TranscriptTurnView: View {
         showsWorkedFooter: Bool,
         activityFooter: CCKit.ActivityFooter? = nil,
         onTool: @escaping (ToolEntry) -> Void,
-        onSubagent: @escaping (SubagentEntry) -> Void
+        onSubagent: @escaping (SubagentEntry) -> Void,
+        onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
+        downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
         self.turn = turn
         self.now = now
@@ -109,6 +197,8 @@ struct TranscriptTurnView: View {
         self.activityFooter = activityFooter
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.onCompaction = onCompaction
+        self.downloadFile = downloadFile
     }
 
     var body: some View {
@@ -118,7 +208,15 @@ struct TranscriptTurnView: View {
             }
 
             ForEach(turn.items) { item in
-                TurnItemView(item: item, now: now, subagents: subagents, onTool: onTool, onSubagent: onSubagent)
+                TurnItemView(
+                    item: item,
+                    now: now,
+                    subagents: subagents,
+                    onTool: onTool,
+                    onSubagent: onSubagent,
+                    onCompaction: onCompaction,
+                    downloadFile: downloadFile
+                )
             }
 
             if showsWorkedFooter && turn.hasWorkedFooter {
@@ -139,19 +237,25 @@ struct TurnItemView: View {
     let subagents: [Subagent]
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let onCompaction: (CompactionEntry) -> Void
+    let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
 
     init(
         item: TurnItem,
         now: Date,
         subagents: [Subagent] = [],
         onTool: @escaping (ToolEntry) -> Void,
-        onSubagent: @escaping (SubagentEntry) -> Void
+        onSubagent: @escaping (SubagentEntry) -> Void,
+        onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
+        downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
         self.item = item
         self.now = now
         self.subagents = subagents
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.onCompaction = onCompaction
+        self.downloadFile = downloadFile
     }
 
     @ViewBuilder
@@ -172,9 +276,9 @@ struct TurnItemView: View {
         case .interrupt:
             CaptionRow(symbol: "stop.circle", text: "Interrupted", symbolColor: .ccSecondary)
         case .compaction(let entry):
-            CompactionDivider(entry: entry)
+            CompactionDivider(entry: entry, onOpen: onCompaction)
         case .file(let entry):
-            FileEntryView(entry: entry)
+            FileEntryView(entry: entry, download: downloadFile)
         case .other:
             EmptyView()
         }

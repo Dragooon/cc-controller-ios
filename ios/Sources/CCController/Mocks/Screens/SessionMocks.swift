@@ -82,173 +82,13 @@ private struct ToolDetailEditMock: View {
     var body: some View {
         SessionMockScreen(session: session, turns: turns, now: MockFixtures.now)
             .sheet(isPresented: .constant(true)) {
-                ToolEditDetailSheet()
+                ToolDetailSheet(tool: MockSessionData.editTool)
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
     }
 }
 
-private struct ToolDetailSheet: View {
-    let tool: ToolEntry
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: toolDetailSectionSpacing) {
-                    ToolDetailSection(title: "Status") {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.ccGreen)
-                            Text("Done · \(displayDuration(2_400))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.ccLabel)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    ToolDetailSection(title: "Input") {
-                        SelectableCodePanel(text: toolArgument(tool.tool, args: tool.args))
-                    }
-                    ToolDetailSection(title: "Output") {
-                        SelectableCodePanel(text: MockSessionData.npmOutput)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 20)
-            }
-            .background(.ccBackground)
-            .navigationTitle(tool.tool ?? "Bash")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .close) { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Copy input") {}
-                        Button("Copy output") {}
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                }
-            }
-        }
-        .tint(.ccAccent)
-    }
-}
-
-private struct ToolEditDetailSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: toolDetailSectionSpacing) {
-                    ToolDetailSection(title: "Status") {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.ccGreen)
-                            Text("Done · \(displayDuration(1_100))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.ccLabel)
-                            Spacer(minLength: 0)
-                        }
-                    }
-                    ToolDetailSection(title: "FILE") {
-                        Text("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift")
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.ccSecondary)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    ToolDetailSection(title: "CHANGES") {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(MockSessionData.editDiff.enumerated()), id: \.offset) { _, line in
-                                DiffLine(line: line)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 10)
-                        .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-                .padding(20)
-            }
-            .background(.ccBackground)
-            .navigationTitle("Edit")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .close) { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Copy path") {}
-                        Button("Copy diff") {}
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                }
-            }
-        }
-        .tint(.ccAccent)
-    }
-}
-
-private let toolDetailSectionSpacing: CGFloat = 24
-
-private struct ToolDetailSection<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.ccSecondary)
-            content()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct SelectableCodePanel: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.footnote.monospaced())
-            .foregroundStyle(.ccLabel)
-            .textSelection(.enabled)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(.ccCard, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
-private struct DiffLine: View {
-    let line: MockDiffLine
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(line.prefix)
-                .foregroundStyle(line.isRemoved ? .ccRed : .ccGreen)
-                .frame(width: 14, alignment: .leading)
-            Text(line.text)
-                .foregroundStyle(.ccLabel)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .font(.footnote.monospaced())
-        .padding(.horizontal, 5)
-        .padding(.vertical, 3)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(line.isRemoved ? Color.ccRed.opacity(0.12) : Color.ccGreen.opacity(0.12))
-    }
-}
 
 private struct SubagentMock: View {
     let turns: [Turn]
@@ -281,12 +121,6 @@ private struct SubagentMock: View {
     }
 }
 
-private struct MockDiffLine {
-    let prefix: String
-    let text: String
-    let isRemoved: Bool
-}
-
 enum MockSessionData {
     static let session = MockFixtures.sessions.first(where: { $0.name == "Eval dataset versioning" }) ?? Session(
         id: "mock-session",
@@ -313,16 +147,25 @@ enum MockSessionData {
         toolUseId: "tool-detail-bash",
         tool: "Bash",
         args: .object(["command": .string("npm test -- --runInBand")]),
-        result: "PASS  SessionTranscriptView",
-        state: .done
+        result: npmOutput,
+        state: .done,
+        durationMs: 2_400
     )
 
-    fileprivate static let editDiff = [
-        MockDiffLine(prefix: "−", text: "let status = \"loading\"", isRemoved: true),
-        MockDiffLine(prefix: "−", text: "Text(status)", isRemoved: true),
-        MockDiffLine(prefix: "+", text: "let status = \"ready\"", isRemoved: false),
-        MockDiffLine(prefix: "+", text: "Text(status).foregroundStyle(.ccGreen)", isRemoved: false)
-    ]
+    static let editTool = ToolEntry(
+        id: "tool-detail-edit",
+        ts: Date(timeIntervalSince1970: 1790740800),
+        toolUseId: "tool-detail-edit",
+        tool: "Edit",
+        args: .object([
+            "file_path": .string("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift"),
+            "old_string": .string("let status = \\\"loading\\\"\\nText(status)"),
+            "new_string": .string("let status = \\\"ready\\\"\\nText(status).foregroundStyle(.ccGreen)")
+        ]),
+        result: "Updated SessionTranscriptView.swift",
+        state: .done,
+        durationMs: 1_100
+    )
 
     static let npmOutput = """
     > cc-controller@0.1.0 test
