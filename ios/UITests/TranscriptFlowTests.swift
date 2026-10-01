@@ -43,17 +43,13 @@ final class TranscriptFlowTests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(expandedToolGroup.waitForExistence(timeout: 10), "Tool group did not expand")
 
-        let jumpToLatest = app.buttons["Jump to latest"]
-        if jumpToLatest.waitForExistence(timeout: 5) {
-            jumpToLatest.tap()
-            _ = jumpToLatest.waitForNonExistence(timeout: 5)
-        }
         let bash = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Bash'")
         ).firstMatch
         XCTAssertTrue(bash.waitForExistence(timeout: 15), "Expanded Bash row did not load")
-        for _ in 0..<12 {
-            app.swipeUp(velocity: .fast)
+        for _ in 0..<8 {
+            transcriptScroll.swipeUp(velocity: .slow)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
             if bash.isHittable { break }
         }
         XCTAssertTrue(bash.isHittable, "Expanded Bash row did not become tappable")
