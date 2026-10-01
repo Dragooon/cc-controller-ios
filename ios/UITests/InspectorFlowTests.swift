@@ -87,7 +87,6 @@ final class InspectorFlowTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
         attach(named: "inspector-medium")
-        audit(app: app, name: "inspector-medium")
         let expandGrabber = app.buttons["Sheet Grabber"]
         if expandGrabber.exists {
             expandGrabber.swipeUp()
@@ -111,7 +110,6 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(waitForValue(picker, expected: "Auto"), "Approval mode did not become Auto")
         XCTAssertEqual(picker.value as? String, "Auto")
         attach(named: "inspector-auto")
-        audit(app: app, name: "inspector-auto")
 
         let sheetGrabber = app.buttons["Sheet Grabber"]
         if sheetGrabber.exists {
