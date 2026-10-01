@@ -67,9 +67,8 @@ final class MockScreenshotTests: XCTestCase {
 
     private func capture(screen: String, scheme: String, size: String, category: String) {
         let app = XCUIApplication()
-        let launchScreen = screen == "session-idle-top" ? "session-idle" : screen
         app.launchArguments = [
-            "-CCMock", launchScreen,
+            "-CCMock", screen,
             "-CCColorScheme", scheme,
             "-UIPreferredContentSizeCategoryName", category,
         ]
@@ -105,7 +104,7 @@ final class MockScreenshotTests: XCTestCase {
                 add(largeScrollAttachment)
             }
 
-            if screen == "session-idle" || screen == "session-idle-top" {
+            if screen == "session-idle" {
                 let scrollView = app.scrollViews.firstMatch
                 for _ in 0..<8 {
                     scrollView.swipeDown()
