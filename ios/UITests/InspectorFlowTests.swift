@@ -31,6 +31,12 @@ final class InspectorFlowTests: XCTestCase {
             bottomStack.frame.minY,
             "Engineer subagent card overlaps the bottom stack"
         )
+        let marker = "typed-nav-marker"
+        let composer = app.textFields["composer-text"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 15), "Composer did not load")
+        composer.tap()
+        composer.typeText(marker)
+        XCTAssertEqual(composer.value as? String, marker)
         engineer.tap()
 
         let subagentNavigationBar = app.navigationBars["engineer"]
@@ -44,6 +50,10 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(
             app.buttons["subagent-card-agent-done"].waitForExistence(timeout: 15),
             "Engineer subagent card was not retained after returning"
+        )
+        XCTAssertTrue(
+            (composer.value as? String)?.contains(marker) == true,
+            "Composer lost typed marker after returning from subagent"
         )
         attach(named: "after-back")
     }
