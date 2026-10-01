@@ -186,8 +186,12 @@ struct BottomStackView: View {
             isSending = false
             switch result {
             case .success:
-                text = ""
-                fieldResetGeneration += 1
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    text = ""
+                    fieldResetGeneration += 1
+                }
                 sendFeedbackCount += 1
             case .failure:
                 break

@@ -86,38 +86,22 @@ struct ComposerView: View {
     @ViewBuilder
     private var bodyContent: some View {
         if let glassNamespace {
-            composerLayout
-                .glassEffectID("composer-\(fieldGeneration)", in: glassNamespace)
-                .frame(height: text.isEmpty ? 100 : nil, alignment: .top)
-                .clipped()
+            composerLayout.glassEffectID("composer", in: glassNamespace)
         } else {
             composerLayout
-                .frame(height: text.isEmpty ? 100 : nil, alignment: .top)
-                .clipped()
-        }
-    }
-
-    @ViewBuilder
-    private var messageField: some View {
-        if text.isEmpty {
-            TextField(configuration.placeholder, text: $text)
-                .frame(height: 22, alignment: .top)
-        } else {
-            TextField(configuration.placeholder, text: $text, axis: .vertical)
-                .lineLimit(1...6)
         }
     }
 
     private var composerLayout: some View {
         VStack(alignment: .leading, spacing: 10) {
-            messageField
+            TextField(configuration.placeholder, text: $text, axis: .vertical)
                 .font(.body)
                 .foregroundStyle(.ccLabel)
-                .lineLimit(text.isEmpty ? 1 : 6)
+                .lineLimit(1...6)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(height: text.isEmpty ? 22 : nil, alignment: .top)
+                .transition(.identity)
+                .id(fieldGeneration)
                 .accessibilityIdentifier("composer-text")
 
             HStack(spacing: 8) {
@@ -133,7 +117,6 @@ struct ComposerView: View {
             }
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
-        .id(fieldGeneration)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
