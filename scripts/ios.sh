@@ -9,6 +9,7 @@ RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 STARTED_DAEMON=""
 FIXTURE_OUT=""
+FIXTURE_LOG=""
 RUN_DIR=""
 DIAG_DIR=""
 MOCK_PREFIX=""
@@ -20,13 +21,30 @@ SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd gen
 step() {
   local name=$1; shift
   local started=$SECONDS
+  local status=0
   printf '%s\n' "[$name]"
-  "$@"
+  "$@" || status=$?
   printf '%s\n' "[$name] $((SECONDS - started))s"
+  return "$status"
 }
 
 json_value() {
   node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(value[process.argv[2]]);' "$1" "$2"
+}
+
+validate_mock_screens() {
+  local selection=$1
+  [[ -z "$selection" ]] && return 0
+  local valid=",sessions,sessions-empty,sessions-offline,sessions-reconnecting,session-idle,session-working,session-approvals,session-terminal-approval,composer-slash,composer-attachments,composer-keyboard,tool-detail,tool-detail-edit,subagent,inspector,settings,onboarding-welcome,onboarding-connect,onboarding-pair,onboarding-faceid,lock,privacy-cover,"
+  local item
+  local items=()
+  IFS=, read -r -a items <<< "$selection"
+  for item in "${items[@]}"; do
+    if [[ "$valid" != *",$item,"* ]]; then
+      printf 'unknown mock screen id: %s\n' "$item" >&2
+      return 2
+    fi
+  done
 }
 
 simulator_udids() {
@@ -49,10 +67,11 @@ cleanup_shots() {
     wait "$STARTED_DAEMON" 2>/dev/null || true
   fi
   if [[ -n "$FIXTURE_OUT" ]]; then rm -f "$FIXTURE_OUT"; fi
-  if [[ -n "$RUN_DIR" ]]; then rm -rf "$RUN_DIR"; fi
   if [[ -n "$DIAG_DIR" ]]; then
     mkdir -p "$DIAG_DIR"
-    cp "$IOS/shots/fixture-daemon.log" "$DIAG_DIR/fixture-daemon.log" 2>/dev/null || true
+    if [[ -n "$FIXTURE_LOG" ]]; then
+      cp "$FIXTURE_LOG" "$DIAG_DIR/fixture-daemon.log" 2>/dev/null || true
+    fi
     while read -r udid; do
       [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true
     done < <(
@@ -68,6 +87,7 @@ cleanup_shots() {
       xcrun xcresulttool export attachments --path "$result" --output-path "$DIAG_DIR/attachments" >/dev/null 2>&1 || true
     done
   fi
+  if [[ -n "$RUN_DIR" ]]; then rm -rf "$RUN_DIR"; fi
   while read -r udid; do
     [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   done < <(
@@ -77,6 +97,7 @@ cleanup_shots() {
       simulator_udids exact Booted "${SHOT_DEVICE_NAMES[@]}"
     fi
   )
+  return 0
 }
 
 ensure_device() {
@@ -138,14 +159,18 @@ cmd_shots() {
     SHOT_PREFIX="cc-"
     SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
   fi
-  rm -rf "$IOS/shots"
   mkdir -p "$IOS/shots"
+  rm -f "$IOS/shots/index.html" "$IOS/shots/fixture-daemon.log"
+  for device in "${DEFAULT_DEVICES[@]}" "${devices[@]}"; do
+    rm -rf "$IOS/shots/$(echo "$device" | tr ' ()' '---')"
+  done
   RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
   DIAG_DIR="$IOS/build/diag"
   mkdir -p "$DIAG_DIR"
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
+  FIXTURE_LOG="$IOS/shots/fixture-daemon.log"
   local fixture_started=$SECONDS
-  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$IOS/shots/fixture-daemon.log" 2>&1 &
+  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
   STARTED_DAEMON=$!
   printf '%s\n' "[fixture] $((SECONDS - fixture_started))s (pid $STARTED_DAEMON)"
   for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
@@ -155,7 +180,7 @@ cmd_shots() {
   bearer=$(json_value "$FIXTURE_OUT" bearer)
   local index_file="$IOS/shots/index.html"
   printf '%s\n' '<!doctype html><meta charset="utf-8"><title>cc-controller iOS shots</title><style>body{font:15px system-ui;background:#121110;color:#eee;margin:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}figure{margin:0}img{display:block;max-width:100%;border-radius:16px}figcaption{padding-top:8px;color:#bbb}</style><main>' > "$index_file"
-  trap cleanup_shots EXIT
+  trap 'status=$?; cleanup_shots; exit "$status"' EXIT
   for device in "${devices[@]}"; do
     local udid result exported output_dir
     udid=$(ensure_device "$device" | tail -1)
@@ -183,6 +208,112 @@ cmd_shots() {
   printf '%s\n' "shots written to $IOS/shots"
 }
 
+cmd_flows() {
+  cmd_generate
+  local devices=() test_filter=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --device)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --device requires a value' >&2; exit 2; }
+        devices+=("$2")
+        shift 2
+        ;;
+      --test)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --test requires a value' >&2; exit 2; }
+        test_filter=$2
+        shift 2
+        ;;
+      *) printf 'unknown flows option: %s\n' "$1" >&2; exit 2;;
+    esac
+  done
+  [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone 16 Plus")
+
+  local flow_file
+  local flow_files=()
+  local flow_classes=()
+  while IFS= read -r flow_file; do
+    [[ -z "$flow_file" ]] || {
+      flow_files+=("$flow_file")
+      flow_classes+=("$(basename "$flow_file" .swift)")
+    }
+  done < <(find "$IOS/UITests" -type f -name '*FlowTests.swift' -print | sort)
+  if [[ ${#flow_files[@]} -eq 0 ]]; then
+    printf '%s\n' 'no flow tests found'
+    return 0
+  fi
+
+  local selector_class=${test_filter%%/*}
+  if [[ -n "$test_filter" ]]; then
+    local found=0
+    for flow_class in "${flow_classes[@]}"; do
+      [[ "$flow_class" == "$selector_class" ]] || continue
+      found=1
+      break
+    done
+    if [[ $found -eq 0 ]]; then
+      printf 'unknown flow test class: %s\n' "$selector_class" >&2
+      return 2
+    fi
+  fi
+
+  local lane="${CC_MOCK_LANE:-}"
+  if [[ -n "$lane" ]]; then
+    SHOT_PREFIX="ccshot-$lane-"
+    SHOT_DEVICE_NAMES=()
+  else
+    SHOT_PREFIX="cc-"
+    SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
+  fi
+
+  mkdir -p "$IOS/shots/flows"
+  rm -rf "$IOS/shots/flows"
+  mkdir -p "$IOS/shots/flows"
+  RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
+  DIAG_DIR="$IOS/build/diag"
+  mkdir -p "$DIAG_DIR"
+  FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
+  FIXTURE_LOG="$RUN_DIR/fixture-daemon.log"
+  trap 'status=$?; cleanup_shots; exit "$status"' EXIT
+  local fixture_started=$SECONDS
+  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  STARTED_DAEMON=$!
+  printf '%s\n' "[fixture] $((SECONDS - fixture_started))s (pid $STARTED_DAEMON)"
+  for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
+  [[ -s "$FIXTURE_OUT" ]] || { printf '%s\n' 'fixture daemon did not become ready' >&2; exit 1; }
+  local web_port bearer
+  web_port=$(json_value "$FIXTURE_OUT" webPort)
+  bearer=$(json_value "$FIXTURE_OUT" bearer)
+
+  for flow_file in "${flow_files[@]}"; do
+    local flow_class
+    flow_class=$(basename "$flow_file" .swift)
+    [[ -z "$test_filter" || "$selector_class" == "$flow_class" ]] || continue
+    for device in "${devices[@]}"; do
+      local udid result exported output_dir device_key
+      udid=$(ensure_device "$device" | tail -1)
+      xcrun simctl ui "$udid" appearance light
+      device_key=$(echo "$device" | tr ' ()' '---')
+      result="$IOS/build/Flow-$flow_class-$device_key.xcresult"
+      exported="$RUN_DIR/$flow_class-$device_key"
+      output_dir="$IOS/shots/flows/$device_key"
+      rm -rf "$result" "$exported"
+      mkdir -p "$exported" "$output_dir"
+      local selector="${flow_class}"
+      [[ -z "$test_filter" ]] || selector=$test_filter
+      local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$selector" test)
+      TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" step "flows $flow_class $device" "${args[@]}"
+      xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null
+      local manifest="$exported/manifest.json"
+      if [[ -f "$manifest" ]]; then
+        node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+      fi
+      find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
+      find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
+    done
+  done
+  printf '%s\n' "flow shots written to $IOS/shots/flows"
+}
+
 cmd_mocks() {
   local only=""
   while [[ $# -gt 0 ]]; do
@@ -191,6 +322,7 @@ cmd_mocks() {
       *) printf 'unknown mocks option: %s\n' "$1" >&2; exit 2;;
     esac
   done
+  validate_mock_screens "$only"
 
   cmd_generate
   local lane="${CC_MOCK_LANE:-}"
@@ -220,7 +352,7 @@ cmd_mocks() {
       done < <(simulator_udids exact Booted "${MOCK_DEVICE_NAMES[@]}")
     fi
   }
-  trap cleanup_mocks EXIT
+  trap 'status=$?; cleanup_mocks; exit "$status"' EXIT
 
   ensure_mock_device() {
     local device=$1
@@ -295,8 +427,9 @@ case "${1:-}" in
   build) shift; step build cmd_build "$@";;
   test) shift; step test cmd_test "$@";;
   shots) shift; cmd_shots "$@";;
+  flows) shift; cmd_flows "$@";;
   mocks) shift; cmd_mocks "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|shots|mocks|clean|install}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|shots|flows|mocks|clean|install}\n' "$0" >&2; exit 2;;
 esac
