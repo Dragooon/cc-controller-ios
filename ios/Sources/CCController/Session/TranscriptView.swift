@@ -81,13 +81,16 @@ struct SessionTranscriptView: View {
                     } label: {
                         Image(systemName: "arrow.down")
                             .font(.body.weight(.semibold))
+                            .foregroundStyle(.ccAccent)
                             .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
+                            .glassEffect(.regular.interactive(), in: .circle)
                     }
-                    .buttonStyle(.glass)
+                    .buttonStyle(.plain)
                     .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+                    .contentShape(.rect)
                     .accessibilityLabel("Jump to latest")
                     .padding(.trailing, 16)
-                    .padding(.bottom, showsComposer ? CCMetrics.actionHeight + 36 : 16)
+                    .padding(.bottom, 12)
                     .transition(.scale.combined(with: .opacity))
                 }
             }
