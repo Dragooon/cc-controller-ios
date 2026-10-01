@@ -27,10 +27,22 @@ final class TranscriptFlowTests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools'")
         ).firstMatch
         XCTAssertTrue(toolGroup.waitForExistence(timeout: 20), "Tool group did not load")
+        let transcriptScroll = app.scrollViews.firstMatch
+        transcriptScroll.swipeDown()
+        for _ in 0..<4 where !toolGroup.isHittable {
+            transcriptScroll.swipeDown()
+        }
+        XCTAssertTrue(toolGroup.isHittable, "Tool group did not become tappable")
         toolGroup.tap()
 
-        let bash = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] 'Bash'"))
-            .firstMatch
+        let expandedToolGroup = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools' AND value == 'Expanded'")
+        ).firstMatch
+        XCTAssertTrue(expandedToolGroup.waitForExistence(timeout: 10), "Tool group did not expand")
+
+        let bash = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label BEGINSWITH[c] 'Bash'")
+        ).firstMatch
         XCTAssertTrue(bash.waitForExistence(timeout: 15), "Expanded Bash row did not load")
         bash.tap()
 
@@ -50,6 +62,14 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "paging")
             app.terminate()
         }
+        let searchButton = app.buttons["Search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
+        searchButton.tap()
+
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        search.typeText("Long session")
+
         let longSession = app.buttons["session-long-session"]
         XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
         longSession.tap()
