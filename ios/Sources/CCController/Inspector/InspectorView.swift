@@ -3,22 +3,48 @@ import SwiftUI
 
 struct InspectorView: View {
     let session: Session
-    let elapsed: String
-    let branch: String
+    let elapsed: String?
+    let branch: String?
+    let now: Date
     let freezeWorkingGlyphs: Bool
     let onInterrupt: () -> Void
     let onCopySessionID: () -> Void
     let onApprovalMode: (ApprovalMode) -> Void
+    let onSubagent: (Subagent) -> Void
 
-    private let approvalModes: [(mode: ApprovalMode, title: String, description: String)] = [
-        (.auto, "Auto", "Ask in the terminal when it's open on the Mac, otherwise on this iPhone."),
-        (.remote, "Remote", "Ask on this iPhone first. After about 10 minutes the terminal takes over."),
-        (.terminal, "Terminal", "Always ask in the Mac's terminal."),
+    @State private var isInterruptConfirmationPresented = false
+
+    private let approvalModes: [(mode: String, title: String, description: String)] = [
+        ("auto", "Auto", "Ask in the terminal when it's open on the Mac, otherwise on this iPhone."),
+        ("remote", "Remote", "Ask on this iPhone first. After about 10 minutes the terminal takes over."),
+        ("terminal", "Terminal", "Always ask in the Mac's terminal."),
     ]
 
-    private var usage: Usage { session.usage ?? Usage() }
-    private var contextPercent: Double { min(max(usage.contextPercent ?? 0, 0), 100) }
-    private var runningSubagents: [Subagent] {
+    init(
+        session: Session,
+        elapsed: String? = nil,
+        branch: String? = nil,
+        now: Date = .now,
+        freezeWorkingGlyphs: Bool = false,
+        onInterrupt: @escaping () -> Void = {},
+        onCopySessionID: @escaping () -> Void = {},
+        onApprovalMode: @escaping (ApprovalMode) -> Void = { _ in },
+        onSubagent: @escaping (Subagent) -> Void = { _ in }
+    ) {
+        self.session = session
+        self.elapsed = elapsed
+        self.branch = branch
+        self.now = now
+        self.freezeWorkingGlyphs = freezeWorkingGlyphs
+        self.onInterrupt = onInterrupt
+        self.onCopySessionID = onCopySessionID
+        self.onApprovalMode = onApprovalMode
+        self.onSubagent = onSubagent
+    }
+
+    private var usage: Usage? { session.usage }
+    private var currentMode: String { session.mode?.rawValue ?? "auto" }
+    private var sortedSubagents: [Subagent] {
         (session.subagents ?? []).sorted { left, right in
             (left.state == .running ? 0 : 1) < (right.state == .running ? 0 : 1)
         }
@@ -44,34 +70,51 @@ struct InspectorView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .confirmationDialog(
+            "Interrupt this session?",
+            isPresented: $isInterruptConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Interrupt", role: .destructive, action: onInterrupt)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The current turn will stop in the terminal pane.")
+        }
     }
 
+    @ViewBuilder
     private var statusSection: some View {
         Section("Status") {
-            LabeledContent("State") {
-                HStack(spacing: 7) {
-                    SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
-                    Text("Working")
+            if let state = session.state {
+                LabeledContent("State") {
+                    HStack(spacing: 7) {
+                        if state == .working {
+                            SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
+                        }
+                        Text(stateLabel(state: state.rawValue))
+                            .foregroundStyle(.ccLabel)
+                    }
+                }
+            }
+            if let displayedElapsed {
+                LabeledContent("Elapsed") {
+                    Text(displayedElapsed)
+                        .font(.body.monospacedDigit())
                         .foregroundStyle(.ccLabel)
                 }
             }
-            LabeledContent("Elapsed") {
-                Text(elapsed)
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(.ccLabel)
-            }
-            LabeledContent("Model") {
-                Text(formatModelName(usage.model))
-                    .foregroundStyle(.ccLabel)
+            if let model = formattedModel {
+                LabeledContent("Model", value: model)
             }
         }
     }
 
+    @ViewBuilder
     private var contextSection: some View {
         Section("Context") {
-            VStack(alignment: .leading, spacing: 8) {
+            if let percent = positivePercent(usage?.contextPercent) {
                 HStack(alignment: .center, spacing: 12) {
-                    Gauge(value: contextPercent / 100, in: 0...1) {
+                    Gauge(value: percent / 100, in: 0...1) {
                         EmptyView()
                     } currentValueLabel: {
                         EmptyView()
@@ -80,34 +123,46 @@ struct InspectorView: View {
                     .tint(.ccAccent)
                     .frame(maxWidth: .infinity)
 
-                    Text("\(Int(contextPercent.rounded()))%")
+                    Text("\(Int(percent.rounded()))%")
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.ccLabel)
                 }
-
-                Text("\(formatTokenCount(usage.contextTokens)) of \(formatTokenCount(usage.contextWindow)) tokens")
+            }
+            if let contextTokens = positiveInt(usage?.contextTokens),
+               let contextWindow = positiveInt(usage?.contextWindow) {
+                Text("\(formatTokenCount(contextTokens)) of \(formatTokenCount(contextWindow)) tokens")
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
             }
         }
     }
 
+    @ViewBuilder
     private var usageSection: some View {
         Section("Usage") {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                StatTile(value: "3.1M", label: "Input")
-                StatTile(value: "84k", label: "Output")
-                StatTile(value: "92%", label: "Cache")
-                StatTile(value: "214", label: "Messages")
+                if let input = positiveInt(usage?.totalInputTokens ?? usage?.inputTokens) {
+                    StatTile(value: formatTokenCount(input), label: "Input")
+                }
+                if let output = positiveInt(usage?.outputTokens) {
+                    StatTile(value: formatTokenCount(output), label: "Output")
+                }
+                if let cache = positiveCacheRate(usage?.cacheHitRate) {
+                    StatTile(value: "\(Int(cache.rounded()))%", label: "Cache")
+                }
+                if let messages = positiveInt(usage?.messages) {
+                    StatTile(value: formatTokenCount(messages), label: "Messages")
+                }
             }
             .padding(.vertical, 2)
         }
     }
 
+    @ViewBuilder
     private var subagentsSection: some View {
         Section("Subagents") {
-            ForEach(Array(runningSubagents.enumerated()), id: \.offset) { _, subagent in
-                Button(action: {}) {
+            ForEach(Array(sortedSubagents.enumerated()), id: \.offset) { _, subagent in
+                Button { onSubagent(subagent) } label: {
                     HStack(spacing: 10) {
                         if subagent.state == .running {
                             SpinnerGlyph(active: true, frozen: freezeWorkingGlyphs)
@@ -115,7 +170,7 @@ struct InspectorView: View {
                                 .frame(width: 18)
                         } else {
                             Circle()
-                                .fill(.ccGreen)
+                                .fill(subagent.state == .failed ? .ccRed : .ccGreen)
                                 .frame(width: 8, height: 8)
                                 .frame(width: 18)
                         }
@@ -124,16 +179,19 @@ struct InspectorView: View {
                             Text(subagent.agent ?? "agent")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.ccLabel)
-                            Text(subagent.text ?? "Working on the task")
-                                .font(.footnote)
-                                .foregroundStyle(.ccSecondary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: false, vertical: true)
+                            if let brief = subagent.text, !brief.isEmpty {
+                                Text(brief)
+                                    .font(.footnote)
+                                    .foregroundStyle(.ccSecondary)
+                                    .lineLimit(1)
+                            }
                         }
                         Spacer(minLength: 8)
-                        Text(subagent.state == .running ? "3m" : "18m")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.ccSecondary)
+                        if let elapsed = subagentElapsed(subagent) {
+                            Text(elapsed)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.ccSecondary)
+                        }
                         Image(systemName: "chevron.right")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.ccSecondary)
@@ -141,61 +199,112 @@ struct InspectorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(subagent.agentId == nil)
             }
         }
     }
 
     private var approvalsSection: some View {
         Section("Approvals") {
-            ForEach(approvalModes, id: \.mode.rawValue) { choice in
-                Button {
-                    onApprovalMode(choice.mode)
-                } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(choice.title)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.ccLabel)
-                            Text(choice.description)
-                                .font(.footnote)
-                                .foregroundStyle(.ccSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 8)
-                        if session.mode == choice.mode {
-                            Image(systemName: "checkmark")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.ccAccent)
-                                .accessibilityLabel("Selected")
-                        }
-                    }
-                    .contentShape(Rectangle())
+            Picker("Approval mode", selection: Binding(
+                get: { currentMode },
+                set: { onApprovalMode(approvalMode(for: $0)) }
+            )) {
+                ForEach(approvalModes, id: \.mode) { choice in
+                    Text(choice.title).tag(choice.mode)
                 }
-                .buttonStyle(.plain)
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("approval-mode-picker")
+
+            if let selected = approvalModes.first(where: { $0.mode == currentMode }) {
+                Text(selected.description)
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
+    @ViewBuilder
     private var locationSection: some View {
         Section("Location") {
-            LabeledContent("Project", value: session.project ?? "atlas")
-            LabeledContent("Branch", value: branch)
-            LabeledContent("tmux pane", value: session.tmuxPane ?? "control:2.1")
+            if let project = nonEmpty(session.project) {
+                LabeledContent("Project", value: project)
+            }
+            if let branch = nonEmpty(branch) {
+                LabeledContent("Branch", value: branch)
+            }
+            if let tmuxPane = nonEmpty(session.tmuxPane) {
+                LabeledContent("tmux pane", value: tmuxPane)
+            }
         }
     }
 
+    @ViewBuilder
     private var actionsSection: some View {
         Section("Actions") {
-            Button(role: .destructive, action: onInterrupt) {
-                Label("Interrupt", systemImage: "stop.circle")
+            if session.tmuxPane != nil {
+                Button {
+                    isInterruptConfirmationPresented = true
+                } label: {
+                    Label("Interrupt", systemImage: "stop.circle")
+                }
+                .foregroundStyle(.ccRed)
+                .accessibilityHint("Stops the current turn in the terminal pane")
             }
-            .disabled(session.tmuxPane == nil && session.tmux == false)
-            .accessibilityHint("Stops the current turn in the terminal pane")
 
             Button(action: onCopySessionID) {
                 Label("Copy session ID", systemImage: "doc.on.doc")
             }
         }
+    }
+
+    private var displayedElapsed: String? {
+        if let elapsed, !elapsed.isEmpty { return elapsed }
+        let anchor = session.state == .working ? session.startedAt : session.idleSince
+        guard let anchor else { return nil }
+        return displayDuration(max(0, Int(anchor.distance(to: now) * 1000)))
+    }
+
+    private var formattedModel: String? {
+        nonEmpty(formatModelName(usage?.model))
+    }
+
+    private func subagentElapsed(_ subagent: Subagent) -> String? {
+        guard let started = subagent.startedAt else { return nil }
+        let end = subagent.finishedAt ?? now
+        return displayDuration(max(0, Int(started.distance(to: end) * 1000)))
+    }
+
+    private func approvalMode(for rawValue: String) -> ApprovalMode {
+        switch rawValue {
+        case "auto": .auto
+        case "remote": .remote
+        case "terminal": .terminal
+        default: .unknown(rawValue)
+        }
+    }
+
+    private func positiveInt(_ value: Int?) -> Int? {
+        guard let value, value > 0 else { return nil }
+        return value
+    }
+
+    private func positivePercent(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return min(value, 100)
+    }
+
+    private func positiveCacheRate(_ value: Double?) -> Double? {
+        guard let value, value.isFinite, value > 0 else { return nil }
+        return min(value <= 1 ? value * 100 : value, 100)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

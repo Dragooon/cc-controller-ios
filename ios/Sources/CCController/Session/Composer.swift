@@ -25,9 +25,21 @@ struct ComposerConfiguration {
     }
 }
 
+private struct OpenInspectorActionKey: EnvironmentKey {
+    static let defaultValue: @MainActor @Sendable () -> Void = {}
+}
+
+extension EnvironmentValues {
+    var openInspector: @MainActor @Sendable () -> Void {
+        get { self[OpenInspectorActionKey.self] }
+        set { self[OpenInspectorActionKey.self] = newValue }
+    }
+}
+
 struct ComposerView: View {
     @Binding private var text: String
     @FocusState.Binding private var isFocused: Bool
+    @Environment(\.openInspector) private var openInspector
     let configuration: ComposerConfiguration
     let onStop: () -> Void
     let onSend: () -> Void
@@ -114,7 +126,7 @@ struct ComposerView: View {
     }
 
     private var modelButton: some View {
-        Button {} label: {
+        Button(action: openInspector) {
             Text(configuration.modelName)
                 .font(.footnote)
                 .foregroundStyle(.ccLabel)

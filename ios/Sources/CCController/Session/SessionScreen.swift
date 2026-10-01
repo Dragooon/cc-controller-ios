@@ -1,15 +1,27 @@
 import CCKit
 import Foundation
 import SwiftUI
+import UIKit
 
 struct SessionScreen: View {
+    private struct SessionDestination: Hashable {
+        let sessionID: String
+        let agentID: String
+    }
+
     let sessionID: String
     @Bindable var model: AppModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
+    @State private var inspectorPresented = false
+    @State private var destination: SessionDestination?
+    @State private var pendingInspectorDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
     @State private var knownApprovalIDs: Set<String> = []
+
+    private var isCompact: Bool { horizontalSizeClass == .compact }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -26,15 +38,41 @@ struct SessionScreen: View {
         .onChange(of: sessionID) { _, _ in
             knownApprovalIDs = []
         }
+        .sheet(isPresented: compactInspectorBinding, onDismiss: presentPendingInspectorDestination) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                inspectorContent(now: context.date)
+            }
+        }
+        .inspector(isPresented: regularInspectorBinding) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                inspectorContent(now: context.date)
+            }
+        }
+        .background {
+            NavigationLink(isActive: destinationBinding) {
+                if let destination {
+                    SubagentScreen(
+                        sessionID: destination.sessionID,
+                        agentID: destination.agentID,
+                        model: model
+                    )
+                }
+            } label: {
+                EmptyView()
+            }
+            .hidden()
+        }
         .task(id: sessionID) {
-            guard let sessionStore = model.store.openSession(sessionID) else { return }
             do {
-                try await sessionStore.loadInitial()
+                try await loadSession()
+            } catch is CancellationError {
+                return
             } catch {
                 model.actionError = .network(error.localizedDescription)
             }
         }
         .onDisappear {
+            guard destination == nil else { return }
             model.store.closeSession(sessionID)
         }
     }
@@ -67,11 +105,13 @@ struct SessionScreen: View {
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
                         loadEarlier: { try await sessionStore.loadEarlier() },
                         onTool: { selectedTool = $0 },
+                        onSubagent: openSubagent,
                         onCompaction: { selectedCompaction = $0 },
                         downloadFile: { entry in
                             try await downloadFile(entry, sessionID: sessionID)
                         }
                     )
+                    .environment(\.openInspector, { inspectorPresented = true })
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -161,6 +201,45 @@ struct SessionScreen: View {
         )
     }
 
+    private func loadSession() async throws {
+        while !Task.isCancelled {
+            guard let sessionStore = model.store.openSession(sessionID) else {
+                try await Task.sleep(for: .milliseconds(100))
+                continue
+            }
+            guard !sessionStore.isLoaded else { return }
+            try await sessionStore.loadInitial()
+            if sessionStore.isLoaded { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    private var destinationBinding: Binding<Bool> {
+        Binding(
+            get: { destination != nil },
+            set: { isPresented in
+                if !isPresented { destination = nil }
+            }
+        )
+    }
+
+    private func openSubagent(_ entry: SubagentEntry) {
+        guard let agentID = entry.agentId, !agentID.isEmpty else { return }
+        destination = SessionDestination(sessionID: sessionID, agentID: agentID)
+    }
+
+    private func openSubagentFromInspector(_ subagent: Subagent) {
+        guard let agentID = subagent.agentId, !agentID.isEmpty else { return }
+        pendingInspectorDestination = SessionDestination(sessionID: sessionID, agentID: agentID)
+        inspectorPresented = false
+    }
+
+    private func presentPendingInspectorDestination() {
+        guard let pendingInspectorDestination else { return }
+        self.pendingInspectorDestination = nil
+        destination = pendingInspectorDestination
+    }
+
     @MainActor
     private func downloadFile(_ entry: FileEntry, sessionID: String) async throws -> URL {
         let downloaded = try await model.store.downloadFile(
@@ -195,8 +274,71 @@ struct SessionScreen: View {
                             .lineLimit(1)
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        inspectorPresented.toggle()
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("Session info")
+                    .accessibilityIdentifier("session-info")
+                }
             }
             .tint(.ccAccent)
             .background(.ccBackground)
+    }
+
+    @ViewBuilder
+    private func inspectorContent(now: Date) -> some View {
+        if let session = model.store.openSession(sessionID)?.session {
+            InspectorView(
+                session: session,
+                now: now,
+                onInterrupt: interrupt,
+                onCopySessionID: { UIPasteboard.general.string = sessionID },
+                onApprovalMode: setApprovalMode,
+                onSubagent: openSubagentFromInspector
+            )
+        } else {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.ccBackground)
+        }
+    }
+
+    private var compactInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { inspectorPresented && isCompact },
+            set: { presented in
+                if !presented { inspectorPresented = false }
+            }
+        )
+    }
+
+    private var regularInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { inspectorPresented && !isCompact },
+            set: { presented in
+                if !presented { inspectorPresented = false }
+            }
+        )
+    }
+
+    private func setApprovalMode(_ mode: ApprovalMode) {
+        Task { @MainActor in
+            let result = await model.store.setApprovalMode(sessionID: sessionID, mode: mode)
+            if case .failure(let error) = result {
+                model.actionError = error
+            }
+        }
+    }
+
+    private func interrupt() {
+        Task { @MainActor in
+            let result = await model.store.interrupt(sessionID: sessionID)
+            if case .failure(let error) = result {
+                model.actionError = error
+            }
+        }
     }
 }
