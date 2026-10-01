@@ -81,140 +81,159 @@ struct InspectorView: View {
 
     @ViewBuilder
     private var statusSection: some View {
-        Section("Status") {
-            if let state = session.state {
-                LabeledContent("State") {
-                    HStack(spacing: 7) {
-                        if state == .working {
-                            SpinnerGlyph(active: true, frozen: false)
+        if hasStatusData {
+            Section {
+                if let state = session.state {
+                    LabeledContent("State") {
+                        HStack(spacing: 7) {
+                            if state == .working {
+                                SpinnerGlyph(active: true, frozen: false)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(stateLabel(state: state.rawValue))
+                                .foregroundStyle(.ccLabel)
                         }
-                        Text(stateLabel(state: state.rawValue))
-                            .foregroundStyle(.ccLabel)
                     }
                 }
-            }
-            if elapsed != nil || elapsedAnchor != nil {
-                LabeledContent("Elapsed") {
-                    LiveElapsedText(
-                        startedAt: elapsedAnchor,
-                        finishedAt: nil,
-                        isLive: isSessionLive,
-                        fallback: elapsed
-                    )
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(.ccLabel)
-                    .accessibilityIdentifier("inspector-elapsed")
+                if elapsed != nil || elapsedAnchor != nil {
+                    LabeledContent("Elapsed") {
+                        LiveElapsedText(
+                            startedAt: elapsedAnchor,
+                            finishedAt: nil,
+                            isLive: isSessionLive,
+                            fallback: elapsed
+                        )
+                        .font(.body.monospacedDigit())
+                        .foregroundStyle(.ccLabel)
+                        .accessibilityIdentifier("inspector-elapsed")
+                    }
                 }
-            }
-            if let model = formattedModel {
-                LabeledContent("Model", value: model)
+                if let model = formattedModel {
+                    LabeledContent("Model", value: model)
+                }
+            } header: {
+                sectionHeader("Status")
             }
         }
     }
 
     @ViewBuilder
     private var contextSection: some View {
-        Section("Context") {
-            if let percent = positivePercent(usage?.contextPercent) {
-                HStack(alignment: .center, spacing: 12) {
-                    Gauge(value: percent / 100, in: 0...1) {
-                        EmptyView()
-                    } currentValueLabel: {
-                        EmptyView()
-                    }
-                    .gaugeStyle(.linearCapacity)
-                    .tint(.ccAccent)
-                    .frame(maxWidth: .infinity)
+        if hasContextData {
+            Section {
+                if let percent = positivePercent(usage?.contextPercent) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Gauge(value: percent / 100, in: 0...1) {
+                            EmptyView()
+                        } currentValueLabel: {
+                            EmptyView()
+                        }
+                        .gaugeStyle(.linearCapacity)
+                        .tint(.ccAccent)
+                        .frame(maxWidth: .infinity)
 
-                    Text("\(Int(percent.rounded()))%")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.ccLabel)
+                        Text("\(Int(percent.rounded()))%")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.ccLabel)
+                    }
                 }
-            }
-            if let contextTokens = positiveInt(usage?.contextTokens),
-               let contextWindow = positiveInt(usage?.contextWindow) {
-                Text("\(formatTokenCount(contextTokens)) of \(formatTokenCount(contextWindow)) tokens")
-                    .font(.footnote)
-                    .foregroundStyle(.ccSecondary)
+                if let contextTokens = positiveInt(usage?.contextTokens),
+                   let contextWindow = positiveInt(usage?.contextWindow) {
+                    Text("\(formatTokenCount(contextTokens)) of \(formatTokenCount(contextWindow)) tokens")
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                }
+            } header: {
+                sectionHeader("Context")
             }
         }
     }
 
     @ViewBuilder
     private var usageSection: some View {
-        Section("Usage") {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                if let input = positiveInt(usage?.totalInputTokens ?? usage?.inputTokens) {
-                    StatTile(value: formatTokenCount(input), label: "Input")
+        if hasUsageData {
+            Section {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    if let input = positiveInt(usage?.totalInputTokens ?? usage?.inputTokens) {
+                        StatTile(value: formatTokenCount(input), label: "Input")
+                    }
+                    if let output = positiveInt(usage?.outputTokens) {
+                        StatTile(value: formatTokenCount(output), label: "Output")
+                    }
+                    if let cache = positiveCacheRate(usage?.cacheHitRate) {
+                        StatTile(value: "\(Int(cache.rounded()))%", label: "Cache")
+                    }
+                    if let messages = positiveInt(usage?.messages) {
+                        StatTile(value: formatTokenCount(messages), label: "Messages")
+                    }
                 }
-                if let output = positiveInt(usage?.outputTokens) {
-                    StatTile(value: formatTokenCount(output), label: "Output")
-                }
-                if let cache = positiveCacheRate(usage?.cacheHitRate) {
-                    StatTile(value: "\(Int(cache.rounded()))%", label: "Cache")
-                }
-                if let messages = positiveInt(usage?.messages) {
-                    StatTile(value: formatTokenCount(messages), label: "Messages")
-                }
+                .padding(.vertical, 2)
+            } header: {
+                sectionHeader("Usage")
             }
-            .padding(.vertical, 2)
         }
     }
 
     @ViewBuilder
     private var subagentsSection: some View {
-        Section("Subagents") {
-            ForEach(Array(sortedSubagents.enumerated()), id: \.offset) { _, subagent in
-                Button { onSubagent(subagent) } label: {
-                    HStack(spacing: 10) {
-                        if subagent.state == .running {
-                            SpinnerGlyph(active: true, frozen: false)
-                                .font(.subheadline)
-                                .frame(width: 18)
-                        } else {
-                            Circle()
-                                .fill(subagent.state == .failed ? .ccRed : .ccGreen)
-                                .frame(width: 8, height: 8)
-                                .frame(width: 18)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(subagent.agent ?? "agent")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.ccLabel)
-                            if let brief = subagent.text, !brief.isEmpty {
-                                Text(brief)
-                                    .font(.footnote)
-                                    .foregroundStyle(.ccSecondary)
-                                    .lineLimit(1)
+        if !sortedSubagents.isEmpty {
+            Section {
+                ForEach(Array(sortedSubagents.enumerated()), id: \.offset) { _, subagent in
+                    Button { onSubagent(subagent) } label: {
+                        HStack(spacing: 10) {
+                            if subagent.state == .running {
+                                SpinnerGlyph(active: true, frozen: false)
+                                    .font(.subheadline)
+                                    .frame(width: 18)
+                                    .accessibilityHidden(true)
+                            } else {
+                                Circle()
+                                    .fill(subagent.state == .failed ? .ccRed : .ccGreen)
+                                    .frame(width: 8, height: 8)
+                                    .frame(width: 18)
                             }
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(subagent.agent ?? "agent")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.ccLabel)
+                                if let brief = subagent.text, !brief.isEmpty {
+                                    Text(brief)
+                                        .font(.footnote)
+                                        .foregroundStyle(.ccSecondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            if subagent.startedAt != nil {
+                                LiveElapsedText(
+                                    startedAt: subagent.startedAt,
+                                    finishedAt: subagent.finishedAt,
+                                    isLive: subagent.state == .running,
+                                    fallback: nil
+                                )
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.ccSecondary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.ccSecondary)
                         }
-                        Spacer(minLength: 8)
-                        if subagent.startedAt != nil {
-                            LiveElapsedText(
-                                startedAt: subagent.startedAt,
-                                finishedAt: subagent.finishedAt,
-                                isLive: subagent.state == .running,
-                                fallback: nil
-                            )
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.ccSecondary)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.ccSecondary)
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("inspector-subagent-\(subagent.agentId ?? "")")
+                    .accessibilityLabel(subagentAccessibilityLabel(subagent))
+                    .disabled(subagent.agentId == nil)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("inspector-subagent-\(subagent.agentId ?? "")")
-                .disabled(subagent.agentId == nil)
+            } header: {
+                sectionHeader("Subagents")
             }
         }
     }
 
     private var approvalsSection: some View {
-        Section("Approvals") {
+        Section {
             Picker("Approval mode", selection: Binding(
                 get: { currentMode },
                 set: { onApprovalMode(approvalMode(for: $0)) }
@@ -233,27 +252,33 @@ struct InspectorView: View {
                     .foregroundStyle(.ccSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        } header: {
+            sectionHeader("Approvals")
         }
     }
 
     @ViewBuilder
     private var locationSection: some View {
-        Section("Location") {
-            if let project = nonEmpty(session.project) {
-                LabeledContent("Project", value: project)
-            }
-            if let branch = nonEmpty(branch) {
-                LabeledContent("Branch", value: branch)
-            }
-            if let tmuxPane = nonEmpty(session.tmuxPane) {
-                LabeledContent("tmux pane", value: tmuxPane)
+        if hasLocationData {
+            Section {
+                if let project = nonEmpty(session.project) {
+                    LabeledContent("Project", value: project)
+                }
+                if let branch = nonEmpty(branch) {
+                    LabeledContent("Branch", value: branch)
+                }
+                if let tmuxPane = nonEmpty(session.tmuxPane) {
+                    LabeledContent("tmux pane", value: tmuxPane)
+                }
+            } header: {
+                sectionHeader("Location")
             }
         }
     }
 
     @ViewBuilder
     private var actionsSection: some View {
-        Section("Actions") {
+        Section {
             if nonEmpty(session.tmuxPane) != nil {
                 Button {
                     isInterruptConfirmationPresented = true
@@ -267,7 +292,41 @@ struct InspectorView: View {
             Button(action: onCopySessionID) {
                 Label("Copy session ID", systemImage: "doc.on.doc")
             }
+        } header: {
+            sectionHeader("Actions")
         }
+    }
+
+    private var hasStatusData: Bool {
+        session.state != nil || elapsed != nil || elapsedAnchor != nil || formattedModel != nil
+    }
+
+    private var hasContextData: Bool {
+        positivePercent(usage?.contextPercent) != nil ||
+            (positiveInt(usage?.contextTokens) != nil && positiveInt(usage?.contextWindow) != nil)
+    }
+
+    private var hasUsageData: Bool {
+        positiveInt(usage?.totalInputTokens ?? usage?.inputTokens) != nil ||
+            positiveInt(usage?.outputTokens) != nil ||
+            positiveCacheRate(usage?.cacheHitRate) != nil ||
+            positiveInt(usage?.messages) != nil
+    }
+
+    private var hasLocationData: Bool {
+        nonEmpty(session.project) != nil || nonEmpty(branch) != nil || nonEmpty(session.tmuxPane) != nil
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .foregroundStyle(.ccSecondary)
+    }
+
+    private func subagentAccessibilityLabel(_ subagent: Subagent) -> String {
+        let name = subagent.agent ?? "agent"
+        let state = subagent.state?.rawValue ?? "unknown"
+        guard let text = subagent.text, !text.isEmpty else { return "\(name), \(state)" }
+        return "\(name), \(state), \(text)"
     }
 
     private var elapsedAnchor: Date? {

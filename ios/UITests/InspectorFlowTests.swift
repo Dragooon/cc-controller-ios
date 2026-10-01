@@ -76,6 +76,10 @@ final class InspectorFlowTests: XCTestCase {
         app.swipeUp()
         let engineer = app.buttons["inspector-subagent-agent-done"]
         XCTAssertTrue(engineer.waitForExistence(timeout: 15), "Inspector engineer row did not load")
+        XCTAssertTrue(
+            engineer.label.localizedCaseInsensitiveContains("done"),
+            "Inspector subagent accessibility label lost its state: \(engineer.label)"
+        )
         engineer.tap()
 
         let subagentNavigationBar = app.navigationBars["engineer"]
@@ -92,6 +96,8 @@ final class InspectorFlowTests: XCTestCase {
         info.tap()
 
         XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
+        XCTAssertFalse(app.staticTexts["Context"].exists, "Staff session should hide an empty Context section")
+        XCTAssertFalse(app.staticTexts["Usage"].exists, "Staff session should hide an empty Usage section")
         let subtitle = app.descendants(matching: .any).matching(identifier: "selected-session-subtitle").firstMatch
         XCTAssertTrue(subtitle.waitForExistence(timeout: 10), "Session subtitle did not load")
         let subtitleBefore = elementText(subtitle)
@@ -111,6 +117,7 @@ final class InspectorFlowTests: XCTestCase {
         } else {
             app.swipeUp()
         }
+        attach(named: "inspector-large")
 
         let picker = app.buttons["approval-mode-picker"]
         XCTAssertTrue(picker.waitForExistence(timeout: 15), "Approval mode picker did not load")
@@ -136,6 +143,33 @@ final class InspectorFlowTests: XCTestCase {
         }
     }
 
+    func testInspectorLongSessionSections() throws {
+        let app = launch()
+        openSession(id: "session-long-session", in: app)
+
+        let info = app.buttons["session-info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 15), "Session info button did not load")
+        info.tap()
+
+        XCTAssertTrue(app.staticTexts["Status"].waitForExistence(timeout: 15), "Inspector Status section did not load")
+        XCTAssertTrue(app.staticTexts["Context"].waitForExistence(timeout: 15), "Long session Context section did not load")
+        XCTAssertTrue(app.staticTexts["Usage"].waitForExistence(timeout: 15), "Long session Usage section did not load")
+        XCTAssertTrue(app.staticTexts["6%"].waitForExistence(timeout: 15), "Long session context percentage did not load")
+        XCTAssertTrue(app.staticTexts["64k"].waitForExistence(timeout: 15), "Long session input usage did not load")
+        XCTAssertTrue(app.staticTexts["1.2k"].waitForExistence(timeout: 15), "Long session output usage did not load")
+        XCTAssertTrue(app.staticTexts["97%"].waitForExistence(timeout: 15), "Long session cache usage did not load")
+        attach(named: "inspector-long-medium")
+        auditPresentedSheet(app)
+
+        let expandGrabber = app.buttons["Sheet Grabber"]
+        if expandGrabber.exists {
+            expandGrabber.swipeUp()
+        } else {
+            app.swipeUp()
+        }
+        attach(named: "inspector-long-large")
+    }
+
     private func launch() -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
         let app = XCUIApplication()
@@ -146,13 +180,23 @@ final class InspectorFlowTests: XCTestCase {
     }
 
     private func openStaffSession(_ app: XCUIApplication) {
-        let staffRow = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff session row did not load")
-        staffRow.tap()
+        openSession(id: "session-staff-account-exclusions", in: app)
         XCTAssertTrue(
             app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 30),
             "Staff session did not open"
         )
+    }
+
+    private func openSession(id: String, in app: XCUIApplication) {
+        let row = app.buttons[id]
+        for _ in 0..<12 {
+            if row.waitForExistence(timeout: 5) {
+                row.tap()
+                return
+            }
+            app.swipeUp()
+        }
+        XCTFail("Session row did not load: \(id)")
     }
 
     private func elementText(_ element: XCUIElement) -> String {

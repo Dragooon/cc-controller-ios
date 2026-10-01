@@ -32,20 +32,23 @@ struct SpinnerGlyph: View {
     private let frames = ["·︎", "✢︎", "✳︎", "✶︎", "✻︎", "✽︎", "✻︎", "✶︎", "✳︎", "✢︎"]
 
     var body: some View {
-        if !active {
-            Text("○")
-                .foregroundStyle(.ccTertiary)
-        } else if frozen || reduceMotion {
-            Text("✻︎")
-                .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
-        } else {
-            TimelineView(.periodic(from: .now, by: 0.12)) { context in
-                let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)
-                let frame = frames[Int(elapsed / 0.12) % frames.count]
-                Text(frame)
-                    .foregroundStyle(.ccAccent)
+        Group {
+            if !active {
+                Text("○")
+                    .foregroundStyle(.ccTertiary)
+            } else if frozen || reduceMotion {
+                Text("✻︎")
+                    .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
+            } else {
+                TimelineView(.periodic(from: .now, by: 0.12)) { context in
+                    let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)
+                    let frame = frames[Int(elapsed / 0.12) % frames.count]
+                    Text(frame)
+                        .foregroundStyle(.ccAccent)
+                }
             }
         }
+        .accessibilityHidden(true)
     }
 }
 
