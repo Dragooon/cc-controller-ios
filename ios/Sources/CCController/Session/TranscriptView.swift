@@ -10,6 +10,7 @@ struct SessionTranscriptView: View {
     let activityFooter: CCKit.ActivityFooter?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let scrollAnchor: UnitPoint
 
     init(
         turns: [Turn],
@@ -19,7 +20,8 @@ struct SessionTranscriptView: View {
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         activityFooter: CCKit.ActivityFooter? = nil,
         onTool: @escaping (ToolEntry) -> Void = { _ in },
-        onSubagent: @escaping (SubagentEntry) -> Void = { _ in }
+        onSubagent: @escaping (SubagentEntry) -> Void = { _ in },
+        scrollAnchor: UnitPoint = .top
     ) {
         self.turns = turns
         self.now = now
@@ -29,6 +31,7 @@ struct SessionTranscriptView: View {
         self.activityFooter = activityFooter
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.scrollAnchor = scrollAnchor
     }
 
     @ViewBuilder
@@ -55,7 +58,7 @@ struct SessionTranscriptView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
             }
-            .defaultScrollAnchor(.top)
+            .defaultScrollAnchor(scrollAnchor)
             .scrollDismissesKeyboard(.interactively)
             .background(.ccBackground)
         }

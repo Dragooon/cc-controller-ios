@@ -32,7 +32,8 @@ private struct ApprovalSessionMock: View {
                 SessionTranscriptView(
                     turns: MockSessionData.turns,
                     now: MockFixtures.now,
-                    showsComposer: false
+                    showsComposer: false,
+                    scrollAnchor: .bottom
                 )
                 .safeAreaBar(edge: .bottom, spacing: 0) {
                     ApprovalBottomStackView(
