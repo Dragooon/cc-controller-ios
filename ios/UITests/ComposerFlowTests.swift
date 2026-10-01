@@ -64,6 +64,9 @@ final class ComposerFlowTests: XCTestCase {
             field.waitForPlaceholder("Queue a message", timeout: 45),
             "Dune fixture session did not become working"
         )
+        let initialHeight = field.frame.height
+        let composer = app.otherElements["Message composer"]
+        let initialComposerHeight = composer.frame.height
 
         let marker = "dune-part-three-imax-tickets"
         field.tap()
@@ -74,6 +77,14 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
         XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 15), "Queued caption did not render")
+        let resetField = composerField(in: app)
+        XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not remain visible after queue")
+        XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after queue")
+        let resetHeight = resetField.frame.height
+        XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height while queueing: initial \(initialHeight), reset \(resetHeight)")
+        let resetComposerHeight = composer.frame.height
+        print("composer queue heights fieldInitial=\(initialHeight) fieldReset=\(resetHeight) glassInitial=\(initialComposerHeight) glassReset=\(resetComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(resetComposerHeight - initialComposerHeight), 2, "Composer glass did not reset height while queueing: initial \(initialComposerHeight), reset \(resetComposerHeight)")
         let contextSubtitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "ctx 6%")).firstMatch
         XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 6%")
     }
