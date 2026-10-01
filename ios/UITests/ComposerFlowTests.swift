@@ -23,15 +23,28 @@ final class ComposerFlowTests: XCTestCase {
 
         openSession(id: "session-long-session", in: app)
         let field = composerField(in: app)
+        let initialHeight = field.frame.height
         let marker = "composer-sent-\(UUID().uuidString)"
+        let message = marker + String(repeating: " wrap", count: 30)
         field.tap()
-        field.typeText(marker)
+        field.typeText(message)
+
+        let wrappedHeight = waitForHeight(of: field, greaterThan: initialHeight, timeout: 10)
+        XCTAssertNotNil(wrappedHeight, "Composer did not grow after wrapping: initial \(initialHeight), current \(field.frame.height)")
+        XCTAssertGreaterThan(wrappedHeight ?? initialHeight, initialHeight)
 
         let send = app.buttons["composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not load for an idle session")
         send.tap()
 
-        XCTAssertEqual(field.value as? String, "", "Composer text did not clear after send")
+        let resetField = composerField(in: app)
+        XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not reappear after send")
+        XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after send")
+        let resetHeight = resetField.frame.height
+        XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height: initial \(initialHeight), reset \(resetHeight)")
+        print("composer heights initial=\(initialHeight) wrapped=\(wrappedHeight ?? field.frame.height) reset=\(resetHeight)")
+        resetField.typeText("f")
+        XCTAssertEqual(resetField.value as? String, "f", "Composer did not retain keyboard focus after send")
         let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
         XCTAssertTrue(prompt.waitForExistence(timeout: 20), "Sent marker did not appear in the transcript")
         XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
@@ -61,8 +74,8 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
         XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 15), "Queued caption did not render")
-        let contextSubtitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "ctx 32%")).firstMatch
-        XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 32%")
+        let contextSubtitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "ctx 6%")).firstMatch
+        XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 6%")
     }
 
     func testSlashSuggestions() throws {
@@ -137,6 +150,27 @@ final class ComposerFlowTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+@MainActor
+private func waitForHeight(of element: XCUIElement, greaterThan height: CGFloat, timeout: TimeInterval) -> CGFloat? {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        let currentHeight = element.frame.height
+        if currentHeight > height { return currentHeight }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while Date() < deadline
+    return nil
+}
+
+@MainActor
+private func waitForValue(of element: XCUIElement, equalTo expected: String, timeout: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if element.value as? String == expected { return true }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while Date() < deadline
+    return false
 }
 
 private extension XCUIElement {

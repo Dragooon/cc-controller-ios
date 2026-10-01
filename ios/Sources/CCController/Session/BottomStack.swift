@@ -76,6 +76,7 @@ struct BottomStackView: View {
     let configuration: BottomStackConfiguration
     @State private var text: String
     @State private var isSending = false
+    @State private var fieldResetGeneration = 0
     @State private var sendFeedbackCount = 0
     @State private var stopFeedbackCount = 0
     @FocusState private var composerFocused: Bool
@@ -128,7 +129,8 @@ struct BottomStackView: View {
                         onStop: stop,
                         onSend: send,
                         onSendNow: sendNow,
-                        glassNamespace: glassNamespace
+                        glassNamespace: glassNamespace,
+                        resetGeneration: fieldResetGeneration
                     )
                 }
             }
@@ -185,7 +187,7 @@ struct BottomStackView: View {
             switch result {
             case .success:
                 text = ""
-                composerFocused = true
+                fieldResetGeneration += 1
                 sendFeedbackCount += 1
             case .failure:
                 break

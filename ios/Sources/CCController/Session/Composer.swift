@@ -49,7 +49,9 @@ struct ComposerView: View {
     let onSend: () -> Void
     let onSendNow: () -> Void
     let glassNamespace: Namespace.ID?
+    let resetGeneration: Int
 
+    @State private var fieldGeneration = 0
     @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
     @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
 
@@ -61,7 +63,8 @@ struct ComposerView: View {
         onStop: @escaping () -> Void = {},
         onSend: @escaping () -> Void = {},
         onSendNow: @escaping () -> Void = {},
-        glassNamespace: Namespace.ID? = nil
+        glassNamespace: Namespace.ID? = nil,
+        resetGeneration: Int = 0
     ) {
         _text = text
         _isFocused = isFocused
@@ -71,6 +74,7 @@ struct ComposerView: View {
         self.onSend = onSend
         self.onSendNow = onSendNow
         self.glassNamespace = glassNamespace
+        self.resetGeneration = resetGeneration
     }
 
     var body: some View {
@@ -94,12 +98,10 @@ struct ComposerView: View {
                 .font(.body)
                 .foregroundStyle(.ccLabel)
                 .lineLimit(1...6)
-                .fixedSize(horizontal: false, vertical: true)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
-                .id(text.isEmpty ? "composer-empty" : "composer-filled")
+                .id(fieldGeneration)
                 .accessibilityIdentifier("composer-text")
-                .frame(height: text.isEmpty ? 44 : nil, alignment: .top)
 
             HStack(spacing: 8) {
                 attachmentMenu
@@ -117,6 +119,14 @@ struct ComposerView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .onChange(of: resetGeneration) { _, generation in
+            fieldGeneration = generation
+            Task { @MainActor in
+                await Task.yield()
+                await Task.yield()
+                isFocused = true
+            }
+        }
     }
 
     private var attachmentMenu: some View {
