@@ -8,6 +8,7 @@ struct SessionTranscriptView: View {
     let showsComposer: Bool
     let showsWorkedFooter: Bool
     let bottomStackConfiguration: BottomStackConfiguration?
+    let queuedNotes: [QueuedNote]
     let activityFooter: CCKit.ActivityFooter?
     let hasMoreEarlier: Bool
     let loadEarlier: (() async throws -> Void)?
@@ -20,6 +21,7 @@ struct SessionTranscriptView: View {
     @State private var didTriggerPaging = false
     @State private var newestIsVisible = true
     @State private var pagingError: String?
+    @State private var transcriptHeight: CGFloat = 0
 
     init(
         turns: [Turn],
@@ -27,6 +29,7 @@ struct SessionTranscriptView: View {
         showsComposer: Bool = true,
         showsWorkedFooter: Bool = true,
         bottomStackConfiguration: BottomStackConfiguration? = nil,
+        queuedNotes: [QueuedNote] = [],
         activityFooter: CCKit.ActivityFooter? = nil,
         subagents: [Subagent] = [],
         hasMoreEarlier: Bool = false,
@@ -42,6 +45,7 @@ struct SessionTranscriptView: View {
         self.showsComposer = showsComposer
         self.showsWorkedFooter = showsWorkedFooter
         self.bottomStackConfiguration = bottomStackConfiguration
+        self.queuedNotes = queuedNotes
         self.activityFooter = activityFooter
         self.subagents = subagents
         self.hasMoreEarlier = hasMoreEarlier
@@ -65,6 +69,11 @@ struct SessionTranscriptView: View {
             }
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor)
             .scrollDismissesKeyboard(.interactively)
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { _, height in
+                transcriptHeight = height
+            }
             .background(.ccBackground)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
@@ -96,7 +105,8 @@ struct SessionTranscriptView: View {
             }
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if showsComposer {
-                    BottomStackView(configuration: bottomStackConfiguration ?? BottomStackConfiguration())
+                    let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
+                    BottomStackView(configuration: configuration.withTranscriptHeight(transcriptHeight))
                 }
             }
             .alert(
@@ -168,6 +178,27 @@ struct SessionTranscriptView: View {
             )
             .id(turn.id)
         }
+
+        ForEach(Array(queuedNotes.enumerated()), id: \.offset) { _, note in
+            QueuedPromptView(text: note.text)
+        }
+    }
+}
+
+private struct QueuedPromptView: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            PromptBubble(prompt: PromptEntry(text: text))
+                .opacity(0.55)
+            Text("Queued")
+                .font(.caption)
+                .foregroundStyle(.ccSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(text), Queued")
     }
 }
 

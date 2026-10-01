@@ -2,19 +2,21 @@ import SwiftUI
 
 struct ComposerConfiguration {
     let initialText: String
-    let modelName: String
+    let modelName: String?
     let placeholder: String
     let isWorking: Bool
     let hasTmuxPane: Bool
     let focusesOnAppear: Bool
+    var isSending: Bool
 
     init(
         initialText: String = "",
-        modelName: String = "Fable 5.1",
+        modelName: String? = "Fable 5.1",
         placeholder: String = "Message",
         isWorking: Bool = false,
         hasTmuxPane: Bool = false,
-        focusesOnAppear: Bool = false
+        focusesOnAppear: Bool = false,
+        isSending: Bool = false
     ) {
         self.initialText = initialText
         self.modelName = modelName
@@ -22,6 +24,7 @@ struct ComposerConfiguration {
         self.isWorking = isWorking
         self.hasTmuxPane = hasTmuxPane
         self.focusesOnAppear = focusesOnAppear
+        self.isSending = isSending
     }
 }
 
@@ -41,6 +44,7 @@ struct ComposerView: View {
     @FocusState.Binding private var isFocused: Bool
     @Environment(\.openInspector) private var openInspector
     let configuration: ComposerConfiguration
+    let onModel: () -> Void
     let onStop: () -> Void
     let onSend: () -> Void
     let onSendNow: () -> Void
@@ -53,6 +57,7 @@ struct ComposerView: View {
         text: Binding<String>,
         isFocused: FocusState<Bool>.Binding,
         configuration: ComposerConfiguration,
+        onModel: @escaping () -> Void = {},
         onStop: @escaping () -> Void = {},
         onSend: @escaping () -> Void = {},
         onSendNow: @escaping () -> Void = {},
@@ -61,6 +66,7 @@ struct ComposerView: View {
         _text = text
         _isFocused = isFocused
         self.configuration = configuration
+        self.onModel = onModel
         self.onStop = onStop
         self.onSend = onSend
         self.onSendNow = onSendNow
@@ -88,13 +94,18 @@ struct ComposerView: View {
                 .font(.body)
                 .foregroundStyle(.ccLabel)
                 .lineLimit(1...6)
+                .fixedSize(horizontal: false, vertical: true)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
+                .id(text.isEmpty ? "composer-empty" : "composer-filled")
                 .accessibilityIdentifier("composer-text")
+                .frame(height: text.isEmpty ? 44 : nil, alignment: .top)
 
             HStack(spacing: 8) {
                 attachmentMenu
-                modelButton
+                if configuration.modelName != nil {
+                    modelButton
+                }
                 Spacer(minLength: 0)
                 if configuration.isWorking, configuration.hasTmuxPane {
                     stopButton
@@ -125,20 +136,23 @@ struct ComposerView: View {
         .accessibilityLabel("Add attachment")
     }
 
+    @ViewBuilder
     private var modelButton: some View {
-        Button(action: openInspector) {
-            Text(configuration.modelName)
-                .font(.footnote)
-                .foregroundStyle(.ccLabel)
-                .lineLimit(1)
-                .padding(.horizontal, 11)
-                .frame(height: visibleChipHeight)
-                .glassEffect(.regular.interactive(), in: .capsule)
+        if let modelName = configuration.modelName {
+            Button(action: openInspector) {
+                Text(modelName)
+                    .font(.footnote)
+                    .foregroundStyle(.ccLabel)
+                    .lineLimit(1)
+                    .padding(.horizontal, 11)
+                    .frame(height: visibleChipHeight)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Model \(modelName)")
         }
-        .buttonStyle(.plain)
-        .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
-        .contentShape(Rectangle())
-        .accessibilityLabel("Model \(configuration.modelName)")
     }
 
     private var stopButton: some View {
@@ -153,22 +167,32 @@ struct ComposerView: View {
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
         .contentShape(Rectangle())
         .accessibilityLabel("Stop session")
+        .accessibilityIdentifier("composer-stop")
     }
 
     @ViewBuilder
     private var sendButton: some View {
         let button = Button(action: onSend) {
-            Image(systemName: "arrow.up")
-                .font(.body.weight(.semibold))
-                .frame(width: visibleCircleSize, height: visibleCircleSize)
-                .foregroundStyle(.white)
-                .glassEffect(.regular.tint(.ccAccent).interactive(), in: .circle)
+            Group {
+                if configuration.isSending {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.semibold))
+                }
+            }
+            .frame(width: visibleCircleSize, height: visibleCircleSize)
+            .foregroundStyle(.white)
+            .glassEffect(.regular.tint(.ccAccent).interactive(), in: .circle)
         }
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
         .contentShape(Rectangle())
-        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .disabled(configuration.isSending || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")
+        .accessibilityIdentifier(configuration.isWorking ? "composer-queue" : "composer-send")
 
         if configuration.isWorking {
             button.contextMenu {

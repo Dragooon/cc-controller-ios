@@ -48,6 +48,27 @@ public struct QueuedNote: Codable, Sendable, Equatable {
     }
 }
 
+public struct SlashCommandDefinition: Sendable, Equatable {
+    public let command: String
+    public let description: String
+
+    public init(command: String, description: String) {
+        self.command = command
+        self.description = description
+    }
+}
+
+public let defaultSlashCommands: [SlashCommandDefinition] = [
+    SlashCommandDefinition(command: "/compact", description: "Summarize context"),
+    SlashCommandDefinition(command: "/clear", description: "Clear session"),
+    SlashCommandDefinition(command: "/model", description: "Choose model"),
+    SlashCommandDefinition(command: "/cost", description: "Show cost"),
+    SlashCommandDefinition(command: "/context", description: "Show context"),
+    SlashCommandDefinition(command: "/review", description: "Review changes"),
+    SlashCommandDefinition(command: "/init", description: "Initialize project"),
+    SlashCommandDefinition(command: "/help", description: "Show help")
+]
+
 public struct ToolTally: Codable, Sendable, Equatable {
     public let tool: String
     public let count: Int
@@ -278,6 +299,15 @@ public func formatModelName(_ model: String?) -> String {
     return label.prefix(1).uppercased() + label.dropFirst()
 }
 
+public func composerModelName(_ model: String?) -> String? {
+    let value = model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !value.isEmpty else { return nil }
+    let lowered = value.lowercased()
+    guard !lowered.contains("unknown"), lowered != "placeholder", lowered != "model" else { return nil }
+    let formatted = formatModelName(value)
+    return formatted.isEmpty ? nil : formatted
+}
+
 public func formatTime(_ value: Date?, timeZone: TimeZone = .current, locale: Locale = .current) -> String {
     guard let value else { return "" }
     let formatter = DateFormatter()
@@ -332,6 +362,22 @@ public func formatTokenCount(_ value: Double) -> String {
 public func formatTokenCount(_ value: Int?) -> String {
     guard let value else { return "" }
     return formatTokenCount(Double(value))
+}
+
+public func formatTokenUsageSegments(_ usage: Usage?) -> [String] {
+    guard let usage else { return [] }
+    var segments: [String] = []
+    if let input = usage.totalInputTokens ?? usage.inputTokens, input > 0 {
+        segments.append("\(formatTokenCount(input)) in")
+    }
+    if let output = usage.outputTokens, output > 0 {
+        segments.append("\(formatTokenCount(output)) out")
+    }
+    if let cacheHitRate = usage.cacheHitRate, cacheHitRate.isFinite, cacheHitRate > 0 {
+        let percent = cacheHitRate <= 1 ? cacheHitRate * 100 : cacheHitRate
+        if percent > 0 { segments.append("cache \(Int(percent.rounded()))%") }
+    }
+    return segments
 }
 
 public func formatContextUsage(_ usage: Usage? = nil, expanded: Bool = false) -> String {

@@ -491,6 +491,10 @@ public final class AppStore {
     private func applyState(_ snapshot: StateSnapshot) {
         let liveSessions = (snapshot.sessions ?? []).compactMap { session -> (String, Session)? in
             guard let id = session.id else { return nil }
+            var session = session
+            if let previous = sessions[id], isPlaceholderUsage(session.usage), let usage = previous.usage {
+                session.usage = usage
+            }
             return (id, session)
         }
         sessions = Dictionary(uniqueKeysWithValues: liveSessions)
@@ -701,5 +705,21 @@ public final class AppStore {
 
     private func activityDate(_ session: Session) -> Date {
         session.startedAt ?? session.idleSince ?? .distantPast
+    }
+
+    private func isPlaceholderUsage(_ usage: Usage?) -> Bool {
+        guard let usage else { return true }
+        let model = usage.model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let values = [
+            usage.contextTokens,
+            usage.contextWindow,
+            usage.inputTokens,
+            usage.totalInputTokens,
+            usage.outputTokens,
+            usage.cacheReadTokens,
+            usage.cacheWriteTokens,
+            usage.messages,
+        ]
+        return model.isEmpty && values.allSatisfy { ($0 ?? 0) <= 0 } && (usage.contextPercent ?? 0) <= 0 && (usage.cacheHitRate ?? 0) <= 0
     }
 }

@@ -57,6 +57,26 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(sessionDetailSubtitle(Session(state: .idle, usage: Usage(contextPercent: 0))), "idle")
     }
 
+    func testTokenUsageSegmentsOmitUnknownAndPlaceholderZeroValues() {
+        XCTAssertEqual(
+            formatTokenUsageSegments(Usage(totalInputTokens: 3_100_000, outputTokens: 84_000, cacheHitRate: 0.92)),
+            ["3.1M in", "84k out", "cache 92%"]
+        )
+        XCTAssertEqual(formatTokenUsageSegments(Usage(inputTokens: 0, outputTokens: 0, cacheHitRate: 0)), [])
+        XCTAssertEqual(formatTokenUsageSegments(nil), [])
+    }
+
+    func testDefaultSlashCommandsIncludeFullStaticComposerList() {
+        XCTAssertEqual(defaultSlashCommands.map(\.command), ["/compact", "/clear", "/model", "/cost", "/context", "/review", "/init", "/help"])
+    }
+
+    func testComposerModelNameFormatsKnownModelsAndHidesUnknownValues() {
+        XCTAssertEqual(composerModelName("claude-fable-5-1"), "Fable 5.1")
+        XCTAssertNil(composerModelName(nil))
+        XCTAssertNil(composerModelName(""))
+        XCTAssertNil(composerModelName("unknown"))
+    }
+
     func testSessionDetailSubtitleIncludesAgentCount() {
         let session = Session(
             state: .working,

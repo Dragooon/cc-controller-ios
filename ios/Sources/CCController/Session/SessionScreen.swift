@@ -89,19 +89,12 @@ struct SessionScreen: View {
                     SessionTranscriptView(
                         turns: sessionStore.turns,
                         now: now,
-                        bottomStackConfiguration: BottomStackConfiguration(
-                            approvals: pendingApprovals,
-                            deciding: model.store.deciding,
-                            onAllow: { approval in
-                                performApprovalDecision(approval, scope: .once)
-                            },
-                            onAllowSession: { approval in
-                                performApprovalDecision(approval, scope: .session)
-                            },
-                            onDeny: { approval in
-                                performApprovalDeny(approval)
-                            }
+                        bottomStackConfiguration: bottomStackConfiguration(
+                            for: sessionStore.session,
+                            liveSession: model.store.sessions[sessionID],
+                            transcriptEntries: sessionStore.entries
                         ),
+                        queuedNotes: model.store.queuedNotes(for: sessionID).filter(\.queued),
                         subagents: sessionStore.session.subagents ?? [],
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
                         loadEarlier: { try await sessionStore.loadEarlier() },
@@ -140,6 +133,65 @@ struct SessionScreen: View {
                 .navigationTitle("Session")
                 .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private func bottomStackConfiguration(
+        for session: Session,
+        liveSession: Session? = nil,
+        transcriptEntries: [TranscriptEntry] = []
+    ) -> BottomStackConfiguration {
+        let commands = defaultSlashCommands.map { SlashCommand(command: $0.command, description: $0.description) }
+        let current = liveSession ?? session
+        let transcriptModel = transcriptEntries.reversed().compactMap { entry -> String? in
+            guard case .assistant(let assistant) = entry else { return nil }
+            return assistant.model
+        }.first
+        let modelName = current.usage?.model ?? transcriptModel
+        return BottomStackConfiguration(
+            composer: ComposerConfiguration(
+                modelName: composerModelName(modelName),
+                placeholder: current.state == .working ? "Queue a message" : "Message",
+                isWorking: current.state == .working,
+                hasTmuxPane: current.tmuxPane?.isEmpty == false
+            ),
+            statusSegments: formatTokenUsageSegments(current.usage),
+            slashCommands: commands,
+            approvals: pendingApprovals,
+            deciding: model.store.deciding,
+            onSend: { [model] text, now in
+                await send(text: text, to: session.id ?? sessionID, now: now, using: model)
+            },
+            onStop: { [model] in
+                await interrupt(sessionID: session.id ?? sessionID, using: model)
+            },
+            onAllow: { approval in
+                performApprovalDecision(approval, scope: .once)
+            },
+            onAllowSession: { approval in
+                performApprovalDecision(approval, scope: .session)
+            },
+            onDeny: { approval in
+                performApprovalDeny(approval)
+            }
+        )
+    }
+
+    @MainActor
+    private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<Void, ActionError> {
+        let result = await model.store.send(text: text, to: sessionID, now: now)
+        if case .failure(let error) = result {
+            model.actionError = error
+        }
+        return result
+    }
+
+    @MainActor
+    private func interrupt(sessionID: String, using model: AppModel) async -> Result<Void, ActionError> {
+        let result = await model.store.interrupt(sessionID: sessionID)
+        if case .failure(let error) = result {
+            model.actionError = error
+        }
+        return result
     }
 
     private var pendingApprovals: [Approval] {

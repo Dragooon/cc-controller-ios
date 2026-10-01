@@ -63,6 +63,18 @@ final class AppStoreTests: XCTestCase {
         app.suspend()
     }
 
+    func testPlaceholderStateUsageDoesNotEraseKnownUsage() {
+        let app = makeApp()
+        let known = Self.session(state: .idle)
+        var withUsage = known
+        withUsage.usage = Usage(model: "claude-fable-5-1", totalInputTokens: 3_100_000, outputTokens: 84_000, cacheHitRate: 0.92)
+        app.apply(.state(StateSnapshot(sessions: [withUsage], entries: ["session-1": 0])))
+        var placeholder = known
+        placeholder.usage = Usage()
+        app.apply(.state(StateSnapshot(sessions: [placeholder], entries: ["session-1": 0])))
+        XCTAssertEqual(app.sessions["session-1"]?.usage, withUsage.usage)
+    }
+
     func testStateDeltaPresenceAndNullsFollowDaemonStateModel() throws {
         let app = makeApp()
         let initial = Self.session(state: .working)
