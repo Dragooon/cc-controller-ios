@@ -1,3 +1,4 @@
+import CCKit
 import SwiftUI
 
 struct SlashCommand: Identifiable {
@@ -7,22 +8,37 @@ struct SlashCommand: Identifiable {
     var id: String { command }
 }
 
-struct BottomStackConfiguration {
+struct BottomStackConfiguration: @unchecked Sendable {
     let composer: ComposerConfiguration
     let statusSegments: [String]
     let slashCommands: [SlashCommand]
     let attachments: [ComposerAttachment]
+    let approvals: [Approval]
+    let deciding: Set<String>
+    let onAllow: (Approval) -> Void
+    let onAllowSession: (Approval) -> Void
+    let onDeny: (Approval) -> Void
 
     init(
         composer: ComposerConfiguration = ComposerConfiguration(),
         statusSegments: [String] = [],
         slashCommands: [SlashCommand] = [],
-        attachments: [ComposerAttachment] = []
+        attachments: [ComposerAttachment] = [],
+        approvals: [Approval] = [],
+        deciding: Set<String> = [],
+        onAllow: @escaping (Approval) -> Void = { _ in },
+        onAllowSession: @escaping (Approval) -> Void = { _ in },
+        onDeny: @escaping (Approval) -> Void = { _ in }
     ) {
         self.composer = composer
         self.statusSegments = statusSegments
         self.slashCommands = slashCommands
         self.attachments = attachments
+        self.approvals = approvals
+        self.deciding = deciding
+        self.onAllow = onAllow
+        self.onAllowSession = onAllowSession
+        self.onDeny = onDeny
     }
 }
 
@@ -48,17 +64,33 @@ struct BottomStackView: View {
                     AttachmentTrayView(attachments: configuration.attachments)
                 }
 
-                if !composerFocused, !configuration.statusSegments.isEmpty {
+                if !configuration.approvals.isEmpty {
+                    ApprovalBottomStackView(
+                        approvals: configuration.approvals,
+                        deciding: configuration.deciding,
+                        now: .now,
+                        maxHeight: max(0, UIScreen.main.bounds.height - 180),
+                        onAllow: configuration.onAllow,
+                        onAllowSession: configuration.onAllowSession,
+                        onDeny: configuration.onDeny,
+                        glassNamespace: glassNamespace,
+                        inGlassContainer: false
+                    )
+                }
+
+                if !composerFocused, configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
                     StatusLineView(segments: configuration.statusSegments)
                         .transition(.opacity)
                 }
 
-                ComposerView(
-                    text: $text,
-                    isFocused: $composerFocused,
-                    configuration: configuration.composer,
-                    glassNamespace: glassNamespace
-                )
+                if configuration.approvals.isEmpty {
+                    ComposerView(
+                        text: $text,
+                        isFocused: $composerFocused,
+                        configuration: configuration.composer,
+                        glassNamespace: glassNamespace
+                    )
+                }
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)

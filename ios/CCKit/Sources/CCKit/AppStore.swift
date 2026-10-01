@@ -274,8 +274,7 @@ public final class AppStore {
             return .success(())
         } catch {
             if isStaleDecision(error) {
-                let refreshed = await refreshStateAndOpenTranscripts()
-                if !refreshed { restorePendingApproval(approval) }
+                _ = await refreshStateAndOpenTranscripts()
             } else {
                 restorePendingApproval(approval)
             }

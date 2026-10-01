@@ -60,68 +60,6 @@ private struct ApprovalSessionMock: View {
     }
 }
 
-private struct ApprovalBottomStackView: View {
-    let approvals: [Approval]
-    let now: Date
-    let maxHeight: CGFloat
-
-    @Namespace private var glassNamespace
-    @ScaledMetric(relativeTo: .body) private var waitingRowHeight = 36
-
-    private var primary: Approval { approvals[0] }
-
-    var body: some View {
-        GlassEffectContainer(spacing: 8) {
-            VStack(spacing: 8) {
-                CappedHeightLayout(cap: cardMaxHeight) {
-                    ApprovalCard(
-                        approval: primary,
-                        style: .full,
-                        now: now,
-                        onAllow: {},
-                        onAllowSession: {},
-                        onDeny: {},
-                        glassNamespace: glassNamespace
-                    )
-                }
-
-                if let waiting = moreWaitingText(count: max(0, approvals.count - 1)) {
-                    Button {} label: {
-                        HStack(spacing: 8) {
-                            Text(waiting)
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.down")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.ccLabel)
-                        .padding(.horizontal, 14)
-                        .frame(minWidth: 0, maxWidth: .infinity, minHeight: visibleWaitingRowHeight, maxHeight: visibleWaitingRowHeight)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                    }
-                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel(waiting)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-        }
-    }
-
-    private var visibleWaitingRowHeight: CGFloat {
-        min(waitingRowHeight, 44)
-    }
-
-    private var cardMaxHeight: CGFloat {
-        let waitingHeight: CGFloat = moreWaitingText(count: max(0, approvals.count - 1)) == nil ? 0 : visibleWaitingRowHeight
-        let waitingSpacing: CGFloat = waitingHeight == 0 ? 0 : 8
-        return max(0, maxHeight - 8 - 4 - waitingHeight - waitingSpacing)
-    }
-}
 
 private enum MockApprovalData {
     static let remoteApprovals = [primaryApproval, readApproval]

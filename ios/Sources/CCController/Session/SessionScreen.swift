@@ -7,10 +7,24 @@ struct SessionScreen: View {
     @Bindable var model: AppModel
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
+    @State private var allowFeedbackCount = 0
+    @State private var denyFeedbackCount = 0
+    @State private var knownApprovalIDs: Set<String> = []
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             screen(now: context.date)
+        }
+        .sensoryFeedback(.success, trigger: allowFeedbackCount)
+        .sensoryFeedback(.warning, trigger: denyFeedbackCount)
+        .sensoryFeedback(.impact(flexibility: .soft), trigger: pendingApprovalCount) { oldCount, newCount in
+            newCount > oldCount
+        }
+        .onChange(of: approvalRequestIDs) { _, requestIDs in
+            announceNewApprovals(requestIDs)
+        }
+        .onChange(of: sessionID) { _, _ in
+            knownApprovalIDs = []
         }
         .task(id: sessionID) {
             guard let sessionStore = model.store.openSession(sessionID) else { return }
@@ -36,6 +50,19 @@ struct SessionScreen: View {
                     SessionTranscriptView(
                         turns: sessionStore.turns,
                         now: now,
+                        bottomStackConfiguration: BottomStackConfiguration(
+                            approvals: pendingApprovals,
+                            deciding: model.store.deciding,
+                            onAllow: { approval in
+                                performApprovalDecision(approval, scope: .once)
+                            },
+                            onAllowSession: { approval in
+                                performApprovalDecision(approval, scope: .session)
+                            },
+                            onDeny: { approval in
+                                performApprovalDeny(approval)
+                            }
+                        ),
                         subagents: sessionStore.session.subagents ?? [],
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
                         loadEarlier: { try await sessionStore.loadEarlier() },
@@ -72,6 +99,52 @@ struct SessionScreen: View {
                 .navigationTitle("Session")
                 .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private var pendingApprovals: [Approval] {
+        model.store.approvals(for: sessionID).sorted {
+            ($0.receivedAt ?? .distantPast) > ($1.receivedAt ?? .distantPast)
+        }
+    }
+
+    private var approvalRequestIDs: [String] {
+        pendingApprovals.compactMap(\.requestId)
+    }
+
+    private var pendingApprovalCount: Int {
+        pendingApprovals.count
+    }
+
+    private func performApprovalDecision(_ approval: Approval, scope: ApprovalScope) {
+        Task { @MainActor in
+            let result = await model.store.allow(approval, scope: scope)
+            switch result {
+            case .success:
+                allowFeedbackCount += 1
+            case .failure(let error):
+                model.actionError = error
+            }
+        }
+    }
+
+    private func performApprovalDeny(_ approval: Approval) {
+        Task { @MainActor in
+            let result = await model.store.deny(approval)
+            switch result {
+            case .success:
+                denyFeedbackCount += 1
+            case .failure(let error):
+                model.actionError = error
+            }
+        }
+    }
+
+    private func announceNewApprovals(_ requestIDs: [String]) {
+        let previousIDs = knownApprovalIDs
+        knownApprovalIDs = Set(requestIDs)
+        guard let newID = requestIDs.first(where: { !previousIDs.contains($0) }),
+              let approval = pendingApprovals.first(where: { $0.requestId == newID }) else { return }
+        AccessibilityNotification.Announcement("Approval needed: \(approval.toolName ?? "Tool")").post()
     }
 
     private var toolSheetPresented: Binding<Bool> {

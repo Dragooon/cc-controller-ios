@@ -51,6 +51,7 @@ final class ActionTests: XCTestCase {
         let approval = Approval(requestId: "r", sessionId: "s")
         app.apply(.approval(ApprovalEvent(sessionId: "s", requestId: "r")))
         guard case .failure(.alreadyAnswered) = await app.deny(approval) else { return XCTFail("Expected stale decision") }
+        XCTAssertTrue(app.approvals(for: "s").isEmpty, "A stale decision must not leave a dead approval card")
 
         app.apply(.state(StateSnapshot(sessions: [session()], entries: ["s": 0])))
         app.apply(.approval(ApprovalEvent(sessionId: "s", requestId: "r")))

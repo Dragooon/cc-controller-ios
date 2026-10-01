@@ -130,7 +130,7 @@ struct ApprovalCard: View {
     private var fullBody: some View {
         Group {
             if let glassNamespace {
-                fullCard.glassEffectID("approval-card", in: glassNamespace)
+                fullCard.glassEffectID("composer", in: glassNamespace)
             } else {
                 fullCard
             }
