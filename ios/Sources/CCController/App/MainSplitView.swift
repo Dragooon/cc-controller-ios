@@ -34,8 +34,8 @@ struct MainSplitView: View {
                 sessions: model.store.sortedSessions,
                 approvals: model.store.approvals,
                 connection: connection,
-                subtitleOverride: model.selectedSessionID == nil ? nil : "",
                 now: now,
+                subtitleOverride: model.selectedSessionID == nil ? nil : "",
                 onOpen: {
                     model.selectedSessionID = $0.id
                     preferredCompactColumn = .detail

@@ -242,6 +242,7 @@ private struct SessionRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
+            .accessibilityValue(session.state?.rawValue ?? "unknown")
 
             if let approval {
                 ApprovalCard(
