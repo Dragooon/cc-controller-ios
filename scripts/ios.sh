@@ -59,14 +59,35 @@ configure_keyboard() {
   xcrun simctl spawn "$udid" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
 }
 
-cleanup_shots() {
+stop_fixture_daemon() {
   if [[ -n "$STARTED_DAEMON" ]] && kill -0 "$STARTED_DAEMON" 2>/dev/null; then
     kill -TERM "$STARTED_DAEMON" 2>/dev/null || true
     for _ in {1..50}; do kill -0 "$STARTED_DAEMON" 2>/dev/null || break; sleep 0.1; done
     kill -KILL "$STARTED_DAEMON" 2>/dev/null || true
     wait "$STARTED_DAEMON" 2>/dev/null || true
   fi
-  if [[ -n "$FIXTURE_OUT" ]]; then rm -f "$FIXTURE_OUT"; fi
+  STARTED_DAEMON=""
+  if [[ -n "$FIXTURE_OUT" ]]; then
+    rm -f "$FIXTURE_OUT"
+    FIXTURE_OUT=""
+  fi
+}
+
+start_fixture_daemon() {
+  FIXTURE_LOG=$1
+  FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
+  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  STARTED_DAEMON=$!
+  for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
+  if [[ ! -s "$FIXTURE_OUT" ]]; then
+    printf '%s\n' 'fixture daemon did not become ready' >&2
+    return 1
+  fi
+  return 0
+}
+
+cleanup_shots() {
+  stop_fixture_daemon
   if [[ -n "$DIAG_DIR" ]]; then
     mkdir -p "$DIAG_DIR"
     if [[ -n "$FIXTURE_LOG" ]]; then
@@ -167,14 +188,10 @@ cmd_shots() {
   RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
   DIAG_DIR="$IOS/build/diag"
   mkdir -p "$DIAG_DIR"
-  FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
   FIXTURE_LOG="$IOS/shots/fixture-daemon.log"
   local fixture_started=$SECONDS
-  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
-  STARTED_DAEMON=$!
+  start_fixture_daemon "$FIXTURE_LOG"
   printf '%s\n' "[fixture] $((SECONDS - fixture_started))s (pid $STARTED_DAEMON)"
-  for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
-  [[ -s "$FIXTURE_OUT" ]] || { printf '%s\n' 'fixture daemon did not become ready' >&2; exit 1; }
   local web_port bearer
   web_port=$(json_value "$FIXTURE_OUT" webPort)
   bearer=$(json_value "$FIXTURE_OUT" bearer)
@@ -228,32 +245,47 @@ cmd_flows() {
   done
   [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone 16 Plus")
 
-  local flow_file
-  local flow_files=()
-  local flow_classes=()
+  local flow_file flow_class flow_method
+  local flow_files=() flow_methods=() flow_method_classes=()
   while IFS= read -r flow_file; do
-    [[ -z "$flow_file" ]] || {
-      flow_files+=("$flow_file")
-      flow_classes+=("$(basename "$flow_file" .swift)")
-    }
+    [[ -z "$flow_file" ]] && continue
+    flow_class=$(basename "$flow_file" .swift)
+    flow_files+=("$flow_file")
+    while IFS= read -r flow_method; do
+      [[ -z "$flow_method" ]] && continue
+      flow_method_classes+=("$flow_class")
+      flow_methods+=("$flow_method")
+    done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
   done < <(find "$IOS/UITests" -type f -name '*FlowTests.swift' -print | sort)
   if [[ ${#flow_files[@]} -eq 0 ]]; then
     printf '%s\n' 'no flow tests found'
     return 0
   fi
+  if [[ ${#flow_methods[@]} -eq 0 ]]; then
+    printf '%s\n' 'no flow test methods found'
+    return 0
+  fi
 
-  local selector_class=${test_filter%%/*}
-  if [[ -n "$test_filter" ]]; then
-    local found=0
-    for flow_class in "${flow_classes[@]}"; do
-      [[ "$flow_class" == "$selector_class" ]] || continue
-      found=1
-      break
-    done
-    if [[ $found -eq 0 ]]; then
-      printf 'unknown flow test class: %s\n' "$selector_class" >&2
-      return 2
-    fi
+  local selector_class="$test_filter" selector_method="" filter_has_method=0
+  if [[ "$test_filter" == */* ]]; then
+    filter_has_method=1
+    selector_class=${test_filter%%/*}
+    selector_method=${test_filter#*/}
+  fi
+  local selected_classes=() selected_methods=() selected_count=0
+  local index
+  for index in "${!flow_methods[@]}"; do
+    flow_class=${flow_method_classes[$index]}
+    flow_method=${flow_methods[$index]}
+    [[ -z "$test_filter" || "$selector_class" == "$flow_class" ]] || continue
+    [[ $filter_has_method -eq 0 || "$selector_method" == "$flow_method" ]] || continue
+    selected_classes+=("$flow_class")
+    selected_methods+=("$flow_method")
+    selected_count=$((selected_count + 1))
+  done
+  if [[ -n "$test_filter" && $selected_count -eq 0 ]]; then
+    printf 'unknown flow test: %s\n' "$test_filter" >&2
+    return 2
   fi
 
   local lane="${CC_MOCK_LANE:-}"
@@ -266,51 +298,100 @@ cmd_flows() {
   fi
 
   mkdir -p "$IOS/shots/flows"
-  rm -rf "$IOS/shots/flows"
-  mkdir -p "$IOS/shots/flows"
   RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
-  DIAG_DIR="$IOS/build/diag"
-  mkdir -p "$DIAG_DIR"
-  FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
-  FIXTURE_LOG="$IOS/shots/flows/fixture-daemon.log"
+  DIAG_DIR=""
   trap 'status=$?; cleanup_shots || true; exit "$status"' EXIT
-  local fixture_started=$SECONDS
-  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
-  STARTED_DAEMON=$!
-  printf '%s\n' "[fixture] $((SECONDS - fixture_started))s (pid $STARTED_DAEMON)"
-  for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
-  [[ -s "$FIXTURE_OUT" ]] || { printf '%s\n' 'fixture daemon did not become ready' >&2; exit 1; }
-  local web_port bearer
-  web_port=$(json_value "$FIXTURE_OUT" webPort)
-  bearer=$(json_value "$FIXTURE_OUT" bearer)
 
-  for flow_file in "${flow_files[@]}"; do
-    local flow_class
-    flow_class=$(basename "$flow_file" .swift)
-    [[ -z "$test_filter" || "$selector_class" == "$flow_class" ]] || continue
+  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build-for-testing)
+  step 'flows build-for-testing' "${build_args[@]}"
+  local app_bundle="$DERIVED/Build/Products/Debug-iphonesimulator/cc-controller.app"
+  if [[ ! -d "$app_bundle" ]]; then
+    printf 'build-for-testing did not produce %s\n' "$app_bundle" >&2
+    return 1
+  fi
+
+  local summary_labels=() summary_results=() summary_seconds=() failed=0
+  for index in "${!selected_methods[@]}"; do
+    flow_class=${selected_classes[$index]}
+    flow_method=${selected_methods[$index]}
     for device in "${devices[@]}"; do
-      local udid result exported output_dir device_key
+      local method_started=$SECONDS
+      local udid result exported output_dir device_key method_log
+      local method_status=0 xcode_status=0 export_status=0
+      device_key=$(echo "$device" | tr ' ()' '---')
+      output_dir="$IOS/shots/flows/$device_key/$flow_class/$flow_method"
+      result="$IOS/build/flows/$device_key/$flow_class/$flow_method.xcresult"
+      exported="$RUN_DIR/$device_key/$flow_class/$flow_method"
+      method_log="$output_dir/xcodebuild.log"
+      rm -rf "$output_dir" "$result" "$exported"
+      mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
+
+      stop_fixture_daemon
       udid=$(ensure_device "$device" | tail -1)
       xcrun simctl ui "$udid" appearance light
-      device_key=$(echo "$device" | tr ' ()' '---')
-      result="$IOS/build/Flow-$flow_class-$device_key.xcresult"
-      exported="$RUN_DIR/$flow_class-$device_key"
-      output_dir="$IOS/shots/flows/$device_key"
-      rm -rf "$result" "$exported"
-      mkdir -p "$exported" "$output_dir"
-      local selector="${flow_class}"
-      [[ -z "$test_filter" ]] || selector=$test_filter
-      local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$selector" test)
-      TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" step "flows $flow_class $device" "${args[@]}"
-      xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null
-      local manifest="$exported/manifest.json"
-      if [[ -f "$manifest" ]]; then
-        node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+      xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
+      if ! xcrun simctl install "$udid" "$app_bundle"; then
+        printf '%s\n' 'failed to install the freshly built app' | tee "$method_log"
+        method_status=1
+      else
+        printf 'installed %s\n' "$app_bundle" > "$method_log"
       fi
-      find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
-      find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
+
+      local web_port bearer
+      if [[ $method_status -eq 0 ]] && start_fixture_daemon "$output_dir/fixture-daemon.log"; then
+        web_port=$(json_value "$FIXTURE_OUT" webPort)
+        bearer=$(json_value "$FIXTURE_OUT" bearer)
+        local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
+        if TEST_RUNNER_SERVER_URL="http://127.0.0.1:$web_port" TEST_RUNNER_BEARER="$bearer" step "flows $flow_class/$flow_method $device" "${args[@]}" 2>&1 | tee -a "$method_log"; then
+          xcode_status=0
+        else
+          xcode_status=$?
+        fi
+        stop_fixture_daemon
+        if [[ -d "$result" ]]; then
+          if xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null 2>&1; then
+            local manifest="$exported/manifest.json"
+            if [[ -f "$manifest" ]]; then
+              node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+            fi
+            find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
+            find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
+          else
+            printf '%s\n' 'failed to export result attachments' | tee -a "$method_log"
+            export_status=1
+          fi
+        else
+          printf '%s\n' 'xcodebuild produced no result bundle' | tee -a "$method_log"
+          export_status=1
+        fi
+      else
+        printf '%s\n' 'fixture daemon failed to become ready' | tee -a "$method_log"
+        method_status=1
+        stop_fixture_daemon
+      fi
+      [[ $xcode_status -eq 0 ]] || method_status=1
+      [[ $export_status -eq 0 ]] || method_status=1
+      local elapsed=$((SECONDS - method_started))
+      local result_label=PASS
+      if [[ $method_status -ne 0 ]]; then
+        result_label=FAIL
+        failed=$((failed + 1))
+      fi
+      summary_labels+=("$flow_class/$flow_method [$device]")
+      summary_results+=("$result_label")
+      summary_seconds+=("$elapsed")
     done
   done
+
+  printf '\nFlow summary\n'
+  printf '%-70s %-8s %8s\n' 'class/method [device]' 'result' 'seconds'
+  for index in "${!summary_labels[@]}"; do
+    printf '%-70s %-8s %8s\n' "${summary_labels[$index]}" "${summary_results[$index]}" "${summary_seconds[$index]}"
+  done
+  if [[ $failed -ne 0 ]]; then
+    printf '%s\n' "$failed flow method(s) failed" >&2
+    return 1
+  fi
   printf '%s\n' "flow shots written to $IOS/shots/flows"
 }
 
