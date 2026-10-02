@@ -33,6 +33,7 @@ final class ScreenshotTests: XCTestCase {
                     "-UIPreferredContentSizeCategoryName", sizeValue,
                 ]
                 app.launchEnvironment["CCBearer"] = bearer
+                dismissLeftoverNotificationPrompt()
                 app.launch()
 
                 let needsYou = app.staticTexts["Needs you"]

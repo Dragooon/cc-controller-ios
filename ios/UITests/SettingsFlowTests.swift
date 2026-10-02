@@ -190,6 +190,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
             app.launchArguments += ["-CCColorScheme", scheme]
         }
         app.launchEnvironment["CCBearer"] = environment["TEST_RUNNER_BEARER"] ?? ""
+        dismissLeftoverNotificationPrompt()
         app.launch()
         return app
     }

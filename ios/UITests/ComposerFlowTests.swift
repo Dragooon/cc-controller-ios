@@ -139,6 +139,7 @@ final class ComposerFlowTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer
+        dismissLeftoverNotificationPrompt()
         app.launch()
         return app
     }

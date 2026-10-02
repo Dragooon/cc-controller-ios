@@ -1,6 +1,22 @@
 import Foundation
 import XCTest
 
+/// Dismisses a notification prompt left on SpringBoard by an earlier test or another simulator lane.
+/// An app launched under that prompt never becomes active, so it never connects, and a test that only waits
+/// for elements never triggers XCTest's interruption handling.
+@MainActor
+func dismissLeftoverNotificationPrompt() {
+    let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    let prompt = springboard.alerts.matching(
+        NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
+    ).firstMatch
+    guard prompt.exists else { return }
+    let label = prompt.label
+    prompt.buttons["Don’t Allow"].tap()
+    let dismissed = prompt.waitForNonExistence(timeout: 5)
+    print("Dismissed leftover notification prompt before launch: \(label) (gone: \(dismissed))")
+}
+
 @MainActor
 class FixtureFlowTestSupport: XCTestCase {
     private var auditLines: [String] = []
@@ -122,6 +138,7 @@ class FixtureFlowTestSupport: XCTestCase {
         if let lockInterval {
             app.launchArguments += ["-CCLockInterval", String(lockInterval)]
         }
+        dismissLeftoverNotificationPrompt()
         app.launch()
         return app
     }

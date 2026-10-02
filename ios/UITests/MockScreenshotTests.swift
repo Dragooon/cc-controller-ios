@@ -72,6 +72,7 @@ final class MockScreenshotTests: XCTestCase {
             "-CCColorScheme", scheme,
             "-UIPreferredContentSizeCategoryName", category,
         ]
+        dismissLeftoverNotificationPrompt()
         app.launch()
 
         let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch

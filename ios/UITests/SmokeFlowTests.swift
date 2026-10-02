@@ -9,6 +9,7 @@ final class SmokeFlowTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer
+        dismissLeftoverNotificationPrompt()
         app.launch()
 
         let needsYou = app.staticTexts["Needs you"]
@@ -37,6 +38,7 @@ final class SmokeFlowTests: XCTestCase {
     func testKeychainSelfTest() {
         let app = XCUIApplication()
         app.launchArguments = ["-CCKeychainSelfTest"]
+        dismissLeftoverNotificationPrompt()
         app.launch()
 
         XCTAssertTrue(app.staticTexts["Keychain OK"].waitForExistence(timeout: 60), "Keychain self-test did not pass")

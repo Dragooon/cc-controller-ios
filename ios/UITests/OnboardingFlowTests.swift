@@ -24,9 +24,10 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "onboarding-sessions-arrival")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        _ = waitForNotificationAuthorizationPrompt(in: springboard)
+        let notificationPrompt = waitForNotificationAuthorizationPrompt(in: springboard)
         XCTAssertTrue(sessionRow.exists, "Session row disappeared behind notification authorization prompt")
         addScreenshot(named: "onboarding-notification-prompt")
+        notificationPrompt.buttons["Don’t Allow"].tap()
     }
 
     func testFaceIDWaitsThenNoMatchThenRetrySucceeds() async throws {

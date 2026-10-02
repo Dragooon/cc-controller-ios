@@ -227,6 +227,7 @@ final class TranscriptFlowTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server, "-CCResetCache"]
         app.launchEnvironment["CCBearer"] = bearer
+        dismissLeftoverNotificationPrompt()
         app.launch()
         return app
     }

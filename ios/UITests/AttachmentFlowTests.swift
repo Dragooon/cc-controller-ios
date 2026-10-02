@@ -294,6 +294,7 @@ final class AttachmentFlowTests: XCTestCase {
         }
         app.launchEnvironment["CCAttachFile"] = paths.joined(separator: "\n")
         app.launchEnvironment["CCBearer"] = bearer
+        dismissLeftoverNotificationPrompt()
         app.launch()
         return app
     }
