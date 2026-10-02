@@ -61,53 +61,53 @@ struct PromptBubble: View {
 
     var body: some View {
         PromptBubbleLayout {
-                VStack(alignment: .leading, spacing: 8) {
-                    if !attachmentNames.isEmpty {
-                        PromptAttachmentFlow(rowSpacing: 8) {
-                            ForEach(attachmentNames, id: \.self) { name in
-                                PromptAttachmentItemView(
-                                    sessionID: sessionID,
-                                    name: name,
-                                    initialData: attachmentThumbnails[name],
-                                    downloadFile: downloadFile
-                                )
-                            }
+            VStack(alignment: .leading, spacing: 8) {
+                if !attachmentNames.isEmpty {
+                    PromptAttachmentFlow(rowSpacing: 8) {
+                        ForEach(attachmentNames, id: \.self) { name in
+                            PromptAttachmentItemView(
+                                sessionID: sessionID,
+                                name: name,
+                                initialData: attachmentThumbnails[name],
+                                downloadFile: downloadFile
+                            )
                         }
                     }
+                }
 
-                    if let paste = prompt.paste {
-                        HStack(spacing: 6) {
-                            Image(systemName: "doc.on.clipboard")
-                            Text("pasted, \(paste.lines ?? paste.text?.components(separatedBy: .newlines).count ?? 0) lines")
-                        }
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.ccCard, in: Capsule())
+                if let paste = prompt.paste {
+                    HStack(spacing: 6) {
+                        Image(systemName: "doc.on.clipboard")
+                        Text("pasted, \(paste.lines ?? paste.text?.components(separatedBy: .newlines).count ?? 0) lines")
                     }
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ccCard, in: Capsule())
+                }
 
-                    if !promptText.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(isExpanded ? promptText : collapse.visibleText)
-                                .font(.body)
-                                .foregroundStyle(.ccLabel)
-                                .multilineTextAlignment(.leading)
-                                .textSelection(.enabled)
+                if !promptText.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(isExpanded ? promptText : collapse.visibleText)
+                            .font(.body)
+                            .foregroundStyle(.ccLabel)
+                            .multilineTextAlignment(.leading)
+                            .textSelection(.enabled)
 
-                            if collapse.collapsed {
-                                Button { isExpanded.toggle() } label: {
-                                    Text(isExpanded ? "Show less" : "Show more")
-                                        .font(.footnote)
-                                        .foregroundStyle(.ccAccent)
-                                }
+                        if collapse.collapsed {
+                            Button { isExpanded.toggle() } label: {
+                                Text(isExpanded ? "Show less" : "Show more")
+                                    .font(.footnote)
+                                    .foregroundStyle(.ccAccent)
                             }
                         }
                     }
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 16)
-                .background(.ccBubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .background(.ccBubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(promptText)
