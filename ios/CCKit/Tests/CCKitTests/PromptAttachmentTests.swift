@@ -42,18 +42,43 @@ final class PromptAttachmentTests: XCTestCase {
         XCTAssertEqual(decoded.attachmentThumbnails["attachment.png"], Data([1, 2, 3]))
     }
 
-    func testAttachmentCacheKeyIncludesSessionAndName() {
+    func testAttachmentCacheKeyIncludesSessionNameAndTargetSize() {
         XCTAssertEqual(
-            attachmentCacheKey(sessionID: "session-1", name: "attachment.png"),
-            attachmentCacheKey(sessionID: "session-1", name: "attachment.png")
+            attachmentCacheKey(sessionID: "session-1", name: "attachment.png", targetPixelSize: 192),
+            attachmentCacheKey(sessionID: "session-1", name: "attachment.png", targetPixelSize: 192)
         )
         XCTAssertNotEqual(
-            attachmentCacheKey(sessionID: "session-1", name: "attachment.png"),
-            attachmentCacheKey(sessionID: "session-2", name: "attachment.png")
+            attachmentCacheKey(sessionID: "session-1", name: "attachment.png", targetPixelSize: 192),
+            attachmentCacheKey(sessionID: "session-2", name: "attachment.png", targetPixelSize: 192)
         )
         XCTAssertNotEqual(
-            attachmentCacheKey(sessionID: "session-1", name: "attachment.png"),
-            attachmentCacheKey(sessionID: "session-1", name: "evidence.csv")
+            attachmentCacheKey(sessionID: "session-1", name: "attachment.png", targetPixelSize: 192),
+            attachmentCacheKey(sessionID: "session-1", name: "evidence.csv", targetPixelSize: 192)
         )
+        XCTAssertNotEqual(
+            attachmentCacheKey(sessionID: "session-1", name: "attachment.png", targetPixelSize: 192),
+            attachmentCacheKey(sessionID: "session-1", name: "attachment.png", targetPixelSize: 840)
+        )
+    }
+
+    func testFittedImageSizeHandlesPortraitLandscapeAndSquareImages() {
+        let portrait = fittedImageSize(pixelWidth: 277, pixelHeight: 600, maxWidth: 220, maxHeight: 280)
+        XCTAssertEqual(portrait.width, 277.0 * 280.0 / 600.0, accuracy: 0.001)
+        XCTAssertEqual(portrait.height, 280, accuracy: 0.001)
+
+        let landscape = fittedImageSize(pixelWidth: 600, pixelHeight: 277, maxWidth: 220, maxHeight: 280)
+        XCTAssertEqual(landscape.width, 220, accuracy: 0.001)
+        XCTAssertEqual(landscape.height, 277.0 * 220.0 / 600.0, accuracy: 0.001)
+
+        let square = fittedImageSize(pixelWidth: 100, pixelHeight: 100, maxWidth: 220, maxHeight: 280)
+        XCTAssertEqual(square.width, 220, accuracy: 0.001)
+        XCTAssertEqual(square.height, 220, accuracy: 0.001)
+    }
+
+    func testFittedImageSizeRejectsZeroAndInvalidSizes() {
+        XCTAssertEqual(fittedImageSize(pixelWidth: 0, pixelHeight: 100, maxWidth: 220, maxHeight: 280), .zero)
+        XCTAssertEqual(fittedImageSize(pixelWidth: 100, pixelHeight: 100, maxWidth: 0, maxHeight: 280), .zero)
+        XCTAssertEqual(fittedImageSize(pixelWidth: .nan, pixelHeight: 100, maxWidth: 220, maxHeight: 280), .zero)
+        XCTAssertEqual(fittedImageSize(pixelWidth: 100, pixelHeight: .infinity, maxWidth: 220, maxHeight: 280), .zero)
     }
 }
