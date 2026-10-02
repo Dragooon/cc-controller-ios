@@ -9,7 +9,7 @@ final class OnboardingTests: XCTestCase {
 
         state.continueFromWelcome()
         XCTAssertEqual(state.step, .connect)
-        state.markConnectionConnected()
+        state.markConnectionConnected(latency: .milliseconds(18))
         state.beginPairing(code: "482913", expiresAt: Date(timeIntervalSince1970: 1_000))
         XCTAssertEqual(state.step, .pair)
         state.markPairingConfirmed(at: Date(timeIntervalSince1970: 1_001))

@@ -12,6 +12,14 @@ public func sessionsSubtitle(_ sessions: [Session]) -> String? {
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
 }
 
+/// Formats a daemon probe duration as rounded milliseconds for the connection card.
+public func latencyText(_ latency: Duration) -> String {
+    let components = latency.components
+    let milliseconds = Double(components.seconds) * 1_000
+        + Double(components.attoseconds) / 1_000_000_000_000_000
+    return "\(max(1, Int(milliseconds.rounded()))) ms"
+}
+
 /// Formats elapsed milliseconds without trailing zero-valued units.
 public func displayDuration(_ milliseconds: Int) -> String {
     let clampedMilliseconds = max(0, milliseconds)

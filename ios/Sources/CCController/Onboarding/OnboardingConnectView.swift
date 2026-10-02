@@ -114,13 +114,16 @@ struct OnboardingConnectView: View {
 
     private var statusDetail: String {
         switch connection {
-        case .connected: return address
+        case .connected(let latency): return "\(address) · \(latencyText(latency))"
         case .checking: return "Checking \(address)"
         case .unreachable: return address
         }
     }
 
     private var statusAccessibilityLabel: String {
-        "\(statusTitle). \(statusDetail)"
+        switch connection {
+        case .connected(let latency): return "\(statusTitle). \(address), \(latencyText(latency)) round trip"
+        default: return "\(statusTitle). \(statusDetail)"
+        }
     }
 }

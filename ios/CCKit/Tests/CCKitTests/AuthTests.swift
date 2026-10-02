@@ -11,6 +11,7 @@ final class AuthTests: XCTestCase {
         let client = AuthClient(baseURL: URL(string: "http://localhost:47832")!, session: AuthURLProtocol.session)
         let result = try await client.probeDaemon()
         XCTAssertTrue(result.isReachable)
+        XCTAssertGreaterThan(result.latency, .zero)
         XCTAssertEqual(AuthURLProtocol.requests.last?.url?.path, "/api/auth/whoami")
     }
 

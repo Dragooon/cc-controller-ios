@@ -2,6 +2,13 @@ import XCTest
 @testable import CCKit
 
 final class NativePresentationTests: XCTestCase {
+    func testLatencyTextRoundsToWholeMillisecondsWithMinimum() {
+        XCTAssertEqual(latencyText(.microseconds(200)), "1 ms")
+        XCTAssertEqual(latencyText(.milliseconds(18) + .microseconds(400)), "18 ms")
+        XCTAssertEqual(latencyText(.milliseconds(18) + .microseconds(600)), "19 ms")
+        XCTAssertEqual(latencyText(.seconds(1) + .milliseconds(200)), "1200 ms")
+    }
+
     func testSessionsSubtitleOrdersActiveStatesAndOmitsZeroes() {
         let sessions = [
             Session(state: .working),

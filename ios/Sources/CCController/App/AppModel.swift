@@ -178,9 +178,9 @@ final class AppModel {
             while !Task.isCancelled {
                 guard let self, phase == .onboarding, onboardingStep == .connect else { return }
                 do {
-                    _ = try await auth.probeDaemon()
+                    let probe = try await auth.probeDaemon()
                     failedSince = nil
-                    onboarding.markConnectionConnected()
+                    onboarding.markConnectionConnected(latency: probe.latency)
                 } catch {
                     let now = Date()
                     failedSince = failedSince ?? now

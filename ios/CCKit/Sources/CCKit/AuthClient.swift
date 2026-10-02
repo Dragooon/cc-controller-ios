@@ -40,9 +40,11 @@ public enum AuthError: Error, Sendable, Equatable, LocalizedError {
 
 public struct DaemonProbe: Sendable, Equatable {
     public let isReachable: Bool
+    public let latency: Duration
 
-    public init(isReachable: Bool) {
+    public init(isReachable: Bool, latency: Duration) {
         self.isReachable = isReachable
+        self.latency = latency
     }
 }
 
@@ -64,13 +66,15 @@ public final class AuthClient: Sendable {
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let clock = ContinuousClock()
+        let start = clock.now
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw AuthError.decoding("Response was not HTTP") }
             guard http.statusCode == 401 || (200..<300).contains(http.statusCode) else {
                 throw mapError(status: http.statusCode, data: data)
             }
-            return DaemonProbe(isReachable: true)
+            return DaemonProbe(isReachable: true, latency: start.duration(to: clock.now))
         } catch let error as AuthError {
             throw error
         } catch {

@@ -117,6 +117,8 @@ final class OnboardingFlowTests: XCTestCase {
         app.buttons["Get started"].tap()
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitForExistence(timeout: 15))
+        let latency = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*· [0-9]+ ms")).firstMatch
+        XCTAssertTrue(latency.waitForExistence(timeout: 10), "Connected card did not show round-trip latency")
         app.buttons["Continue"].tap()
         XCTAssertTrue(app.staticTexts["Pair this iPhone"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["This code expired"].waitForExistence(timeout: 10), "The short client expiry did not render")
@@ -178,6 +180,8 @@ final class OnboardingFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         let connected = app.staticTexts["Connected to cc-controller"]
         XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")
+        let latency = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*· [0-9]+ ms")).firstMatch
+        XCTAssertTrue(latency.waitForExistence(timeout: 10), "Connected card did not show round-trip latency")
         addScreenshot(named: "onboarding-connect-connected")
         XCTAssertTrue(app.buttons["Continue"].isEnabled)
         app.buttons["Continue"].tap()
