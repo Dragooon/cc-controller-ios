@@ -43,6 +43,7 @@ final class OnboardingFlowTests: XCTestCase {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
+        try await Task.sleep(for: .seconds(1))
         try await postFixture("/fixture/biometric/nomatch")
         XCTAssertTrue(app.staticTexts["Secure storage could not be unlocked."].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Try again"].exists)
