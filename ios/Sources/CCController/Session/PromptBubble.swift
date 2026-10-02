@@ -6,16 +6,21 @@ private struct PromptBubbleLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let subview = subviews.first else { return .zero }
         let idealSize = subview.sizeThatFits(.unspecified)
-        let maxWidth = proposal.width.map { $0 * 0.85 } ?? .infinity
-        let width = min(idealSize.width, maxWidth)
-        return subview.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
+        guard let rowWidth = proposal.width else { return idealSize }
+        let bubbleWidth = min(idealSize.width, rowWidth * 0.85)
+        let bubbleSize = subview.sizeThatFits(ProposedViewSize(width: bubbleWidth, height: proposal.height))
+        return CGSize(width: rowWidth, height: bubbleSize.height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(
-            at: bounds.origin,
+        guard let subview = subviews.first else { return }
+        let idealSize = subview.sizeThatFits(.unspecified)
+        let bubbleWidth = min(idealSize.width, bounds.width * 0.85)
+        let bubbleSize = subview.sizeThatFits(ProposedViewSize(width: bubbleWidth, height: bounds.height))
+        subview.place(
+            at: CGPoint(x: bounds.maxX - bubbleSize.width, y: bounds.minY),
             anchor: .topLeading,
-            proposal: ProposedViewSize(bounds.size)
+            proposal: ProposedViewSize(bubbleSize)
         )
     }
 }
@@ -55,9 +60,7 @@ struct PromptBubble: View {
     }
 
     var body: some View {
-        HStack {
-            Spacer(minLength: 0)
-            PromptBubbleLayout {
+        PromptBubbleLayout {
                 VStack(alignment: .leading, spacing: 8) {
                     if !attachmentNames.isEmpty {
                         PromptAttachmentFlow(rowSpacing: 8) {
@@ -105,7 +108,6 @@ struct PromptBubble: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 16)
                 .background(.ccBubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(promptText)
