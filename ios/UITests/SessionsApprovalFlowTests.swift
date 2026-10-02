@@ -14,9 +14,8 @@ final class SessionsApprovalFlowTests: XCTestCase {
     }
 
     func testDenyFromSessionsList() throws {
-        let environment = ProcessInfo.processInfo.environment
-        let server = environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"
-        let bearer = environment["TEST_RUNNER_BEARER"] ?? ""
+        let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
+        let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer

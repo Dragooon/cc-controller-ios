@@ -357,6 +357,33 @@ ensure_attachment_media() {
   : > "$marker"
 }
 
+configure_xctestrun() {
+  local source=$1 destination=$2 server=$3 bearer=$4 control=$5 color=$6 output_dir=$7
+  cp "$source" "$destination"
+  if plutil -extract TestConfigurations xml1 -o - "$destination" >/dev/null 2>&1; then
+    printf '%s\n' 'format-2 .xctestrun files with TestConfigurations are unsupported' >&2
+    return 1
+  fi
+  if ! plutil -extract CCControllerUITests.EnvironmentVariables xml1 -o - "$destination" >/dev/null 2>&1; then
+    printf 'xctestrun is missing CCControllerUITests.EnvironmentVariables: %s\n' "$destination" >&2
+    return 1
+  fi
+  local entries=(
+    TEST_RUNNER_SERVER_URL "$server"
+    TEST_RUNNER_BEARER "$bearer"
+    TEST_RUNNER_FIXTURE_CONTROL_URL "$control"
+    TEST_RUNNER_COLOR_SCHEME "$color"
+    CC_FLOW_OUTPUT_DIR "$output_dir"
+  )
+  local index key value
+  for ((index = 0; index < ${#entries[@]}; index += 2)); do
+    key=${entries[$index]}
+    value=${entries[$((index + 1))]}
+    plutil -replace "CCControllerUITests.EnvironmentVariables.$key" -string "$value" "$destination" 2>/dev/null || \
+      plutil -insert "CCControllerUITests.EnvironmentVariables.$key" -string "$value" "$destination"
+  done
+}
+
 stop_shards() {
   [[ ${#SHARD_PIDS[@]} -gt 0 ]] || return 0
   local pid
@@ -563,15 +590,17 @@ run_flow_shard() {
     device_index=0
     for device in "${devices[@]}"; do
       local method_started=$SECONDS
-      local result exported output_dir device_key method_log
+      local result exported output_dir device_key method_log method_xctestrun
       local method_status=0 xcode_status=0 export_status=0
       device_key=$(echo "$device" | tr ' ()' '---')
       output_dir="$flow_root/$device_key/$flow_class/$flow_method"
       result="$flow_build_root/$device_key/$flow_class/$flow_method.xcresult"
       exported="$RUN_DIR/$device_key/$flow_class/$flow_method"
       method_log="$output_dir/xcodebuild.log"
+      method_xctestrun="$exported/CCController.xctestrun"
       rm -rf "$output_dir" "$result" "$exported"
       mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
+      ln -s "$DERIVED/Build/Products/Debug-iphonesimulator" "$exported/Debug-iphonesimulator"
 
       stop_fixture_daemon
       udid=${shard_udids[$device_index]}
@@ -593,17 +622,18 @@ run_flow_shard() {
         web_port=$(json_value "$FIXTURE_OUT" webPort)
         bearer=$(json_value "$FIXTURE_OUT" bearer)
         control_port=$(json_value "$FIXTURE_OUT" controlPort)
-        local args=(xcodebuild -xctestrun "$xctestrun" -destination "id=$udid" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
-        if run_flow_test "flows $flow_class/$flow_method $device" "$method_log" env \
-          "CC_FLOW_OUTPUT_DIR=$output_dir" \
-          "TEST_RUNNER_SERVER_URL=http://127.0.0.1:$web_port" \
-          "TEST_RUNNER_BEARER=$bearer" \
-          "TEST_RUNNER_FIXTURE_CONTROL_URL=http://127.0.0.1:$control_port" \
-          "TEST_RUNNER_COLOR_SCHEME=${TEST_RUNNER_COLOR_SCHEME:-light}" \
-          "${args[@]}"; then
-          xcode_status=0
+        if configure_xctestrun "$xctestrun" "$method_xctestrun" \
+          "http://127.0.0.1:$web_port" "$bearer" "http://127.0.0.1:$control_port" \
+          "${TEST_RUNNER_COLOR_SCHEME:-light}" "$output_dir"; then
+          local args=(xcodebuild -xctestrun "$method_xctestrun" -destination "id=$udid" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
+          if run_flow_test "flows $flow_class/$flow_method $device" "$method_log" "${args[@]}"; then
+            xcode_status=0
+          else
+            xcode_status=$?
+          fi
         else
-          xcode_status=$?
+          printf '%s\n' 'failed to configure per-method xctestrun' | tee -a "$method_log"
+          method_status=1
         fi
         stop_fixture_daemon
         if [[ -d "$result" ]]; then
@@ -627,6 +657,7 @@ run_flow_shard() {
         method_status=1
         stop_fixture_daemon
       fi
+      rm -f "$method_xctestrun"
       [[ $xcode_status -eq 0 ]] || method_status=1
       [[ $export_status -eq 0 ]] || method_status=1
       local elapsed=$((SECONDS - method_started))

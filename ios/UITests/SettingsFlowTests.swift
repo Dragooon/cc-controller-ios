@@ -4,7 +4,7 @@ import XCTest
 @MainActor
 final class SettingsFlowTests: FixtureFlowTestSupport {
     private let environment = ProcessInfo.processInfo.environment
-    private var serverURL: String { environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832" }
+    private var serverURL: String { requiredRunnerVariable("TEST_RUNNER_SERVER_URL") }
     private let appVersionPattern = "[0-9]+(\\.[0-9]+)* \\([0-9]+\\)"
 
     func testShowsRealConnectionDeviceAndAboutValues() async throws {
@@ -269,7 +269,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         if let scheme = environment["TEST_RUNNER_COLOR_SCHEME"], !scheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", scheme]
         }
-        app.launchEnvironment["CCBearer"] = environment["TEST_RUNNER_BEARER"] ?? ""
+        app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app
@@ -330,8 +330,9 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
     }
 
     private func fixtureRequestCounts() async throws -> [String: Int] {
-        guard let control = environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(control)/fixture/requests") else {
-            throw XCTSkip("Fixture control URL was not provided")
+        let control = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(control)/fixture/requests") else {
+            throw XCTSkip("Fixture control URL was invalid")
         }
         let (data, _) = try await URLSession.shared.data(from: url)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Int])
@@ -339,7 +340,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
 
     private func fixtureJSON(_ path: String) async throws -> [String: Any] {
         var request = URLRequest(url: try XCTUnwrap(URL(string: serverURL + path)))
-        request.setValue("Bearer \(environment["TEST_RUNNER_BEARER"] ?? "")", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(requiredRunnerVariable("TEST_RUNNER_BEARER"))", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Fixture \(path) failed")
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])

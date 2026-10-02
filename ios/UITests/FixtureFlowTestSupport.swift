@@ -1,6 +1,14 @@
 import Foundation
 import XCTest
 
+func requiredRunnerVariable(_ key: String, file: StaticString = #filePath, line: UInt = #line) -> String {
+    guard let value = ProcessInfo.processInfo.environment[key], !value.isEmpty else {
+        XCTFail("Required runner environment variable \(key) is missing or empty", file: file, line: line)
+        return ""
+    }
+    return value
+}
+
 /// Dismisses a notification prompt left on SpringBoard by an earlier test or another simulator lane.
 /// An app launched under that prompt never becomes active, so it never connects, and a test that only waits
 /// for elements never triggers XCTest's interruption handling.
@@ -69,8 +77,9 @@ class FixtureFlowTestSupport: XCTestCase {
     }
 
     func postFixture(_ path: String) async throws {
-        guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)\(path)") else {
-            throw XCTSkip("Fixture control URL was not provided")
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)\(path)") else {
+            throw XCTSkip("Fixture control URL was invalid")
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -86,8 +95,9 @@ class FixtureFlowTestSupport: XCTestCase {
     }
 
     func approvePairing(_ code: String) async throws {
-        guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)/fixture/approve-pairing") else {
-            throw XCTSkip("Fixture control URL was not provided")
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)/fixture/approve-pairing") else {
+            throw XCTSkip("Fixture control URL was invalid")
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -124,7 +134,7 @@ class FixtureFlowTestSupport: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         let app = XCUIApplication()
         app.launchArguments = [
-            "-CCServer", server ?? environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832",
+            "-CCServer", server ?? requiredRunnerVariable("TEST_RUNNER_SERVER_URL"),
         ]
         if onboarding {
             app.launchArguments += ["-CCOnboarding", "-CCResetCache"]

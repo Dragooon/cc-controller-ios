@@ -15,8 +15,8 @@ final class ScreenshotTests: XCTestCase {
 
     func testSessionsAndSelectedSessionScreens() throws {
         let environment = ProcessInfo.processInfo.environment
-        let server = environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"
-        let bearer = environment["TEST_RUNNER_BEARER"] ?? ""
+        let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
+        let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let only = environment["TEST_RUNNER_ONLY"].flatMap { $0.isEmpty ? nil : $0 }
         let schemes = ["light", "dark"]
         let sizes = [

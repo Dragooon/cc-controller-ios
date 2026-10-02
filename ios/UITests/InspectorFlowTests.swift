@@ -180,11 +180,11 @@ final class InspectorFlowTests: XCTestCase {
     private func launch() -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"]
+        app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL")]
         if let colorScheme = environment["TEST_RUNNER_COLOR_SCHEME"], !colorScheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", colorScheme]
         }
-        app.launchEnvironment["CCBearer"] = environment["TEST_RUNNER_BEARER"] ?? ""
+        app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app
