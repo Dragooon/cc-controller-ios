@@ -213,7 +213,7 @@ struct InspectorView: View {
                                     fallback: nil
                                 )
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.ccSecondary)
+                                .foregroundStyle(.ccLabel)
                             }
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
