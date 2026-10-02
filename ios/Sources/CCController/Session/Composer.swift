@@ -47,6 +47,17 @@ extension EnvironmentValues {
     }
 }
 
+private struct OpenFilePreviewActionKey: EnvironmentKey {
+    static let defaultValue: @MainActor @Sendable (URL) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var openFilePreview: @MainActor @Sendable (URL) -> Void {
+        get { self[OpenFilePreviewActionKey.self] }
+        set { self[OpenFilePreviewActionKey.self] = newValue }
+    }
+}
+
 struct ComposerView: View {
     @Binding private var text: String
     @FocusState.Binding private var isFocused: Bool

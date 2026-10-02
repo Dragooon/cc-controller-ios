@@ -2,7 +2,6 @@ import CCKit
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
-import QuickLook
 
 struct DecisionCaption: View {
     let entry: DecisionEntry
@@ -142,8 +141,8 @@ struct CompactionSummarySheet: View {
 struct FileEntryView: View {
     let entry: FileEntry
     let download: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+    @Environment(\.openFilePreview) private var openFilePreview
     @State private var isDownloading = false
-    @State private var previewURL: URL?
     @State private var errorMessage: String?
 
     init(entry: FileEntry, download: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil) {
@@ -171,7 +170,6 @@ struct FileEntryView: View {
         .buttonStyle(.plain)
         .disabled(download == nil || isDownloading)
         .accessibilityLabel("Open \(fileName)")
-        .quickLookPreview($previewURL)
         .alert(
             "Couldn't open file",
             isPresented: Binding(
@@ -214,7 +212,8 @@ struct FileEntryView: View {
         isDownloading = true
         Task { @MainActor in
             do {
-                previewURL = try await download(entry)
+                let url = try await download(entry)
+                openFilePreview(url)
             } catch {
                 errorMessage = error.localizedDescription
             }

@@ -21,6 +21,7 @@ struct SessionScreen: View {
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
     @State private var inspectorPresented = false
+    @State private var filePreviewURL: URL?
     @State private var destination: SessionDestination?
     @State private var pendingInspectorDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
@@ -31,6 +32,7 @@ struct SessionScreen: View {
 
     var body: some View {
         screen()
+            .quickLookPreview($filePreviewURL)
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: pendingApprovalCount) { oldCount, newCount in
@@ -120,6 +122,7 @@ struct SessionScreen: View {
                         }
                     )
                     .environment(\.openInspector, { inspectorPresented = true })
+                    .environment(\.openFilePreview, { filePreviewURL = $0 })
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

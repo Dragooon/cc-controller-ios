@@ -32,8 +32,23 @@ final class AttachmentFlowTests: XCTestCase {
             XCTAssertTrue(waitForNonExistence(of: pending, timeout: 20), "Prompt attachment assertions ran against the pending bubble")
         }
 
+        sleep(10)
+        let marker = "delivered-attachment-flow-marker"
+        let markerPredicate = NSPredicate(format: "label CONTAINS[c] %@", marker)
+        let markerElements = app.descendants(matching: .any).matching(markerPredicate)
+        let deliveredMarkerBubbles = app.descendants(matching: .any)
+            .matching(identifier: "prompt-bubble")
+            .matching(markerPredicate)
+        let pendingMarkerBubbles = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt-bubble")
+            .matching(markerPredicate)
+        print("Attachment marker counts: elements=\(markerElements.count), prompt-bubble=\(deliveredMarkerBubbles.count), pending-prompt-bubble=\(pendingMarkerBubbles.count)")
+        if deliveredMarkerBubbles.count > 0, pendingMarkerBubbles.count > 0 {
+            print("Duplicate attachment marker bubbles detected. Debug description excerpt:\n\(String(app.debugDescription.prefix(4000)))")
+        }
+
         let bubbles = app.descendants(matching: .any).matching(identifier: "prompt-bubble")
-        let markerBubbles = bubbles.matching(NSPredicate(format: "label CONTAINS[c] %@", "delivered-attachment-flow-marker"))
+        let markerBubbles = bubbles.matching(markerPredicate)
         XCTAssertTrue(markerBubbles.firstMatch.waitForExistence(timeout: 30), "Delivered prompt bubble did not appear")
         XCTAssertEqual(markerBubbles.count, 1, "Expected exactly one bubble to contain the delivered marker")
         let delivered = markerBubbles.firstMatch
@@ -72,6 +87,37 @@ final class AttachmentFlowTests: XCTestCase {
             return
         }
         addScreenshot(named: "prompt-attachment-quicklook")
+    }
+
+    func testAgentSentFileShowsRealAttachmentAndQuickLook() throws {
+        let app = launchFixture()
+        defer {
+            audit(app, name: "agent-sent-file")
+            app.terminate()
+        }
+        openStaffSession(in: app)
+
+        let file = app.buttons["Open review.png"]
+        XCTAssertTrue(file.waitForExistence(timeout: 30), "Agent-sent review.png file did not appear")
+        addScreenshot(named: "agent-sent-file-tile")
+        file.tap()
+
+        let quickLook = app.otherElements["QLPreviewControllerView"]
+        guard quickLook.waitForExistence(timeout: 15) else {
+            XCTFail("Quick Look controller did not appear for agent-sent file")
+            return
+        }
+
+        let canvas = app.otherElements["Image canvas"]
+        guard canvas.waitForExistence(timeout: 10) else {
+            let debug = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
+            debug.name = "agent-sent-quicklook-debug.txt"
+            debug.lifetime = .keepAlways
+            add(debug)
+            XCTFail("Agent-sent Quick Look image canvas did not appear")
+            return
+        }
+        addScreenshot(named: "agent-sent-quicklook")
     }
 
     func testLaunchAttachmentSendClearsTray() throws {
@@ -245,6 +291,16 @@ final class AttachmentFlowTests: XCTestCase {
         app.launchEnvironment["CCBearer"] = bearer
         app.launch()
         return app
+    }
+
+    private func openStaffSession(in app: XCUIApplication) {
+        let row = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(row.waitForExistence(timeout: 75), "Staff session did not load")
+        row.tap()
+        XCTAssertTrue(
+            app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 30),
+            "Staff session did not open"
+        )
     }
 
     private func openLongSession(in app: XCUIApplication) {

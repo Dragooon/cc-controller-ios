@@ -93,11 +93,10 @@ struct PromptAttachmentFlow: Layout {
 
         totalHeight += rowHeight
         let placements = rows.flatMap { row in
-            let usedWidth = row.last.map { $0.x + $0.size.width } ?? 0
-            let offset = max(0, width - usedWidth)
-            return row.map { placement in
-                Placement(index: placement.index, x: placement.x + offset, y: placement.y, size: placement.size)
-            }
+            row
+                .map { placement in
+                    Placement(index: placement.index, x: placement.x, y: placement.y, size: placement.size)
+                }
         }
         return (CGSize(width: width, height: totalHeight), placements)
     }
@@ -115,9 +114,9 @@ struct PromptAttachmentItemView: View {
     let name: String
     let initialData: Data?
     let downloadFile: (@MainActor @Sendable (String) async throws -> URL)?
+    @Environment(\.openFilePreview) private var openFilePreview
     @State private var image: UIImage?
     @State private var downloadedURL: URL?
-    @State private var previewURL: URL?
     @State private var imageState: PromptAttachmentImageState
 
     init(
@@ -150,7 +149,6 @@ struct PromptAttachmentItemView: View {
         .accessibilityValue(isImage ? imageState.rawValue : "loaded")
         .accessibilityIdentifier("prompt-attachment")
         .accessibilityAddTraits(.isButton)
-        .quickLookPreview($previewURL)
         .task(id: attachmentCacheKey(sessionID: sessionID, name: name)) {
             await load()
         }
@@ -235,7 +233,7 @@ struct PromptAttachmentItemView: View {
     @MainActor
     private func open() {
         if let downloadedURL, FileManager.default.fileExists(atPath: downloadedURL.path) {
-            present(downloadedURL)
+            openFilePreview(downloadedURL)
             return
         }
         guard let downloadFile else { return }
@@ -247,27 +245,10 @@ struct PromptAttachmentItemView: View {
                     return
                 }
                 downloadedURL = url
-                present(url)
+                openFilePreview(url)
             } catch {
                 imageState = .unavailable
             }
-        }
-    }
-
-    @MainActor
-    private func present(_ url: URL) {
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        for scene in UIApplication.shared.connectedScenes {
-            guard let windowScene = scene as? UIWindowScene else { continue }
-            windowScene.windows.first(where: \.isKeyWindow)?.endEditing(true)
-        }
-        Task { @MainActor in
-            do {
-                try await Task.sleep(for: .milliseconds(300))
-            } catch {
-                return
-            }
-            previewURL = url
         }
     }
 }
