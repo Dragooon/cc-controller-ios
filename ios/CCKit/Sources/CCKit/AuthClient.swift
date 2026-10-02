@@ -59,13 +59,14 @@ public final class AuthClient: Sendable {
 
     /// Probes whoami because it is the daemon's unauthenticated status route.
     /// HTTP 401 with a JSON whoami response still proves that the daemon is reachable.
-    public func probeDaemon() async throws -> DaemonProbe {
+    public func probeDaemon(timeout: TimeInterval? = nil) async throws -> DaemonProbe {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [basePath, "api/auth/whoami"].filter { !$0.isEmpty }.joined(separator: "/")
         var request = URLRequest(url: components.url!)
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let timeout { request.timeoutInterval = timeout }
         let clock = ContinuousClock()
         let start = clock.now
         do {

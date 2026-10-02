@@ -7,6 +7,7 @@ public final class AppStore {
     public private(set) var sessions: [String: Session] = [:]
     public private(set) var approvals: [Approval] = []
     public private(set) var daemon: DaemonInfo?
+    public private(set) var apiVersion: Int?
     public private(set) var lastUpdated: Date?
     public private(set) var unknownEventCount = 0
     public private(set) var deciding: Set<String> = []
@@ -371,31 +372,48 @@ public final class AppStore {
         try await client.downloadFile(sessionID: sessionID, name: name)
     }
 
+    public func whoAmI() async throws -> WhoAmI {
+        try await authenticate()
+        return try await client.whoAmI()
+    }
+
+    public func pairedDevices() async throws -> [Device] {
+        try await authenticate()
+        return try await client.devices().devices ?? []
+    }
+
     public func logout() async -> Result<Void, ActionError> {
         do {
             _ = try await client.logout()
-            suspend()
-            try? await cache.clear()
-            sessions.removeAll()
-            approvals.removeAll()
-            deciding.removeAll()
-            queuedNotes.removeAll()
-            attachments.removeAll()
-            attachmentProgressDates.removeAll()
-            attachmentNotices.removeAll()
-            debugAttachmentSessions.removeAll()
-            openStores.removeAll()
-            cachedTranscripts.removeAll()
-            sessionSnapshots.removeAll()
-            serverEntryCounts.removeAll()
-            latestBootstrap = nil
-            daemon = nil
-            lastUpdated = nil
-            connection = .offline(lastUpdated: nil, error: nil)
+            await clearLocalState()
             return .success(())
         } catch {
             return .failure(actionError(for: error))
         }
+    }
+
+    /// Forgets every session, approval, transcript and the bearer without calling the daemon, for unpairing.
+    public func clearLocalState() async {
+        suspend()
+        await client.setBearerToken(nil)
+        try? await cache.clear()
+        sessions.removeAll()
+        approvals.removeAll()
+        deciding.removeAll()
+        queuedNotes.removeAll()
+        attachments.removeAll()
+        attachmentProgressDates.removeAll()
+        attachmentNotices.removeAll()
+        debugAttachmentSessions.removeAll()
+        openStores.removeAll()
+        cachedTranscripts.removeAll()
+        sessionSnapshots.removeAll()
+        serverEntryCounts.removeAll()
+        latestBootstrap = nil
+        daemon = nil
+        apiVersion = nil
+        lastUpdated = nil
+        connection = .offline(lastUpdated: nil, error: nil)
     }
 
     public func apply(_ event: LiveEvent) {
@@ -622,6 +640,7 @@ public final class AppStore {
         if startedAtChanged { resetOpenTranscripts() }
         latestBootstrap = bootstrap
         daemon = bootstrap.daemon
+        apiVersion = bootstrap.apiVersion
         if let state = bootstrap.state { applyState(state) }
         lastUpdated = clock.now
         for store in openStores.values {
@@ -815,6 +834,7 @@ public final class AppStore {
         guard let state = try? await cache.load() else { return }
         applyState(state.bootstrap.state ?? StateSnapshot())
         daemon = state.bootstrap.daemon
+        apiVersion = state.bootstrap.apiVersion
         latestBootstrap = state.bootstrap
         lastUpdated = state.updatedAt
         cachedTranscripts = state.transcripts

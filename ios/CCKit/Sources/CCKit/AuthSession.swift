@@ -61,8 +61,8 @@ public final class AuthSession {
         return (code, expiresAt)
     }
 
-    public func probeDaemon() async throws -> DaemonProbe {
-        try await client.probeDaemon()
+    public func probeDaemon(timeout: TimeInterval? = nil) async throws -> DaemonProbe {
+        try await client.probeDaemon(timeout: timeout)
     }
 
     public func bearer() async throws -> String {
