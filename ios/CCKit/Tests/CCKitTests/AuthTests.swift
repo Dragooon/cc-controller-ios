@@ -4,6 +4,17 @@ import XCTest
 
 @MainActor
 final class AuthTests: XCTestCase {
+    func testProbeUsesUnauthenticatedWhoamiAndAcceptsPairingRequired401() async throws {
+        AuthURLProtocol.handler = { _ in
+            AuthURLProtocol.json(401, body: Data("{\"error\":\"Device pairing required\",\"authenticated\":false}".utf8))
+        }
+        let client = AuthClient(baseURL: URL(string: "http://localhost:47832")!, session: AuthURLProtocol.session)
+        let result = try await client.probeDaemon()
+        XCTAssertTrue(result.isReachable)
+        XCTAssertNil(result.version)
+        XCTAssertEqual(AuthURLProtocol.requests.last?.url?.path, "/api/auth/whoami")
+    }
+
     func testAuthClientRunsPairPollEnrollLoginAndLogout() async throws {
         AuthURLProtocol.handler = { request in
             switch request.url?.path {

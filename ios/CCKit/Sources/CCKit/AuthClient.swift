@@ -38,6 +38,16 @@ public enum AuthError: Error, Sendable, Equatable, LocalizedError {
     }
 }
 
+public struct DaemonProbe: Sendable, Equatable {
+    public let isReachable: Bool
+    public let version: String?
+
+    public init(isReachable: Bool, version: String? = nil) {
+        self.isReachable = isReachable
+        self.version = version
+    }
+}
+
 public final class AuthClient: Sendable {
     public let baseURL: URL
     private let session: URLSession
@@ -45,6 +55,31 @@ public final class AuthClient: Sendable {
     public init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
+    }
+
+    /// Probes whoami because it is the daemon's unauthenticated status route.
+    /// HTTP 401 with a JSON whoami response still proves that the daemon is reachable.
+    public func probeDaemon() async throws -> DaemonProbe {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = "/" + [basePath, "api/auth/whoami"].filter { !$0.isEmpty }.joined(separator: "/")
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw AuthError.decoding("Response was not HTTP") }
+            guard http.statusCode == 401 || (200..<300).contains(http.statusCode) else {
+                throw mapError(status: http.statusCode, data: data)
+            }
+            return DaemonProbe(isReachable: true)
+        } catch let error as AuthError {
+            throw error
+        } catch let error as URLError {
+            throw AuthError.network(error.localizedDescription)
+        } catch {
+            throw AuthError.network(error.localizedDescription)
+        }
     }
 
     public func startPairing(deviceName: String) async throws -> PairStartResponse {

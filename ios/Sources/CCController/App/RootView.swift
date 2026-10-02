@@ -40,13 +40,48 @@ struct RootView: View {
     private var content: some View {
         switch model.phase {
         case .onboarding:
-            OnboardingWelcomeView()
+            onboardingView
         case .locked:
             LockView {
                 Task { await model.unlock() }
             }
         case .unlocked:
             MainSplitView(model: model)
+        }
+    }
+
+    @ViewBuilder
+    private var onboardingView: some View {
+        switch model.onboardingStep {
+        case .welcome:
+            OnboardingWelcomeView(onContinue: model.continueFromWelcome)
+        case .connect:
+            OnboardingConnectView(
+                connection: model.connection,
+                address: model.connectionAddress,
+                message: model.connectionMessage,
+                onBack: model.goBackFromConnect,
+                onContinue: model.continueFromConnect
+            )
+        case .pair:
+            OnboardingPairView(
+                code: model.pairingCode ?? "",
+                expiresAt: model.pairingExpiresAt ?? .now,
+                isExpired: model.onboarding.isPairingExpired(at: .now),
+                copied: model.copiedPairingCommand,
+                message: model.connectionMessage,
+                onBack: model.goBackToConnect,
+                onCopyCode: model.copyPairingCommand,
+                onNewCode: model.getNewPairingCode
+            )
+        case .faceID:
+            OnboardingFaceIDView(
+                message: model.faceIDMessage,
+                onBack: model.goBackToConnect,
+                onTryAgain: { Task { await model.enrollAndUnlock() } }
+            )
+        case .sessions:
+            EmptyView()
         }
     }
 }

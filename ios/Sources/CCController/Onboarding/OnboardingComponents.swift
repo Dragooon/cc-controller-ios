@@ -5,29 +5,48 @@ private let onboardingPrimaryHeight: CGFloat = 50
 struct OnboardingPage<Content: View>: View {
     let step: String
     let buttonTitle: String?
+    let isButtonEnabled: Bool
+    let onBack: (() -> Void)?
     let action: () -> Void
     @ViewBuilder let content: () -> Content
 
     init(
         step: String,
         buttonTitle: String?,
+        isButtonEnabled: Bool = true,
+        onBack: (() -> Void)? = nil,
         action: @escaping () -> Void = {},
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.step = step
         self.buttonTitle = buttonTitle
+        self.isButtonEnabled = isButtonEnabled
+        self.onBack = onBack
         self.action = action
         self.content = content
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(step)
-                .font(.caption)
-                .foregroundStyle(.ccSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
+            HStack {
+                if let onBack {
+                    Button(action: onBack) {
+                        Label("Back", systemImage: "chevron.left")
+                            .labelStyle(.iconOnly)
+                            .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+                    }
+                    .accessibilityLabel("Back")
+                }
+                Text(step)
+                    .font(.caption)
+                    .foregroundStyle(.ccSecondary)
+                    .frame(maxWidth: .infinity, alignment: onBack == nil ? .leading : .center)
+                if onBack != nil {
+                    Color.clear.frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
 
             Spacer(minLength: 28)
             content()
@@ -43,11 +62,14 @@ struct OnboardingPage<Content: View>: View {
                         .glassEffect(.regular.tint(.ccAccent).interactive(), in: .capsule)
                 }
                 .buttonStyle(.plain)
+                .disabled(!isButtonEnabled)
+                .opacity(isButtonEnabled ? 1 : 0.45)
                 .frame(maxWidth: .infinity, minHeight: onboardingPrimaryHeight)
                 .contentShape(Rectangle())
+                .accessibilityLabel(buttonTitle)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
-            } else {
+            } else if onBack == nil {
                 Button("Start over", action: action)
                     .foregroundStyle(.ccSecondary)
                     .buttonStyle(.plain)

@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct OnboardingWelcomeView: View {
-    let onGetStarted: () -> Void
+    let onContinue: () -> Void
 
-    init(onGetStarted: @escaping () -> Void = {}) {
-        self.onGetStarted = onGetStarted
+    init(onContinue: @escaping () -> Void = {}) {
+        self.onContinue = onContinue
     }
 
     var body: some View {
-        OnboardingPage(step: "Step 1 of 4", buttonTitle: "Get started", action: onGetStarted) {
+        OnboardingPage(step: "Step 1 of 5", buttonTitle: "Continue", action: onContinue) {
             VStack(spacing: 18) {
                 Text("✻")
                     .font(.system(size: 88, weight: .regular, design: .rounded))
@@ -26,6 +26,8 @@ struct OnboardingWelcomeView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("cc-controller. Approve, message and follow your Claude Code sessions from this iPhone.")
         }
     }
 }

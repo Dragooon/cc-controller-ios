@@ -54,6 +54,15 @@ public final class AuthSession {
         }
     }
 
+    public var pairingDetails: (code: String, expiresAt: Date)? {
+        guard case .pairing(let code, let expiresAt) = state else { return nil }
+        return (code, expiresAt)
+    }
+
+    public func probeDaemon() async throws -> DaemonProbe {
+        try await client.probeDaemon()
+    }
+
     public func bearer() async throws -> String {
         guard let bearerToken, case .unlocked = state else { throw AuthError.locked }
         return bearerToken
