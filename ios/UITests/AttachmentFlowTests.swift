@@ -32,7 +32,6 @@ final class AttachmentFlowTests: XCTestCase {
             XCTAssertTrue(waitForNonExistence(of: pending, timeout: 20), "Prompt attachment assertions ran against the pending bubble")
         }
 
-        sleep(10)
         let marker = "delivered-attachment-flow-marker"
         let markerPredicate = NSPredicate(format: "label CONTAINS[c] %@", marker)
         let markerElements = app.descendants(matching: .any).matching(markerPredicate)
@@ -146,7 +145,7 @@ final class AttachmentFlowTests: XCTestCase {
         field.tap()
         field.typeText("attachment-flow-marker")
         app.buttons["composer-send"].tap()
-        XCTAssertFalse(tray.waitForExistence(timeout: 15), "Attachment tray remained after send")
+        XCTAssertTrue(waitForNonExistence(of: tray, timeout: 15), "Attachment tray remained after send")
     }
 
     func testTrayBeforeSendShowsRealThumbnailAndCSV() throws {
@@ -245,7 +244,7 @@ final class AttachmentFlowTests: XCTestCase {
         let remove = tile.descendants(matching: .button).firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 10), "Remove badge did not appear")
         remove.tap()
-        XCTAssertFalse(tray.waitForExistence(timeout: 10), "Attachment tray remained after removing tile")
+        XCTAssertTrue(waitForNonExistence(of: tray, timeout: 10), "Attachment tray remained after removing tile")
     }
 
     func testPhotosPickerUsesRealPicker() throws {

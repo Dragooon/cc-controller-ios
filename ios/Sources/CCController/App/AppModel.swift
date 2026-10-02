@@ -124,9 +124,13 @@ final class AppModel {
             .flatMap(TimeInterval.init)
             .map(LockInterval.custom) ?? lockIntervalStore.interval
         let lockPolicy = LockPolicy(interval: lockInterval)
+        let probeInterval = Self.argumentValue("-CCProbeInterval", in: arguments)
+            .flatMap(TimeInterval.init)
+            .map { Duration.seconds($0) } ?? .seconds(2)
         self.lockPolicy = lockPolicy
         #else
         let lockPolicy = LockPolicy(interval: lockIntervalStore.interval)
+        let probeInterval: Duration = .seconds(2)
         self.lockPolicy = lockPolicy
         #endif
         self.lockTransitionPolicy = LockTransitionPolicy(policy: lockPolicy)
@@ -156,7 +160,8 @@ final class AppModel {
         self.settings = SettingsStore(
             probe: { try await auth.probeDaemon(timeout: 5) },
             whoAmI: { try await store.whoAmI() },
-            devices: { try await store.pairedDevices() }
+            devices: { try await store.pairedDevices() },
+            interval: probeInterval
         )
         observeApprovalCount()
         Task { @MainActor [weak self] in

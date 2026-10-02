@@ -38,8 +38,19 @@ class FixtureFlowTestSupport: XCTestCase {
         super.tearDown()
     }
 
-    func launchOnboarding(server: String? = nil, expirySeconds: Int? = nil, lockInterval: TimeInterval? = nil) -> XCUIApplication {
-        launchFixture(server: server, onboarding: true, expirySeconds: expirySeconds, lockInterval: lockInterval)
+    func launchOnboarding(
+        server: String? = nil,
+        expirySeconds: Int? = nil,
+        lockInterval: TimeInterval? = nil,
+        probeInterval: TimeInterval? = nil
+    ) -> XCUIApplication {
+        launchFixture(
+            server: server,
+            onboarding: true,
+            expirySeconds: expirySeconds,
+            lockInterval: lockInterval,
+            probeInterval: probeInterval
+        )
     }
 
     func launchCold(server: String? = nil) -> XCUIApplication {
@@ -129,7 +140,8 @@ class FixtureFlowTestSupport: XCTestCase {
         server: String?,
         onboarding: Bool,
         expirySeconds: Int? = nil,
-        lockInterval: TimeInterval? = nil
+        lockInterval: TimeInterval? = nil,
+        probeInterval: TimeInterval? = nil
     ) -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
         let app = XCUIApplication()
@@ -147,6 +159,9 @@ class FixtureFlowTestSupport: XCTestCase {
         }
         if let lockInterval {
             app.launchArguments += ["-CCLockInterval", String(lockInterval)]
+        }
+        if let probeInterval {
+            app.launchArguments += ["-CCProbeInterval", String(probeInterval)]
         }
         dismissLeftoverNotificationPrompt()
         app.launch()

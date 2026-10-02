@@ -59,7 +59,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
     }
 
     func testLatencyStaysLiveOnlyWhileSettingsIsOpenAndForeground() async throws {
-        let app = launchSignedIn()
+        let app = launchSignedIn(probeInterval: 0.5)
         defer {
             audit(app, name: "settings-live-latency")
             app.terminate()
@@ -68,9 +68,10 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         openSettings(app)
         try await expectValue(app, "settings-latency", matches: "[0-9]+ ms")
         let opened = try await probeCount()
-        try await Task.sleep(for: .seconds(5))
-        let live = try await probeCount()
-        XCTAssertGreaterThanOrEqual(live - opened, 2, "Latency was not re-probed while Settings was open")
+        let live = try await expectProbeCount(
+            atLeast: opened + 2,
+            "Latency was not re-probed while Settings was open"
+        )
 
         element(app, "settings-test-connection").tap()
         try await expectValue(app, "settings-test-result", matches: "Reachable · [0-9]+ ms, tested at .+")
@@ -81,19 +82,17 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         app.buttons["Done"].tap()
         let closed = await waitUntilGone(element(app, "settings-latency"))
         XCTAssertTrue(closed, "Settings did not close")
-        try await expectNoProbes(for: .seconds(5), "after Settings closed")
+        try await expectNoProbes(for: .seconds(2), "after Settings closed")
 
         openSettings(app)
         try await expectValue(app, "settings-latency", matches: "[0-9]+ ms")
         XCUIDevice.shared.press(.home)
-        try await expectNoProbes(for: .seconds(5), "while the app was in the background")
+        try await expectNoProbes(for: .seconds(2), "while the app was in the background")
 
         app.activate()
         try await expectValue(app, "settings-latency", matches: "[0-9]+ ms")
         let resumed = try await probeCount()
-        try await Task.sleep(for: .seconds(5))
-        let foreground = try await probeCount()
-        XCTAssertGreaterThanOrEqual(foreground - resumed, 2, "Latency did not resume in the foreground")
+        _ = try await expectProbeCount(atLeast: resumed + 2, "Latency did not resume in the foreground")
     }
 
     func testLockNowKeepsLockScreenVisibleAndUnlocksWithoutAutoPrompt() async throws {
@@ -211,7 +210,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
     }
 
     func testLockPausesProbingAndUnpairReturnsToOnboarding() async throws {
-        var app = launchOnboarding(lockInterval: 3)
+        var app = launchOnboarding(lockInterval: 3, probeInterval: 0.5)
         defer {
             audit(app, name: "settings-unpair")
             app.terminate()
@@ -263,9 +262,12 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(app.buttons["Get started"].exists)
     }
 
-    private func launchSignedIn(server: String? = nil) -> XCUIApplication {
+    private func launchSignedIn(server: String? = nil, probeInterval: TimeInterval? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server ?? serverURL]
+        if let probeInterval {
+            app.launchArguments += ["-CCProbeInterval", String(probeInterval)]
+        }
         if let scheme = environment["TEST_RUNNER_COLOR_SCHEME"], !scheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", scheme]
         }
@@ -310,6 +312,17 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
     private func waitUntilGone(_ element: XCUIElement) async -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
         return await XCTWaiter().fulfillment(of: [expectation], timeout: 10) == .completed
+    }
+
+    private func expectProbeCount(atLeast target: Int, _ message: String) async throws -> Int {
+        var count = try await probeCount()
+        for _ in 0..<20 {
+            if count >= target { break }
+            try await Task.sleep(for: .milliseconds(250))
+            count = try await probeCount()
+        }
+        XCTAssertGreaterThanOrEqual(count, target, message)
+        return count
     }
 
     /// Lets any in-flight probe finish, then requires the whoami count to stay flat.
