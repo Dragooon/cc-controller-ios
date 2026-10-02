@@ -222,6 +222,7 @@ struct InspectorView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
                     .accessibilityIdentifier("inspector-subagent-\(subagent.agentId ?? "")")
                     .accessibilityLabel(subagentAccessibilityLabel(subagent))
                     .disabled(subagent.agentId == nil)

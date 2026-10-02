@@ -48,6 +48,7 @@ struct SpinnerGlyph: View {
                 }
             }
         }
+        .accessibilityElement(children: .ignore)
         .accessibilityHidden(true)
     }
 }
