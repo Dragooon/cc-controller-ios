@@ -541,7 +541,7 @@ run_flow_test() {
 }
 
 run_flow_shard() {
-  local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 flow_root=$5 flow_build_root=$6
+  local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 xctestrun=$5 flow_root=$6 flow_build_root=$7
   SHARD_CONTROLLER=0
   SHARD_PIDS=()
   RUN_DIR=$(mktemp -d -t cc-controller-flow-shard.XXXXXX)
@@ -593,7 +593,7 @@ run_flow_shard() {
         web_port=$(json_value "$FIXTURE_OUT" webPort)
         bearer=$(json_value "$FIXTURE_OUT" bearer)
         control_port=$(json_value "$FIXTURE_OUT" controlPort)
-        local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
+        local args=(xcodebuild -xctestrun "$xctestrun" -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
         if run_flow_test "flows $flow_class/$flow_method $device" "$method_log" env \
           "CC_FLOW_OUTPUT_DIR=$output_dir" \
           "TEST_RUNNER_SERVER_URL=http://127.0.0.1:$web_port" \
@@ -736,6 +736,12 @@ cmd_flows() {
     printf 'build-for-testing did not produce %s\n' "$app_bundle" >&2
     return 1
   fi
+  local xctestrun
+  xctestrun=$(find "$DERIVED/Build/Products" -type f -name '*.xctestrun' -print -quit)
+  if [[ -z "$xctestrun" ]]; then
+    printf 'build-for-testing did not produce an .xctestrun file under %s\n' "$DERIVED/Build/Products" >&2
+    return 1
+  fi
 
   local shard_result_dir="$RUN_DIR/results"
   mkdir -p "$shard_result_dir"
@@ -743,7 +749,7 @@ cmd_flows() {
   for (( shard = 0; shard < shard_count; shard++ )); do
     : > "$shard_result_dir/shard-$shard.tsv"
     (
-      run_flow_shard "$shard" "$shard_count" "$shard_result_dir/shard-$shard.tsv" "$app_bundle" "$flow_root" "$flow_build_root"
+      run_flow_shard "$shard" "$shard_count" "$shard_result_dir/shard-$shard.tsv" "$app_bundle" "$xctestrun" "$flow_root" "$flow_build_root"
     ) &
     shard_pid=$!
     SHARD_PIDS+=("$shard_pid")
