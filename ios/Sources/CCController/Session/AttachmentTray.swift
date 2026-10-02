@@ -64,12 +64,30 @@ struct ComposerAttachment: Identifiable {
     #endif
 }
 
+@MainActor
+private final class AttachmentThumbnailCache {
+    private let images = NSCache<NSString, UIImage>()
+
+    init() {
+        images.countLimit = 32
+    }
+
+    func image(for attachmentID: String) -> UIImage? {
+        images.object(forKey: attachmentID as NSString)
+    }
+
+    func insert(_ image: UIImage, for attachmentID: String) {
+        images.setObject(image, forKey: attachmentID as NSString)
+    }
+}
+
 struct AttachmentTrayView: View {
     let attachments: [ComposerAttachment]
     let notice: String?
     let onRemove: (String) -> Void
     let onRetry: (String) -> Void
     let pulseFailed: Bool
+    @State private var thumbnailCache = AttachmentThumbnailCache()
 
     init(
         attachments: [ComposerAttachment],
@@ -128,8 +146,8 @@ struct AttachmentTrayView: View {
                 }
                 removeButton(for: attachment)
             }
-            if case .failed(let reason) = attachment.state {
-                Text(reason)
+            if case .failed = attachment.state {
+                Text(attachment.canRetry ? "Upload failed" : "Too large (max 25 MB)")
                     .font(.caption2)
                     .foregroundStyle(.red)
                     .lineLimit(1)
@@ -147,23 +165,28 @@ struct AttachmentTrayView: View {
     }
 
     private func imageView(for attachment: ComposerAttachment) -> some View {
-        ZStack {
-            if let image = thumbnailImage(for: attachment) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Color.ccCard.overlay { Image(systemName: "photo").foregroundStyle(.ccSecondary) }
-            }
-            tileOverlay(for: attachment, showFailureBadge: true)
+        thumbnailContent(for: attachment)
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay { progressOverlay(for: attachment) }
+            .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.ccSeparator, lineWidth: 0.5) }
+            .overlay(alignment: .bottomLeading) { failureBadge(for: attachment) }
+    }
+
+    @ViewBuilder
+    private func thumbnailContent(for attachment: ComposerAttachment) -> some View {
+        if let image = thumbnailImage(for: attachment) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            Color.ccCard.overlay { Image(systemName: "photo").foregroundStyle(.ccSecondary) }
         }
-        .frame(width: 56, height: 56)
-        .clipped()
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.ccSeparator, lineWidth: 0.5) }
     }
 
     private func thumbnailImage(for attachment: ComposerAttachment) -> UIImage? {
+        if let image = thumbnailCache.image(for: attachment.id) { return image }
+
         let data: Data?
         if let thumbnailData = attachment.thumbnailData {
             data = thumbnailData
@@ -180,7 +203,9 @@ struct AttachmentTrayView: View {
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: 168,
               ] as CFDictionary) else { return nil }
-        return UIImage(cgImage: image)
+        let thumbnail = UIImage(cgImage: image)
+        thumbnailCache.insert(thumbnail, for: attachment.id)
+        return thumbnail
     }
 
     private func fileView(for attachment: ComposerAttachment) -> some View {
@@ -213,7 +238,7 @@ struct AttachmentTrayView: View {
             }
             .padding(.leading, 10)
             .padding(.trailing, 32)
-            tileOverlay(for: attachment, showFailureBadge: false)
+            progressOverlay(for: attachment)
         }
         .frame(width: 220, height: 56)
         .background(.ccCard, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -221,9 +246,8 @@ struct AttachmentTrayView: View {
     }
 
     @ViewBuilder
-    private func tileOverlay(for attachment: ComposerAttachment, showFailureBadge: Bool) -> some View {
-        switch attachment.state {
-        case .uploading(let progress):
+    private func progressOverlay(for attachment: ComposerAttachment) -> some View {
+        if case .uploading(let progress) = attachment.state {
             ZStack {
                 Color.ccBackground.opacity(0.38)
                 if progress >= 1 {
@@ -237,19 +261,20 @@ struct AttachmentTrayView: View {
                         .scaleEffect(0.85)
                 }
             }
-        case .attached:
-            EmptyView()
-        case .failed:
-            if showFailureBadge {
-                Circle()
-                    .fill(.red)
-                    .frame(width: 22, height: 22)
-                    .overlay { Image(systemName: "exclamationmark").font(.caption2.weight(.bold)).foregroundStyle(.white) }
-                    .padding(5)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            } else {
-                EmptyView()
-            }
+        }
+    }
+
+    @ViewBuilder
+    private func failureBadge(for attachment: ComposerAttachment) -> some View {
+        if case .failed = attachment.state, attachment.isImage {
+            Circle()
+                .fill(.red)
+                .frame(width: 22, height: 22)
+                .overlay { Image(systemName: "exclamationmark").font(.caption2.weight(.bold)).foregroundStyle(.white) }
+                .padding(4)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Attachment upload failed")
+                .accessibilityIdentifier("attachment-failure-badge")
         }
     }
 
@@ -285,7 +310,7 @@ struct AttachmentTrayView: View {
         case .uploading(let progress):
             progress >= 1 ? "\(attachment.name), uploaded, waiting for server" : "\(attachment.name), uploading \(Int(progress * 100)) percent"
         case .attached: "\(attachment.name), attached"
-        case .failed: "\(attachment.name), failed"
+        case .failed(let reason): "\(attachment.name), failed, \(reason)"
         }
     }
 
