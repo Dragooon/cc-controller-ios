@@ -174,6 +174,9 @@ final class InspectorFlowTests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832"]
+        if let colorScheme = environment["TEST_RUNNER_COLOR_SCHEME"], !colorScheme.isEmpty {
+            app.launchArguments += ["-CCColorScheme", colorScheme]
+        }
         app.launchEnvironment["CCBearer"] = environment["TEST_RUNNER_BEARER"] ?? ""
         app.launch()
         return app
