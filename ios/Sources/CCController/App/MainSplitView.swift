@@ -36,9 +36,12 @@ struct MainSplitView: View {
                 daemon: model.store.daemon,
                 apiVersion: model.store.apiVersion,
                 isUnpairing: model.isUnpairing,
+                lockAfter: SettingsLockInterval(model.lockPolicy.interval),
                 onDone: { model.isSettingsPresented = false },
                 onTestConnection: { Task { await model.settings.testConnection() } },
+                onLockNow: model.lockNow,
                 onUnpair: { Task { await model.unpair() } },
+                onLockInterval: { model.setLockInterval($0.lockInterval) },
                 onRetryDevices: { Task { await model.settings.loadPairedDevices() } }
             )
             .onAppear { model.settingsDidAppear() }

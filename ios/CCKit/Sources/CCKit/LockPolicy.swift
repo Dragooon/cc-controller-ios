@@ -22,6 +22,38 @@ public enum LockInterval: Sendable, Equatable, CaseIterable {
     }
 }
 
+public struct LockIntervalStore {
+    static let storageKey = "cc-controller.lockInterval"
+
+    private let userDefaults: UserDefaults
+
+    public init(userDefaults: UserDefaults = .standard) {
+        self.userDefaults = userDefaults
+    }
+
+    public var interval: LockInterval {
+        switch userDefaults.string(forKey: Self.storageKey) {
+        case "immediately": .immediately
+        case "fiveMinutes": .fiveMinutes
+        case "oneHour": .oneHour
+        default: .default
+        }
+    }
+
+    public func set(_ interval: LockInterval) {
+        switch interval {
+        case .immediately:
+            userDefaults.set("immediately", forKey: Self.storageKey)
+        case .fiveMinutes:
+            userDefaults.set("fiveMinutes", forKey: Self.storageKey)
+        case .oneHour:
+            userDefaults.set("oneHour", forKey: Self.storageKey)
+        case .custom:
+            userDefaults.removeObject(forKey: Self.storageKey)
+        }
+    }
+}
+
 public struct LockPolicy: Sendable, Equatable {
     public var interval: LockInterval
 
@@ -40,8 +72,9 @@ public struct LockPolicy: Sendable, Equatable {
         shouldLockOnForeground(after: lastActiveAt, now: now)
     }
 
-    public func shouldShowPrivacyCover(isActive: Bool, isBackgrounded: Bool) -> Bool {
-        !isActive || isBackgrounded
+    public func shouldShowPrivacyCover(isActive: Bool, isBackgrounded: Bool, isLocked: Bool) -> Bool {
+        guard !isLocked else { return false }
+        return !isActive || isBackgrounded
     }
 }
 
@@ -52,11 +85,15 @@ public enum LockScenePhase: Sendable, Equatable {
 }
 
 public struct LockTransitionPolicy: Sendable, Equatable {
-    private let policy: LockPolicy
+    private var policy: LockPolicy
     private var backgroundDate: Date?
 
     public init(policy: LockPolicy = LockPolicy()) {
         self.policy = policy
+    }
+
+    public mutating func setInterval(_ interval: LockInterval) {
+        policy.interval = interval
     }
 
     public mutating func shouldLock(on phase: LockScenePhase, at date: Date) -> Bool {

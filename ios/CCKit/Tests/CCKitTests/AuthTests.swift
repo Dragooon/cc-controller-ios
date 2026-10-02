@@ -37,7 +37,9 @@ final class AuthTests: XCTestCase {
         let loggedIn = try await client.login(secret: "native-secret")
         XCTAssertEqual(loggedIn.token, "bearer")
         try await client.logout(bearer: "bearer")
-        XCTAssertEqual(AuthURLProtocol.requests.last?.value(forHTTPHeaderField: "Authorization"), "Bearer bearer")
+        let logoutRequest = try XCTUnwrap(AuthURLProtocol.requests.last)
+        XCTAssertEqual(logoutRequest.value(forHTTPHeaderField: "Authorization"), "Bearer bearer")
+        XCTAssertEqual(logoutRequest.timeoutInterval, 5, accuracy: 0.001)
     }
 
     func testAuthClientMapsExpiredEnrollmentLoginAndNetworkErrors() async throws {
@@ -156,9 +158,9 @@ final class AuthTests: XCTestCase {
         XCTAssertTrue(LockPolicy(interval: .immediately).shouldLockOnForeground(after: date, now: date))
         XCTAssertFalse(LockPolicy(interval: .oneHour).shouldLockOnForeground(after: date, now: date.addingTimeInterval(3599)))
         XCTAssertTrue(LockPolicy(interval: .oneHour).shouldLockOnForeground(after: date, now: date.addingTimeInterval(3600)))
-        XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: false, isBackgrounded: false))
-        XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: true))
-        XCTAssertFalse(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: false))
+        XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: false, isBackgrounded: false, isLocked: false))
+        XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: true, isLocked: false))
+        XCTAssertFalse(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: false, isLocked: false))
     }
 }
 

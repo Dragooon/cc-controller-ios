@@ -26,7 +26,7 @@ final class AppModel {
 
     let auth: AuthSession
     let store: AppStore
-    let lockPolicy: LockPolicy
+    private(set) var lockPolicy: LockPolicy
     let settings: SettingsStore
 
     var phase: Phase
@@ -66,6 +66,7 @@ final class AppModel {
     private var debugPairingExpirySeconds: TimeInterval?
     #endif
     private let serverURL: URL
+    private let lockIntervalStore: LockIntervalStore
     private var lockTransitionPolicy: LockTransitionPolicy
     private(set) var currentScenePhase: ScenePhase = .background
     private var connectionTask: Task<Void, Never>?
@@ -92,6 +93,8 @@ final class AppModel {
         let isFixture = false
         #endif
         self.serverURL = serverURL
+        let lockIntervalStore = LockIntervalStore()
+        self.lockIntervalStore = lockIntervalStore
         debugOnboarding = isDebugOnboarding
         #if DEBUG
         debugPairingExpirySeconds = Self.argumentValue("-CCPairingExpirySeconds", in: arguments).flatMap(TimeInterval.init)
@@ -119,10 +122,12 @@ final class AppModel {
         #if DEBUG
         let lockInterval = Self.argumentValue("-CCLockInterval", in: arguments)
             .flatMap(TimeInterval.init)
-            .map(LockInterval.custom) ?? .default
-        self.lockPolicy = LockPolicy(interval: lockInterval)
+            .map(LockInterval.custom) ?? lockIntervalStore.interval
+        let lockPolicy = LockPolicy(interval: lockInterval)
+        self.lockPolicy = lockPolicy
         #else
-        self.lockPolicy = LockPolicy()
+        let lockPolicy = LockPolicy(interval: lockIntervalStore.interval)
+        self.lockPolicy = lockPolicy
         #endif
         self.lockTransitionPolicy = LockTransitionPolicy(policy: lockPolicy)
         self.phase = fixtureMode ? .unlocked : .onboarding
@@ -421,13 +426,25 @@ final class AppModel {
         }
     }
 
-    private func transitionToLocked() {
+    private func transitionToLocked(suppressAutoPrompt: Bool = false) {
         auth.lock()
         store.suspend()
-        hasAutoPromptedLockScreen = false
+        hasAutoPromptedLockScreen = suppressAutoPrompt
         phase = .locked
         updateSettingsProbing()
         promptLockIfNeeded()
+    }
+
+    func lockNow() {
+        guard phase == .unlocked else { return }
+        isSettingsPresented = false
+        transitionToLocked(suppressAutoPrompt: true)
+    }
+
+    func setLockInterval(_ interval: LockInterval) {
+        lockIntervalStore.set(interval)
+        lockPolicy.interval = interval
+        lockTransitionPolicy.setInterval(interval)
     }
 
     func settingsDidAppear() {
@@ -501,7 +518,8 @@ final class AppModel {
         )
         isPrivacyCovered = lockPolicy.shouldShowPrivacyCover(
             isActive: isActive,
-            isBackgrounded: isBackgrounded
+            isBackgrounded: isBackgrounded,
+            isLocked: phase == .locked
         )
 
         switch scenePhase {

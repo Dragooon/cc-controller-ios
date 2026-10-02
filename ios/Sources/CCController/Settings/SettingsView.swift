@@ -7,6 +7,22 @@ enum SettingsLockInterval: String, CaseIterable, Identifiable {
     case oneHour = "After 1 hour"
 
     var id: String { rawValue }
+
+    init(_ interval: LockInterval) {
+        switch interval {
+        case .immediately: self = .immediately
+        case .fiveMinutes: self = .fiveMinutes
+        case .oneHour, .custom: self = .fiveMinutes
+        }
+    }
+
+    var lockInterval: LockInterval {
+        switch self {
+        case .immediately: .immediately
+        case .fiveMinutes: .fiveMinutes
+        case .oneHour: .oneHour
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -193,6 +209,8 @@ struct SettingsView: View {
                     Text(interval.rawValue).tag(interval)
                 }
             }
+            .accessibilityIdentifier("settings-lock-interval")
+            .accessibilityValue(selectedLockInterval.rawValue)
             .onChange(of: selectedLockInterval) { _, interval in
                 onLockInterval(interval)
             }

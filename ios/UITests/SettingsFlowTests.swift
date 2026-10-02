@@ -96,6 +96,74 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCTAssertGreaterThanOrEqual(foreground - resumed, 2, "Latency did not resume in the foreground")
     }
 
+    func testLockNowKeepsLockScreenVisibleAndUnlocksWithoutAutoPrompt() async throws {
+        let app = launchOnboarding(lockInterval: 3)
+        defer {
+            audit(app, name: "settings-lock-now")
+            app.terminate()
+        }
+
+        try await setBiometricEnrollment(true)
+        try await reachFaceID(app)
+        app.buttons["Turn on Face ID"].tap()
+        try await postFixture("/fixture/biometric/match")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+
+        openSettings(app)
+        app.buttons["Lock now"].tap()
+
+        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Lock now did not show the lock screen")
+        XCTAssertFalse(app.staticTexts["Sessions"].exists, "Sessions remained visible after Lock now")
+        let unlockButton = app.buttons["Unlock with Face ID"]
+        XCTAssertTrue(unlockButton.waitForExistence(timeout: 10), "Lock screen unlock button did not appear")
+        XCTAssertEqual(unlockButton.value as? String, "idle", "Lock now unexpectedly started Face ID")
+        addScreenshot(named: "settings-lock-now")
+
+        unlockButton.tap()
+        try await postFixture("/fixture/biometric/match")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Face ID did not unlock after Lock now")
+    }
+
+    func testLockIntervalPersistsAfterBackgroundLock() async throws {
+        let app = launchOnboarding(lockInterval: 3)
+        defer {
+            audit(app, name: "settings-lock-interval")
+            app.terminate()
+        }
+
+        try await setBiometricEnrollment(true)
+        try await reachFaceID(app)
+        app.buttons["Turn on Face ID"].tap()
+        try await postFixture("/fixture/biometric/match")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+
+        openSettings(app)
+        let picker = element(app, "settings-lock-interval")
+        XCTAssertTrue(picker.waitForExistence(timeout: 10), "Lock interval picker did not appear")
+        picker.tap()
+        XCTAssertTrue(app.buttons["Immediately"].waitForExistence(timeout: 5), "Immediately option did not appear")
+        app.buttons["Immediately"].tap()
+        try await expectValue(app, "settings-lock-interval", equals: "Immediately")
+        app.buttons["Done"].tap()
+        let settingsClosed = await waitUntilGone(element(app, "settings-lock-interval"))
+        XCTAssertTrue(settingsClosed, "Settings did not close")
+
+        XCUIDevice.shared.press(.home)
+        try await Task.sleep(for: .seconds(1))
+        app.activate()
+        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Immediate interval did not lock after backgrounding")
+        try await postFixture("/fixture/biometric/match")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Face ID did not unlock after interval lock")
+
+        openSettings(app)
+        try await expectValue(app, "settings-lock-interval", equals: "Immediately")
+        addScreenshot(named: "settings-lock-interval-persisted")
+    }
+
     func testUnreachableMacExplainsWhatToCheck() async throws {
         let app = launchSignedIn(server: "http://127.0.0.1:1")
         defer {

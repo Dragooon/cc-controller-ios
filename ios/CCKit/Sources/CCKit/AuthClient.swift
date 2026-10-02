@@ -105,7 +105,7 @@ public final class AuthClient: Sendable {
     }
 
     public func logout(bearer: String? = nil) async throws {
-        _ = try await request("/api/auth/logout", method: "POST", body: Data("{}".utf8), bearer: bearer) as EmptyAuthResponse
+        _ = try await request("/api/auth/logout", method: "POST", body: Data("{}".utf8), bearer: bearer, timeoutInterval: 5) as EmptyAuthResponse
     }
 
     private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
@@ -119,7 +119,7 @@ public final class AuthClient: Sendable {
         return try await request(path, method: "POST", body: data, contentType: "application/json")
     }
 
-    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, bearer: String? = nil) async throws -> T {
+    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, bearer: String? = nil, timeoutInterval: TimeInterval? = nil) async throws -> T {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let suffix = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -131,6 +131,7 @@ public final class AuthClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
+        if let timeoutInterval { request.timeoutInterval = timeoutInterval }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw AuthError.decoding("Response was not HTTP") }
