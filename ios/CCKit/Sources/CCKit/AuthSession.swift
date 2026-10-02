@@ -211,7 +211,7 @@ public final class AuthSession {
 
     private func asAuthError(_ error: Error) -> AuthError {
         if let error = error as? AuthError { return error }
-        if let error = error as? CredentialStoreError { return .biometric(error.localizedDescription) }
+        if let error = error as? CredentialStoreError { return .biometric(faceIDFailureMessage(for: error)) }
         return .network(error.localizedDescription)
     }
 

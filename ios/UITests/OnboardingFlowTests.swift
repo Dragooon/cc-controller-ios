@@ -32,7 +32,7 @@ final class OnboardingFlowTests: XCTestCase {
         addScreenshot(named: "onboarding-sessions-arrival")
     }
 
-    func testFaceIDNoMatchShowsRetry() async throws {
+    func testFaceIDWaitsThenNoMatchThenRetrySucceeds() async throws {
         let app = launchOnboarding()
         defer {
             audit(app, name: "onboarding-faceid-nomatch")
@@ -43,10 +43,33 @@ final class OnboardingFlowTests: XCTestCase {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        try await Task.sleep(for: .seconds(1))
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertFalse(app.staticTexts["Sessions"].exists, "Sessions appeared before a biometric result")
         try await postFixture("/fixture/biometric/nomatch")
-        XCTAssertTrue(app.staticTexts["Secure storage could not be unlocked."].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Try again"].exists)
+        try await Task.sleep(for: .seconds(2))
+        let appDump = app.debugDescription
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let springboardDump = springboard.debugDescription
+        let dump = "APP\n\(appDump)\nSPRINGBOARD\n\(springboardDump)"
+        let attachment = XCTAttachment(data: Data(dump.utf8), uniformTypeIdentifier: "public.plain-text")
+        attachment.name = "faceid-nomatch-debug-description.txt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+
+        if springboardDump.localizedCaseInsensitiveContains("Retry") || springboardDump.localizedCaseInsensitiveContains("Cancel") {
+            XCTAssertTrue(springboard.staticTexts["Face Not Recognised"].exists)
+            XCTAssertTrue(springboard.buttons["Try Face ID Again"].exists || springboard.buttons["Cancel"].exists)
+            springboard.buttons["Cancel"].firstMatch.tap()
+            XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["Try again"].exists)
+        } else {
+            XCTAssertTrue(app.staticTexts["Face ID didn't match. Try again."].waitForExistence(timeout: 10), dump)
+            XCTAssertTrue(app.buttons["Try again"].exists)
+        }
+
+        app.buttons["Try again"].tap()
+        try await postFixture("/fixture/biometric/match")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Native login did not load Sessions")
     }
 
     func testFaceIDNotEnrolledBlocksWithoutFallback() async throws {

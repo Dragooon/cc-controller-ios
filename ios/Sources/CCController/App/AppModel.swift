@@ -138,7 +138,7 @@ final class AppModel {
                 phase = .onboarding
                 return
             }
-            let hasSecret = (try? await credentials.getNativeSecret()) != nil
+            let hasSecret = (try? await credentials.hasNativeSecret()) == true
             guard phase != .unlocked else { return }
             phase = hasSecret ? .locked : .onboarding
         }

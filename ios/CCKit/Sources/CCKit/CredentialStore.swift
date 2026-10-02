@@ -1,8 +1,10 @@
 import Foundation
+import LocalAuthentication
 
 public enum CredentialStoreError: Error, Sendable, Equatable, LocalizedError {
     case unavailable
     case accessDenied
+    case biometric(LAError.Code)
     case invalidData
     case system(String)
     case systemStatus(Int32, String)
@@ -16,6 +18,7 @@ public enum CredentialStoreError: Error, Sendable, Equatable, LocalizedError {
         switch self {
         case .unavailable: "Secure storage is unavailable on this device."
         case .accessDenied: "Secure storage could not be unlocked."
+        case .biometric: "Face ID did not work. Try again."
         case .invalidData: "Secure storage contained invalid data."
         case .system(let message): message
         case .systemStatus(_, let message): message
@@ -28,6 +31,7 @@ public protocol CredentialStore: Sendable {
     func setDeviceToken(_ value: String) async throws
     func deleteDeviceToken() async throws
     func getNativeSecret() async throws -> String?
+    func hasNativeSecret() async throws -> Bool
     func setNativeSecret(_ value: String) async throws
     func deleteNativeSecret() async throws
 }
@@ -56,6 +60,7 @@ public actor InMemoryCredentialStore: CredentialStore {
     public func setDeviceToken(_ value: String) async throws { storedDeviceToken = value }
     public func deleteDeviceToken() async throws { storedDeviceToken = nil }
     public func getNativeSecret() async throws -> String? { storedNativeSecret }
+    public func hasNativeSecret() async throws -> Bool { storedNativeSecret != nil }
     public func setNativeSecret(_ value: String) async throws { storedNativeSecret = value }
     public func deleteNativeSecret() async throws { storedNativeSecret = nil }
 }
@@ -87,8 +92,29 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
 
     public func getNativeSecret() async throws -> String? {
         let context = LAContext()
-        context.localizedReason = "Unlock cc-controller"
+        context.localizedFallbackTitle = ""
+        do {
+            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock cc-controller")
+        } catch let error as LAError {
+            throw CredentialStoreError.biometric(error.code)
+        } catch {
+            throw CredentialStoreError.system(error.localizedDescription)
+        }
         return try read(account: "nativeSecret", context: context)
+    }
+
+    public func hasNativeSecret() async throws -> Bool {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        var query = baseQuery(account: "nativeSecret")
+        query[kSecUseAuthenticationContext as String] = context
+        query[kSecReturnData as String] = false
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        switch status {
+        case errSecSuccess, errSecInteractionNotAllowed: return true
+        case errSecItemNotFound: return false
+        default: throw CredentialStoreError.systemStatus(status, SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)")
+        }
     }
 
     public func setNativeSecret(_ value: String) async throws {
