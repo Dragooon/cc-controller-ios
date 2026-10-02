@@ -9,16 +9,21 @@ RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
+POOL_SLOTS="${CC_IOS_POOL_SLOTS:-4}"
 POOL_IDLE_SECONDS=$((20 * 60))
 POOL_WAIT_SECONDS=$((60 * 60))
 POOL_SLOT=""
+POOL_OWNER_PID=""
 STARTED_DAEMON=""
 FIXTURE_OUT=""
 FIXTURE_LOG=""
 FIXTURE_SIM_UDID=""
+CURRENT_XCODEBUILD_PID=""
 RUN_DIR=""
 DIAG_DIR=""
 MOCK_RUN_DIR=""
+SHARD_CONTROLLER=1
+SHARD_PIDS=()
 
 step() {
   local name=$1; shift
@@ -71,6 +76,25 @@ simulator_state() {
 configure_keyboard() {
   local udid=$1
   xcrun simctl spawn "$udid" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
+}
+
+terminate_process_tree() {
+  local pid=$1 child
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    terminate_process_tree "$child"
+  done
+  kill -TERM "$pid" 2>/dev/null || true
+}
+
+stop_current_xcodebuild() {
+  local pid=$CURRENT_XCODEBUILD_PID
+  [[ -n "$pid" ]] || return 0
+  terminate_process_tree "$pid"
+  for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  kill -KILL "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  CURRENT_XCODEBUILD_PID=""
 }
 
 stop_fixture_daemon() {
@@ -153,7 +177,7 @@ pool_clear_stale_lock() {
 
 pool_holders() {
   local slot
-  for slot in 1 2; do
+  for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
     pool_clear_stale_lock "$slot"
     if [[ -d "$(pool_lock_dir "$slot")" ]]; then
       pool_lock_lane "$slot"
@@ -216,15 +240,18 @@ ensure_pool_devices() {
 pool_acquire() {
   [[ -n "$POOL_SLOT" ]] && return 0
   mkdir -p "$POOL_CACHE"
-  local lane="${CC_MOCK_LANE:-${USER:-user}-$$}"
+  local owner_pid
+  owner_pid=$(perl -e 'print getppid')
+  POOL_OWNER_PID=$owner_pid
+  local lane="${CC_MOCK_LANE:-${USER:-user}-$owner_pid}"
   local waited=0 slot lock holders message
   while (( waited <= POOL_WAIT_SECONDS )); do
-    for slot in 1 2; do
+    for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
       mkdir -p "$(pool_slot_dir "$slot")"
       pool_clear_stale_lock "$slot"
       lock=$(pool_lock_dir "$slot")
       if mkdir "$lock" 2>/dev/null; then
-        printf '%s\n' "$$" > "$lock/pid"
+        printf '%s\n' "$owner_pid" > "$lock/pid"
         printf '%s\n' "$lane" > "$lock/lane"
         POOL_SLOT=$slot
         ensure_pool_devices "$slot"
@@ -234,7 +261,7 @@ pool_acquire() {
       fi
     done
     holders=()
-    for slot in 1 2; do
+    for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
       [[ -d "$(pool_lock_dir "$slot")" ]] && holders+=("$(pool_lock_lane "$slot")")
     done
     message=$(IFS=', '; printf '%s' "${holders[*]:-unknown}")
@@ -250,16 +277,35 @@ pool_acquire() {
   done
 }
 
+pool_shutdown_slot_devices() {
+  local slot=$1
+  local device name udid state
+  for device in "${POOL_DEVICE_TYPES[@]}"; do
+    name=$(pool_device_name "$slot" "$device")
+    udid=$(simulator_udid "$name" || true)
+    [[ -z "$udid" ]] && continue
+    state=$(simulator_state "$udid" || true)
+    if [[ "$state" == 'Booted' ]]; then
+      xcrun simctl shutdown "$udid" >/dev/null
+      printf '%s\n' "shut down $name"
+    fi
+  done
+}
+
 release_pool_slot() {
   [[ -z "$POOL_SLOT" ]] && return 0
   local slot=$POOL_SLOT
   local lock pid
+  if (( slot >= 3 )); then
+    pool_shutdown_slot_devices "$slot" || true
+  fi
   lock=$(pool_lock_dir "$slot")
   pid=$(pool_lock_pid "$slot" || true)
-  if [[ "$pid" == "$$" ]]; then
+  if [[ "$pid" == "$POOL_OWNER_PID" ]]; then
     rm -rf "$lock"
   fi
   POOL_SLOT=""
+  POOL_OWNER_PID=""
 }
 
 pool_booted_udids() {
@@ -311,8 +357,21 @@ ensure_attachment_media() {
   : > "$marker"
 }
 
+stop_shards() {
+  [[ ${#SHARD_PIDS[@]} -gt 0 ]] || return 0
+  local pid
+  for pid in "${SHARD_PIDS[@]}"; do
+    [[ -z "$pid" ]] || kill -TERM "$pid" 2>/dev/null || true
+  done
+  for pid in "${SHARD_PIDS[@]}"; do
+    [[ -z "$pid" ]] || wait "$pid" 2>/dev/null || true
+  done
+  SHARD_PIDS=()
+}
+
 cleanup_run() {
   local status=$1
+  stop_current_xcodebuild || true
   stop_fixture_daemon || true
   if [[ -n "$DIAG_DIR" ]]; then
     mkdir -p "$DIAG_DIR"
@@ -337,6 +396,9 @@ cleanup_run() {
 cleanup_on_exit() {
   local status=$?
   trap - EXIT INT TERM
+  if [[ $SHARD_CONTROLLER -eq 1 ]]; then
+    stop_shards
+  fi
   cleanup_run "$status" || true
   exit "$status"
 }
@@ -347,7 +409,7 @@ trap 'exit 130' INT TERM
 cmd_generate() {
   mkdir -p "$IOS/Config"
   touch "$IOS/Config/Signing.local.xcconfig"
-  swift "$IOS/Scripts/render-icon.swift"
+  (cd "$ROOT" && swift "$IOS/Scripts/render-icon.swift")
   xcodegen generate --spec "$IOS/project.yml" --project "$IOS"
 }
 
@@ -461,98 +523,47 @@ cmd_shots() {
   printf '%s\n' "shots written to $shot_root"
 }
 
-cmd_flows() {
-  local devices=() test_filter=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --device)
-        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --device requires a value' >&2; exit 2; }
-        devices+=("$2")
-        shift 2
-        ;;
-      --test)
-        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --test requires a value' >&2; exit 2; }
-        test_filter=$2
-        shift 2
-        ;;
-      *) printf 'unknown flows option: %s\n' "$1" >&2; exit 2;;
-    esac
-  done
-  [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone 16 Plus")
+run_flow_test() {
+  local label=$1 method_log=$2
+  shift 2
+  local started=$SECONDS status=0
+  printf '%s\n' "[$label]"
+  "$@" > >(tee -a "$method_log") 2>&1 &
+  CURRENT_XCODEBUILD_PID=$!
+  if wait "$CURRENT_XCODEBUILD_PID"; then
+    status=0
+  else
+    status=$?
+  fi
+  CURRENT_XCODEBUILD_PID=""
+  printf '%s\n' "[$label] $((SECONDS - started))s"
+  return "$status"
+}
 
-  local flow_file flow_class flow_method
-  local flow_files=() flow_methods=() flow_method_classes=()
-  while IFS= read -r flow_file; do
-    [[ -z "$flow_file" ]] && continue
-    flow_class=$(basename "$flow_file" .swift)
-    flow_files+=("$flow_file")
-    while IFS= read -r flow_method; do
-      [[ -z "$flow_method" ]] && continue
-      flow_method_classes+=("$flow_class")
-      flow_methods+=("$flow_method")
-    done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
-  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' \) -print | sort)
-  if [[ ${#flow_files[@]} -eq 0 ]]; then
-    printf '%s\n' 'no flow tests found'
-    return 0
-  fi
-  if [[ ${#flow_methods[@]} -eq 0 ]]; then
-    printf '%s\n' 'no flow test methods found'
-    return 0
-  fi
+run_flow_shard() {
+  local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 flow_root=$5 flow_build_root=$6
+  SHARD_CONTROLLER=0
+  SHARD_PIDS=()
+  RUN_DIR=$(mktemp -d -t cc-controller-flow-shard.XXXXXX)
+  local shard_failed=0
+  local shard_udids=() device device_index udid
+  local index flow_class flow_method
+
   pool_acquire
-
-  local selector_class="$test_filter" selector_method="" filter_has_method=0
-  if [[ "$test_filter" == */* ]]; then
-    filter_has_method=1
-    selector_class=${test_filter%%/*}
-    selector_method=${test_filter#*/}
-  fi
-  local selected_classes=() selected_methods=() selected_count=0
-  local index
-  for index in "${!flow_methods[@]}"; do
-    flow_class=${flow_method_classes[$index]}
-    flow_method=${flow_methods[$index]}
-    [[ -z "$test_filter" || "$selector_class" == "$flow_class" ]] || continue
-    [[ $filter_has_method -eq 0 || "$selector_method" == "$flow_method" ]] || continue
-    selected_classes+=("$flow_class")
-    selected_methods+=("$flow_method")
-    selected_count=$((selected_count + 1))
+  for device in "${devices[@]}"; do
+    shard_udids+=("$(ensure_pool_device "$device")")
   done
-  if [[ -n "$test_filter" && $selected_count -eq 0 ]]; then
-    printf 'unknown flow test: %s\n' "$test_filter" >&2
-    return 2
-  fi
 
-  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
-    DERIVED="$IOS/build/flow-derived-$CC_MOCK_LANE"
-  fi
-  cmd_generate
-  local flow_root="$IOS/shots/flows"
-  local flow_build_root="$IOS/build/flows"
-  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
-    flow_root="$flow_root/$CC_MOCK_LANE"
-    flow_build_root="$flow_build_root-$CC_MOCK_LANE"
-  fi
-  mkdir -p "$flow_root"
-  RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
-  DIAG_DIR=""
-
-  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing)
-  step 'flows build-for-testing' "${build_args[@]}"
-  local app_bundle="$DERIVED/Build/Products/Debug-iphonesimulator/cc-controller.app"
-  if [[ ! -d "$app_bundle" ]]; then
-    printf 'build-for-testing did not produce %s\n' "$app_bundle" >&2
-    return 1
-  fi
-
-  local summary_labels=() summary_results=() summary_seconds=() failed=0
   for index in "${!selected_methods[@]}"; do
+    if (( index % shard_count != shard_index )); then
+      continue
+    fi
     flow_class=${selected_classes[$index]}
     flow_method=${selected_methods[$index]}
+    device_index=0
     for device in "${devices[@]}"; do
       local method_started=$SECONDS
-      local udid result exported output_dir device_key method_log
+      local result exported output_dir device_key method_log
       local method_status=0 xcode_status=0 export_status=0
       device_key=$(echo "$device" | tr ' ()' '---')
       output_dir="$flow_root/$device_key/$flow_class/$flow_method"
@@ -563,7 +574,7 @@ cmd_flows() {
       mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
 
       stop_fixture_daemon
-      udid=$(ensure_pool_device "$device")
+      udid=${shard_udids[$device_index]}
       FIXTURE_SIM_UDID="$udid"
       if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
         ensure_attachment_media "$udid"
@@ -583,13 +594,13 @@ cmd_flows() {
         bearer=$(json_value "$FIXTURE_OUT" bearer)
         control_port=$(json_value "$FIXTURE_OUT" controlPort)
         local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
-        if step "flows $flow_class/$flow_method $device" env \
+        if run_flow_test "flows $flow_class/$flow_method $device" "$method_log" env \
           "CC_FLOW_OUTPUT_DIR=$output_dir" \
           "TEST_RUNNER_SERVER_URL=http://127.0.0.1:$web_port" \
           "TEST_RUNNER_BEARER=$bearer" \
           "TEST_RUNNER_FIXTURE_CONTROL_URL=http://127.0.0.1:$control_port" \
           "TEST_RUNNER_COLOR_SCHEME=${TEST_RUNNER_COLOR_SCHEME:-light}" \
-          "${args[@]}" 2>&1 | tee -a "$method_log"; then
+          "${args[@]}"; then
           xcode_status=0
         else
           xcode_status=$?
@@ -622,21 +633,158 @@ cmd_flows() {
       local result_label=PASS
       if [[ $method_status -ne 0 ]]; then
         result_label=FAIL
-        failed=$((failed + 1))
+        shard_failed=$((shard_failed + 1))
+      elif grep -Eq 'Test Case .* skipped' "$method_log"; then
+        result_label=SKIP
       fi
-      summary_labels+=("$flow_class/$flow_method [$device]")
-      summary_results+=("$result_label")
-      summary_seconds+=("$elapsed")
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$index" "$device_index" "$flow_class" "$flow_method" "$device" "$result_label" "$elapsed" >> "$result_file"
+      device_index=$((device_index + 1))
     done
   done
+  if [[ $shard_failed -eq 0 ]]; then
+    return 0
+  fi
+  return 1
+}
 
+cmd_flows() {
+  local devices=() test_filter="" shard_count=1
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --device)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --device requires a value' >&2; exit 2; }
+        devices+=("$2")
+        shift 2
+        ;;
+      --test)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --test requires a value' >&2; exit 2; }
+        test_filter=$2
+        shift 2
+        ;;
+      --shards)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --shards requires a value' >&2; exit 2; }
+        shard_count=$2
+        shift 2
+        ;;
+      *) printf 'unknown flows option: %s\n' "$1" >&2; exit 2;;
+    esac
+  done
+  [[ "$shard_count" =~ ^[1-9][0-9]*$ ]] || { printf 'flows --shards must be a positive integer\n' >&2; exit 2; }
+  [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone 16 Plus")
+
+  local flow_file flow_class flow_method
+  local flow_files=() flow_methods=() flow_method_classes=()
+  while IFS= read -r flow_file; do
+    [[ -z "$flow_file" ]] && continue
+    flow_class=$(basename "$flow_file" .swift)
+    flow_files+=("$flow_file")
+    while IFS= read -r flow_method; do
+      [[ -z "$flow_method" ]] && continue
+      flow_method_classes+=("$flow_class")
+      flow_methods+=("$flow_method")
+    done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
+  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' \) -print | sort)
+  if [[ ${#flow_files[@]} -eq 0 ]]; then
+    printf '%s\n' 'no flow tests found'
+    return 0
+  fi
+  if [[ ${#flow_methods[@]} -eq 0 ]]; then
+    printf '%s\n' 'no flow test methods found'
+    return 0
+  fi
+
+  local selector_class="$test_filter" selector_method="" filter_has_method=0
+  if [[ "$test_filter" == */* ]]; then
+    filter_has_method=1
+    selector_class=${test_filter%%/*}
+    selector_method=${test_filter#*/}
+  fi
+  local selected_classes=() selected_methods=() selected_count=0
+  local index
+  for index in "${!flow_methods[@]}"; do
+    flow_class=${flow_method_classes[$index]}
+    flow_method=${flow_methods[$index]}
+    [[ -z "$test_filter" || "$selector_class" == "$flow_class" ]] || continue
+    [[ $filter_has_method -eq 0 || "$selector_method" == "$flow_method" ]] || continue
+    selected_classes+=("$flow_class")
+    selected_methods+=("$flow_method")
+    selected_count=$((selected_count + 1))
+  done
+  if [[ -n "$test_filter" && $selected_count -eq 0 ]]; then
+    printf 'unknown flow test: %s\n' "$test_filter" >&2
+    return 2
+  fi
+
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
+    DERIVED="$IOS/build/flow-derived-$CC_MOCK_LANE"
+  fi
+  step generate cmd_generate
+  local flow_root="$IOS/shots/flows"
+  local flow_build_root="$IOS/build/flows"
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
+    flow_root="$flow_root/$CC_MOCK_LANE"
+    flow_build_root="$flow_build_root-$CC_MOCK_LANE"
+  fi
+  mkdir -p "$flow_root"
+  RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
+  DIAG_DIR=""
+
+  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing)
+  step 'flows build-for-testing' "${build_args[@]}"
+  local app_bundle="$DERIVED/Build/Products/Debug-iphonesimulator/cc-controller.app"
+  if [[ ! -d "$app_bundle" ]]; then
+    printf 'build-for-testing did not produce %s\n' "$app_bundle" >&2
+    return 1
+  fi
+
+  local shard_result_dir="$RUN_DIR/results"
+  mkdir -p "$shard_result_dir"
+  local shard shard_pid
+  for (( shard = 0; shard < shard_count; shard++ )); do
+    : > "$shard_result_dir/shard-$shard.tsv"
+    (
+      run_flow_shard "$shard" "$shard_count" "$shard_result_dir/shard-$shard.tsv" "$app_bundle" "$flow_root" "$flow_build_root"
+    ) &
+    shard_pid=$!
+    SHARD_PIDS+=("$shard_pid")
+  done
+
+  local shard_status=0
+  for shard_pid in "${SHARD_PIDS[@]}"; do
+    if wait "$shard_pid"; then
+      :
+    else
+      shard_status=1
+    fi
+  done
+  SHARD_PIDS=()
+
+  local result_files=()
+  for (( shard = 0; shard < shard_count; shard++ )); do
+    result_files+=("$shard_result_dir/shard-$shard.tsv")
+  done
+  local summary_count=0 passed=0 failed=0 skipped=0
+  local result_index result_device_index result_class result_method result_device result_label result_seconds
   printf '\nFlow summary\n'
   printf '%-70s %-8s %8s\n' 'class/method [device]' 'result' 'seconds'
-  for index in "${!summary_labels[@]}"; do
-    printf '%-70s %-8s %8s\n' "${summary_labels[$index]}" "${summary_results[$index]}" "${summary_seconds[$index]}"
-  done
-  if [[ $failed -ne 0 ]]; then
-    printf '%s\n' "$failed flow method(s) failed" >&2
+  while IFS=$'\t' read -r result_index result_device_index result_class result_method result_device result_label result_seconds; do
+    [[ -z "$result_index" ]] && continue
+    printf '%-70s %-8s %8s\n' "$result_class/$result_method [$result_device]" "$result_label" "$result_seconds"
+    summary_count=$((summary_count + 1))
+    case "$result_label" in
+      PASS) passed=$((passed + 1));;
+      FAIL) failed=$((failed + 1));;
+      SKIP) skipped=$((skipped + 1));;
+    esac
+  done < <(LC_ALL=C sort -t $'\t' -k1,1n -k2,2n "${result_files[@]}")
+
+  printf '%s passed, %s failed, %s skipped\n' "$passed" "$failed" "$skipped"
+  if [[ $summary_count -ne $((selected_count * ${#devices[@]})) ]]; then
+    printf 'flow summary contains %s of %s expected methods\n' "$summary_count" "$((selected_count * ${#devices[@]}))" >&2
+    shard_status=1
+  fi
+  if [[ $failed -ne 0 || $shard_status -ne 0 ]]; then
+    printf '%s\n' 'one or more flow shards failed' >&2
     return 1
   fi
   printf '%s\n' "flow shots written to $flow_root"
@@ -700,7 +848,7 @@ cmd_mocks() {
 pool_status() {
   mkdir -p "$POOL_CACHE"
   local slot device name udid state marker last display lane
-  for slot in 1 2; do
+  for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
     pool_clear_stale_lock "$slot"
     if [[ -d "$(pool_lock_dir "$slot")" ]]; then
       lane=$(pool_lock_lane "$slot")
@@ -727,14 +875,14 @@ pool_status() {
 
 pool_down() {
   local slot device name udid state
-  for slot in 1 2; do
+  for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
     pool_clear_stale_lock "$slot"
     if [[ -d "$(pool_lock_dir "$slot")" ]]; then
       printf 'cannot pool down: slot %s is held by %s\n' "$slot" "$(pool_lock_lane "$slot")" >&2
       return 1
     fi
   done
-  for slot in 1 2; do
+  for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
     for device in "${POOL_DEVICE_TYPES[@]}"; do
       name=$(pool_device_name "$slot" "$device")
       udid=$(simulator_udid "$name" || true)
@@ -750,14 +898,14 @@ pool_down() {
 
 pool_reset() {
   local slot device name udid
-  for slot in 1 2; do
+  for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
     pool_clear_stale_lock "$slot"
     if [[ -d "$(pool_lock_dir "$slot")" ]]; then
       printf 'cannot pool reset: slot %s is held by %s\n' "$slot" "$(pool_lock_lane "$slot")" >&2
       return 1
     fi
   done
-  for slot in 1 2; do
+  for ((slot = 1; slot <= POOL_SLOTS; slot++)); do
     for device in "${POOL_DEVICE_TYPES[@]}"; do
       name=$(pool_device_name "$slot" "$device")
       udid=$(simulator_udid "$name" || true)
