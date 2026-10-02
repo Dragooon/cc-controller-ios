@@ -1,10 +1,5 @@
+import CCKit
 import SwiftUI
-
-struct SettingsPairedDevice: Identifiable {
-    let id: String
-    let name: String
-    let lastSeen: String
-}
 
 enum SettingsLockInterval: String, CaseIterable, Identifiable {
     case immediately = "Immediately"
@@ -15,33 +10,60 @@ enum SettingsLockInterval: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    let address: String
+    let latency: SettingsLatency
+    let connectionTest: SettingsConnectionTest?
+    let thisDevice: SettingsLoad<SettingsThisDevice>
+    let pairedDevices: SettingsLoad<[SettingsPairedDeviceRow]>
+    let appVersion: String
+    let daemon: DaemonInfo?
+    let apiVersion: Int?
+    let isUnpairing: Bool
     let onDone: () -> Void
     let onTestConnection: () -> Void
     let onLockNow: () -> Void
     let onUnpair: () -> Void
     let onLockInterval: (SettingsLockInterval) -> Void
-    let pairedDevices: [SettingsPairedDevice]
+    let onRetryDevices: () -> Void
     let lockAfter: SettingsLockInterval
 
     @State private var selectedLockInterval: SettingsLockInterval
     @State private var showingUnpairConfirmation = false
 
     init(
+        address: String = "127.0.0.1:47832",
+        latency: SettingsLatency = .checking,
+        connectionTest: SettingsConnectionTest? = nil,
+        thisDevice: SettingsLoad<SettingsThisDevice> = .loading,
+        pairedDevices: SettingsLoad<[SettingsPairedDeviceRow]> = .loading,
+        appVersion: String = "Unknown",
+        daemon: DaemonInfo? = nil,
+        apiVersion: Int? = nil,
+        isUnpairing: Bool = false,
         lockAfter: SettingsLockInterval = .fiveMinutes,
-        pairedDevices: [SettingsPairedDevice] = [],
         onDone: @escaping () -> Void = {},
         onTestConnection: @escaping () -> Void = {},
         onLockNow: @escaping () -> Void = {},
         onUnpair: @escaping () -> Void = {},
-        onLockInterval: @escaping (SettingsLockInterval) -> Void = { _ in }
+        onLockInterval: @escaping (SettingsLockInterval) -> Void = { _ in },
+        onRetryDevices: @escaping () -> Void = {}
     ) {
-        self.lockAfter = lockAfter
+        self.address = address
+        self.latency = latency
+        self.connectionTest = connectionTest
+        self.thisDevice = thisDevice
         self.pairedDevices = pairedDevices
+        self.appVersion = appVersion
+        self.daemon = daemon
+        self.apiVersion = apiVersion
+        self.isUnpairing = isUnpairing
+        self.lockAfter = lockAfter
         self.onDone = onDone
         self.onTestConnection = onTestConnection
         self.onLockNow = onLockNow
         self.onUnpair = onUnpair
         self.onLockInterval = onLockInterval
+        self.onRetryDevices = onRetryDevices
         _selectedLockInterval = State(initialValue: lockAfter)
     }
 
@@ -82,39 +104,86 @@ struct SettingsView: View {
     }
 
     private var connectionSection: some View {
-        Section("Connection") {
-            Picker("Mode", selection: .constant("Termius forward")) {
-                Text("Termius forward").tag("Termius forward")
-            }
-            Text("Built-in tunnel")
-                .foregroundStyle(.ccSecondary)
-                .disabled(true)
-            Text("Coming in a later version")
-                .font(.footnote)
-                .foregroundStyle(.ccSecondary)
-
+        Section {
             LabeledContent("Address") {
-                Text("127.0.0.1:47832")
+                Text(address)
                     .font(.footnote.monospaced())
                     .foregroundStyle(.ccLabel)
             }
+            .settingsValue("Address", address, id: "settings-address")
 
             HStack {
                 Text("Latency")
                 Spacer()
                 Circle()
-                    .fill(.ccGreen)
+                    .fill(latencyColor)
                     .frame(width: 8, height: 8)
-                Text("18 ms")
+                Text(settingsLatencyText(latency))
                     .font(.body.monospacedDigit())
-                    .foregroundStyle(.ccLabel)
+                    .foregroundStyle(latency == .unreachable ? .ccRed : .ccLabel)
             }
+            .settingsValue("Latency", settingsLatencyText(latency), id: "settings-latency")
 
             Button(action: onTestConnection) {
-                Text("Test connection")
+                testConnectionLabel
                     .frame(maxWidth: .infinity)
             }
+            .disabled(connectionTest == .testing)
+            .accessibilityIdentifier("settings-test-connection")
+
+            if let connectionTest, connectionTest != .testing {
+                testResultRow(connectionTest)
+            }
+        } header: {
+            Text("Connection")
+        } footer: {
+            if latency == .unreachable {
+                Text(settingsUnreachableGuidance(address: address))
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+                    .accessibilityIdentifier("settings-unreachable-help")
+            }
         }
+    }
+
+    private var latencyColor: Color {
+        switch latency {
+        case .checking: .ccTertiary
+        case .reachable: .ccGreen
+        case .unreachable: .ccRed
+        }
+    }
+
+    @ViewBuilder
+    private var testConnectionLabel: some View {
+        if connectionTest == .testing {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Testing…")
+            }
+        } else {
+            Text("Test connection")
+        }
+    }
+
+    private func testResultRow(_ test: SettingsConnectionTest) -> some View {
+        let isReachable = if case .reachable = test { true } else { false }
+        let testedAt: Date? = switch test {
+        case .testing: nil
+        case .reachable(_, let at), .unreachable(let at): at
+        }
+        let time = testedAt?.formatted(date: .omitted, time: .standard) ?? ""
+        return HStack(spacing: 8) {
+            Image(systemName: isReachable ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                .foregroundStyle(isReachable ? .ccGreen : .ccRed)
+            Text(connectionTestTitle(test))
+                .foregroundStyle(.ccLabel)
+            Spacer()
+            Text(time)
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.ccSecondary)
+        }
+        .settingsValue("Connection test", "\(connectionTestTitle(test)), tested at \(time)", id: "settings-test-result")
     }
 
     private var securitySection: some View {
@@ -136,30 +205,35 @@ struct SettingsView: View {
     }
 
     private var deviceSection: some View {
-        Section("This device") {
-            LabeledContent("Name", value: "Sam's iPhone")
-            LabeledContent("Paired", value: "30 Sep 2026")
-            LabeledContent("Session expires", value: "in 11 h")
+        let text = SettingsThisDeviceText(thisDevice, now: .now)
+        return Section("This device") {
+            LabeledContent("Name", value: text.name)
+                .settingsValue("Name", text.name, id: "settings-device-name")
+            LabeledContent("Paired", value: text.paired)
+                .settingsValue("Paired", text.paired, id: "settings-device-paired")
+            LabeledContent("Session expires", value: text.expiry)
+                .settingsValue("Session expires", text.expiry, id: "settings-device-expiry")
 
-            Button("Unpair this iPhone", role: .destructive) {
+            Button(role: .destructive) {
                 showingUnpairConfirmation = true
+            } label: {
+                if isUnpairing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Unpairing…")
+                    }
+                } else {
+                    Text("Unpair this iPhone")
+                }
             }
+            .disabled(isUnpairing)
+            .accessibilityIdentifier("settings-unpair")
         }
     }
 
     private var pairedDevicesSection: some View {
         Section {
-            ForEach(pairedDevices) { device in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(device.name)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.ccLabel)
-                    Text("Last seen \(device.lastSeen)")
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
-                }
-                .padding(.vertical, 2)
-            }
+            pairedDevicesContent
         } header: {
             Text("Paired devices")
         } footer: {
@@ -175,11 +249,84 @@ struct SettingsView: View {
         }
     }
 
-    private var aboutSection: some View {
-        Section("About") {
-            LabeledContent("App", value: "1.0 (1)")
-            LabeledContent("cc-controller", value: "0.1.0 (b961f05)")
-            LabeledContent("API version", value: "2")
+    @ViewBuilder
+    private var pairedDevicesContent: some View {
+        switch pairedDevices {
+        case .loading:
+            HStack(spacing: 10) {
+                ProgressView()
+                Text("Loading devices…")
+                    .foregroundStyle(.ccSecondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings-devices-loading")
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Couldn't load paired devices")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccLabel)
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+            }
+            .padding(.vertical, 2)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("settings-devices-error")
+            Button("Retry", action: onRetryDevices)
+                .accessibilityIdentifier("settings-devices-retry")
+        case .loaded(let devices) where devices.isEmpty:
+            Text("No devices are paired with this Mac.")
+                .foregroundStyle(.ccSecondary)
+                .accessibilityIdentifier("settings-devices-empty")
+        case .loaded(let devices):
+            ForEach(devices) { device in
+                pairedDeviceRow(device)
+            }
         }
+    }
+
+    private func pairedDeviceRow(_ device: SettingsPairedDeviceRow) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(device.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccLabel)
+                Text(lastSeenText(device.lastSeenAt, now: .now))
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+            }
+            Spacer()
+            if device.isThisDevice {
+                Text("This iPhone")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(device.isThisDevice ? "settings-paired-this-device" : "settings-paired-device")
+    }
+
+    private var aboutSection: some View {
+        let daemonVersion = daemonVersionText(daemon)
+        let api = apiVersionText(apiVersion)
+        return Section("About") {
+            LabeledContent("App", value: appVersion)
+                .settingsValue("App", appVersion, id: "settings-app-version")
+            LabeledContent("cc-controller", value: daemonVersion)
+                .settingsValue("cc-controller", daemonVersion, id: "settings-daemon-version")
+            LabeledContent("API version", value: api)
+                .settingsValue("API version", api, id: "settings-api-version")
+        }
+    }
+}
+
+private extension View {
+    /// Collapses a row into one accessibility element so VoiceOver and UI tests read its exact value.
+    func settingsValue(_ label: String, _ value: String, id: String) -> some View {
+        accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue(value)
+            .accessibilityIdentifier(id)
     }
 }

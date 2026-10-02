@@ -26,7 +26,23 @@ struct MainSplitView: View {
             Text(model.actionError?.userMessage ?? "The action could not be completed.")
         }
         .sheet(isPresented: $model.isSettingsPresented) {
-            SettingsView(onDone: { model.isSettingsPresented = false })
+            SettingsView(
+                address: model.connectionAddress,
+                latency: model.settings.latency,
+                connectionTest: model.settings.connectionTest,
+                thisDevice: model.settings.thisDevice,
+                pairedDevices: model.settings.pairedDevices,
+                appVersion: model.appVersion,
+                daemon: model.store.daemon,
+                apiVersion: model.store.apiVersion,
+                isUnpairing: model.isUnpairing,
+                onDone: { model.isSettingsPresented = false },
+                onTestConnection: { Task { await model.settings.testConnection() } },
+                onUnpair: { Task { await model.unpair() } },
+                onRetryDevices: { Task { await model.settings.loadPairedDevices() } }
+            )
+            .onAppear { model.settingsDidAppear() }
+            .onDisappear { model.settingsDidDisappear() }
         }
     }
 

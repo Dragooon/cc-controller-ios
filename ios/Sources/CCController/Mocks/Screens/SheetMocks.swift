@@ -21,10 +21,21 @@ enum SheetMocks {
         Color.ccBackground
             .sheet(isPresented: .constant(true)) {
                 SettingsView(
-                    pairedDevices: [
-                        SettingsPairedDevice(id: "macbook", name: "Sam's MacBook Pro", lastSeen: "just now"),
-                        SettingsPairedDevice(id: "ipad", name: "Sam's iPad", lastSeen: "2 days ago"),
-                    ]
+                    latency: .reachable(.milliseconds(18)),
+                    thisDevice: .loaded(
+                        SettingsThisDevice(
+                            name: "Sam's iPhone",
+                            pairedAt: Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 30)),
+                            sessionExpiresAt: Date.now.addingTimeInterval(11 * 60 * 60 + 30 * 60)
+                        )
+                    ),
+                    pairedDevices: .loaded([
+                        SettingsPairedDeviceRow(id: "iphone", name: "Sam's iPhone", lastSeenAt: .now, isThisDevice: true),
+                        SettingsPairedDeviceRow(id: "ipad", name: "Sam's iPad", lastSeenAt: Date.now.addingTimeInterval(-2 * 24 * 60 * 60), isThisDevice: false),
+                    ]),
+                    appVersion: "1.0 (1)",
+                    daemon: DaemonInfo(version: "0.1.0", commit: "b961f05"),
+                    apiVersion: 2
                 )
             }
     }

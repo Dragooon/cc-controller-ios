@@ -27,6 +27,7 @@ final class AppModel {
     let auth: AuthSession
     let store: AppStore
     let lockPolicy: LockPolicy
+    let settings: SettingsStore
 
     var phase: Phase
     var selectedSessionID: String?
@@ -43,12 +44,20 @@ final class AppModel {
     var copiedPairingCommand = false
     var faceIDMessage: String?
     private(set) var isAuthenticating = false
+    private(set) var isUnpairing = false
 
     var onboardingStep: OnboardingStep { onboarding.step }
     var pairingCode: String? { onboarding.pairingCode }
     var pairingExpiresAt: Date? { onboarding.pairingExpiresAt }
     var connectionAddress: String { serverURL.absoluteString.replacingOccurrences(of: "http://", with: "") }
     var connection: OnboardingConnection { onboarding.connection }
+    var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        return appVersionText(
+            version: info?["CFBundleShortVersionString"] as? String,
+            build: info?["CFBundleVersion"] as? String
+        )
+    }
 
     private let credentials: any CredentialStore
     private let fixtureMode: Bool
@@ -65,6 +74,7 @@ final class AppModel {
     private var nativeSecretEnrolledForOnboarding = false
     private var hasAutoPromptedLockScreen = false
     private var deviceName = "iPhone"
+    private var isSettingsVisible = false
 
     init(
         arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -122,7 +132,7 @@ final class AppModel {
         self.colorScheme = nil
         #endif
         self.deviceName = UIDevice.current.name
-        self.store = AppStore(
+        let store = AppStore(
             serverURL: serverURL,
             bearerProvider: {
                 #if DEBUG
@@ -136,6 +146,12 @@ final class AppModel {
             authenticationFailureHandler: {
                 _ = await auth.handleUnauthorized()
             }
+        )
+        self.store = store
+        self.settings = SettingsStore(
+            probe: { try await auth.probeDaemon(timeout: 5) },
+            whoAmI: { try await store.whoAmI() },
+            devices: { try await store.pairedDevices() }
         )
         observeApprovalCount()
         Task { @MainActor [weak self] in
@@ -410,7 +426,54 @@ final class AppModel {
         store.suspend()
         hasAutoPromptedLockScreen = false
         phase = .locked
+        updateSettingsProbing()
         promptLockIfNeeded()
+    }
+
+    func settingsDidAppear() {
+        isSettingsVisible = true
+        settings.reset()
+        updateSettingsProbing()
+        Task { @MainActor [weak self] in
+            await self?.settings.load()
+        }
+    }
+
+    func settingsDidDisappear() {
+        isSettingsVisible = false
+        updateSettingsProbing()
+    }
+
+    private func updateSettingsProbing() {
+        settings.updateProbing(
+            isVisible: isSettingsVisible,
+            isUnlocked: phase == .unlocked,
+            isActive: currentScenePhase == .active
+        )
+    }
+
+    /// Logs out on the daemon, deletes this iPhone's Keychain items and cache, and restarts onboarding.
+    func unpair() async {
+        guard !isUnpairing else { return }
+        isUnpairing = true
+        defer { isUnpairing = false }
+        connectionTask?.cancel()
+        pairingTask?.cancel()
+        store.suspend()
+        // A failed daemon logout still leaves this iPhone unpaired: the Keychain items are deleted either way and the daemon session expires at its TTL.
+        _ = await auth.unpair()
+        await store.clearLocalState()
+        settings.reset()
+        isSettingsPresented = false
+        selectedSessionID = nil
+        onboarding = OnboardingFlowState()
+        connectionMessage = nil
+        faceIDMessage = nil
+        nativeSecretEnrolledForOnboarding = false
+        hasAutoPromptedLockScreen = false
+        phase = .onboarding
+        updateSettingsProbing()
+        await updateBadgeCount(0)
     }
 
     func startStoreIfNeeded() {
@@ -429,6 +492,7 @@ final class AppModel {
         lockLogger.notice("scene transition=\(String(describing: scenePhase), privacy: .public)")
         #endif
         currentScenePhase = scenePhase
+        defer { updateSettingsProbing() }
         let isActive = scenePhase == .active
         let isBackgrounded = scenePhase == .background
         let shouldLock = lockTransitionPolicy.shouldLock(
