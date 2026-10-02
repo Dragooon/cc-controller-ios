@@ -1,0 +1,119 @@
+import Foundation
+import XCTest
+
+@MainActor
+class FixtureFlowTestSupport: XCTestCase {
+    private var auditLines: [String] = []
+
+    override func tearDown() {
+        let report = auditLines.isEmpty ? "No accessibility issues reported." : auditLines.joined(separator: "\n")
+        let attachment = XCTAttachment(data: Data(report.utf8), uniformTypeIdentifier: "public.plain-text")
+        attachment.name = "fixture-flow-audit.txt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        super.tearDown()
+    }
+
+    func launchOnboarding(server: String? = nil, expirySeconds: Int? = nil, lockInterval: TimeInterval? = nil) -> XCUIApplication {
+        launchFixture(server: server, onboarding: true, expirySeconds: expirySeconds, lockInterval: lockInterval)
+    }
+
+    func launchCold(server: String? = nil) -> XCUIApplication {
+        launchFixture(server: server, onboarding: false)
+    }
+
+    func reachFaceID(_ app: XCUIApplication) async throws {
+        app.buttons["Get started"].tap()
+        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
+        let connected = app.staticTexts["Connected to cc-controller"]
+        XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")
+        let latency = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*· [0-9]+ ms")).firstMatch
+        XCTAssertTrue(latency.waitForExistence(timeout: 10), "Connected card did not show round-trip latency")
+        addScreenshot(named: "onboarding-connect-connected")
+        XCTAssertTrue(app.buttons["Continue"].isEnabled)
+        app.buttons["Continue"].tap()
+
+        let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
+        XCTAssertTrue(codeElement.waitForExistence(timeout: 10), "Pairing code did not appear")
+        addScreenshot(named: "onboarding-pair-waiting")
+        let code = codeElement.label.replacingOccurrences(of: " ", with: "")
+        XCTAssertEqual(code.count, 6)
+        try await approvePairing(code)
+        XCTAssertTrue(app.staticTexts["Protect with Face ID"].waitForExistence(timeout: 15), "Pair confirmation did not reach Face ID")
+        addScreenshot(named: "onboarding-faceid-prompt")
+    }
+
+    func postFixture(_ path: String) async throws {
+        guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)\(path)") else {
+            throw XCTSkip("Fixture control URL was not provided")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "no response body"
+            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(body)"])
+        }
+    }
+
+    func setBiometricEnrollment(_ enrolled: Bool) async throws {
+        try await postFixture(enrolled ? "/fixture/biometric/enroll" : "/fixture/biometric/unenroll")
+    }
+
+    func approvePairing(_ code: String) async throws {
+        guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)/fixture/approve-pairing") else {
+            throw XCTSkip("Fixture control URL was not provided")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
+    }
+
+    func audit(_ app: XCUIApplication, name: String) {
+        do {
+            try app.performAccessibilityAudit { issue in
+                self.auditLines.append("\(name): \(issue)")
+                return true
+            }
+        } catch {
+            auditLines.append("\(name) audit failed: \(error)")
+        }
+    }
+
+    func addScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func launchFixture(
+        server: String?,
+        onboarding: Bool,
+        expirySeconds: Int? = nil,
+        lockInterval: TimeInterval? = nil
+    ) -> XCUIApplication {
+        let environment = ProcessInfo.processInfo.environment
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-CCServer", server ?? environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832",
+        ]
+        if onboarding {
+            app.launchArguments += ["-CCOnboarding", "-CCResetCache"]
+        }
+        if let scheme = environment["TEST_RUNNER_COLOR_SCHEME"] {
+            app.launchArguments += ["-CCColorScheme", scheme]
+        }
+        if let expirySeconds {
+            app.launchArguments += ["-CCPairingExpirySeconds", String(expirySeconds)]
+        }
+        if let lockInterval {
+            app.launchArguments += ["-CCLockInterval", String(lockInterval)]
+        }
+        app.launch()
+        return app
+    }
+}

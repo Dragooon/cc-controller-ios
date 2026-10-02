@@ -4,14 +4,20 @@ public enum LockInterval: Sendable, Equatable, CaseIterable {
     case immediately
     case fiveMinutes
     case oneHour
+    case custom(TimeInterval)
 
     public static let `default` = LockInterval.fiveMinutes
+
+    public static var allCases: [LockInterval] {
+        [.immediately, .fiveMinutes, .oneHour]
+    }
 
     public var duration: TimeInterval {
         switch self {
         case .immediately: 0
         case .fiveMinutes: 5 * 60
         case .oneHour: 60 * 60
+        case .custom(let seconds): seconds
         }
     }
 }

@@ -51,6 +51,7 @@ final class AppModel {
     private var pairingTask: Task<Void, Never>?
     private var notificationAuthorizationRequested = false
     private var nativeSecretEnrolledForOnboarding = false
+    private var hasAutoPromptedLockScreen = false
     private var deviceName = "iPhone"
 
     init(
@@ -93,7 +94,14 @@ final class AppModel {
             cacheDirectory: cacheDirectory
         )
         self.auth = auth
+        #if DEBUG
+        let lockInterval = Self.argumentValue("-CCLockInterval", in: arguments)
+            .flatMap(TimeInterval.init)
+            .map(LockInterval.custom) ?? .default
+        self.lockPolicy = LockPolicy(interval: lockInterval)
+        #else
         self.lockPolicy = LockPolicy()
+        #endif
         self.phase = fixtureMode ? .unlocked : .onboarding
         #if DEBUG
         self.colorScheme = Self.colorScheme(arguments: arguments)
@@ -140,13 +148,30 @@ final class AppModel {
             }
             let hasSecret = (try? await credentials.hasNativeSecret()) == true
             guard phase != .unlocked else { return }
-            phase = hasSecret ? .locked : .onboarding
+            if hasSecret {
+                transitionToLocked()
+            } else {
+                phase = .onboarding
+            }
         }
     }
 
     func unlock() async {
-        guard case .success = await auth.unlock() else { return }
-        phase = .unlocked
+        switch await auth.unlock() {
+        case .success:
+            faceIDMessage = nil
+            phase = .unlocked
+        case .failure(let error):
+            await handleUnlockFailure(error)
+        }
+    }
+
+    func lockScreenDidAppear() {
+        guard phase == .locked, !hasAutoPromptedLockScreen else { return }
+        hasAutoPromptedLockScreen = true
+        Task { @MainActor [weak self] in
+            await self?.unlock()
+        }
     }
 
     func continueFromWelcome() {
@@ -300,7 +325,7 @@ final class AppModel {
                     goBackToConnect()
                     connectionMessage = "The Face ID setup window expired. Start pairing again."
                 } else {
-                    faceIDMessage = faceIDFailureMessage(error)
+                    faceIDMessage = CCKit.faceIDFailureMessage(for: error)
                 }
                 return
             }
@@ -310,8 +335,33 @@ final class AppModel {
             onboarding.finish()
             phase = .unlocked
         case .failure(let error):
-            faceIDMessage = faceIDFailureMessage(error)
+            await handleUnlockFailure(error)
         }
+    }
+
+    private func handleUnlockFailure(_ error: AuthError) async {
+        switch unlockRoute(for: error) {
+        case .locked(let message):
+            faceIDMessage = message
+            auth.lock()
+            if phase == .locked {
+                store.suspend()
+            }
+        case .rePair(let message):
+            await beginRepair(message: message)
+        }
+    }
+
+    private func beginRepair(message: String) async {
+        connectionTask?.cancel()
+        pairingTask?.cancel()
+        _ = await auth.unpair()
+        onboarding = OnboardingFlowState()
+        onboarding.continueFromWelcome()
+        connectionMessage = message
+        faceIDMessage = nil
+        phase = .onboarding
+        startConnectionCheck()
     }
 
     private func handlePairingError(_ error: AuthError) {
@@ -325,12 +375,11 @@ final class AppModel {
         }
     }
 
-    private func faceIDFailureMessage(_ error: AuthError) -> String {
-        switch error {
-        case .biometric(let message): message
-        case .unknownSecret: "This device secret was revoked. Start pairing again."
-        default: "Face ID did not work. Try again."
-        }
+    private func transitionToLocked() {
+        auth.lock()
+        store.suspend()
+        hasAutoPromptedLockScreen = false
+        phase = .locked
     }
 
     func startStoreIfNeeded() {
@@ -353,7 +402,7 @@ final class AppModel {
         )
 
         switch scenePhase {
-        case .background:
+        case .background, .inactive:
             backgroundDate = Date()
             connectionTask?.cancel()
             pairingTask?.cancel()
@@ -367,13 +416,16 @@ final class AppModel {
                 }
                 return
             }
+            if phase == .locked {
+                lockScreenDidAppear()
+                return
+            }
             guard phase == .unlocked else { return }
             if !fixtureMode, lockPolicy.shouldLockOnForeground(after: backgroundDate, now: Date()) {
-                phase = .locked
-                store.suspend()
+                transitionToLocked()
+                lockScreenDidAppear()
                 Task { @MainActor in
                     await updateBadgeCount(0)
-                    _ = await auth.logout()
                 }
             } else {
                 store.resume()

@@ -68,6 +68,11 @@ public final class AuthSession {
         return bearerToken
     }
 
+    public func lock() {
+        bearerToken = nil
+        state = .locked
+    }
+
     public func startPairing(deviceName: String) async -> Result<Void, AuthError> {
         do {
             let response = try await client.startPairing(deviceName: deviceName)

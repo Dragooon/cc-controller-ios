@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct LockView: View {
+    let message: String?
     let onUnlock: () -> Void
 
-    init(onUnlock: @escaping () -> Void = {}) {
+    init(message: String? = nil, onUnlock: @escaping () -> Void = {}) {
+        self.message = message
         self.onUnlock = onUnlock
     }
 
@@ -17,6 +19,14 @@ struct LockView: View {
             Text("cc-controller is locked")
                 .font(.headline)
                 .foregroundStyle(.ccLabel)
+            if let message {
+                Text(message)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(message)
+            }
             Button(action: onUnlock) {
                 Label("Unlock with Face ID", systemImage: "faceid")
                     .frame(maxWidth: .infinity)

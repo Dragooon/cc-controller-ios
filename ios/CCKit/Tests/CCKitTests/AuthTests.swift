@@ -122,6 +122,32 @@ final class AuthTests: XCTestCase {
         XCTAssertNil(nativeSecret)
     }
 
+    func testAuthSessionLockDiscardsBearer() async throws {
+        AuthURLProtocol.handler = { request in
+            if request.url?.path == "/api/auth/native/login" {
+                return AuthURLProtocol.json(Data("{\"authenticated\":true,\"token\":\"bearer\"}".utf8))
+            }
+            return AuthURLProtocol.json(Data("{}".utf8))
+        }
+        let credentials = InMemoryCredentialStore(nativeSecret: "native-secret")
+        let auth = AuthSession(
+            serverURL: URL(string: "http://localhost:47832")!,
+            credentials: credentials,
+            session: AuthURLProtocol.session
+        )
+
+        guard case .success = await auth.unlock() else { return XCTFail("Unlock failed") }
+        auth.lock()
+
+        do {
+            _ = try await auth.bearer()
+            XCTFail("Locked auth must not return a bearer")
+        } catch let error as AuthError {
+            guard case .locked = error else { return XCTFail("Expected locked error") }
+        }
+        XCTAssertEqual(auth.state, .locked)
+    }
+
     func testLockPolicyIntervalsAndPrivacyCover() {
         let date = Date(timeIntervalSince1970: 1_000)
         XCTAssertTrue(LockPolicy().shouldLockOnColdLaunch())
