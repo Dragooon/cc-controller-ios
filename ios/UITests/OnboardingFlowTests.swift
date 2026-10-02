@@ -104,7 +104,7 @@ final class OnboardingFlowTests: XCTestCase {
             app.terminate()
         }
 
-        app.buttons["Continue"].tap()
+        app.buttons["Get started"].tap()
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitForExistence(timeout: 15))
         app.buttons["Continue"].tap()
@@ -125,6 +125,8 @@ final class OnboardingFlowTests: XCTestCase {
         let expired = app.staticTexts["This code expired"]
         let expiredGone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: expired)
         wait(for: [expiredGone], timeout: 10)
+        let expiryLabel = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Expires in")).firstMatch
+        XCTAssertTrue(expiryLabel.waitForExistence(timeout: 10))
     }
 
     func testUnreachableDaemonExplainsWhatToFix() throws {
@@ -135,7 +137,7 @@ final class OnboardingFlowTests: XCTestCase {
             app.terminate()
         }
 
-        app.buttons["Continue"].tap()
+        app.buttons["Get started"].tap()
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Can't reach the Mac yet"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts["Check that Termius is forwarding localhost:47832 and the Mac is awake."].waitForExistence(timeout: 8))
@@ -162,7 +164,7 @@ final class OnboardingFlowTests: XCTestCase {
     }
 
     private func reachFaceID(_ app: XCUIApplication) async throws {
-        app.buttons["Continue"].tap()
+        app.buttons["Get started"].tap()
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         let connected = app.staticTexts["Connected to cc-controller"]
         XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")

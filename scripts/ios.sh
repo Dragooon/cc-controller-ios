@@ -568,7 +568,7 @@ cmd_flows() {
       if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
         ensure_attachment_media "$udid"
       fi
-      xcrun simctl ui "$udid" appearance light
+      xcrun simctl ui "$udid" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
       reset_flow_state "$udid"
       if ! xcrun simctl install "$udid" "$app_bundle"; then
         printf '%s\n' 'failed to install the freshly built app' | tee "$method_log"
@@ -588,6 +588,7 @@ cmd_flows() {
           "TEST_RUNNER_SERVER_URL=http://127.0.0.1:$web_port" \
           "TEST_RUNNER_BEARER=$bearer" \
           "TEST_RUNNER_FIXTURE_CONTROL_URL=http://127.0.0.1:$control_port" \
+          "TEST_RUNNER_COLOR_SCHEME=${TEST_RUNNER_COLOR_SCHEME:-light}" \
           "${args[@]}" 2>&1 | tee -a "$method_log"; then
           xcode_status=0
         else

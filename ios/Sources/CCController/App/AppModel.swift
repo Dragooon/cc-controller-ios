@@ -42,7 +42,9 @@ final class AppModel {
     private let credentials: any CredentialStore
     private let fixtureMode: Bool
     private let debugOnboarding: Bool
-    private let debugPairingExpirySeconds: TimeInterval?
+    #if DEBUG
+    private var debugPairingExpirySeconds: TimeInterval?
+    #endif
     private let serverURL: URL
     private var backgroundDate: Date?
     private var connectionTask: Task<Void, Never>?
@@ -70,8 +72,6 @@ final class AppModel {
         debugOnboarding = isDebugOnboarding
         #if DEBUG
         debugPairingExpirySeconds = Self.argumentValue("-CCPairingExpirySeconds", in: arguments).flatMap(TimeInterval.init)
-        #else
-        debugPairingExpirySeconds = nil
         #endif
         fixtureMode = isFixture
 
@@ -212,7 +212,13 @@ final class AppModel {
                     connectionMessage = "The Mac returned an invalid pairing code."
                     return
                 }
-                let expiry = debugPairingExpirySeconds.map { Date().addingTimeInterval($0) } ?? details.expiresAt
+                #if DEBUG
+                let debugExpiry = debugPairingExpirySeconds
+                debugPairingExpirySeconds = nil
+                let expiry = debugExpiry.map { Date().addingTimeInterval($0) } ?? details.expiresAt
+                #else
+                let expiry = details.expiresAt
+                #endif
                 onboarding.beginPairing(code: details.code, expiresAt: expiry)
                 startPairingPoll()
             case .failure(let error):
@@ -278,7 +284,7 @@ final class AppModel {
         var evaluationError: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &evaluationError) else {
             if let code = evaluationError.flatMap({ LAError.Code(rawValue: $0.code) }) {
-                faceIDMessage = faceIDFailureMessage(for: .biometric(code))
+                faceIDMessage = CCKit.faceIDFailureMessage(for: .biometric(code))
             } else {
                 faceIDMessage = "Face ID did not work. Try again."
             }
