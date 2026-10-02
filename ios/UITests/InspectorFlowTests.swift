@@ -158,6 +158,13 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["64k"].waitForExistence(timeout: 15), "Long session input usage did not load")
         XCTAssertTrue(app.staticTexts["1.2k"].waitForExistence(timeout: 15), "Long session output usage did not load")
         XCTAssertTrue(app.staticTexts["97%"].waitForExistence(timeout: 15), "Long session cache usage did not load")
+        let context = app.descendants(matching: .any).matching(identifier: "inspector-context").firstMatch
+        XCTAssertTrue(context.waitForExistence(timeout: 15), "Long session context accessibility element did not load")
+        XCTAssertEqual(context.label, "Context 6 percent, 64k of 1M tokens")
+        let responses = app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch
+        XCTAssertTrue(responses.waitForExistence(timeout: 15), "Long session Responses tile did not load")
+        XCTAssertEqual(responses.label, "1 Response")
+        XCTAssertFalse(app.staticTexts["Messages"].exists, "Usage tile retained the old Messages label")
         attach(named: "inspector-long-medium")
         auditPresentedSheet(app)
 
@@ -246,20 +253,27 @@ final class InspectorFlowTests: XCTestCase {
     }
 
     private func auditPresentedSheet(_ app: XCUIApplication) {
+        let issueCount = auditLines.count
         do {
             try app.performAccessibilityAudit(for: XCUIAccessibilityAuditType.all.subtracting([.dynamicType, .textClipped])) { issue in
-                self.auditLines.append("inspector-sheet: \(issue)")
+                self.auditLines.append("inspector-sheet: \(self.auditDescription(issue))")
                 return true
             }
         } catch {
             auditLines.append("inspector-sheet: audit failed: \(error)")
         }
+        XCTAssertEqual(auditLines.count, issueCount, "Details-sheet accessibility audit found issues")
+    }
+
+    private func auditDescription(_ issue: XCUIAccessibilityAuditIssue) -> String {
+        guard let element = issue.element else { return String(describing: issue) }
+        return "\(issue) frame=\(element.frame) identifier=\(element.identifier) label=\(element.label) type=\(element.elementType.rawValue)"
     }
 
     private func audit(app: XCUIApplication, name: String) {
         do {
             try app.performAccessibilityAudit { issue in
-                self.auditLines.append("\(name): \(issue)")
+                self.auditLines.append("\(name): \(self.auditDescription(issue))")
                 return true
             }
         } catch {

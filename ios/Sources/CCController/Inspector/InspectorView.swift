@@ -91,7 +91,7 @@ struct InspectorView: View {
                                     .accessibilityHidden(true)
                             }
                             Text(stateLabel(state: state.rawValue))
-                                .foregroundStyle(.ccLabel)
+                                .foregroundStyle(state == .needsYou ? .ccAccent : .ccSecondary)
                         }
                     }
                 }
@@ -104,12 +104,15 @@ struct InspectorView: View {
                             fallback: elapsed
                         )
                         .font(.body.monospacedDigit())
-                        .foregroundStyle(.ccLabel)
+                        .foregroundStyle(.ccSecondary)
                         .accessibilityIdentifier("inspector-elapsed")
                     }
                 }
                 if let model = formattedModel {
-                    LabeledContent("Model", value: model)
+                    LabeledContent("Model") {
+                        Text(model)
+                            .foregroundStyle(.ccSecondary)
+                    }
                 }
             } header: {
                 sectionHeader("Status")
@@ -121,28 +124,34 @@ struct InspectorView: View {
     private var contextSection: some View {
         if hasContextData {
             Section {
-                if let percent = positivePercent(usage?.contextPercent) {
-                    HStack(alignment: .center, spacing: 12) {
-                        Gauge(value: percent / 100, in: 0...1) {
-                            EmptyView()
-                        } currentValueLabel: {
-                            EmptyView()
-                        }
-                        .gaugeStyle(.linearCapacity)
-                        .tint(.ccAccent)
-                        .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let percent = positivePercent(usage?.contextPercent) {
+                        HStack(alignment: .center, spacing: 12) {
+                            Gauge(value: percent / 100, in: 0...1) {
+                                EmptyView()
+                            } currentValueLabel: {
+                                EmptyView()
+                            }
+                            .gaugeStyle(.linearCapacity)
+                            .tint(.ccAccent)
+                            .frame(maxWidth: .infinity)
 
-                        Text("\(Int(percent.rounded()))%")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.ccLabel)
+                            Text("\(Int(percent.rounded()))%")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.ccLabel)
+                        }
+                    }
+                    if let contextTokens = positiveInt(usage?.contextTokens),
+                       let contextWindow = positiveInt(usage?.contextWindow) {
+                        Text("\(formatTokenCount(contextTokens)) of \(formatTokenCount(contextWindow)) tokens")
+                            .font(.footnote)
+                            .foregroundStyle(.ccSecondary)
                     }
                 }
-                if let contextTokens = positiveInt(usage?.contextTokens),
-                   let contextWindow = positiveInt(usage?.contextWindow) {
-                    Text("\(formatTokenCount(contextTokens)) of \(formatTokenCount(contextWindow)) tokens")
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
-                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("inspector-context")
+                .accessibilityLabel(contextAccessibilityLabel)
+                .accessibilityRemoveTraits(.isButton)
             } header: {
                 sectionHeader("Context")
             }
@@ -164,7 +173,11 @@ struct InspectorView: View {
                         StatTile(value: "\(Int(cache.rounded()))%", label: "Cache")
                     }
                     if let messages = positiveInt(usage?.messages) {
-                        StatTile(value: formatTokenCount(messages), label: "Messages")
+                        let responseLabel = messages == 1 ? "Response" : "Responses"
+                        StatTile(value: formatTokenCount(messages), label: responseLabel)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityIdentifier("inspector-responses")
+                            .accessibilityLabel("\(formatTokenCount(messages)) \(responseLabel)")
                     }
                 }
                 .padding(.vertical, 2)
@@ -263,13 +276,22 @@ struct InspectorView: View {
         if hasLocationData {
             Section {
                 if let project = nonEmpty(session.project) {
-                    LabeledContent("Project", value: project)
+                    LabeledContent("Project") {
+                        Text(project)
+                            .foregroundStyle(.ccSecondary)
+                    }
                 }
                 if let branch = nonEmpty(branch) {
-                    LabeledContent("Branch", value: branch)
+                    LabeledContent("Branch") {
+                        Text(branch)
+                            .foregroundStyle(.ccSecondary)
+                    }
                 }
                 if let tmuxPane = nonEmpty(session.tmuxPane) {
-                    LabeledContent("tmux pane", value: tmuxPane)
+                    LabeledContent("tmux pane") {
+                        Text(tmuxPane)
+                            .foregroundStyle(.ccSecondary)
+                    }
                 }
             } header: {
                 sectionHeader("Location")
@@ -344,6 +366,18 @@ struct InspectorView: View {
 
     private var formattedModel: String? {
         nonEmpty(formatModelName(usage?.model))
+    }
+
+    private var contextAccessibilityLabel: String {
+        var parts = ["Context"]
+        if let percent = positivePercent(usage?.contextPercent) {
+            parts.append("\(Int(percent.rounded())) percent")
+        }
+        if let contextTokens = positiveInt(usage?.contextTokens),
+           let contextWindow = positiveInt(usage?.contextWindow) {
+            parts.append("\(formatTokenCount(contextTokens)) of \(formatTokenCount(contextWindow)) tokens")
+        }
+        return parts.joined(separator: ", ")
     }
 
     private func approvalMode(for rawValue: String) -> ApprovalMode {
