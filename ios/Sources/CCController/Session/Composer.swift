@@ -1,4 +1,5 @@
 import CCKit
+import OSLog
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -65,6 +66,8 @@ struct ComposerView: View {
     @State private var cameraPresented = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var pickedFeedbackCount = 0
+    @State private var restoreFocus = false
+    private let focusLogger = Logger(subsystem: "com.example.cc-controller", category: "composer")
     @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
     @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
 
@@ -132,6 +135,31 @@ struct ComposerView: View {
                 .focused($isFocused)
                 .transition(.identity)
                 .id(fieldGeneration)
+                .task(id: fieldGeneration) {
+                    guard restoreFocus else { return }
+                    isFocused = true
+                    var consecutiveFocusedChecks = 0
+                    for _ in 0..<10 {
+                        do {
+                            try await Task.sleep(for: .milliseconds(50))
+                        } catch {
+                            return
+                        }
+                        guard !Task.isCancelled else { return }
+                        if isFocused {
+                            consecutiveFocusedChecks += 1
+                        } else {
+                            consecutiveFocusedChecks = 0
+                            isFocused = true
+                        }
+                        if consecutiveFocusedChecks == 2 {
+                            restoreFocus = false
+                            return
+                        }
+                    }
+                    restoreFocus = false
+                    focusLogger.error("composer focus restoration did not stick")
+                }
                 .accessibilityIdentifier("composer-text")
 
             HStack(spacing: 8) {
@@ -151,12 +179,8 @@ struct ComposerView: View {
         .padding(.vertical, 12)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
         .onChange(of: resetGeneration) { _, generation in
+            restoreFocus = isFocused
             fieldGeneration = generation
-            Task { @MainActor in
-                await Task.yield()
-                await Task.yield()
-                isFocused = true
-            }
         }
     }
 
