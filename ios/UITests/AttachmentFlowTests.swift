@@ -34,18 +34,6 @@ final class AttachmentFlowTests: XCTestCase {
 
         let marker = "delivered-attachment-flow-marker"
         let markerPredicate = NSPredicate(format: "label CONTAINS[c] %@", marker)
-        let markerElements = app.descendants(matching: .any).matching(markerPredicate)
-        let deliveredMarkerBubbles = app.descendants(matching: .any)
-            .matching(identifier: "prompt-bubble")
-            .matching(markerPredicate)
-        let pendingMarkerBubbles = app.descendants(matching: .any)
-            .matching(identifier: "pending-prompt-bubble")
-            .matching(markerPredicate)
-        print("Attachment marker counts: elements=\(markerElements.count), prompt-bubble=\(deliveredMarkerBubbles.count), pending-prompt-bubble=\(pendingMarkerBubbles.count)")
-        if deliveredMarkerBubbles.count > 0, pendingMarkerBubbles.count > 0 {
-            print("Duplicate attachment marker bubbles detected. Debug description excerpt:\n\(String(app.debugDescription.prefix(4000)))")
-        }
-
         let bubbles = app.descendants(matching: .any).matching(identifier: "prompt-bubble")
         let markerBubbles = bubbles.matching(markerPredicate)
         XCTAssertTrue(markerBubbles.firstMatch.waitForExistence(timeout: 30), "Delivered prompt bubble did not appear")
@@ -168,7 +156,7 @@ final class AttachmentFlowTests: XCTestCase {
     func testUploadWaitingStateShowsIndeterminateTile() throws {
         let slowPath = outputFile("slow-attachment.png")
         try FileManager.default.copyItem(atPath: fixture("attachment.png"), toPath: slowPath.path)
-        defer { try? FileManager.default.removeItem(at: slowPath) }
+        defer { try? FileManager.default.removeItem(at: slowPath.deletingLastPathComponent()) }
 
         let app = launchFixture(with: slowPath.path)
         defer {
@@ -185,7 +173,7 @@ final class AttachmentFlowTests: XCTestCase {
     func testTooLargeAttachmentShowsInlineRetryCaption() throws {
         let largePath = outputFile("too-large.bin")
         try Data(repeating: 0, count: 26 * 1024 * 1024).write(to: largePath)
-        defer { try? FileManager.default.removeItem(at: largePath) }
+        defer { try? FileManager.default.removeItem(at: largePath.deletingLastPathComponent()) }
 
         let app = launchFixture(with: largePath.path)
         defer {
@@ -207,7 +195,7 @@ final class AttachmentFlowTests: XCTestCase {
     func testFailedImageAttachmentShowsRetryCaption() throws {
         let failedPath = outputFile("fail-attachment.png")
         try FileManager.default.copyItem(atPath: fixture("attachment.png"), toPath: failedPath.path)
-        defer { try? FileManager.default.removeItem(at: failedPath) }
+        defer { try? FileManager.default.removeItem(at: failedPath.deletingLastPathComponent()) }
 
         let app = launchFixture(with: failedPath.path)
         defer {
@@ -329,9 +317,10 @@ final class AttachmentFlowTests: XCTestCase {
     }
 
     private func outputFile(_ name: String) -> URL {
-        let directory = ProcessInfo.processInfo.environment["CC_FLOW_OUTPUT_DIR"]
+        let root = ProcessInfo.processInfo.environment["CC_FLOW_OUTPUT_DIR"]
             .map(URL.init(fileURLWithPath:))
             ?? FileManager.default.temporaryDirectory
+        let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent(name)
     }
