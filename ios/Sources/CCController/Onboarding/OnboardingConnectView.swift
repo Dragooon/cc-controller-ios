@@ -99,9 +99,7 @@ struct OnboardingConnectView: View {
 
     private var statusTitle: String {
         switch connection {
-        case .connected(let version):
-            if let version { return "Connected to cc-controller \(version)" }
-            return "Connected to cc-controller"
+        case .connected: return "Connected to cc-controller"
         case .checking: return "Looking for your Mac…"
         case .unreachable: return "Can't reach the Mac yet"
         }

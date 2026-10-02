@@ -15,6 +15,7 @@ POOL_SLOT=""
 STARTED_DAEMON=""
 FIXTURE_OUT=""
 FIXTURE_LOG=""
+FIXTURE_SIM_UDID=""
 RUN_DIR=""
 DIAG_DIR=""
 MOCK_RUN_DIR=""
@@ -89,7 +90,7 @@ stop_fixture_daemon() {
 start_fixture_daemon() {
   FIXTURE_LOG=$1
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
-  node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
   STARTED_DAEMON=$!
   for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
   if [[ ! -s "$FIXTURE_OUT" ]]; then
@@ -563,6 +564,7 @@ cmd_flows() {
 
       stop_fixture_daemon
       udid=$(ensure_pool_device "$device")
+      FIXTURE_SIM_UDID="$udid"
       if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
         ensure_attachment_media "$udid"
       fi

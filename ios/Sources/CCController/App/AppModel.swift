@@ -181,7 +181,7 @@ final class AppModel {
                 do {
                     let probe = try await auth.probeDaemon()
                     failedSince = nil
-                    onboarding.markConnectionConnected(version: probe.version)
+                    onboarding.markConnectionConnected()
                     if connectionMessage?.hasPrefix("Can't reach") == true {
                         connectionMessage = nil
                     }

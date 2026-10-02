@@ -10,7 +10,7 @@ public enum OnboardingStep: String, Sendable, Equatable, Codable {
 
 public enum OnboardingConnection: Sendable, Equatable {
     case checking
-    case connected(version: String?)
+    case connected
     case unreachable(since: Date)
 }
 
@@ -34,9 +34,9 @@ public struct OnboardingFlowState: Sendable, Equatable {
         connection = .checking
     }
 
-    public mutating func markConnectionConnected(version: String?) {
+    public mutating func markConnectionConnected() {
         guard step == .connect else { return }
-        connection = .connected(version: version)
+        connection = .connected
     }
 
     public mutating func markConnectionUnreachable(since: Date) {

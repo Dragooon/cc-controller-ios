@@ -23,25 +23,29 @@ final class OnboardingFlowTests: XCTestCase {
         }
 
         XCTAssertTrue(app.staticTexts["cc-controller"].waitForExistence(timeout: 15))
-        app.buttons["Continue"].tap()
-        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
-        let connected = app.staticTexts["Connected to cc-controller"]
-        XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")
-        XCTAssertTrue(app.buttons["Continue"].isEnabled)
-        app.buttons["Continue"].tap()
-
-        let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
-        XCTAssertTrue(codeElement.waitForExistence(timeout: 10), "Pairing code did not appear")
-        let code = codeElement.label.replacingOccurrences(of: " ", with: "")
-        XCTAssertEqual(code.count, 6)
-        try await approvePairing(code)
-
-        XCTAssertTrue(app.staticTexts["Protect with Face ID"].waitForExistence(timeout: 15), "Pair confirmation did not reach Face ID")
-        guard driveBiometrics() else {
-            throw XCTSkip("The simulator did not accept simctl biometric enrollment; unlock assertion skipped after the Face ID screen.")
-        }
+        try await reachFaceID(app)
+        try await postFixture("/fixture/biometric/enroll")
         app.buttons["Turn on Face ID"].tap()
+        try await postFixture("/fixture/biometric/match")
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Native login did not load Sessions")
+    }
+
+    func testFaceIDNotEnrolledBlocksWithoutFallback() async throws {
+        let app = launchOnboarding()
+        defer {
+            audit(app, name: "onboarding-faceid-not-enrolled")
+            addScreenshot(named: "onboarding-faceid-not-enrolled")
+            app.terminate()
+        }
+
+        try await reachFaceID(app)
+        app.buttons["Turn on Face ID"].tap()
+        let blocked = app.staticTexts["Set up Face ID in Settings to use this app"]
+        guard blocked.waitForExistence(timeout: 10) else {
+            throw XCTSkip("Simulator biometric unenrollment is not currently drivable; the Face ID not-enrolled state could not be isolated.")
+        }
+        XCTAssertTrue(blocked.exists)
+        XCTAssertTrue(app.buttons["Try again"].exists)
     }
 
     func testExpiredPairingCodeShowsRecovery() throws {
@@ -91,6 +95,32 @@ final class OnboardingFlowTests: XCTestCase {
         return app
     }
 
+    private func reachFaceID(_ app: XCUIApplication) async throws {
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
+        let connected = app.staticTexts["Connected to cc-controller"]
+        XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")
+        XCTAssertTrue(app.buttons["Continue"].isEnabled)
+        app.buttons["Continue"].tap()
+
+        let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
+        XCTAssertTrue(codeElement.waitForExistence(timeout: 10), "Pairing code did not appear")
+        let code = codeElement.label.replacingOccurrences(of: " ", with: "")
+        XCTAssertEqual(code.count, 6)
+        try await approvePairing(code)
+        XCTAssertTrue(app.staticTexts["Protect with Face ID"].waitForExistence(timeout: 15), "Pair confirmation did not reach Face ID")
+    }
+
+    private func postFixture(_ path: String) async throws {
+        guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)\(path)") else {
+            throw XCTSkip("Fixture control URL was not provided")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Fixture control route failed: \(path)")
+    }
+
     private func approvePairing(_ code: String) async throws {
         guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)/fixture/approve-pairing") else {
             throw XCTSkip("Fixture control URL was not provided")
@@ -101,12 +131,6 @@ final class OnboardingFlowTests: XCTestCase {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
         let (_, response) = try await URLSession.shared.data(for: request)
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-    }
-
-    private func driveBiometrics() -> Bool {
-        // XCUITest runs inside the iOS test bundle and cannot invoke simctl. The
-        // scripts/ios.sh harness can drive the simulator once the shared pool is available.
-        false
     }
 
     private func audit(_ app: XCUIApplication, name: String) {

@@ -40,11 +40,9 @@ public enum AuthError: Error, Sendable, Equatable, LocalizedError {
 
 public struct DaemonProbe: Sendable, Equatable {
     public let isReachable: Bool
-    public let version: String?
 
-    public init(isReachable: Bool, version: String? = nil) {
+    public init(isReachable: Bool) {
         self.isReachable = isReachable
-        self.version = version
     }
 }
 
