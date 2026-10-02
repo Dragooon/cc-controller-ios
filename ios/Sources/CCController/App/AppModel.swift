@@ -42,6 +42,7 @@ final class AppModel {
     var connectionMessage: String?
     var copiedPairingCommand = false
     var faceIDMessage: String?
+    private(set) var isAuthenticating = false
 
     var onboardingStep: OnboardingStep { onboarding.step }
     var pairingCode: String? { onboarding.pairingCode }
@@ -56,7 +57,8 @@ final class AppModel {
     private var debugPairingExpirySeconds: TimeInterval?
     #endif
     private let serverURL: URL
-    private var backgroundDate: Date?
+    private var lockTransitionPolicy: LockTransitionPolicy
+    private(set) var currentScenePhase: ScenePhase = .background
     private var connectionTask: Task<Void, Never>?
     private var pairingTask: Task<Void, Never>?
     private var notificationAuthorizationRequested = false
@@ -112,6 +114,7 @@ final class AppModel {
         #else
         self.lockPolicy = LockPolicy()
         #endif
+        self.lockTransitionPolicy = LockTransitionPolicy(policy: lockPolicy)
         self.phase = fixtureMode ? .unlocked : .onboarding
         #if DEBUG
         self.colorScheme = Self.colorScheme(arguments: arguments)
@@ -167,14 +170,18 @@ final class AppModel {
     }
 
     func unlock() async {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+
         let result = await auth.unlock()
         #if DEBUG
         let errorCode = auth.lastUnlockBiometricErrorCode.map(String.init) ?? "none"
         switch result {
         case .success:
-            lockLogger.info("unlock result=success laErrorCode=\(errorCode, privacy: .public)")
+            lockLogger.notice("unlock result=success laErrorCode=\(errorCode, privacy: .public)")
         case .failure:
-            lockLogger.info("unlock result=failure laErrorCode=\(errorCode, privacy: .public)")
+            lockLogger.notice("unlock result=failure laErrorCode=\(errorCode, privacy: .public)")
         }
         #endif
         switch result {
@@ -186,11 +193,11 @@ final class AppModel {
         }
     }
 
-    func lockScreenDidAppear() {
-        guard phase == .locked, !hasAutoPromptedLockScreen else { return }
+    private func promptLockIfNeeded() {
+        guard phase == .locked, currentScenePhase == .active, !hasAutoPromptedLockScreen else { return }
         hasAutoPromptedLockScreen = true
         #if DEBUG
-        lockLogger.info("auto-prompt trigger")
+        lockLogger.notice("auto-prompt trigger")
         #endif
         Task { @MainActor [weak self] in
             await self?.unlock()
@@ -403,6 +410,7 @@ final class AppModel {
         store.suspend()
         hasAutoPromptedLockScreen = false
         phase = .locked
+        promptLockIfNeeded()
     }
 
     func startStoreIfNeeded() {
@@ -418,18 +426,22 @@ final class AppModel {
 
     func scenePhaseDidChange(_ scenePhase: ScenePhase) {
         #if DEBUG
-        lockLogger.info("scene transition=\(String(describing: scenePhase), privacy: .public)")
+        lockLogger.notice("scene transition=\(String(describing: scenePhase), privacy: .public)")
         #endif
+        currentScenePhase = scenePhase
         let isActive = scenePhase == .active
         let isBackgrounded = scenePhase == .background
+        let shouldLock = lockTransitionPolicy.shouldLock(
+            on: lockScenePhase(for: scenePhase),
+            at: Date()
+        )
         isPrivacyCovered = lockPolicy.shouldShowPrivacyCover(
             isActive: isActive,
             isBackgrounded: isBackgrounded
         )
 
         switch scenePhase {
-        case .background, .inactive:
-            backgroundDate = Date()
+        case .background:
             connectionTask?.cancel()
             pairingTask?.cancel()
             store.suspend()
@@ -443,13 +455,12 @@ final class AppModel {
                 return
             }
             if phase == .locked {
-                lockScreenDidAppear()
+                promptLockIfNeeded()
                 return
             }
             guard phase == .unlocked else { return }
-            if !fixtureMode, lockPolicy.shouldLockOnForeground(after: backgroundDate, now: Date()) {
+            if !fixtureMode, shouldLock {
                 transitionToLocked()
-                lockScreenDidAppear()
                 Task { @MainActor in
                     await updateBadgeCount(0)
                 }
@@ -458,6 +469,15 @@ final class AppModel {
             }
         default:
             break
+        }
+    }
+
+    private func lockScenePhase(for scenePhase: ScenePhase) -> LockScenePhase {
+        switch scenePhase {
+        case .active: .active
+        case .inactive: .inactive
+        case .background: .background
+        @unknown default: .inactive
         }
     }
 

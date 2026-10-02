@@ -24,10 +24,7 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "onboarding-sessions-arrival")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let notificationPrompt = springboard.alerts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
-        ).firstMatch
-        XCTAssertTrue(notificationPrompt.waitForExistence(timeout: 10), "Notification authorization prompt did not appear")
+        _ = waitForNotificationAuthorizationPrompt(in: springboard)
         XCTAssertTrue(sessionRow.exists, "Session row disappeared behind notification authorization prompt")
         addScreenshot(named: "onboarding-notification-prompt")
     }

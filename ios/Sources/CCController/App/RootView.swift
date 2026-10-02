@@ -28,11 +28,8 @@ struct RootView: View {
         .onAppear {
             model.scenePhaseDidChange(scenePhase)
         }
-        .onChange(of: model.phase) { _, phase in
+        .onChange(of: model.phase) { _, _ in
             model.startStoreIfNeeded()
-            if phase == .locked {
-                model.lockScreenDidAppear()
-            }
         }
         .onChange(of: scenePhase) { _, phase in
             model.scenePhaseDidChange(phase)
@@ -45,11 +42,8 @@ struct RootView: View {
         case .onboarding:
             onboardingView
         case .locked:
-            LockView(message: model.faceIDMessage) {
+            LockView(message: model.faceIDMessage, isAuthenticating: model.isAuthenticating) {
                 Task { await model.unlock() }
-            }
-            .onAppear {
-                model.lockScreenDidAppear()
             }
         case .unlocked:
             MainSplitView(model: model)

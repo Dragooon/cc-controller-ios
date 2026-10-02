@@ -43,6 +43,15 @@ class FixtureFlowTestSupport: XCTestCase {
         addScreenshot(named: "onboarding-faceid-prompt")
     }
 
+    @discardableResult
+    func waitForNotificationAuthorizationPrompt(in springboard: XCUIApplication, timeout: TimeInterval = 10) -> XCUIElement {
+        let prompt = springboard.alerts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
+        ).firstMatch
+        XCTAssertTrue(prompt.waitForExistence(timeout: timeout), "Notification authorization prompt did not appear")
+        return prompt
+    }
+
     func postFixture(_ path: String) async throws {
         guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"], let url = URL(string: "\(value)\(path)") else {
             throw XCTSkip("Fixture control URL was not provided")

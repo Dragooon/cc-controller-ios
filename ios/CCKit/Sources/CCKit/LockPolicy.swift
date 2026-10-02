@@ -44,3 +44,31 @@ public struct LockPolicy: Sendable, Equatable {
         !isActive || isBackgrounded
     }
 }
+
+public enum LockScenePhase: Sendable, Equatable {
+    case active
+    case inactive
+    case background
+}
+
+public struct LockTransitionPolicy: Sendable, Equatable {
+    private let policy: LockPolicy
+    private var backgroundDate: Date?
+
+    public init(policy: LockPolicy = LockPolicy()) {
+        self.policy = policy
+    }
+
+    public mutating func shouldLock(on phase: LockScenePhase, at date: Date) -> Bool {
+        switch phase {
+        case .background:
+            backgroundDate = date
+            return false
+        case .inactive:
+            return false
+        case .active:
+            defer { backgroundDate = nil }
+            return policy.shouldLockOnForeground(after: backgroundDate, now: date)
+        }
+    }
+}

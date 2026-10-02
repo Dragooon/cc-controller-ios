@@ -2,10 +2,12 @@ import SwiftUI
 
 struct LockView: View {
     let message: String?
+    let isAuthenticating: Bool
     let onUnlock: () -> Void
 
-    init(message: String? = nil, onUnlock: @escaping () -> Void = {}) {
+    init(message: String? = nil, isAuthenticating: Bool = false, onUnlock: @escaping () -> Void = {}) {
         self.message = message
+        self.isAuthenticating = isAuthenticating
         self.onUnlock = onUnlock
     }
 
@@ -34,6 +36,8 @@ struct LockView: View {
             .buttonStyle(.glassProminent)
             .tint(.ccAccent)
             .controlSize(.large)
+            .disabled(isAuthenticating)
+            .accessibilityValue(isAuthenticating ? "authenticating" : "idle")
             .padding(.horizontal, 24)
             Spacer()
         }
