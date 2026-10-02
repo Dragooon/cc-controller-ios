@@ -99,6 +99,11 @@ final class AttachmentFlowTests: XCTestCase {
 
         let file = app.buttons["Open review.png"]
         XCTAssertTrue(file.waitForExistence(timeout: 30), "Agent-sent review.png file did not appear")
+        let imageTile = app.descendants(matching: .any).matching(identifier: "agent-file-image").firstMatch
+        XCTAssertTrue(imageTile.waitForExistence(timeout: 10), "Agent-sent image tile did not appear")
+        XCTAssertEqual(imageTile.frame.width, 277.0 * 280.0 / 600.0, accuracy: 1)
+        XCTAssertEqual(imageTile.frame.height, 280, accuracy: 1)
+        XCTAssertLessThan(imageTile.frame.width, 220)
         addScreenshot(named: "agent-sent-file-tile")
         file.tap()
 
