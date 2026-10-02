@@ -46,23 +46,19 @@ let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     .appendingPathComponent("ios/Resources/Assets.xcassets/AppIcon.appiconset")
 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
-func makeBitmap(size: Int) throws -> (NSBitmapImageRep, NSGraphicsContext) {
-    guard let bitmap = NSBitmapImageRep(
-        bitmapDataPlanes: nil,
-        pixelsWide: size,
-        pixelsHigh: size,
-        bitsPerSample: 8,
-        samplesPerPixel: 4,
-        hasAlpha: true,
-        isPlanar: false,
-        colorSpaceName: .deviceRGB,
-        bitmapFormat: [],
+func makeBitmap(size: Int) throws -> (CGContext, NSGraphicsContext) {
+    guard let context = CGContext(
+        data: nil,
+        width: size,
+        height: size,
+        bitsPerComponent: 8,
         bytesPerRow: size * 4,
-        bitsPerPixel: 32
-    ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+    ) else {
         throw NSError(domain: "Icon", code: 1)
     }
-    return (bitmap, context)
+    return (context, NSGraphicsContext(cgContext: context, flipped: false))
 }
 
 func drawGradient(_ context: CGContext, in rect: CGRect, top: NSColor, bottom: NSColor) {
@@ -84,9 +80,9 @@ func fill(_ context: CGContext, color: NSColor, in rect: CGRect) {
     context.fill(rect)
 }
 
-func armPath(center: CGPoint, outerRadius: CGFloat, strokeWidth: CGFloat, hubGap: CGFloat) -> CGMutablePath {
+func armPath(center: CGPoint, outerRadius: CGFloat, strokeWidth: CGFloat) -> CGMutablePath {
     let path = CGMutablePath()
-    let innerRadius = hubGap + strokeWidth / 2
+    let innerRadius: CGFloat = 0
     for index in 0..<6 {
         let angle = CGFloat(index) * .pi / 3
         let start = CGPoint(
@@ -112,8 +108,7 @@ func drawMark(
 ) {
     let strokeWidth = width * 0.085
     let outerRadius = width * 0.28
-    let hubGap = width * 0.0175
-    let path = armPath(center: center, outerRadius: outerRadius, strokeWidth: strokeWidth, hubGap: hubGap)
+    let path = armPath(center: center, outerRadius: outerRadius, strokeWidth: strokeWidth)
 
     context.saveGState()
     context.addPath(path)
@@ -220,14 +215,18 @@ func drawCandidate(_ context: CGContext, option: IconOption, variant: String, si
 
 func render(variant: String, option: IconOption, output: URL) throws {
     let size: CGFloat = 1024
-    let (bitmap, graphicsContext) = try makeBitmap(size: Int(size))
+    let (context, graphicsContext) = try makeBitmap(size: Int(size))
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = graphicsContext
-    drawCandidate(graphicsContext.cgContext, option: option, variant: variant, size: size)
+    drawCandidate(context, option: option, variant: variant, size: size)
     graphicsContext.flushGraphics()
     NSGraphicsContext.restoreGraphicsState()
-    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+    guard let image = context.makeImage() else {
         throw NSError(domain: "Icon", code: 2)
+    }
+    let bitmap = NSBitmapImageRep(cgImage: image)
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+        throw NSError(domain: "Icon", code: 3)
     }
     try png.write(to: output)
 }
