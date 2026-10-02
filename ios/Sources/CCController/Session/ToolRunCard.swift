@@ -133,8 +133,8 @@ private struct ToolRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(entry.tool ?? "Tool"), \(stateAccessibilityLabel), \(toolArgument(entry.tool, args: entry.args))")
+        .accessibilityElement(children: .ignore)
     }
 
     private var stateAccessibilityLabel: String {

@@ -59,9 +59,9 @@ struct SubagentCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("subagent-card-\(entry.agentId ?? "")")
         .accessibilityLabel("\(entry.agent ?? "agent"), \(stateLabel)")
+        .accessibilityElement(children: .ignore)
         .disabled(!linked)
         .opacity(linked ? 1 : 0.7)
     }
