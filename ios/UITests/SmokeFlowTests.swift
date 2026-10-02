@@ -33,4 +33,12 @@ final class SmokeFlowTests: XCTestCase {
         audit.lifetime = .keepAlways
         add(audit)
     }
+
+    func testKeychainSelfTest() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-CCKeychainSelfTest"]
+        app.launch()
+
+        XCTAssertTrue(app.staticTexts["Keychain OK"].waitForExistence(timeout: 60), "Keychain self-test did not pass")
+    }
 }

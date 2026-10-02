@@ -24,6 +24,7 @@ final class AppModel {
     var actionError: ActionError?
     #if DEBUG
     let debugAttachmentPaths: [URL]
+    var keychainSelfTestResult: String?
     #endif
 
     private let credentials: any CredentialStore
@@ -89,6 +90,13 @@ final class AppModel {
         Task { @MainActor [weak self] in
             await self?.updateBadgeCount()
         }
+        #if DEBUG
+        if arguments.contains("-CCKeychainSelfTest") {
+            Task { @MainActor [weak self] in
+                self?.keychainSelfTestResult = await Self.runKeychainSelfTest()
+            }
+        }
+        #endif
 
         guard !fixtureMode else { return }
         Task { [weak self, credentials] in
@@ -194,6 +202,33 @@ final class AppModel {
         arguments.indices.compactMap { index in
             guard arguments[index] == name, arguments.indices.contains(index + 1) else { return nil }
             return arguments[index + 1]
+        }
+    }
+
+    private struct KeychainSelfTestMismatch: Error {}
+
+    private static func runKeychainSelfTest() async -> String {
+        let store = KeychainCredentialStore(service: "com.cc-controller.native-auth.self-test")
+        let value = UUID().uuidString
+        var step = "write"
+        do {
+            try await store.setDeviceToken(value)
+            step = "read"
+            guard try await store.getDeviceToken() == value else {
+                throw KeychainSelfTestMismatch()
+            }
+            step = "delete"
+            try await store.deleteDeviceToken()
+            step = "biometry write"
+            try await store.setNativeSecret(value)
+            step = "biometry delete"
+            try await store.deleteNativeSecret()
+            return "Keychain OK"
+        } catch {
+            try? await store.deleteDeviceToken()
+            try? await store.deleteNativeSecret()
+            let status = (error as? CredentialStoreError)?.statusCode ?? -1
+            return "Keychain failed: \(step) \(status)"
         }
     }
     #endif

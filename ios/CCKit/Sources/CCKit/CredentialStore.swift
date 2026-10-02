@@ -5,6 +5,12 @@ public enum CredentialStoreError: Error, Sendable, Equatable, LocalizedError {
     case accessDenied
     case invalidData
     case system(String)
+    case systemStatus(Int32, String)
+
+    public var statusCode: Int32? {
+        guard case .systemStatus(let status, _) = self else { return nil }
+        return status
+    }
 
     public var errorDescription: String? {
         switch self {
@@ -12,6 +18,7 @@ public enum CredentialStoreError: Error, Sendable, Equatable, LocalizedError {
         case .accessDenied: "Secure storage could not be unlocked."
         case .invalidData: "Secure storage contained invalid data."
         case .system(let message): message
+        case .systemStatus(_, let message): message
         }
     }
 }
@@ -118,7 +125,7 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
             return value
         case errSecItemNotFound: return nil
         case errSecAuthFailed, errSecInteractionNotAllowed, errSecUserCanceled: throw CredentialStoreError.accessDenied
-        default: throw CredentialStoreError.system(SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)")
+        default: throw CredentialStoreError.systemStatus(status, SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)")
         }
     }
 
@@ -138,9 +145,9 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
             match.removeValue(forKey: kSecReturnData as String)
             let update: [String: Any] = [kSecValueData as String: Data(value.utf8)]
             let updateStatus = SecItemUpdate(match as CFDictionary, update as CFDictionary)
-            guard updateStatus == errSecSuccess else { throw CredentialStoreError.system("Keychain update failed (\(updateStatus)).") }
+            guard updateStatus == errSecSuccess else { throw CredentialStoreError.systemStatus(updateStatus, "Keychain update failed (\(updateStatus)).") }
         } else if status != errSecSuccess {
-            throw CredentialStoreError.system("Keychain write failed (\(status)).")
+            throw CredentialStoreError.systemStatus(status, "Keychain write failed (\(status)).")
         }
     }
 
@@ -148,7 +155,7 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
         var query = baseQuery(account: account)
         query.removeValue(forKey: kSecReturnData as String)
         let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw CredentialStoreError.system("Keychain delete failed (\(status)).") }
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw CredentialStoreError.systemStatus(status, "Keychain delete failed (\(status)).") }
     }
 }
 #endif

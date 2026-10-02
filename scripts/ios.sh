@@ -352,7 +352,7 @@ cmd_generate() {
 
 cmd_build() {
   cmd_generate
-  xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
+  xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
 }
 
 cmd_test() {
@@ -490,7 +490,7 @@ cmd_flows() {
       flow_method_classes+=("$flow_class")
       flow_methods+=("$flow_method")
     done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
-  done < <(find "$IOS/UITests" -type f -name '*FlowTests.swift' -print | sort)
+  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' \) -print | sort)
   if [[ ${#flow_files[@]} -eq 0 ]]; then
     printf '%s\n' 'no flow tests found'
     return 0
@@ -537,7 +537,7 @@ cmd_flows() {
   RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
   DIAG_DIR=""
 
-  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build-for-testing)
+  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing)
   step 'flows build-for-testing' "${build_args[@]}"
   local app_bundle="$DERIVED/Build/Products/Debug-iphonesimulator/cc-controller.app"
   if [[ ! -d "$app_bundle" ]]; then

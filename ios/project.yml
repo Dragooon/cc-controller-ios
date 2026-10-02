@@ -32,6 +32,11 @@ targets:
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""
         Release:
           EXCLUDED_SOURCE_FILE_NAMES: "MockBottomStackData.swift MockData.swift MockGate.swift SessionsMocks.swift ApprovalMocks.swift BottomStackMocks.swift SessionMocks.swift SheetMocks.swift sessions.json judge-alignment.png rollout.png"
     info:
@@ -76,3 +81,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "$(DEVELOPMENT_TEAM)"
+      configs:
+        Debug:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""

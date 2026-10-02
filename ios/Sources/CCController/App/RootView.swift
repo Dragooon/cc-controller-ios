@@ -6,7 +6,19 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
+            #if DEBUG
+            if let result = model.keychainSelfTestResult {
+                Text(result)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(32)
+            } else {
+                content
+            }
+            #else
             content
+            #endif
 
             if model.isPrivacyCovered {
                 PrivacyCoverView()
