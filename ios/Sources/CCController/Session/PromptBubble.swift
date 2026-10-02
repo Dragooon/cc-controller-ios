@@ -9,7 +9,6 @@ struct PromptBubble: View {
     let attachmentThumbnails: [String: Data]
     let bubbleAccessibilityIdentifier: String
     @State private var isExpanded = false
-    @State private var previewURL: URL?
 
     init(
         prompt: PromptEntry,
@@ -48,8 +47,7 @@ struct PromptBubble: View {
                                 sessionID: sessionID,
                                 name: name,
                                 initialData: attachmentThumbnails[name],
-                                downloadFile: downloadFile,
-                                onPreview: { previewURL = $0 }
+                                downloadFile: downloadFile
                             )
                         }
                     }
@@ -94,15 +92,5 @@ struct PromptBubble: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(promptText)
         .accessibilityIdentifier(bubbleAccessibilityIdentifier)
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { previewURL != nil },
-                set: { if !$0 { previewURL = nil } }
-            )
-        ) {
-            if let previewURL {
-                QuickLookPreviewController(url: previewURL)
-            }
-        }
     }
 }
