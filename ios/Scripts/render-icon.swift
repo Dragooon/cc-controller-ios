@@ -2,13 +2,6 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-enum IconOption {
-    case legacy
-    case clayOnCream
-    case creamOnClay
-    case terminal
-}
-
 struct Palette {
     let accent: NSColor
     let lightBackground: NSColor
@@ -25,23 +18,8 @@ let palette = Palette(
     white: NSColor(calibratedWhite: 1, alpha: 1)
 )
 let darkAccent = NSColor(calibratedRed: 0.851, green: 0.467, blue: 0.341, alpha: 1)
-let warmCream = NSColor(calibratedRed: 0.96, green: 0.958, blue: 0.95, alpha: 1)
 let nearBlack = NSColor(calibratedRed: 0.018, green: 0.016, blue: 0.015, alpha: 1)
 
-func option(from argument: String?) -> IconOption {
-    guard let argument else { return .legacy }
-    switch argument.lowercased() {
-    case "a", "option-a", "clay-on-cream": return .clayOnCream
-    case "b", "option-b", "cream-on-clay": return .creamOnClay
-    case "c", "option-c", "terminal": return .terminal
-    case "default", "legacy": return .legacy
-    default:
-        fputs("unknown icon option: \(argument) (expected a, b, c, or no argument)\n", stderr)
-        exit(2)
-    }
-}
-
-let selectedOption = option(from: CommandLine.arguments.dropFirst().first)
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     .appendingPathComponent("ios/Resources/Assets.xcassets/AppIcon.appiconset")
 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -73,11 +51,6 @@ func drawGradient(_ context: CGContext, in rect: CGRect, top: NSColor, bottom: N
         end: CGPoint(x: rect.midX, y: rect.minY),
         options: []
     )
-}
-
-func fill(_ context: CGContext, color: NSColor, in rect: CGRect) {
-    context.setFillColor(color.cgColor)
-    context.fill(rect)
 }
 
 func armPath(center: CGPoint, outerRadius: CGFloat, strokeWidth: CGFloat) -> CGMutablePath {
@@ -157,68 +130,25 @@ func drawCursor(_ context: CGContext, center: CGPoint, width: CGFloat, color: NS
     context.fillPath()
 }
 
-func drawLegacy(_ context: CGContext, size: CGFloat, background: NSColor, mark: NSColor) {
-    fill(context, color: background, in: CGRect(x: 0, y: 0, width: size, height: size))
-    let attributes: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 500, weight: .regular),
-        .foregroundColor: mark
-    ]
-    let glyph = NSAttributedString(string: "✻", attributes: attributes)
-    let bounds = glyph.size()
-    glyph.draw(at: NSPoint(x: (size - bounds.width) / 2, y: (size - bounds.height) / 2 - 20))
-}
-
-func drawCandidate(_ context: CGContext, option: IconOption, variant: String, size: CGFloat) {
+func drawTerminal(_ context: CGContext, variant: String, size: CGFloat) {
     let rect = CGRect(x: 0, y: 0, width: size, height: size)
     let isTinted = variant == "tinted"
     let isDark = variant == "dark"
     let accent = isDark ? darkAccent : palette.accent
     let markColor = isTinted ? palette.white : accent
 
-    switch option {
-    case .clayOnCream:
-        if isTinted {
-            fill(context, color: palette.black, in: rect)
-        } else if isDark {
-            drawGradient(context, in: rect, top: palette.darkBackground, bottom: nearBlack)
-        } else {
-            drawGradient(context, in: rect, top: palette.lightBackground, bottom: warmCream)
-        }
-        drawMark(context, center: CGPoint(x: size / 2, y: size / 2), width: size, color: isTinted ? palette.white : accent, highlight: !isTinted)
-
-    case .creamOnClay:
-        if isTinted {
-            fill(context, color: palette.black, in: rect)
-        } else if isDark {
-            drawGradient(context, in: rect, top: palette.darkBackground, bottom: nearBlack)
-        } else {
-            let accentBottom = NSColor(
-                calibratedRed: accent.redComponent * 0.88,
-                green: accent.greenComponent * 0.88,
-                blue: accent.blueComponent * 0.88,
-                alpha: 1
-            )
-            drawGradient(context, in: rect, top: accent, bottom: accentBottom)
-        }
-        drawMark(context, center: CGPoint(x: size / 2, y: size / 2), width: size, color: isTinted ? palette.white : (isDark ? darkAccent : palette.lightBackground), highlight: !isTinted)
-
-    case .terminal:
-        drawGradient(context, in: rect, top: isTinted ? palette.black : palette.darkBackground, bottom: nearBlack)
-        let center = CGPoint(x: size * 0.445, y: size * 0.555)
-        drawMark(context, center: center, width: size * 0.46 / 0.56, color: markColor, highlight: !isTinted)
-        drawCursor(context, center: CGPoint(x: size * 0.70, y: size * 0.25), width: size, color: isTinted ? palette.white : palette.lightBackground)
-
-    case .legacy:
-        drawLegacy(context, size: size, background: isTinted ? palette.white : palette.darkBackground, mark: isTinted ? palette.black : (isDark ? NSColor(calibratedWhite: 0.92, alpha: 1) : darkAccent))
-    }
+    drawGradient(context, in: rect, top: isTinted ? palette.black : palette.darkBackground, bottom: nearBlack)
+    let center = CGPoint(x: size * 0.445, y: size * 0.555)
+    drawMark(context, center: center, width: size * 0.46 / 0.56, color: markColor, highlight: !isTinted)
+    drawCursor(context, center: CGPoint(x: size * 0.70, y: size * 0.25), width: size, color: isTinted ? palette.white : palette.lightBackground)
 }
 
-func render(variant: String, option: IconOption, output: URL) throws {
+func render(variant: String, output: URL) throws {
     let size: CGFloat = 1024
     let (context, graphicsContext) = try makeBitmap(size: Int(size))
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = graphicsContext
-    drawCandidate(context, option: option, variant: variant, size: size)
+    drawTerminal(context, variant: variant, size: size)
     graphicsContext.flushGraphics()
     NSGraphicsContext.restoreGraphicsState()
     guard let image = context.makeImage() else {
@@ -231,6 +161,6 @@ func render(variant: String, option: IconOption, output: URL) throws {
     try png.write(to: output)
 }
 
-try render(variant: "light", option: selectedOption, output: root.appendingPathComponent("AppIcon.png"))
-try render(variant: "dark", option: selectedOption, output: root.appendingPathComponent("AppIcon-dark.png"))
-try render(variant: "tinted", option: selectedOption, output: root.appendingPathComponent("AppIcon-tinted.png"))
+try render(variant: "light", output: root.appendingPathComponent("AppIcon.png"))
+try render(variant: "dark", output: root.appendingPathComponent("AppIcon-dark.png"))
+try render(variant: "tinted", output: root.appendingPathComponent("AppIcon-tinted.png"))
