@@ -60,6 +60,7 @@ struct SubagentCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("subagent-card-\(entry.agentId ?? "")")
+        .accessibilityLabel("\(entry.agent ?? "agent"), \(stateLabel)")
         .disabled(!linked)
         .opacity(linked ? 1 : 0.7)
     }

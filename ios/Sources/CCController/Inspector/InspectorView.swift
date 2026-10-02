@@ -319,7 +319,7 @@ struct InspectorView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .foregroundStyle(.ccSecondary)
+            .foregroundStyle(.ccLabel)
     }
 
     private func subagentAccessibilityLabel(_ subagent: Subagent) -> String {
