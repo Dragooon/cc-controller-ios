@@ -22,6 +22,7 @@ struct SessionTranscriptView: View {
     @State private var didTriggerPaging = false
     @State private var newestIsVisible = true
     @State private var pagingAnchorID: Turn.ID?
+    @State private var pagingRestoreTask: Task<Void, Never>?
     @State private var pagingError: String?
     @State private var transcriptHeight: CGFloat = 0
 
@@ -81,10 +82,21 @@ struct SessionTranscriptView: View {
             }
             .onChange(of: turns.first?.id) { _, newID in
                 guard let anchorID = pagingAnchorID, newID != anchorID else { return }
-                withTransaction(Transaction(animation: nil)) {
-                    proxy.scrollTo(anchorID, anchor: .top)
-                }
+                cancelPagingRestore()
+                scrollToPagingAnchor(anchorID, using: proxy)
                 pagingAnchorID = nil
+                pagingRestoreTask = Task { @MainActor in
+                    await Task.yield()
+                    guard !Task.isCancelled else { return }
+                    scrollToPagingAnchor(anchorID, using: proxy)
+                    do {
+                        try await Task.sleep(for: .milliseconds(100))
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    scrollToPagingAnchor(anchorID, using: proxy)
+                }
             }
             .onChange(of: turns.last?.id) { _, _ in
                 scrollToNewest(using: proxy)
@@ -99,6 +111,10 @@ struct SessionTranscriptView: View {
             } action: { _, isAtBottom in
                 newestIsVisible = isAtBottom
                 if !isAtBottom { loadEarlierIfNeeded() }
+            }
+            .onScrollPhaseChange { _, phase in
+                guard phase == .interacting else { return }
+                cancelPagingRestore()
             }
             .overlay(alignment: .bottomTrailing) {
                 if !newestIsVisible, let newestID = turns.last?.id {
@@ -165,6 +181,7 @@ struct SessionTranscriptView: View {
 
     private func loadEarlierIfNeeded() {
         guard hasMoreEarlier, !isLoadingEarlier, !didTriggerPaging, let loadEarlier else { return }
+        cancelPagingRestore()
         pagingAnchorID = turns.first?.id
         didTriggerPaging = true
         isLoadingEarlier = true
@@ -175,6 +192,17 @@ struct SessionTranscriptView: View {
                 pagingError = error.localizedDescription
             }
             isLoadingEarlier = false
+        }
+    }
+
+    private func cancelPagingRestore() {
+        pagingRestoreTask?.cancel()
+        pagingRestoreTask = nil
+    }
+
+    private func scrollToPagingAnchor(_ anchorID: Turn.ID, using proxy: ScrollViewProxy) {
+        withTransaction(Transaction(animation: nil)) {
+            proxy.scrollTo(anchorID, anchor: .top)
         }
     }
 
