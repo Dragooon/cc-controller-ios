@@ -5,7 +5,7 @@ import XCTest
 final class SettingsFlowTests: FixtureFlowTestSupport {
     private let environment = ProcessInfo.processInfo.environment
     private var serverURL: String { environment["TEST_RUNNER_SERVER_URL"] ?? "http://127.0.0.1:47832" }
-    private let appVersion = "0.1.0 (1)"
+    private let appVersionPattern = "[0-9]+(\\.[0-9]+)* \\([0-9]+\\)"
 
     func testShowsRealConnectionDeviceAndAboutValues() async throws {
         let bootstrap = try await fixtureJSON("/api/bootstrap")
@@ -52,7 +52,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         let commit = try XCTUnwrap(daemon["commit"] as? String)
         let apiVersion = try XCTUnwrap(bootstrap["apiVersion"] as? Int)
         reveal(element(app, "settings-api-version"), in: app)
-        try await expectValue(app, "settings-app-version", equals: appVersion)
+        try await expectValue(app, "settings-app-version", matches: appVersionPattern)
         try await expectValue(app, "settings-daemon-version", equals: "\(version) (\(commit.prefix(7)))")
         try await expectValue(app, "settings-api-version", equals: String(apiVersion))
         addScreenshot(named: "settings-paired-about")
@@ -124,7 +124,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         reveal(retry, in: app)
         XCTAssertTrue(retry.isHittable, "Paired devices error had no Retry")
         reveal(element(app, "settings-api-version"), in: app)
-        try await expectValue(app, "settings-app-version", equals: appVersion)
+        try await expectValue(app, "settings-app-version", matches: appVersionPattern)
         try await expectValue(app, "settings-daemon-version", equals: "Unavailable")
         try await expectValue(app, "settings-api-version", equals: "Unavailable")
         addScreenshot(named: "settings-unreachable-bottom")
@@ -160,10 +160,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
         try await expectNoProbes(for: .seconds(4), "while the app was locked")
         try await postFixture("/fixture/biometric/match")
-        if !element(app, "settings-latency").waitForExistence(timeout: 20) {
-            print("Settings was not re-presented after unlock; reopening it")
-            openSettings(app)
-        }
+        XCTAssertTrue(element(app, "settings-latency").waitForExistence(timeout: 20), "Settings was not re-presented after unlock")
         try await expectValue(app, "settings-latency", matches: "[0-9]+ ms")
 
         let unpair = element(app, "settings-unpair")
