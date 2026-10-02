@@ -153,7 +153,7 @@ struct FileEntryView: View {
 
     private var fileName: String { entry.name ?? "Untitled file" }
     private var isImage: Bool {
-        (entry.mime ?? "").hasPrefix("image/") || fileName.lowercased().hasSuffix(".png")
+        (entry.mime ?? "").lowercased().hasPrefix("image/") || isImageAttachmentName(fileName)
     }
 
     var body: some View {
@@ -188,13 +188,7 @@ struct FileEntryView: View {
     @ViewBuilder
     private var fileTile: some View {
         if isImage {
-            MockImageThumbnail(
-                resourceName: "rollout",
-                contentMode: .fit,
-                maxWidth: 220,
-                maxHeight: 280,
-                cornerRadius: 12
-            )
+            RemoteFileImageTile(entry: entry, download: download)
         } else {
             HStack(spacing: 10) {
                 Image(systemName: fileSymbol)
@@ -251,45 +245,6 @@ struct WorkedFooter: View {
         .font(.caption)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, -8)
-    }
-}
-
-struct MockImageThumbnail: View {
-    let resourceName: String
-    let contentMode: ContentMode
-    let maxWidth: CGFloat
-    let maxHeight: CGFloat
-    let cornerRadius: CGFloat
-
-    var body: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: contentMode)
-                .frame(width: previewWidth, height: previewHeight)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(.ccSeparator, lineWidth: 0.5)
-                }
-                .accessibilityLabel(resourceName)
-        }
-    }
-
-    private var image: UIImage? {
-        guard let url = Bundle.main.url(forResource: resourceName, withExtension: "png") else { return nil }
-        return UIImage(contentsOfFile: url.path)
-    }
-
-    private var previewWidth: CGFloat {
-        guard contentMode == .fit, let image else { return maxWidth }
-        return min(maxWidth, maxHeight * image.size.width / image.size.height)
-    }
-
-    private var previewHeight: CGFloat {
-        guard contentMode == .fit, let image else { return maxHeight }
-        return min(maxHeight, maxWidth * image.size.height / image.size.width)
     }
 }
 

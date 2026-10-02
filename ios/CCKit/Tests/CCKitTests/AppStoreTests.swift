@@ -291,6 +291,34 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(downloaded.mime, "text/csv")
     }
 
+    func testSendCarriesAttachmentNamesAndThumbnailsIntoPendingNote() async {
+        URLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/sessions/session-1/message")
+            return URLProtocolStub.json(Data("{\"delivered\":false,\"queued\":true}".utf8))
+        }
+        let app = makeApp()
+        let result = await app.send(
+            text: "Inspect these files",
+            attachments: ["attachment.png", "evidence.csv"],
+            attachmentThumbnails: ["attachment.png": Data([1, 2, 3])],
+            to: "session-1"
+        )
+
+        guard case .success = result else {
+            XCTFail("Send failed: \(result)")
+            return
+        }
+        XCTAssertEqual(
+            app.queuedNotes(for: "session-1"),
+            [QueuedNote(
+                text: "Inspect these files",
+                queued: true,
+                attachments: ["attachment.png", "evidence.csv"],
+                attachmentThumbnails: ["attachment.png": Data([1, 2, 3])]
+            )]
+        )
+    }
+
     func testEntryCountGapRefetchesOnlyGapPlusMargin() {
         XCTAssertEqual(AppStore.gapFetchLimit(missing: 12), 32)
         XCTAssertEqual(AppStore.gapFetchLimit(missing: 600), 400)

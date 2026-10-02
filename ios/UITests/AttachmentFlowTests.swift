@@ -13,6 +13,35 @@ final class AttachmentFlowTests: XCTestCase {
         super.tearDown()
     }
 
+    func testDeliveredPromptShowsRealAttachmentsAndQuickLook() throws {
+        let app = launchFixture(with: [fixture("attachment.png"), fixture("evidence.csv")])
+        defer {
+            audit(app, name: "attachment-delivered-bubble")
+            app.terminate()
+        }
+        openLongSession(in: app)
+
+        let field = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "Composer did not load")
+        field.tap()
+        field.typeText("delivered-attachment-flow-marker")
+        app.buttons["composer-send"].tap()
+
+        let image = app.descendants(matching: .any).matching(identifier: "prompt-attachment")
+            .matching(NSPredicate(format: "label == 'attachment.png, image'")).firstMatch
+        XCTAssertTrue(image.waitForExistence(timeout: 30), "Delivered image attachment did not appear")
+        XCTAssertEqual(image.value as? String, "loaded")
+
+        let csv = app.descendants(matching: .any).matching(identifier: "prompt-attachment")
+            .matching(NSPredicate(format: "label == 'evidence.csv, file'")).firstMatch
+        XCTAssertTrue(csv.waitForExistence(timeout: 30), "Delivered CSV attachment did not appear")
+
+        addScreenshot(named: "attachment-delivered-bubble")
+        image.tap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 15), "Quick Look did not appear")
+        app.buttons["Done"].tap()
+    }
+
     func testLaunchAttachmentSendClearsTray() throws {
         let app = launchFixture(with: fixture("attachment.png"))
         defer {

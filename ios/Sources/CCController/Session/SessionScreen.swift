@@ -100,6 +100,7 @@ struct SessionScreen: View {
             ) {
                 if sessionStore.isLoaded {
                     SessionTranscriptView(
+                        sessionID: sessionID,
                         turns: sessionStore.turns,
                         bottomStackConfiguration: bottomStackConfiguration(
                             for: sessionStore.session,

@@ -148,12 +148,25 @@ public final class AppStore {
         await decide(approval, behavior: .deny)
     }
 
-    public func send(text: String, attachments: [String] = [], to sessionID: String, now: Bool = false) async -> Result<Void, ActionError> {
+    public func send(
+        text: String,
+        attachments: [String] = [],
+        attachmentThumbnails: [String: Data] = [:],
+        to sessionID: String,
+        now: Bool = false
+    ) async -> Result<Void, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .failure(.invalid("Message text is required.")) }
         do {
             let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
-            queuedNotes[sessionID, default: []].append(QueuedNote(text: trimmed, queued: result.queued == true))
+            queuedNotes[sessionID, default: []].append(
+                QueuedNote(
+                    text: trimmed,
+                    queued: result.queued == true,
+                    attachments: attachments,
+                    attachmentThumbnails: attachmentThumbnails
+                )
+            )
             return .success(())
         } catch {
             return .failure(actionError(for: error))
@@ -230,7 +243,20 @@ public final class AppStore {
             guard case .attached(let file) = item.state else { return nil }
             return file.name
         }
-        let result = await send(text: trimmed.isEmpty ? "See attached." : trimmed, attachments: names, to: sessionID, now: now)
+        let thumbnails = finished.reduce(into: [String: Data]()) { result, item in
+            guard item.isImage,
+                  case .attached(let file) = item.state,
+                  let name = file.name,
+                  let data = item.thumbnailData else { return }
+            result[name] = data
+        }
+        let result = await send(
+            text: trimmed.isEmpty ? "See attached." : trimmed,
+            attachments: names,
+            attachmentThumbnails: thumbnails,
+            to: sessionID,
+            now: now
+        )
         if case .success = result {
             attachments[sessionID]?.removeAll { sentIDs.contains($0.id) }
             attachmentProgressDates = attachmentProgressDates.filter { !sentIDs.contains($0.key) }

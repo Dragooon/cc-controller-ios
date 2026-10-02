@@ -1,9 +1,25 @@
 import CCKit
+import Foundation
 import SwiftUI
 
 struct PromptBubble: View {
     let prompt: PromptEntry
+    let sessionID: String
+    let downloadFile: (@MainActor @Sendable (String) async throws -> URL)?
+    let attachmentThumbnails: [String: Data]
     @State private var isExpanded = false
+
+    init(
+        prompt: PromptEntry,
+        sessionID: String = "",
+        downloadFile: (@MainActor @Sendable (String) async throws -> URL)? = nil,
+        attachmentThumbnails: [String: Data] = [:]
+    ) {
+        self.prompt = prompt
+        self.sessionID = sessionID
+        self.downloadFile = downloadFile
+        self.attachmentThumbnails = attachmentThumbnails
+    }
 
     private var promptText: String {
         CCKit.normalisePromptText(prompt.text ?? prompt.command).text
@@ -22,17 +38,17 @@ struct PromptBubble: View {
             Spacer(minLength: 0)
             VStack(alignment: .trailing, spacing: 8) {
                 if !attachmentNames.isEmpty {
-                    HStack(spacing: 8) {
-                        ForEach(Array(attachmentNames.enumerated()), id: \.offset) { _, name in
-                            MockImageThumbnail(
-                                resourceName: "judge-alignment",
-                                contentMode: .fill,
-                                maxWidth: 64,
-                                maxHeight: 64,
-                                cornerRadius: 10
+                    PromptAttachmentFlow(rowSpacing: 8) {
+                        ForEach(attachmentNames, id: \.self) { name in
+                            PromptAttachmentItemView(
+                                sessionID: sessionID,
+                                name: name,
+                                initialData: attachmentThumbnails[name],
+                                downloadFile: downloadFile
                             )
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
                 }
 
                 if let paste = prompt.paste {

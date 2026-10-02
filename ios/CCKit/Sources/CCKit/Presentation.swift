@@ -26,25 +26,39 @@ public struct QueuedNote: Codable, Sendable, Equatable {
     public var text: String
     public var queued: Bool
     public var forceSent: Bool
+    public var attachments: [String]
+    public var attachmentThumbnails: [String: Data]
 
-    public init(text: String, queued: Bool = false, forceSent: Bool = false) {
+    public init(
+        text: String,
+        queued: Bool = false,
+        forceSent: Bool = false,
+        attachments: [String] = [],
+        attachmentThumbnails: [String: Data] = [:]
+    ) {
         self.text = text
         self.queued = queued
         self.forceSent = forceSent
+        self.attachments = attachments
+        self.attachmentThumbnails = attachmentThumbnails
     }
 
-    private enum CodingKeys: String, CodingKey { case text, queued, forceSent }
+    private enum CodingKeys: String, CodingKey { case text, queued, forceSent, attachments, attachmentThumbnails }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
         queued = try container.decodeIfPresent(Bool.self, forKey: .queued) ?? false
         forceSent = try container.decodeIfPresent(Bool.self, forKey: .forceSent) ?? false
+        attachments = try container.decodeIfPresent([String].self, forKey: .attachments) ?? []
+        attachmentThumbnails = try container.decodeIfPresent([String: Data].self, forKey: .attachmentThumbnails) ?? [:]
     }
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(text, forKey: .text)
         try container.encode(queued, forKey: .queued)
         if forceSent { try container.encode(true, forKey: .forceSent) }
+        if !attachments.isEmpty { try container.encode(attachments, forKey: .attachments) }
+        if !attachmentThumbnails.isEmpty { try container.encode(attachmentThumbnails, forKey: .attachmentThumbnails) }
     }
 }
 

@@ -2,6 +2,7 @@ import CCKit
 import SwiftUI
 
 struct SessionTranscriptView: View {
+    let sessionID: String
     let turns: [Turn]
     let subagents: [Subagent]
     let showsComposer: Bool
@@ -25,6 +26,7 @@ struct SessionTranscriptView: View {
     @State private var transcriptHeight: CGFloat = 0
 
     init(
+        sessionID: String = "",
         turns: [Turn],
         showsComposer: Bool = true,
         showsWorkedFooter: Bool = true,
@@ -41,6 +43,7 @@ struct SessionTranscriptView: View {
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil,
         scrollAnchor: UnitPoint = .top
     ) {
+        self.sessionID = sessionID
         self.turns = turns
         self.showsComposer = showsComposer
         self.showsWorkedFooter = showsWorkedFooter
@@ -193,6 +196,7 @@ struct SessionTranscriptView: View {
     private var transcriptRows: some View {
         ForEach(turns) { turn in
             TranscriptTurnView(
+                sessionID: sessionID,
                 turn: turn,
                 subagents: subagents,
                 showsWorkedFooter: showsWorkedFooter,
@@ -207,7 +211,7 @@ struct SessionTranscriptView: View {
         }
 
         ForEach(Array(queuedNotes.enumerated()), id: \.offset) { _, note in
-            PendingPromptView(note: note)
+            PendingPromptView(sessionID: sessionID, note: note, downloadFile: downloadFile)
         }
 
         Color.clear
@@ -218,11 +222,26 @@ struct SessionTranscriptView: View {
 }
 
 private struct PendingPromptView: View {
+    let sessionID: String
     let note: QueuedNote
+    let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+
+    private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
+        guard let downloadFile else { return nil }
+        let sessionID = self.sessionID
+        return { name in
+            try await downloadFile(FileEntry(sessionId: sessionID, name: name))
+        }
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            PromptBubble(prompt: PromptEntry(text: note.text))
+            PromptBubble(
+                prompt: PromptEntry(text: note.text, attachments: note.attachments),
+                sessionID: sessionID,
+                downloadFile: promptDownload,
+                attachmentThumbnails: note.attachmentThumbnails
+            )
                 .opacity(0.55)
             if note.queued {
                 Text("Queued")
@@ -238,6 +257,7 @@ private struct PendingPromptView: View {
 }
 
 struct TranscriptTurnView: View {
+    let sessionID: String
     let turn: Turn
     let subagents: [Subagent]
     let showsWorkedFooter: Bool
@@ -249,6 +269,7 @@ struct TranscriptTurnView: View {
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
 
     init(
+        sessionID: String = "",
         turn: Turn,
         subagents: [Subagent] = [],
         showsWorkedFooter: Bool,
@@ -259,6 +280,7 @@ struct TranscriptTurnView: View {
         onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
+        self.sessionID = sessionID
         self.turn = turn
         self.subagents = subagents
         self.showsWorkedFooter = showsWorkedFooter
@@ -270,10 +292,22 @@ struct TranscriptTurnView: View {
         self.downloadFile = downloadFile
     }
 
+    private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
+        guard let downloadFile else { return nil }
+        let sessionID = self.sessionID
+        return { name in
+            try await downloadFile(FileEntry(sessionId: sessionID, name: name))
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             ForEach(Array(turn.prompts.enumerated()), id: \.offset) { _, prompt in
-                PromptBubble(prompt: prompt)
+                PromptBubble(
+                    prompt: prompt,
+                    sessionID: sessionID,
+                    downloadFile: promptDownload
+                )
             }
 
             ForEach(turn.items) { item in
