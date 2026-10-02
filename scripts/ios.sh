@@ -812,13 +812,13 @@ signing_team() {
 
 cmd_archive() {
   cmd_generate
-  local archive_path="$IOS/build/archive/CCController.xcarchive"
-  if [[ -e "$archive_path" ]]; then
-    printf 'archive output already exists: %s\n' "$archive_path" >&2
-    return 2
-  fi
   local build_number
   build_number=$(git -C "$ROOT" rev-list --count HEAD)
+  local archive_path="$IOS/build/archive/CCController-$build_number.xcarchive"
+  if [[ -e "$archive_path" ]]; then
+    printf 'commit first or delete %s\n' "$archive_path" >&2
+    return 2
+  fi
   local team
   team=$(signing_team)
   local args=(
@@ -859,18 +859,28 @@ cmd_upload() {
     printf '%s\n' 'upload requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
     return 2
   fi
-  local archive_path="$IOS/build/archive/CCController.xcarchive"
-  if [[ ! -d "$archive_path" ]]; then
-    printf 'upload requires an archive at %s; run archive first\n' "$archive_path" >&2
+  local archive_dir="$IOS/build/archive"
+  local selected_archive="" selected_build=-1 archive_path archive_name build
+  for archive_path in "$archive_dir"/CCController-*.xcarchive; do
+    [[ -d "$archive_path" ]] || continue
+    archive_name=${archive_path##*/}
+    build=${archive_name#CCController-}
+    build=${build%.xcarchive}
+    [[ "$build" =~ ^[0-9]+$ ]] || continue
+    if (( build > selected_build )); then
+      selected_build=$build
+      selected_archive=$archive_path
+    fi
+  done
+  if [[ -z "$selected_archive" ]]; then
+    printf 'upload requires an archive under %s; run archive first\n' "$archive_dir" >&2
     return 2
   fi
-  local export_dir="$IOS/build/export"
-  if [[ -e "$export_dir" ]]; then
-    printf 'upload output already exists: %s\n' "$export_dir" >&2
-    return 2
-  fi
-  local key_args=()
+  printf 'uploading build %s from %s\n' "$selected_build" "$selected_archive"
+  local export_dir="$IOS/build/export/$selected_build"
+  local auth_configured=0
   if [[ -n "${ASC_KEY_PATH:-}${ASC_KEY_ID:-}${ASC_ISSUER_ID:-}" ]]; then
+    auth_configured=1
     local input
     for input in ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; do
       if [[ -z "${!input:-}" ]]; then
@@ -878,11 +888,6 @@ cmd_upload() {
         return 2
       fi
     done
-    key_args=(
-      -authenticationKeyPath "$ASC_KEY_PATH"
-      -authenticationKeyID "$ASC_KEY_ID"
-      -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-    )
   fi
   RUN_DIR=$(mktemp -d -t cc-controller-upload.XXXXXX)
   local export_options="$RUN_DIR/ExportOptions.plist"
@@ -892,11 +897,18 @@ cmd_upload() {
   local args=(
     xcodebuild
     -exportArchive
-    -archivePath "$archive_path"
+    -allowProvisioningUpdates
+    -archivePath "$selected_archive"
     -exportPath "$export_dir"
     -exportOptionsPlist "$export_options"
   )
-  args+=("${key_args[@]}")
+  if [[ $auth_configured -eq 1 ]]; then
+    args+=(
+      -authenticationKeyPath "$ASC_KEY_PATH"
+      -authenticationKeyID "$ASC_KEY_ID"
+      -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+    )
+  fi
   step upload "${args[@]}"
   printf 'upload export completed: %s\n' "$export_dir"
 }
