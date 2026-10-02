@@ -294,6 +294,7 @@ private struct SessionGlyph: View {
         case .working:
             SpinnerGlyph(active: true, frozen: frozen, dimmed: dimmed)
                 .font(.title3.weight(.medium))
+                .accessibilityHidden(true)
         case .needsYou:
             Text("●")
                 .font(.title3.weight(.medium))

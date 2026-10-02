@@ -70,6 +70,7 @@ struct SubagentCard: View {
         case .running:
             SpinnerGlyph(active: true, frozen: false)
                 .font(.caption)
+                .accessibilityHidden(true)
         case .done:
             Text("●")
                 .foregroundStyle(.ccGreen)

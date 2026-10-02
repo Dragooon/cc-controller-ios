@@ -147,6 +147,7 @@ private struct ToolStatusView: View {
         case .running:
             HStack(spacing: 4) {
                 SpinnerGlyph(active: true, frozen: true)
+                    .accessibilityHidden(true)
                 Text(displayDuration(12_000))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.ccAccent)
