@@ -66,6 +66,7 @@ final class OnboardingFlowTests: XCTestCase {
             XCTAssertTrue(app.staticTexts["Face ID didn't match. Try again."].waitForExistence(timeout: 10), dump)
             XCTAssertTrue(app.buttons["Try again"].exists)
         }
+        addScreenshot(named: "onboarding-faceid-failure")
 
         app.buttons["Try again"].tap()
         try await postFixture("/fixture/biometric/match")
@@ -87,7 +88,7 @@ final class OnboardingFlowTests: XCTestCase {
         }
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        let blocked = app.staticTexts["Set up Face ID in Settings to use this app"]
+        let blocked = app.staticTexts["Set up Face ID in Settings to use this app."]
         guard blocked.waitForExistence(timeout: 10) else {
             throw XCTSkip("Simulator biometric unenrollment is not currently drivable; the Face ID not-enrolled state could not be isolated.")
         }
@@ -109,7 +110,21 @@ final class OnboardingFlowTests: XCTestCase {
         app.buttons["Continue"].tap()
         XCTAssertTrue(app.staticTexts["Pair this iPhone"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["This code expired"].waitForExistence(timeout: 10), "The short client expiry did not render")
-        XCTAssertTrue(app.buttons["Get a new pairing code"].exists)
+        addScreenshot(named: "onboarding-pair-expired")
+        let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
+        let oldCode = codeElement.label
+        app.buttons["Get a new pairing code"].tap()
+        XCTAssertTrue(app.staticTexts["Pair this iPhone"].exists)
+
+        let newCodeExpectation = expectation(for: NSPredicate(format: "label != %@", oldCode), evaluatedWith: codeElement)
+        wait(for: [newCodeExpectation], timeout: 10)
+        let newCode = codeElement.label.replacingOccurrences(of: " ", with: "")
+        XCTAssertEqual(newCode.count, 6)
+        XCTAssertNotEqual(newCode, oldCode.replacingOccurrences(of: " ", with: ""))
+
+        let expired = app.staticTexts["This code expired"]
+        let expiredGone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: expired)
+        wait(for: [expiredGone], timeout: 10)
     }
 
     func testUnreachableDaemonExplainsWhatToFix() throws {
@@ -123,6 +138,7 @@ final class OnboardingFlowTests: XCTestCase {
         app.buttons["Continue"].tap()
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Can't reach the Mac yet"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Check that Termius is forwarding localhost:47832 and the Mac is awake."].waitForExistence(timeout: 8))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] '127.0.0.1:1'")).firstMatch.exists)
         XCTAssertFalse(app.buttons["Continue"].isEnabled)
     }

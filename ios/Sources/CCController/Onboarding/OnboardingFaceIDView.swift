@@ -16,7 +16,12 @@ struct OnboardingFaceIDView: View {
     }
 
     var body: some View {
-        OnboardingPage(step: "Step 4 of 5", buttonTitle: nil, onBack: onBack) {
+        OnboardingPage(
+            step: "Step 4 of 4",
+            buttonTitle: message == nil ? "Turn on Face ID" : "Try again",
+            onBack: onBack,
+            action: onTryAgain
+        ) {
             VStack(spacing: 18) {
                 Image(systemName: "faceid")
                     .font(.system(size: 72, weight: .regular))
@@ -29,8 +34,14 @@ struct OnboardingFaceIDView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Use Face ID to protect this iPhone. The key stays in this iPhone's Keychain and never leaves it.")
+                Text("cc-controller locks when you leave it, and Face ID unlocks it.")
                     .font(.body)
+                    .foregroundStyle(.ccSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("The key stays in this iPhone's Keychain and never leaves it.")
+                    .font(.footnote)
                     .foregroundStyle(.ccSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -43,15 +54,6 @@ struct OnboardingFaceIDView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityLabel(message)
                 }
-
-                Button(action: onTryAgain) {
-                    Text(message == nil ? "Turn on Face ID" : "Try again")
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                }
-                .buttonStyle(.glassProminent)
-                .tint(.ccAccent)
-                .controlSize(.large)
-                .accessibilityLabel(message == nil ? "Turn on Face ID" : "Try again")
             }
         }
     }

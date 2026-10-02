@@ -31,7 +31,7 @@ struct OnboardingPairView: View {
     }
 
     var body: some View {
-        OnboardingPage(step: "Step 3 of 5", buttonTitle: nil, onBack: onBack) {
+        OnboardingPage(step: "Step 3 of 4", buttonTitle: nil, onBack: onBack) {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Pair this iPhone")
                     .font(.title.bold())
@@ -49,7 +49,7 @@ struct OnboardingPairView: View {
                         .accessibilityLabel(code.map(String.init).joined(separator: " "))
                 }
 
-                Text("On the Mac run")
+                Text("On the Mac, run")
                     .font(.body)
                     .foregroundStyle(.ccSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -93,7 +93,9 @@ struct OnboardingPairView: View {
                 }
             }
         }
-        .sensoryFeedback(.success, trigger: copied)
+        .sensoryFeedback(.success, trigger: copied) { _, newValue in
+            newValue
+        }
     }
 
     private var stackedCommand: some View {

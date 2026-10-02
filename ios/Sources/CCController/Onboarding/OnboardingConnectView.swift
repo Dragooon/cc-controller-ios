@@ -29,7 +29,7 @@ struct OnboardingConnectView: View {
 
     var body: some View {
         OnboardingPage(
-            step: "Step 2 of 5",
+            step: "Step 2 of 4",
             buttonTitle: "Continue",
             isButtonEnabled: isConnected,
             onBack: onBack,
@@ -41,13 +41,20 @@ struct OnboardingConnectView: View {
                         .font(.title.bold())
                         .foregroundStyle(.ccLabel)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Start the Termius port forward to localhost:47832 on this iPhone.")
+                    Text("In Termius, start the forward to \(Text("localhost:47832").font(.body.monospaced())). cc-controller looks for your Mac there.")
                         .font(.body)
                         .foregroundStyle(.ccSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 statusCard
+
+                if case .unreachable = connection {
+                    Text("Check that Termius is forwarding localhost:47832 and the Mac is awake.")
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 if let message {
                     Text(message)

@@ -27,7 +27,7 @@ final class BiometricMessageTests: XCTestCase {
     }
 
     func testBiometryNotEnrolledMessage() {
-        XCTAssertEqual(faceIDFailureMessage(for: .biometric(.biometryNotEnrolled)), "Set up Face ID in Settings to use this app")
+        XCTAssertEqual(faceIDFailureMessage(for: .biometric(.biometryNotEnrolled)), "Set up Face ID in Settings to use this app.")
     }
 
     func testBiometryNotAvailableMessage() {

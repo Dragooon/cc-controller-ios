@@ -8,7 +8,7 @@ struct OnboardingWelcomeView: View {
     }
 
     var body: some View {
-        OnboardingPage(step: "Step 1 of 5", buttonTitle: "Continue", action: onContinue) {
+        OnboardingPage(step: "Step 1 of 4", buttonTitle: "Get started", action: onContinue) {
             VStack(spacing: 18) {
                 Text("✻")
                     .font(.system(size: 88, weight: .regular, design: .rounded))

@@ -55,8 +55,8 @@ final class AppModel {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
-        let bearer = environment["CCBearer"] ?? ""
         #if DEBUG
+        let bearer = environment["CCBearer"] ?? ""
         let serverURL = Self.serverURL(arguments: arguments)
         let isDebugOnboarding = arguments.contains("-CCOnboarding")
         let isFixture = Self.hasFixtureArguments(arguments: arguments, bearer: bearer) && !isDebugOnboarding
@@ -173,24 +173,19 @@ final class AppModel {
         connectionTask?.cancel()
         guard onboardingStep == .connect else { return }
         onboarding.markConnectionChecking()
-        let address = connectionAddress
         connectionTask = Task { @MainActor [weak self] in
             var failedSince: Date?
             while !Task.isCancelled {
                 guard let self, phase == .onboarding, onboardingStep == .connect else { return }
                 do {
-                    let probe = try await auth.probeDaemon()
+                    _ = try await auth.probeDaemon()
                     failedSince = nil
                     onboarding.markConnectionConnected()
-                    if connectionMessage?.hasPrefix("Can't reach") == true {
-                        connectionMessage = nil
-                    }
                 } catch {
                     let now = Date()
                     failedSince = failedSince ?? now
                     if now.timeIntervalSince(failedSince ?? now) >= 3 {
                         onboarding.markConnectionUnreachable(since: failedSince ?? now)
-                        connectionMessage = "Can't reach the Mac yet at \(address)."
                     }
                 }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
@@ -201,11 +196,15 @@ final class AppModel {
     func continueFromConnect() {
         guard case .connected = connection else { return }
         connectionTask?.cancel()
-        pairingTask?.cancel()
         connectionMessage = nil
         faceIDMessage = nil
         nativeSecretEnrolledForOnboarding = false
-        Task { @MainActor [weak self] in
+        requestPairingCode()
+    }
+
+    private func requestPairingCode() {
+        pairingTask?.cancel()
+        pairingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             switch await auth.startPairing(deviceName: deviceName) {
             case .success:
@@ -255,8 +254,8 @@ final class AppModel {
             return
         }
         connectionMessage = nil
-        onboarding.restartPairing()
-        continueFromConnect()
+        faceIDMessage = nil
+        requestPairingCode()
     }
 
     func copyPairingCommand() {
@@ -278,10 +277,10 @@ final class AppModel {
         let context = LAContext()
         var evaluationError: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &evaluationError) else {
-            if let code = evaluationError.flatMap({ LAError.Code(rawValue: $0.code) }), code == .biometryNotEnrolled {
-                faceIDMessage = "Set up Face ID in Settings to use this app"
+            if let code = evaluationError.flatMap({ LAError.Code(rawValue: $0.code) }) {
+                faceIDMessage = faceIDFailureMessage(for: .biometric(code))
             } else {
-                faceIDMessage = "Face ID is unavailable. Try again."
+                faceIDMessage = "Face ID did not work. Try again."
             }
             return
         }
@@ -316,7 +315,6 @@ final class AppModel {
             onboarding.markPairingExpired()
         case .network:
             goBackToConnect()
-            connectionMessage = "Can't reach the Mac yet at \(connectionAddress)."
         default:
             connectionMessage = error.localizedDescription
         }

@@ -73,8 +73,6 @@ public final class AuthClient: Sendable {
             return DaemonProbe(isReachable: true)
         } catch let error as AuthError {
             throw error
-        } catch let error as URLError {
-            throw AuthError.network(error.localizedDescription)
         } catch {
             throw AuthError.network(error.localizedDescription)
         }
