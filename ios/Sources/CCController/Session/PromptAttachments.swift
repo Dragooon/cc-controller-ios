@@ -10,23 +10,34 @@ final class PromptAttachmentImageCache {
     static let shared = PromptAttachmentImageCache()
 
     private let images = NSCache<NSString, UIImage>()
+    private let urls = NSCache<NSString, NSURL>()
 
     private init() {
         images.countLimit = 64
+        urls.countLimit = 64
     }
 
     func image(sessionID: String, name: String) -> UIImage? {
         images.object(forKey: attachmentCacheKey(sessionID: sessionID, name: name) as NSString)
     }
 
-    func insert(_ image: UIImage, sessionID: String, name: String) {
-        images.setObject(image, forKey: attachmentCacheKey(sessionID: sessionID, name: name) as NSString)
+    func url(sessionID: String, name: String) -> URL? {
+        urls.object(forKey: attachmentCacheKey(sessionID: sessionID, name: name) as NSString) as URL?
+    }
+
+    func insert(_ image: UIImage, sessionID: String, name: String, url: URL? = nil) {
+        let key = attachmentCacheKey(sessionID: sessionID, name: name) as NSString
+        images.setObject(image, forKey: key)
+        if let url { urls.setObject(url as NSURL, forKey: key) }
     }
 
     func seed(data: Data, sessionID: String, name: String) {
         guard image(sessionID: sessionID, name: name) == nil,
               let image = downsampledImage(data: data) else { return }
-        insert(image, sessionID: sessionID, name: name)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cc-prompt-\(UUID().uuidString)-\(URL(fileURLWithPath: name).lastPathComponent)")
+        try? data.write(to: url, options: .atomic)
+        insert(image, sessionID: sessionID, name: name, url: url)
     }
 
     static func downsampledImage(data: Data, maxPixelSize: Int = 192) -> UIImage? {
@@ -115,21 +126,23 @@ struct PromptAttachmentItemView: View {
     let name: String
     let initialData: Data?
     let downloadFile: (@MainActor @Sendable (String) async throws -> URL)?
+    let onPreview: @MainActor @Sendable (URL) -> Void
     @State private var image: UIImage?
     @State private var downloadedURL: URL?
-    @State private var previewURL: URL?
     @State private var imageState: PromptAttachmentImageState
 
     init(
         sessionID: String,
         name: String,
         initialData: Data? = nil,
-        downloadFile: (@MainActor @Sendable (String) async throws -> URL)? = nil
+        downloadFile: (@MainActor @Sendable (String) async throws -> URL)? = nil,
+        onPreview: @escaping @MainActor @Sendable (URL) -> Void = { _ in }
     ) {
         self.sessionID = sessionID
         self.name = name
         self.initialData = initialData
         self.downloadFile = downloadFile
+        self.onPreview = onPreview
         _imageState = State(initialValue: isImageAttachmentName(name) ? .loading : .loaded)
     }
 
@@ -144,12 +157,12 @@ struct PromptAttachmentItemView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(downloadFile == nil || (isImage && imageState == .loading))
+        .frame(width: isImage ? 64 : nil, height: isImage ? 64 : nil, alignment: .top)
+        .contentShape(Rectangle())
         .accessibilityLabel("\(name), \(isImage ? "image" : "file")")
         .accessibilityValue(isImage ? imageState.rawValue : "loaded")
         .accessibilityIdentifier("prompt-attachment")
         .accessibilityAddTraits(.isButton)
-        .quickLookPreview($previewURL)
         .task(id: attachmentCacheKey(sessionID: sessionID, name: name)) {
             await load()
         }
@@ -200,6 +213,7 @@ struct PromptAttachmentItemView: View {
         let cache = PromptAttachmentImageCache.shared
         if let cached = cache.image(sessionID: sessionID, name: name) {
             image = cached
+            downloadedURL = cache.url(sessionID: sessionID, name: name)
             imageState = .loaded
             return
         }
@@ -207,6 +221,7 @@ struct PromptAttachmentItemView: View {
             cache.seed(data: initialData, sessionID: sessionID, name: name)
             if let seeded = cache.image(sessionID: sessionID, name: name) {
                 image = seeded
+                downloadedURL = cache.url(sessionID: sessionID, name: name)
                 imageState = .loaded
                 return
             }
@@ -223,7 +238,8 @@ struct PromptAttachmentItemView: View {
                 return
             }
             downloadedURL = url
-            cache.insert(decoded, sessionID: sessionID, name: name)
+            cache.insert(decoded, sessionID: sessionID, name: name, url: url)
+            downloadedURL = url
             image = decoded
             imageState = .loaded
         } catch {
@@ -233,14 +249,21 @@ struct PromptAttachmentItemView: View {
 
     @MainActor
     private func open() {
-        guard let downloadFile else { return }
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            windowScene.windows.first(where: \.isKeyWindow)?.endEditing(true)
+        }
         if let downloadedURL {
-            previewURL = downloadedURL
+            onPreview(downloadedURL)
             return
         }
+        guard let downloadFile else { return }
         Task { @MainActor in
             do {
-                previewURL = try await downloadFile(name)
+                let url = try await downloadFile(name)
+                downloadedURL = url
+                onPreview(url)
             } catch {
                 imageState = .unavailable
             }
@@ -298,10 +321,40 @@ struct RemoteFileImageTile: View {
                 unavailable = true
                 return
             }
-            cache.insert(decoded, sessionID: sessionID, name: name)
+            cache.insert(decoded, sessionID: sessionID, name: name, url: url)
             image = decoded
         } catch {
             unavailable = true
+        }
+    }
+}
+
+struct QuickLookPreviewController: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeCoordinator() -> DataSource {
+        DataSource(url: url)
+    }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ controller: QLPreviewController, context: Context) {}
+
+    final class DataSource: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+
+        init(url: URL) {
+            self.url = url
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+            url as NSURL
         }
     }
 }

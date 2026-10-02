@@ -8,6 +8,7 @@ struct PromptBubble: View {
     let downloadFile: (@MainActor @Sendable (String) async throws -> URL)?
     let attachmentThumbnails: [String: Data]
     @State private var isExpanded = false
+    @State private var previewURL: URL?
 
     init(
         prompt: PromptEntry,
@@ -44,7 +45,8 @@ struct PromptBubble: View {
                                 sessionID: sessionID,
                                 name: name,
                                 initialData: attachmentThumbnails[name],
-                                downloadFile: downloadFile
+                                downloadFile: downloadFile,
+                                onPreview: { previewURL = $0 }
                             )
                         }
                     }
@@ -85,6 +87,16 @@ struct PromptBubble: View {
             .padding(.horizontal, 16)
             .background(.ccBubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .containerRelativeFrame(.horizontal) { width, _ in width * 0.85 }
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { previewURL != nil },
+                set: { if !$0 { previewURL = nil } }
+            )
+        ) {
+            if let previewURL {
+                QuickLookPreviewController(url: previewURL)
+            }
         }
     }
 }

@@ -171,7 +171,16 @@ struct FileEntryView: View {
         .buttonStyle(.plain)
         .disabled(download == nil || isDownloading)
         .accessibilityLabel("Open \(fileName)")
-        .quickLookPreview($previewURL)
+        .sheet(
+            isPresented: Binding(
+                get: { previewURL != nil },
+                set: { if !$0 { previewURL = nil } }
+            )
+        ) {
+            if let previewURL {
+                QuickLookPreviewController(url: previewURL)
+            }
+        }
         .alert(
             "Couldn't open file",
             isPresented: Binding(

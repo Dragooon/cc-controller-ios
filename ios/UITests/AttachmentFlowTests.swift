@@ -27,17 +27,29 @@ final class AttachmentFlowTests: XCTestCase {
         field.typeText("delivered-attachment-flow-marker")
         app.buttons["composer-send"].tap()
 
-        let image = app.descendants(matching: .any).matching(identifier: "prompt-attachment")
-            .matching(NSPredicate(format: "label == 'attachment.png, image'")).firstMatch
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        if pending.waitForExistence(timeout: 5) {
+            XCTAssertFalse(pending.waitForExistence(timeout: 30), "Prompt attachment assertions ran against the pending bubble")
+        }
+
+        let image = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] 'attachment.png'"))
+            .firstMatch
         XCTAssertTrue(image.waitForExistence(timeout: 30), "Delivered image attachment did not appear")
+        XCTAssertEqual(image.label, "attachment.png, image")
+        XCTAssertEqual(image.identifier, "prompt-attachment")
         XCTAssertEqual(image.value as? String, "loaded")
 
-        let csv = app.descendants(matching: .any).matching(identifier: "prompt-attachment")
-            .matching(NSPredicate(format: "label == 'evidence.csv, file'")).firstMatch
+        let csv = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] 'evidence.csv'"))
+            .firstMatch
         XCTAssertTrue(csv.waitForExistence(timeout: 30), "Delivered CSV attachment did not appear")
+        XCTAssertEqual(csv.label, "evidence.csv, file")
+        XCTAssertEqual(csv.identifier, "prompt-attachment")
 
         addScreenshot(named: "attachment-delivered-bubble")
         image.tap()
+        addScreenshot(named: "attachment-quicklook-after-tap")
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 15), "Quick Look did not appear")
         app.buttons["Done"].tap()
     }
