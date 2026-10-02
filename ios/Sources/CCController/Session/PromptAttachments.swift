@@ -1,5 +1,6 @@
 import CCKit
 import ImageIO
+import QuickLook
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers

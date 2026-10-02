@@ -55,9 +55,23 @@ final class AttachmentFlowTests: XCTestCase {
 
         addScreenshot(named: "attachment-delivered-bubble")
         image.tap()
-        addScreenshot(named: "attachment-quicklook-after-tap")
-        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 15), "Quick Look did not appear")
-        app.buttons["Done"].tap()
+
+        let quickLook = app.otherElements["QLPreviewControllerView"]
+        guard quickLook.waitForExistence(timeout: 15) else {
+            XCTFail("Quick Look controller did not appear")
+            return
+        }
+
+        let canvas = app.otherElements["Image canvas"]
+        guard canvas.waitForExistence(timeout: 10) else {
+            let debug = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
+            debug.name = "prompt-attachment-quicklook-debug.txt"
+            debug.lifetime = .keepAlways
+            add(debug)
+            XCTFail("Quick Look image canvas did not appear")
+            return
+        }
+        addScreenshot(named: "prompt-attachment-quicklook")
     }
 
     func testLaunchAttachmentSendClearsTray() throws {
