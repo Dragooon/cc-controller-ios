@@ -564,7 +564,7 @@ cmd_flows() {
 
       stop_fixture_daemon
       udid=$(ensure_pool_device "$device")
-      export CC_FIXTURE_SIM_UDID="$udid"
+      FIXTURE_SIM_UDID="$udid"
       if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
         ensure_attachment_media "$udid"
       fi
