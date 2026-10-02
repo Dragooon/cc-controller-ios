@@ -792,16 +792,127 @@ cmd_install() {
   return 2
 }
 
+signing_team() {
+  if [[ -n "${DEVELOPMENT_TEAM:-}" ]]; then
+    printf '%s\n' "$DEVELOPMENT_TEAM"
+    return 0
+  fi
+  local config="$IOS/Config/Signing.local.xcconfig"
+  [[ -f "$config" ]] || return 0
+  awk -F= '
+    /^[[:space:]]*DEVELOPMENT_TEAM[[:space:]]*=/ {
+      value = $2
+      sub(/[[:space:]]*(\/\/|#).*$/, "", value)
+      gsub(/[[:space:]\"]/, "", value)
+      print value
+      exit
+    }
+  ' "$config"
+}
+
+cmd_archive() {
+  cmd_generate
+  local archive_path="$IOS/build/archive/CCController.xcarchive"
+  if [[ -e "$archive_path" ]]; then
+    printf 'archive output already exists: %s\n' "$archive_path" >&2
+    return 2
+  fi
+  local build_number
+  build_number=$(git -C "$ROOT" rev-list --count HEAD)
+  local team
+  team=$(signing_team)
+  local args=(
+    xcodebuild
+    -project "$PROJECT"
+    -scheme CCController
+    -configuration Release
+    archive
+    -destination 'generic/platform=iOS'
+    -derivedDataPath "$DERIVED/archive-derived"
+    -archivePath "$archive_path"
+    -allowProvisioningUpdates
+    CURRENT_PROJECT_VERSION="$build_number"
+  )
+  if [[ "${CC_ARCHIVE_UNSIGNED:-0}" == '1' ]]; then
+    args+=(
+      CODE_SIGNING_ALLOWED=NO
+      CODE_SIGNING_REQUIRED=NO
+      CODE_SIGN_IDENTITY=''
+      DEVELOPMENT_TEAM=''
+    )
+  else
+    if [[ -z "$team" ]]; then
+      printf '%s\n' 'archive requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
+      return 2
+    fi
+    args+=(DEVELOPMENT_TEAM="$team")
+  fi
+  mkdir -p "$(dirname "$archive_path")"
+  step archive "${args[@]}"
+  printf 'archive created: %s\n' "$archive_path"
+}
+
+cmd_upload() {
+  local team
+  team=$(signing_team)
+  if [[ -z "$team" ]]; then
+    printf '%s\n' 'upload requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
+    return 2
+  fi
+  local archive_path="$IOS/build/archive/CCController.xcarchive"
+  if [[ ! -d "$archive_path" ]]; then
+    printf 'upload requires an archive at %s; run archive first\n' "$archive_path" >&2
+    return 2
+  fi
+  local export_dir="$IOS/build/export"
+  if [[ -e "$export_dir" ]]; then
+    printf 'upload output already exists: %s\n' "$export_dir" >&2
+    return 2
+  fi
+  local key_args=()
+  if [[ -n "${ASC_KEY_PATH:-}${ASC_KEY_ID:-}${ASC_ISSUER_ID:-}" ]]; then
+    local input
+    for input in ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; do
+      if [[ -z "${!input:-}" ]]; then
+        printf 'upload requires %s when App Store Connect API key authentication is used\n' "$input" >&2
+        return 2
+      fi
+    done
+    key_args=(
+      -authenticationKeyPath "$ASC_KEY_PATH"
+      -authenticationKeyID "$ASC_KEY_ID"
+      -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+    )
+  fi
+  RUN_DIR=$(mktemp -d -t cc-controller-upload.XXXXXX)
+  local export_options="$RUN_DIR/ExportOptions.plist"
+  cp "$IOS/Config/ExportOptions.plist" "$export_options"
+  plutil -replace teamID -string "$team" "$export_options"
+  mkdir -p "$export_dir"
+  local args=(
+    xcodebuild
+    -exportArchive
+    -archivePath "$archive_path"
+    -exportPath "$export_dir"
+    -exportOptionsPlist "$export_options"
+  )
+  args+=("${key_args[@]}")
+  step upload "${args[@]}"
+  printf 'upload export completed: %s\n' "$export_dir"
+}
+
 case "${1:-}" in
   generate) shift; step generate cmd_generate "$@";;
   build) shift; step build cmd_build "$@";;
   test) shift; step test cmd_test "$@";;
   release-check) shift; cmd_release_check "$@";;
+  archive) shift; cmd_archive "$@";;
+  upload) shift; cmd_upload "$@";;
   shots) shift; cmd_shots "$@";;
   flows) shift; cmd_flows "$@";;
   mocks) shift; cmd_mocks "$@";;
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|shots|flows|mocks|pool|clean|install}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|archive|upload|shots|flows|mocks|pool|clean|install}\n' "$0" >&2; exit 2;;
 esac
