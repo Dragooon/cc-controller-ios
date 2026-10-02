@@ -38,6 +38,9 @@ struct MainSplitView: View {
                 deciding: model.store.deciding,
                 connection: connection,
                 subtitleOverride: model.selectedSessionID == nil ? nil : "",
+                onSessionsLoaded: {
+                    await model.requestNotificationAuthorizationAfterSessionsLoaded()
+                },
                 onOpen: {
                     model.selectedSessionID = $0.id
                     preferredCompactColumn = .detail

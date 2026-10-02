@@ -20,6 +20,7 @@ struct SessionsListView: View {
     let deciding: Set<String>
     let connection: Connection
     let subtitleOverride: String?
+    let onSessionsLoaded: () async -> Void
     let onOpen: (Session) -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -38,6 +39,7 @@ struct SessionsListView: View {
         deciding: Set<String> = [],
         connection: Connection = .live,
         subtitleOverride: String? = nil,
+        onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (Session) -> Void = { _ in },
         onAllow: @escaping (Approval) -> Void = { _ in },
         onDeny: @escaping (Approval) -> Void = { _ in },
@@ -53,6 +55,7 @@ struct SessionsListView: View {
         self.deciding = deciding
         self.connection = connection
         self.subtitleOverride = subtitleOverride
+        self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
         self.onAllow = onAllow
         self.onDeny = onDeny
@@ -103,6 +106,10 @@ struct SessionsListView: View {
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+        .task(id: sessions.isEmpty) {
+            guard !sessions.isEmpty else { return }
+            await onSessionsLoaded()
+        }
     }
 
     @ViewBuilder

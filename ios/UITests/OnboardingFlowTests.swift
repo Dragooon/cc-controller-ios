@@ -29,7 +29,17 @@ final class OnboardingFlowTests: XCTestCase {
         app.buttons["Turn on Face ID"].tap()
         try await postFixture("/fixture/biometric/match")
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Native login did not load Sessions")
+        let sessionRow = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(sessionRow.waitForExistence(timeout: 30), "Native login did not load a session row")
         addScreenshot(named: "onboarding-sessions-arrival")
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let notificationPrompt = springboard.alerts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
+        ).firstMatch
+        XCTAssertTrue(notificationPrompt.waitForExistence(timeout: 10), "Notification authorization prompt did not appear")
+        XCTAssertTrue(sessionRow.exists, "Session row disappeared behind notification authorization prompt")
+        addScreenshot(named: "onboarding-notification-prompt")
     }
 
     func testFaceIDWaitsThenNoMatchThenRetrySucceeds() async throws {

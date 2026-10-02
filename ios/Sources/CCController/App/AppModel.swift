@@ -309,7 +309,6 @@ final class AppModel {
         case .success:
             onboarding.finish()
             phase = .unlocked
-            requestNotificationAuthorizationIfNeeded()
         case .failure(let error):
             faceIDMessage = faceIDFailureMessage(error)
         }
@@ -394,6 +393,17 @@ final class AppModel {
                 observeApprovalCount()
             }
         }
+    }
+
+    func requestNotificationAuthorizationAfterSessionsLoaded() async {
+        guard phase == .unlocked, !fixtureMode, !notificationAuthorizationRequested, !store.sessions.isEmpty else { return }
+        do {
+            try await Task.sleep(for: .seconds(1))
+        } catch {
+            return
+        }
+        guard phase == .unlocked, !store.sessions.isEmpty else { return }
+        requestNotificationAuthorizationIfNeeded()
     }
 
     private func requestNotificationAuthorizationIfNeeded() {
