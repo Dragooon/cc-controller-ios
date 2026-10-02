@@ -112,7 +112,7 @@ struct AttachmentTrayView: View {
                     }
                 }
                 .padding(.horizontal, 7)
-                .padding(.vertical, 7)
+                .padding(.vertical, 0)
             }
             .scrollIndicators(.hidden)
             if let notice {
@@ -121,15 +121,9 @@ struct AttachmentTrayView: View {
                     .foregroundStyle(.ccSecondary)
                     .padding(.horizontal, 8)
             }
-            if attachments.contains(where: { if case .failed = $0.state { return true }; return false }) {
-                Text(failureCaption)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 8)
-                    .transition(.opacity)
-            }
         }
         .frame(minHeight: notice == nil ? 70 : 88)
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("attachment-tray")
         .accessibilityLabel("Pending attachments")
@@ -147,7 +141,7 @@ struct AttachmentTrayView: View {
                 removeButton(for: attachment)
             }
             if case .failed = attachment.state {
-                Text(attachment.canRetry ? "Upload failed" : "Too large (max 25 MB)")
+                Text(attachment.canRetry ? "Tap to retry" : "Too large (max 25 MB)")
                     .font(.caption2)
                     .foregroundStyle(.red)
                     .lineLimit(1)
@@ -281,7 +275,7 @@ struct AttachmentTrayView: View {
     private func removeButton(for attachment: ComposerAttachment) -> some View {
         Button { onRemove(attachment.id) } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(.black)
                 .frame(width: 22, height: 22)
                 .background(Color.white.opacity(0.96), in: Circle())
@@ -294,12 +288,6 @@ struct AttachmentTrayView: View {
         .accessibilityLabel("Remove \(attachment.name)")
     }
 
-    private var failureCaption: String {
-        attachments.contains(where: { if case .failed = $0.state { return $0.canRetry }; return false })
-            ? "Remove or retry the failed attachment"
-            : "Remove the file that is too large"
-    }
-
     private func isFailed(_ attachment: ComposerAttachment) -> Bool {
         if case .failed = attachment.state { return true }
         return false
@@ -310,7 +298,10 @@ struct AttachmentTrayView: View {
         case .uploading(let progress):
             progress >= 1 ? "\(attachment.name), uploaded, waiting for server" : "\(attachment.name), uploading \(Int(progress * 100)) percent"
         case .attached: "\(attachment.name), attached"
-        case .failed(let reason): "\(attachment.name), failed, \(reason)"
+        case .failed(let reason):
+            attachment.canRetry
+                ? "\(attachment.name), upload failed, double-tap to retry"
+                : "\(attachment.name), upload failed, \(reason)"
         }
     }
 

@@ -17,7 +17,7 @@ struct StatusLineView: View {
         .foregroundStyle(.ccSecondary)
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 1)
+        .padding(.horizontal, 7)
         .accessibilityLabel(fullText.replacingOccurrences(of: " · ", with: ", "))
     }
 

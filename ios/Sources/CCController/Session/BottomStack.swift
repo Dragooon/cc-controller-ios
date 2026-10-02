@@ -163,7 +163,7 @@ struct BottomStackView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.top, 8)
+            .padding(.top, 0)
             .padding(.bottom, 4)
         }
         .background(.ccBackground.opacity(0.88))

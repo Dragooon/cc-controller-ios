@@ -201,8 +201,7 @@ final class AttachmentFlowTests: XCTestCase {
         let tileCaption = app.staticTexts["Too large (max 25 MB)"]
         XCTAssertTrue(tileCaption.waitForExistence(timeout: 10), "Too-large attachment tile caption did not appear")
         app.buttons["composer-send"].tap()
-        let caption = app.staticTexts["Remove the file that is too large"]
-        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Too-large attachment caption did not appear")
+        XCTAssertFalse(app.staticTexts["Remove the file that is too large"].exists, "Tray-level too-large caption appeared")
         XCTAssertFalse(app.alerts["Action failed"].exists, "Blocked attachment send showed an alert")
     }
 
@@ -225,10 +224,10 @@ final class AttachmentFlowTests: XCTestCase {
         let badge = app.descendants(matching: .any).matching(identifier: "attachment-failure-badge").firstMatch
         XCTAssertTrue(badge.waitForExistence(timeout: 10), "Retryable image failure badge did not appear")
         XCTAssertTrue(tile.frame.contains(badge.frame), "Failure badge frame \(badge.frame) was not inside tile frame \(tile.frame)")
-        let tileCaption = app.staticTexts["Upload failed"]
+        let tileCaption = app.staticTexts["Tap to retry"]
         XCTAssertTrue(tileCaption.waitForExistence(timeout: 10), "Retryable attachment tile caption did not appear")
-        let caption = app.staticTexts["Remove or retry the failed attachment"]
-        XCTAssertTrue(caption.waitForExistence(timeout: 10), "Retryable attachment caption did not appear")
+        XCTAssertEqual(tile.label, "fail-attachment.png, upload failed, double-tap to retry")
+        XCTAssertFalse(app.staticTexts["Remove or retry the failed attachment"].exists, "Tray-level failed caption appeared")
     }
 
     func testRemoveAttachmentRemovesOnlyTrayTile() throws {

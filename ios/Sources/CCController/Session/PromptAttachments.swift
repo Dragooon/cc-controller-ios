@@ -283,9 +283,10 @@ struct RemoteFileImageTile: View {
     @State private var image: UIImage?
     @State private var imagePixelSize: CGSize?
     @State private var unavailable = false
+    @Environment(\.displayScale) private var displayScale
 
     private let placeholderSize = CGSize(width: 220, height: 160)
-    private var targetPixelSize: Int { Int(ceil(280 * UIScreen.main.scale)) }
+    private var targetPixelSize: Int { Int(ceil(280 * displayScale)) }
 
     private var tileSize: CGSize {
         guard let imagePixelSize else { return placeholderSize }
