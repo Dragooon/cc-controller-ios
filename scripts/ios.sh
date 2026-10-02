@@ -161,6 +161,40 @@ cmd_test() {
   fi
 }
 
+cmd_release_check() {
+  cmd_generate
+  local release_derived="$IOS/build/release"
+  local app_bundle="$release_derived/Build/Products/Release-iphoneos/cc-controller.app"
+  local binary="$app_bundle/cc-controller"
+  step 'release-check build' xcodebuild -project "$PROJECT" -scheme CCController -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$release_derived" CODE_SIGNING_ALLOWED=NO build
+  if [[ ! -d "$app_bundle" || ! -f "$binary" ]]; then
+    printf 'release-check failed: missing app bundle at %s\n' "$app_bundle" >&2
+    return 1
+  fi
+
+  local mock_resources=""
+  mock_resources=$(find "$app_bundle" -type f \( -name 'sessions.json' -o -name 'judge-alignment.png' -o -name 'rollout.png' \) -print)
+  if [[ -n "$mock_resources" ]]; then
+    printf '%s\n' 'release-check failed: mock resources found in Release app:' >&2
+    printf '%s\n' "$mock_resources" >&2
+    return 1
+  fi
+  printf '%s\n' 'release-check resource listing: no mock resources'
+
+  local mock_symbols=""
+  mock_symbols=$(nm "$binary" 2>/dev/null | grep -E 'Mocks' || true)
+  if [[ -z "$mock_symbols" ]]; then
+    mock_symbols=$(strings "$binary" 2>/dev/null | grep -E 'Mocks' || true)
+  fi
+  if [[ -n "$mock_symbols" ]]; then
+    printf '%s\n' 'release-check failed: compiled symbols containing Mocks:' >&2
+    printf '%s\n' "$mock_symbols" >&2
+    return 1
+  fi
+  printf '%s\n' 'release-check symbol listing: no Mocks symbols'
+  printf 'release-check app size: %s\n' "$(du -sh "$app_bundle" | awk '{print $1}')"
+}
+
 cmd_shots() {
   cmd_generate
   local devices=() only=""
@@ -511,10 +545,11 @@ case "${1:-}" in
   generate) shift; step generate cmd_generate "$@";;
   build) shift; step build cmd_build "$@";;
   test) shift; step test cmd_test "$@";;
+  release-check) shift; cmd_release_check "$@";;
   shots) shift; cmd_shots "$@";;
   flows) shift; cmd_flows "$@";;
   mocks) shift; cmd_mocks "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|shots|flows|mocks|clean|install}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|shots|flows|mocks|clean|install}\n' "$0" >&2; exit 2;;
 esac

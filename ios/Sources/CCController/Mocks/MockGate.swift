@@ -1,6 +1,6 @@
+#if DEBUG
 import SwiftUI
 
-#if DEBUG
 struct MockGate<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
@@ -39,16 +39,6 @@ struct MockGate<Content: View>: View {
         return ProcessInfo.processInfo.arguments[index + 1]
     }
 }
-#else
-struct MockGate<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        content()
-    }
-}
-#endif
-
 enum MockScreen: String, CaseIterable, Identifiable {
     case sessions
     case sessionsEmpty = "sessions-empty"
@@ -157,3 +147,4 @@ struct MockPlaceholder: View {
         .background(.ccBackground)
     }
 }
+#endif

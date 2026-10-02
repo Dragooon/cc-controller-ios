@@ -32,6 +32,8 @@ targets:
       configs:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          EXCLUDED_SOURCE_FILE_NAMES: "MockBottomStackData.swift MockData.swift MockGate.swift SessionsMocks.swift ApprovalMocks.swift BottomStackMocks.swift SessionMocks.swift SheetMocks.swift sessions.json judge-alignment.png rollout.png"
     info:
       path: Info.plist
       properties:

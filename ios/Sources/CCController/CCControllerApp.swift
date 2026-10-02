@@ -10,10 +10,15 @@ struct CCControllerApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
             MockGate {
                 RootView(model: model)
             }
             .preferredColorScheme(model.colorScheme)
+            #else
+            RootView(model: model)
+                .preferredColorScheme(model.colorScheme)
+            #endif
         }
     }
 }

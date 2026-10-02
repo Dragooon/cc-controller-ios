@@ -22,7 +22,9 @@ final class AppModel {
     var colorScheme: ColorScheme?
     var isSettingsPresented = false
     var actionError: ActionError?
+    #if DEBUG
     let debugAttachmentPaths: [URL]
+    #endif
 
     private let credentials: any CredentialStore
     private let fixtureMode: Bool
@@ -32,19 +34,16 @@ final class AppModel {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        #if DEBUG
         let serverURL = Self.serverURL(arguments: arguments)
         let bearer = environment["CCBearer"] ?? ""
-        #if DEBUG
         let isFixture = Self.hasFixtureArguments(arguments: arguments, bearer: bearer)
+        debugAttachmentPaths = Self.argumentValues("-CCAttachFile", in: arguments).map { URL(fileURLWithPath: $0) }
         #else
+        let serverURL = URL(string: "http://127.0.0.1:47832")!
         let isFixture = false
         #endif
         fixtureMode = isFixture
-        #if DEBUG
-        debugAttachmentPaths = Self.argumentValues("-CCAttachFile", in: arguments).map { URL(fileURLWithPath: $0) }
-        #else
-        debugAttachmentPaths = []
-        #endif
 
         let credentials = KeychainCredentialStore()
         self.credentials = credentials
@@ -66,7 +65,11 @@ final class AppModel {
         self.auth = auth
         self.lockPolicy = LockPolicy()
         self.phase = fixtureMode ? .unlocked : .onboarding
+        #if DEBUG
         self.colorScheme = Self.colorScheme(arguments: arguments)
+        #else
+        self.colorScheme = nil
+        #endif
         self.store = AppStore(
             serverURL: serverURL,
             bearerProvider: {
@@ -159,6 +162,7 @@ final class AppModel {
         try? await UNUserNotificationCenter.current().setBadgeCount(count ?? store.approvals.count)
     }
 
+    #if DEBUG
     private static func serverURL(arguments: [String]) -> URL {
         guard let value = argumentValue("-CCServer", in: arguments),
               let url = URL(string: value),
@@ -192,6 +196,7 @@ final class AppModel {
             return arguments[index + 1]
         }
     }
+    #endif
 
     private static func cacheDirectory() -> URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

@@ -67,7 +67,9 @@ struct SessionScreen: View {
             let key = sessionLoadKey
             guard key.hasSession,
                   let sessionStore = model.store.openSession(key.sessionID) else { return }
+            #if DEBUG
             model.store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
+            #endif
             guard !sessionStore.isLoaded else { return }
             do {
                 try await sessionStore.loadInitial()
@@ -78,7 +80,9 @@ struct SessionScreen: View {
             }
         }
         .onAppear {
+            #if DEBUG
             model.store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
+            #endif
         }
         .onDisappear {
             guard destination == nil else { return }
