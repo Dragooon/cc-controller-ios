@@ -1,9 +1,7 @@
 import CCKit
 import ImageIO
-import QuickLook
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
 
 @MainActor
 final class PromptAttachmentImageCache {
@@ -15,32 +13,37 @@ final class PromptAttachmentImageCache {
         images.countLimit = 64
     }
 
-    func image(sessionID: String, name: String) -> UIImage? {
-        images.object(forKey: attachmentCacheKey(sessionID: sessionID, name: name) as NSString)
+    func image(sessionID: String, name: String, targetPixelSize: Int) -> UIImage? {
+        images.object(forKey: attachmentCacheKey(sessionID: sessionID, name: name, targetPixelSize: targetPixelSize) as NSString)
     }
 
-    func insert(_ image: UIImage, sessionID: String, name: String) {
-        images.setObject(image, forKey: attachmentCacheKey(sessionID: sessionID, name: name) as NSString)
+    func insert(_ image: UIImage, sessionID: String, name: String, targetPixelSize: Int) {
+        images.setObject(image, forKey: attachmentCacheKey(sessionID: sessionID, name: name, targetPixelSize: targetPixelSize) as NSString)
+    }
+}
+
+enum PromptAttachmentImageDecoder {
+    static func decode(data: Data, maxPixelSize: Int) async -> CGImage? {
+        await Task.detached(priority: .userInitiated) {
+            downsampledCGImage(data: data, maxPixelSize: maxPixelSize)
+        }.value
     }
 
-    func seed(data: Data, sessionID: String, name: String) {
-        guard image(sessionID: sessionID, name: name) == nil,
-              let image = downsampledImage(data: data) else { return }
-        insert(image, sessionID: sessionID, name: name)
+    static func load(from url: URL, maxPixelSize: Int) async -> CGImage? {
+        await Task.detached(priority: .userInitiated) {
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return downsampledCGImage(data: data, maxPixelSize: maxPixelSize)
+        }.value
     }
 
-    static func downsampledImage(data: Data, maxPixelSize: Int = 192) -> UIImage? {
+    private static func downsampledCGImage(data: Data, maxPixelSize: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,
                   kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
               ] as CFDictionary) else { return nil }
-        return UIImage(cgImage: image)
-    }
-
-    private func downsampledImage(data: Data) -> UIImage? {
-        Self.downsampledImage(data: data)
+        return image
     }
 }
 
@@ -71,34 +74,31 @@ struct PromptAttachmentFlow: Layout {
     }
 
     private func layout(in width: CGFloat, subviews: Subviews) -> (size: CGSize, placements: [Placement]) {
-        var rows: [[Placement]] = [[]]
+        var placements: [Placement] = []
         var rowWidth: CGFloat = 0
         var rowHeight: CGFloat = 0
+        var widestRowWidth: CGFloat = 0
         var totalHeight: CGFloat = 0
 
         for (index, subview) in subviews.enumerated() {
             let size = subview.sizeThatFits(.unspecified)
-            let nextWidth = rows[rows.count - 1].isEmpty ? size.width : rowWidth + spacing + size.width
-            if nextWidth > width, !rows[rows.count - 1].isEmpty {
+            let isFirstInRow = rowWidth == 0
+            let nextWidth = isFirstInRow ? size.width : rowWidth + spacing + size.width
+            if nextWidth > width, !isFirstInRow {
+                widestRowWidth = max(widestRowWidth, rowWidth)
                 totalHeight += rowHeight + rowSpacing
-                rows.append([])
                 rowWidth = 0
                 rowHeight = 0
             }
-            let x = rows[rows.count - 1].isEmpty ? 0 : rowWidth + spacing
-            rows[rows.count - 1].append(Placement(index: index, x: x, y: totalHeight, size: size))
+            let x = rowWidth == 0 ? 0 : rowWidth + spacing
+            placements.append(Placement(index: index, x: x, y: totalHeight, size: size))
             rowWidth = x + size.width
             rowHeight = max(rowHeight, size.height)
         }
 
+        widestRowWidth = max(widestRowWidth, rowWidth)
         totalHeight += rowHeight
-        let placements = rows.flatMap { row in
-            row
-                .map { placement in
-                    Placement(index: placement.index, x: placement.x, y: placement.y, size: placement.size)
-                }
-        }
-        return (CGSize(width: width, height: totalHeight), placements)
+        return (CGSize(width: widestRowWidth, height: totalHeight), placements)
     }
 
     private struct Placement {
@@ -118,6 +118,10 @@ struct PromptAttachmentItemView: View {
     @State private var image: UIImage?
     @State private var downloadedURL: URL?
     @State private var imageState: PromptAttachmentImageState
+    @State private var isDownloading = false
+    @State private var errorMessage: String?
+
+    private let targetPixelSize = 192
 
     init(
         sessionID: String,
@@ -143,13 +147,25 @@ struct PromptAttachmentItemView: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(downloadFile == nil || isDownloading)
         .frame(width: isImage ? 64 : nil, height: isImage ? 64 : nil, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityLabel("\(name), \(isImage ? "image" : "file")")
         .accessibilityValue(isImage ? imageState.rawValue : "loaded")
         .accessibilityIdentifier("prompt-attachment")
         .accessibilityAddTraits(.isButton)
-        .task(id: attachmentCacheKey(sessionID: sessionID, name: name)) {
+        .alert(
+            "Couldn't open file",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "The file could not be downloaded.")
+        }
+        .task(id: attachmentCacheKey(sessionID: sessionID, name: name, targetPixelSize: targetPixelSize)) {
             await load()
         }
     }
@@ -197,18 +213,18 @@ struct PromptAttachmentItemView: View {
     private func load() async {
         guard isImage else { return }
         let cache = PromptAttachmentImageCache.shared
-        if let cached = cache.image(sessionID: sessionID, name: name) {
+        if let cached = cache.image(sessionID: sessionID, name: name, targetPixelSize: targetPixelSize) {
             image = cached
             imageState = .loaded
             return
         }
-        if let initialData {
-            cache.seed(data: initialData, sessionID: sessionID, name: name)
-            if let seeded = cache.image(sessionID: sessionID, name: name) {
-                image = seeded
-                imageState = .loaded
-                return
-            }
+        if let initialData,
+           let decoded = await PromptAttachmentImageDecoder.decode(data: initialData, maxPixelSize: targetPixelSize) {
+            let image = UIImage(cgImage: decoded)
+            cache.insert(image, sessionID: sessionID, name: name, targetPixelSize: targetPixelSize)
+            self.image = image
+            imageState = .loaded
+            return
         }
         guard let downloadFile else {
             imageState = .unavailable
@@ -216,14 +232,14 @@ struct PromptAttachmentItemView: View {
         }
         do {
             let url = try await downloadFile(name)
-            guard let data = try? Data(contentsOf: url),
-                  let decoded = PromptAttachmentImageCache.downsampledImage(data: data) else {
+            guard let decoded = await PromptAttachmentImageDecoder.load(from: url, maxPixelSize: targetPixelSize) else {
                 imageState = .unavailable
                 return
             }
+            let image = UIImage(cgImage: decoded)
             downloadedURL = url
-            cache.insert(decoded, sessionID: sessionID, name: name)
-            image = decoded
+            cache.insert(image, sessionID: sessionID, name: name, targetPixelSize: targetPixelSize)
+            self.image = image
             imageState = .loaded
         } catch {
             imageState = .unavailable
@@ -232,23 +248,31 @@ struct PromptAttachmentItemView: View {
 
     @MainActor
     private func open() {
+        guard !isDownloading else { return }
         if let downloadedURL, FileManager.default.fileExists(atPath: downloadedURL.path) {
             openFilePreview(downloadedURL)
             return
         }
         guard let downloadFile else { return }
+        isDownloading = true
         Task { @MainActor in
             do {
                 let url = try await downloadFile(name)
                 guard FileManager.default.fileExists(atPath: url.path) else {
-                    imageState = .unavailable
-                    return
+                    if isImage { imageState = .unavailable }
+                    throw NSError(
+                        domain: "PromptAttachment",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "The downloaded file was not available."]
+                    )
                 }
                 downloadedURL = url
                 openFilePreview(url)
             } catch {
-                imageState = .unavailable
+                if isImage { imageState = .unavailable }
+                errorMessage = error.localizedDescription
             }
+            isDownloading = false
         }
     }
 }
@@ -257,7 +281,21 @@ struct RemoteFileImageTile: View {
     let entry: FileEntry
     let download: (@MainActor @Sendable (FileEntry) async throws -> URL)?
     @State private var image: UIImage?
+    @State private var imagePixelSize: CGSize?
     @State private var unavailable = false
+
+    private let placeholderSize = CGSize(width: 220, height: 160)
+    private var targetPixelSize: Int { Int(ceil(280 * UIScreen.main.scale)) }
+
+    private var tileSize: CGSize {
+        guard let imagePixelSize else { return placeholderSize }
+        return fittedImageSize(
+            pixelWidth: imagePixelSize.width,
+            pixelHeight: imagePixelSize.height,
+            maxWidth: 220,
+            maxHeight: 280
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -275,10 +313,15 @@ struct RemoteFileImageTile: View {
                     .controlSize(.small)
             }
         }
-        .frame(maxWidth: 220, maxHeight: 280)
+        .frame(width: tileSize.width, height: tileSize.height)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.ccSeparator, lineWidth: 0.5) }
-        .task(id: attachmentCacheKey(sessionID: entry.sessionId ?? "", name: entry.name ?? "")) {
+        .accessibilityIdentifier("agent-file-image")
+        .task(id: attachmentCacheKey(
+            sessionID: entry.sessionId ?? "",
+            name: entry.name ?? "",
+            targetPixelSize: targetPixelSize
+        )) {
             await load()
         }
     }
@@ -288,8 +331,9 @@ struct RemoteFileImageTile: View {
         let name = entry.name ?? "download"
         let sessionID = entry.sessionId ?? ""
         let cache = PromptAttachmentImageCache.shared
-        if let cached = cache.image(sessionID: sessionID, name: name) {
+        if let cached = cache.image(sessionID: sessionID, name: name, targetPixelSize: targetPixelSize) {
             image = cached
+            imagePixelSize = cached.cgImage.map { CGSize(width: $0.width, height: $0.height) }
             return
         }
         guard let download else {
@@ -298,13 +342,14 @@ struct RemoteFileImageTile: View {
         }
         do {
             let url = try await download(entry)
-            guard let data = try? Data(contentsOf: url),
-                  let decoded = PromptAttachmentImageCache.downsampledImage(data: data) else {
+            guard let decoded = await PromptAttachmentImageDecoder.load(from: url, maxPixelSize: targetPixelSize) else {
                 unavailable = true
                 return
             }
-            cache.insert(decoded, sessionID: sessionID, name: name)
-            image = decoded
+            let image = UIImage(cgImage: decoded)
+            cache.insert(image, sessionID: sessionID, name: name, targetPixelSize: targetPixelSize)
+            self.image = image
+            imagePixelSize = CGSize(width: decoded.width, height: decoded.height)
         } catch {
             unavailable = true
         }
