@@ -409,7 +409,6 @@ final class AppModel {
     }
 
     #if DEBUG
-    #if DEBUG
     private static func serverURL(arguments: [String]) -> URL {
         guard let value = argumentValue("-CCServer", in: arguments),
               let url = URL(string: value),

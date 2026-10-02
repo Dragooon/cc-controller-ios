@@ -23,11 +23,29 @@ final class OnboardingFlowTests: XCTestCase {
         }
 
         XCTAssertTrue(app.staticTexts["cc-controller"].waitForExistence(timeout: 15))
+        addScreenshot(named: "onboarding-welcome")
+        try await setBiometricEnrollment(true)
         try await reachFaceID(app)
-        try await postFixture("/fixture/biometric/enroll")
         app.buttons["Turn on Face ID"].tap()
         try await postFixture("/fixture/biometric/match")
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Native login did not load Sessions")
+        addScreenshot(named: "onboarding-sessions-arrival")
+    }
+
+    func testFaceIDNoMatchShowsRetry() async throws {
+        let app = launchOnboarding()
+        defer {
+            audit(app, name: "onboarding-faceid-nomatch")
+            addScreenshot(named: "onboarding-faceid-nomatch")
+            app.terminate()
+        }
+
+        try await setBiometricEnrollment(true)
+        try await reachFaceID(app)
+        app.buttons["Turn on Face ID"].tap()
+        try await postFixture("/fixture/biometric/nomatch")
+        XCTAssertTrue(app.staticTexts["Secure storage could not be unlocked."].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Try again"].exists)
     }
 
     func testFaceIDNotEnrolledBlocksWithoutFallback() async throws {
@@ -38,6 +56,11 @@ final class OnboardingFlowTests: XCTestCase {
             app.terminate()
         }
 
+        do {
+            try await setBiometricEnrollment(false)
+        } catch {
+            throw XCTSkip("iOS 27.0 simulator biometric unenrollment could not be driven: \(error.localizedDescription)")
+        }
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
         let blocked = app.staticTexts["Set up Face ID in Settings to use this app"]
@@ -88,6 +111,9 @@ final class OnboardingFlowTests: XCTestCase {
             "-CCOnboarding",
             "-CCResetCache",
         ]
+        if let scheme = environment["TEST_RUNNER_COLOR_SCHEME"] {
+            app.launchArguments += ["-CCColorScheme", scheme]
+        }
         if let expirySeconds {
             app.launchArguments += ["-CCPairingExpirySeconds", String(expirySeconds)]
         }
@@ -100,15 +126,18 @@ final class OnboardingFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
         let connected = app.staticTexts["Connected to cc-controller"]
         XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")
+        addScreenshot(named: "onboarding-connect-connected")
         XCTAssertTrue(app.buttons["Continue"].isEnabled)
         app.buttons["Continue"].tap()
 
         let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
         XCTAssertTrue(codeElement.waitForExistence(timeout: 10), "Pairing code did not appear")
+        addScreenshot(named: "onboarding-pair-waiting")
         let code = codeElement.label.replacingOccurrences(of: " ", with: "")
         XCTAssertEqual(code.count, 6)
         try await approvePairing(code)
         XCTAssertTrue(app.staticTexts["Protect with Face ID"].waitForExistence(timeout: 15), "Pair confirmation did not reach Face ID")
+        addScreenshot(named: "onboarding-faceid-prompt")
     }
 
     private func postFixture(_ path: String) async throws {
@@ -117,8 +146,15 @@ final class OnboardingFlowTests: XCTestCase {
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        let (_, response) = try await URLSession.shared.data(for: request)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Fixture control route failed: \(path)")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "no response body"
+            throw NSError(domain: "OnboardingFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(body)"])
+        }
+    }
+
+    private func setBiometricEnrollment(_ enrolled: Bool) async throws {
+        try await postFixture(enrolled ? "/fixture/biometric/enroll" : "/fixture/biometric/unenroll")
     }
 
     private func approvePairing(_ code: String) async throws {
