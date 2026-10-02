@@ -4,7 +4,17 @@ import LocalAuthentication
 import Observation
 import SwiftUI
 import UIKit
+#if DEBUG
+import os
+#endif
 import UserNotifications
+
+#if DEBUG
+private let lockLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.example.cc-controller",
+    category: "lock"
+)
+#endif
 
 @MainActor @Observable
 final class AppModel {
@@ -157,7 +167,17 @@ final class AppModel {
     }
 
     func unlock() async {
-        switch await auth.unlock() {
+        let result = await auth.unlock()
+        #if DEBUG
+        let errorCode = auth.lastUnlockBiometricErrorCode.map(String.init) ?? "none"
+        switch result {
+        case .success:
+            lockLogger.info("unlock result=success laErrorCode=\(errorCode, privacy: .public)")
+        case .failure:
+            lockLogger.info("unlock result=failure laErrorCode=\(errorCode, privacy: .public)")
+        }
+        #endif
+        switch result {
         case .success:
             faceIDMessage = nil
             phase = .unlocked
@@ -169,6 +189,9 @@ final class AppModel {
     func lockScreenDidAppear() {
         guard phase == .locked, !hasAutoPromptedLockScreen else { return }
         hasAutoPromptedLockScreen = true
+        #if DEBUG
+        lockLogger.info("auto-prompt trigger")
+        #endif
         Task { @MainActor [weak self] in
             await self?.unlock()
         }
@@ -394,6 +417,9 @@ final class AppModel {
     }
 
     func scenePhaseDidChange(_ scenePhase: ScenePhase) {
+        #if DEBUG
+        lockLogger.info("scene transition=\(String(describing: scenePhase), privacy: .public)")
+        #endif
         let isActive = scenePhase == .active
         let isBackgrounded = scenePhase == .background
         isPrivacyCovered = lockPolicy.shouldShowPrivacyCover(
