@@ -7,16 +7,17 @@ PROJECT="$IOS/CCController.xcodeproj"
 DERIVED="$IOS/build"
 RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
+POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
+POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
+POOL_IDLE_SECONDS=$((20 * 60))
+POOL_WAIT_SECONDS=$((60 * 60))
+POOL_SLOT=""
 STARTED_DAEMON=""
 FIXTURE_OUT=""
 FIXTURE_LOG=""
 RUN_DIR=""
 DIAG_DIR=""
-MOCK_PREFIX=""
 MOCK_RUN_DIR=""
-MOCK_DEVICE_NAMES=()
-SHOT_PREFIX="cc-"
-SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
 
 step() {
   local name=$1; shift
@@ -54,6 +55,18 @@ simulator_udids() {
   xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const mode=process.argv[1],state=process.argv[2],values=new Set(process.argv.slice(3));for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){const matchesState=state==="all"||x.state===state;const matchesName=mode==="exact"?values.has(x.name):x.name.startsWith(process.argv[3]);if(matchesState&&matchesName) console.log(x.udid)}}})' "$mode" "$state" "$@"
 }
 
+simulator_udid() {
+  local name=$1
+  local values
+  values=$(simulator_udids exact all "$name")
+  [[ -z "$values" ]] || printf '%s\n' "${values%%$'\n'*}"
+}
+
+simulator_state() {
+  local udid=$1
+  xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.udid===process.argv[1]){console.log(x.state);process.exit(0)}}}})' "$udid"
+}
+
 configure_keyboard() {
   local udid=$1
   xcrun simctl spawn "$udid" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
@@ -86,8 +99,220 @@ start_fixture_daemon() {
   return 0
 }
 
-cleanup_shots() {
-  stop_fixture_daemon
+pool_slot_dir() {
+  printf '%s/slot-%s\n' "$POOL_CACHE" "$1"
+}
+
+pool_lock_dir() {
+  printf '%s/lock\n' "$(pool_slot_dir "$1")"
+}
+
+pool_device_name() {
+  printf 'ccpool-%s-%s\n' "$1" "$2"
+}
+
+pool_last_use_file() {
+  local slot=$1
+  local device=$2
+  local key
+  key=$(printf '%s' "$device" | tr ' ()' '---')
+  printf '%s/last-use-%s\n' "$(pool_slot_dir "$slot")" "$key"
+}
+
+pool_marker_file() {
+  local udid=$1
+  printf '%s/media-%s-attachment.marker\n' "$POOL_CACHE" "$udid"
+}
+
+pool_lock_pid() {
+  local slot=$1
+  local file="$(pool_lock_dir "$slot")/pid"
+  [[ -f "$file" ]] || return 1
+  printf '%s' "$(<"$file")"
+}
+
+pool_lock_lane() {
+  local slot=$1
+  local file="$(pool_lock_dir "$slot")/lane"
+  [[ -f "$file" ]] || printf '%s' 'unknown'
+  [[ -f "$file" ]] && printf '%s' "$(<"$file")"
+}
+
+pool_clear_stale_lock() {
+  local slot=$1
+  local lock
+  lock=$(pool_lock_dir "$slot")
+  [[ -d "$lock" ]] || return 0
+  local pid
+  pid=$(pool_lock_pid "$slot" || true)
+  if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+    rm -rf "$lock"
+  fi
+}
+
+pool_holders() {
+  local slot
+  for slot in 1 2; do
+    pool_clear_stale_lock "$slot"
+    if [[ -d "$(pool_lock_dir "$slot")" ]]; then
+      pool_lock_lane "$slot"
+    fi
+  done
+}
+
+pool_shutdown_other_devices() {
+  local slot=$1
+  local keep_udid=$2
+  local device name udid state
+  for device in "${POOL_DEVICE_TYPES[@]}"; do
+    name=$(pool_device_name "$slot" "$device")
+    udid=$(simulator_udid "$name" || true)
+    [[ -z "$udid" || "$udid" == "$keep_udid" ]] && continue
+    state=$(simulator_state "$udid" || true)
+    if [[ "$state" == 'Booted' ]]; then
+      printf '%s\n' "shutting down $name to keep slot $slot sequential" >&2
+      xcrun simctl shutdown "$udid" >/dev/null
+    fi
+  done
+}
+
+pool_idle_cleanup() {
+  local slot=$1
+  local now=$SECONDS
+  now=$(date +%s)
+  local device name udid state marker last
+  for device in "${POOL_DEVICE_TYPES[@]}"; do
+    name=$(pool_device_name "$slot" "$device")
+    udid=$(simulator_udid "$name" || true)
+    [[ -z "$udid" ]] && continue
+    marker=$(pool_last_use_file "$slot" "$device")
+    [[ -f "$marker" ]] || continue
+    last=$(<"$marker")
+    [[ "$last" =~ ^[0-9]+$ ]] || continue
+    (( now - last > POOL_IDLE_SECONDS )) || continue
+    state=$(simulator_state "$udid" || true)
+    if [[ "$state" == 'Booted' ]]; then
+      printf '%s\n' "shutting down idle pool device $name"
+      xcrun simctl shutdown "$udid" >/dev/null
+    fi
+  done
+}
+
+ensure_pool_devices() {
+  local slot=$1
+  mkdir -p "$POOL_CACHE" "$(pool_slot_dir "$slot")"
+  local device name udid
+  for device in "${POOL_DEVICE_TYPES[@]}"; do
+    name=$(pool_device_name "$slot" "$device")
+    udid=$(simulator_udid "$name" || true)
+    if [[ -z "$udid" ]]; then
+      udid=$(xcrun simctl create "$name" "$device" "$RUNTIME")
+      printf '%s\n' "created $name ($udid)"
+    fi
+  done
+}
+
+pool_acquire() {
+  [[ -n "$POOL_SLOT" ]] && return 0
+  mkdir -p "$POOL_CACHE"
+  local lane="${CC_MOCK_LANE:-${USER:-user}-$$}"
+  local waited=0 slot lock holders message
+  while (( waited <= POOL_WAIT_SECONDS )); do
+    for slot in 1 2; do
+      mkdir -p "$(pool_slot_dir "$slot")"
+      pool_clear_stale_lock "$slot"
+      lock=$(pool_lock_dir "$slot")
+      if mkdir "$lock" 2>/dev/null; then
+        printf '%s\n' "$$" > "$lock/pid"
+        printf '%s\n' "$lane" > "$lock/lane"
+        POOL_SLOT=$slot
+        ensure_pool_devices "$slot"
+        pool_idle_cleanup "$slot"
+        printf '%s\n' "acquired simulator slot $slot for $lane"
+        return 0
+      fi
+    done
+    holders=()
+    for slot in 1 2; do
+      [[ -d "$(pool_lock_dir "$slot")" ]] && holders+=("$(pool_lock_lane "$slot")")
+    done
+    message=$(IFS=', '; printf '%s' "${holders[*]:-unknown}")
+    if (( waited == 0 || waited % 60 == 0 )); then
+      printf 'waiting for a simulator slot (held by %s)\n' "$message" >&2
+    fi
+    if (( waited == POOL_WAIT_SECONDS )); then
+      printf 'timed out after 60 minutes waiting for a simulator slot (held by %s)\n' "$message" >&2
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+release_pool_slot() {
+  [[ -z "$POOL_SLOT" ]] && return 0
+  local slot=$POOL_SLOT
+  local lock pid
+  lock=$(pool_lock_dir "$slot")
+  pid=$(pool_lock_pid "$slot" || true)
+  if [[ "$pid" == "$$" ]]; then
+    rm -rf "$lock"
+  fi
+  POOL_SLOT=""
+}
+
+pool_booted_udids() {
+  [[ -n "$POOL_SLOT" ]] || return 0
+  local device name udid state
+  for device in "${POOL_DEVICE_TYPES[@]}"; do
+    name=$(pool_device_name "$POOL_SLOT" "$device")
+    udid=$(simulator_udid "$name" || true)
+    [[ -z "$udid" ]] && continue
+    state=$(simulator_state "$udid" || true)
+    [[ "$state" == 'Booted' ]] && printf '%s\n' "$udid"
+  done
+}
+
+ensure_pool_device() {
+  local device=$1
+  local name udid state
+  name=$(pool_device_name "$POOL_SLOT" "$device")
+  udid=$(simulator_udid "$name" || true)
+  [[ -n "$udid" ]] || { printf 'pool device is missing: %s\n' "$name" >&2; return 1; }
+  pool_shutdown_other_devices "$POOL_SLOT" "$udid"
+  state=$(simulator_state "$udid" || true)
+  if [[ "$state" != 'Booted' ]]; then
+    printf '%s\n' "booting $name" >&2
+    xcrun simctl boot "$udid" >/dev/null 2>&1 || true
+    xcrun simctl bootstatus "$udid" -b >/dev/null
+  else
+    printf '%s\n' "reusing booted $name" >&2
+  fi
+  configure_keyboard "$udid"
+  xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+  printf '%s\n' "$(date +%s)" > "$(pool_last_use_file "$POOL_SLOT" "$device")"
+  printf '%s\n' "$udid"
+}
+
+reset_flow_state() {
+  local udid=$1
+  xcrun simctl keychain "$udid" reset
+  xcrun simctl privacy "$udid" reset all com.example.cc-controller
+  xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
+}
+
+ensure_attachment_media() {
+  local udid=$1
+  local marker
+  marker=$(pool_marker_file "$udid")
+  [[ -f "$marker" ]] && return 0
+  xcrun simctl addmedia "$udid" "$IOS/UITests/Fixtures/attachment.jpg"
+  : > "$marker"
+}
+
+cleanup_run() {
+  local status=$1
+  stop_fixture_daemon || true
   if [[ -n "$DIAG_DIR" ]]; then
     mkdir -p "$DIAG_DIR"
     if [[ -n "$FIXTURE_LOG" ]]; then
@@ -95,50 +320,28 @@ cleanup_shots() {
     fi
     while read -r udid; do
       [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true
-    done < <(
-      if [[ ${#SHOT_DEVICE_NAMES[@]} -eq 0 ]]; then
-        simulator_udids prefix Booted "$SHOT_PREFIX"
-      else
-        simulator_udids exact Booted "${SHOT_DEVICE_NAMES[@]}"
-      fi
-    )
+    done < <(pool_booted_udids)
     mkdir -p "$DIAG_DIR/attachments"
     for result in "$IOS"/build/*.xcresult; do
       [[ -d "$result" ]] || continue
       xcrun xcresulttool export attachments --path "$result" --output-path "$DIAG_DIR/attachments" >/dev/null 2>&1 || true
     done
   fi
-  if [[ -n "$RUN_DIR" ]]; then rm -rf "$RUN_DIR"; fi
-  while read -r udid; do
-    [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-  done < <(
-    if [[ ${#SHOT_DEVICE_NAMES[@]} -eq 0 ]]; then
-      simulator_udids prefix Booted "$SHOT_PREFIX"
-    else
-      simulator_udids exact Booted "${SHOT_DEVICE_NAMES[@]}"
-    fi
-  )
-  return 0
+  [[ -z "$RUN_DIR" ]] || rm -rf "$RUN_DIR"
+  [[ -z "$MOCK_RUN_DIR" ]] || rm -rf "$MOCK_RUN_DIR"
+  release_pool_slot || true
+  return "$status"
 }
 
-ensure_device() {
-  local device=$1
-  local name="$SHOT_PREFIX$device"
-  local udid
-  udid=$(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name===process.argv[1]){console.log(x.udid);process.exit(0)}}}})' "$name")
-  if [[ -z "$udid" ]]; then
-    udid=$(xcrun simctl create "$name" "$device" "$RUNTIME")
-    printf '%s\n' "created $name"
-  else
-    printf '%s\n' "reusing $name"
-  fi
-  xcrun simctl boot "$udid" >/dev/null 2>&1 || true
-  xcrun simctl bootstatus "$udid" -b >/dev/null
-  configure_keyboard "$udid"
-  xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
-  xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
-  printf '%s\n' "$udid"
+cleanup_on_exit() {
+  local status=$?
+  trap - EXIT INT TERM
+  cleanup_run "$status" || true
+  exit "$status"
 }
+
+trap cleanup_on_exit EXIT
+trap 'exit 130' INT TERM
 
 cmd_generate() {
   mkdir -p "$IOS/Config"
@@ -153,6 +356,7 @@ cmd_build() {
 }
 
 cmd_test() {
+  pool_acquire
   cmd_generate
   if [[ -d "$IOS/CCKit" ]]; then
     (cd "$IOS/CCKit" && swift test)
@@ -206,39 +410,36 @@ cmd_shots() {
     esac
   done
   [[ ${#devices[@]} -gt 0 ]] || devices=("${DEFAULT_DEVICES[@]}")
-  local lane="${CC_MOCK_LANE:-}"
-  if [[ -n "$lane" ]]; then
-    SHOT_PREFIX="ccshot-$lane-"
-    SHOT_DEVICE_NAMES=()
-  else
-    SHOT_PREFIX="cc-"
-    SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
+    DERIVED="$IOS/build/shot-derived-$CC_MOCK_LANE"
   fi
-  mkdir -p "$IOS/shots"
-  rm -f "$IOS/shots/index.html" "$IOS/shots/fixture-daemon.log"
+  pool_acquire
+  local shot_root="$IOS/shots"
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then shot_root="$shot_root/$CC_MOCK_LANE"; fi
+  mkdir -p "$shot_root"
+  rm -f "$shot_root/index.html" "$shot_root/fixture-daemon.log"
   for device in "${DEFAULT_DEVICES[@]}" "${devices[@]}"; do
-    rm -rf "$IOS/shots/$(echo "$device" | tr ' ()' '---')"
+    rm -rf "$shot_root/$(echo "$device" | tr ' ()' '---')"
   done
   RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
   DIAG_DIR="$IOS/build/diag"
   mkdir -p "$DIAG_DIR"
-  FIXTURE_LOG="$IOS/shots/fixture-daemon.log"
+  FIXTURE_LOG="$shot_root/fixture-daemon.log"
   local fixture_started=$SECONDS
   start_fixture_daemon "$FIXTURE_LOG"
   printf '%s\n' "[fixture] $((SECONDS - fixture_started))s (pid $STARTED_DAEMON)"
   local web_port bearer
   web_port=$(json_value "$FIXTURE_OUT" webPort)
   bearer=$(json_value "$FIXTURE_OUT" bearer)
-  local index_file="$IOS/shots/index.html"
+  local index_file="$shot_root/index.html"
   printf '%s\n' '<!doctype html><meta charset="utf-8"><title>cc-controller iOS shots</title><style>body{font:15px system-ui;background:#121110;color:#eee;margin:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}figure{margin:0}img{display:block;max-width:100%;border-radius:16px}figcaption{padding-top:8px;color:#bbb}</style><main>' > "$index_file"
-  trap 'status=$?; cleanup_shots || true; exit "$status"' EXIT
   for device in "${devices[@]}"; do
     local udid result exported output_dir
-    udid=$(ensure_device "$device" | tail -1)
+    udid=$(ensure_pool_device "$device")
     xcrun simctl ui "$udid" appearance light
-    result="$IOS/build/CCController-$(echo "$device" | tr ' ()' '---').xcresult"
+    result="$DERIVED/CCController-$(echo "$device" | tr ' ()' '---').xcresult"
     exported="$RUN_DIR/$(echo "$device" | tr ' ()' '---')"
-    output_dir="$IOS/shots/$(echo "$device" | tr ' ()' '---')"
+    output_dir="$shot_root/$(echo "$device" | tr ' ()' '---')"
     rm -rf "$result" "$exported" "$output_dir"
     mkdir -p "$exported" "$output_dir"
     local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" -only-testing:CCControllerUITests/ScreenshotTests test)
@@ -256,11 +457,10 @@ cmd_shots() {
     done
   done
   printf '%s\n' '</main>' >> "$index_file"
-  printf '%s\n' "shots written to $IOS/shots"
+  printf '%s\n' "shots written to $shot_root"
 }
 
 cmd_flows() {
-  cmd_generate
   local devices=() test_filter=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -299,6 +499,7 @@ cmd_flows() {
     printf '%s\n' 'no flow test methods found'
     return 0
   fi
+  pool_acquire
 
   local selector_class="$test_filter" selector_method="" filter_has_method=0
   if [[ "$test_filter" == */* ]]; then
@@ -322,19 +523,19 @@ cmd_flows() {
     return 2
   fi
 
-  local lane="${CC_MOCK_LANE:-}"
-  if [[ -n "$lane" ]]; then
-    SHOT_PREFIX="ccshot-$lane-"
-    SHOT_DEVICE_NAMES=()
-  else
-    SHOT_PREFIX="cc-"
-    SHOT_DEVICE_NAMES=("cc-iPhone 18 Pro" "cc-iPhone 16 Plus" "cc-iPhone SE (3rd generation)")
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
+    DERIVED="$IOS/build/flow-derived-$CC_MOCK_LANE"
   fi
-
-  mkdir -p "$IOS/shots/flows"
+  cmd_generate
+  local flow_root="$IOS/shots/flows"
+  local flow_build_root="$IOS/build/flows"
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then
+    flow_root="$flow_root/$CC_MOCK_LANE"
+    flow_build_root="$flow_build_root-$CC_MOCK_LANE"
+  fi
+  mkdir -p "$flow_root"
   RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
   DIAG_DIR=""
-  trap 'status=$?; cleanup_shots || true; exit "$status"' EXIT
 
   local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build-for-testing)
   step 'flows build-for-testing' "${build_args[@]}"
@@ -353,20 +554,20 @@ cmd_flows() {
       local udid result exported output_dir device_key method_log
       local method_status=0 xcode_status=0 export_status=0
       device_key=$(echo "$device" | tr ' ()' '---')
-      output_dir="$IOS/shots/flows/$device_key/$flow_class/$flow_method"
-      result="$IOS/build/flows/$device_key/$flow_class/$flow_method.xcresult"
+      output_dir="$flow_root/$device_key/$flow_class/$flow_method"
+      result="$flow_build_root/$device_key/$flow_class/$flow_method.xcresult"
       exported="$RUN_DIR/$device_key/$flow_class/$flow_method"
       method_log="$output_dir/xcodebuild.log"
       rm -rf "$output_dir" "$result" "$exported"
       mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
 
       stop_fixture_daemon
-      udid=$(ensure_device "$device" | tail -1)
+      udid=$(ensure_pool_device "$device")
       if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
-        xcrun simctl addmedia "$udid" "$IOS/UITests/Fixtures/attachment.jpg"
+        ensure_attachment_media "$udid"
       fi
       xcrun simctl ui "$udid" appearance light
-      xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
+      reset_flow_state "$udid"
       if ! xcrun simctl install "$udid" "$app_bundle"; then
         printf '%s\n' 'failed to install the freshly built app' | tee "$method_log"
         method_status=1
@@ -429,7 +630,7 @@ cmd_flows() {
     printf '%s\n' "$failed flow method(s) failed" >&2
     return 1
   fi
-  printf '%s\n' "flow shots written to $IOS/shots/flows"
+  printf '%s\n' "flow shots written to $flow_root"
 }
 
 cmd_mocks() {
@@ -441,55 +642,14 @@ cmd_mocks() {
     esac
   done
   validate_mock_screens "$only"
-
   cmd_generate
-  local lane="${CC_MOCK_LANE:-}"
-  MOCK_PREFIX="ccmock-"
-  if [[ -n "$lane" ]]; then
-    MOCK_PREFIX="ccmock-$lane-"
-    MOCK_DEVICE_NAMES=()
-  else
-    MOCK_DEVICE_NAMES=("ccmock-iPhone 16 Plus" "ccmock-iPhone 18 Pro")
-  fi
+  pool_acquire
   local mock_root="$IOS/shots/mocks"
-  if [[ -n "$lane" ]]; then mock_root="$mock_root/$lane"; fi
-  if [[ -n "$lane" ]]; then DERIVED="$IOS/build/mock-derived-$lane"; else DERIVED="$IOS/build"; fi
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then mock_root="$mock_root/$CC_MOCK_LANE"; fi
+  if [[ -n "${CC_MOCK_LANE:-}" ]]; then DERIVED="$IOS/build/mock-derived-$CC_MOCK_LANE"; else DERIVED="$IOS/build"; fi
   MOCK_RUN_DIR=$(mktemp -d -t cc-controller-mock-run.XXXXXX)
   rm -rf "$mock_root"
   mkdir -p "$mock_root"
-
-  cleanup_mocks() {
-    rm -rf "$MOCK_RUN_DIR"
-    if [[ ${#MOCK_DEVICE_NAMES[@]} -eq 0 ]]; then
-      while read -r udid; do
-        [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-      done < <(simulator_udids prefix Booted "$MOCK_PREFIX")
-    else
-      while read -r udid; do
-        [[ -z "$udid" ]] || xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
-      done < <(simulator_udids exact Booted "${MOCK_DEVICE_NAMES[@]}")
-    fi
-    return 0
-  }
-  trap 'status=$?; cleanup_mocks || true; exit "$status"' EXIT
-
-  ensure_mock_device() {
-    local device=$1
-    local name="$MOCK_PREFIX$device"
-    local udid
-    udid=$(xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.name===process.argv[1]){process.stdout.write(x.udid);process.exit(0)}}}})' "$name")
-    if [[ -z "$udid" ]]; then
-      udid=$(xcrun simctl create "$name" "$device" "$RUNTIME")
-      printf '%s\n' "created $name" >&2
-    else
-      printf '%s\n' "reusing $name" >&2
-    fi
-    xcrun simctl boot "$udid" >/dev/null 2>&1 || true
-    xcrun simctl bootstatus "$udid" -b >/dev/null
-    xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
-    xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
-    printf '%s\n' "$udid"
-  }
 
   rm -rf "$DERIVED"
   step build cmd_build
@@ -499,8 +659,8 @@ cmd_mocks() {
   local device
   for device in "iPhone 16 Plus" "iPhone 18 Pro"; do
     local udid result exported output_dir device_derived
-    udid=$(ensure_mock_device "$device")
-    result="$IOS/build/MockScreenshot-$(echo "$device" | tr ' ()' '---').xcresult"
+    udid=$(ensure_pool_device "$device")
+    result="$DERIVED/MockScreenshot-$(echo "$device" | tr ' ()' '---').xcresult"
     exported="$MOCK_RUN_DIR/$(echo "$device" | tr ' ()' '---')"
     output_dir="$mock_root/$(echo "$device" | tr ' ()' '---')"
     device_derived="$DERIVED/mock-derived-$(echo "$device" | tr ' ()' '---')"
@@ -528,6 +688,88 @@ cmd_mocks() {
   printf '%s\n' "mock shots written to $mock_root"
 }
 
+pool_status() {
+  mkdir -p "$POOL_CACHE"
+  local slot device name udid state marker last display lane
+  for slot in 1 2; do
+    pool_clear_stale_lock "$slot"
+    if [[ -d "$(pool_lock_dir "$slot")" ]]; then
+      lane=$(pool_lock_lane "$slot")
+      printf 'slot %s holder=%s pid=%s\n' "$slot" "$lane" "$(pool_lock_pid "$slot")"
+    else
+      printf 'slot %s holder=free\n' "$slot"
+    fi
+    for device in "${POOL_DEVICE_TYPES[@]}"; do
+      name=$(pool_device_name "$slot" "$device")
+      udid=$(simulator_udid "$name" || true)
+      state=missing
+      [[ -z "$udid" ]] || state=$(simulator_state "$udid" || printf 'unknown')
+      marker=$(pool_last_use_file "$slot" "$device")
+      if [[ -f "$marker" ]]; then
+        last=$(<"$marker")
+        display=$(date -r "$last" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || printf '%s' "$last")
+      else
+        display=never
+      fi
+      printf '  %s udid=%s state=%s last-use=%s\n' "$name" "${udid:-missing}" "$state" "$display"
+    done
+  done
+}
+
+pool_down() {
+  local slot device name udid state
+  for slot in 1 2; do
+    pool_clear_stale_lock "$slot"
+    if [[ -d "$(pool_lock_dir "$slot")" ]]; then
+      printf 'cannot pool down: slot %s is held by %s\n' "$slot" "$(pool_lock_lane "$slot")" >&2
+      return 1
+    fi
+  done
+  for slot in 1 2; do
+    for device in "${POOL_DEVICE_TYPES[@]}"; do
+      name=$(pool_device_name "$slot" "$device")
+      udid=$(simulator_udid "$name" || true)
+      [[ -z "$udid" ]] && continue
+      state=$(simulator_state "$udid" || true)
+      if [[ "$state" == 'Booted' ]]; then
+        xcrun simctl shutdown "$udid" >/dev/null
+        printf '%s\n' "shut down $name"
+      fi
+    done
+  done
+}
+
+pool_reset() {
+  local slot device name udid
+  for slot in 1 2; do
+    pool_clear_stale_lock "$slot"
+    if [[ -d "$(pool_lock_dir "$slot")" ]]; then
+      printf 'cannot pool reset: slot %s is held by %s\n' "$slot" "$(pool_lock_lane "$slot")" >&2
+      return 1
+    fi
+  done
+  for slot in 1 2; do
+    for device in "${POOL_DEVICE_TYPES[@]}"; do
+      name=$(pool_device_name "$slot" "$device")
+      udid=$(simulator_udid "$name" || true)
+      [[ -z "$udid" ]] && continue
+      xcrun simctl delete "$udid"
+      rm -f "$(pool_last_use_file "$slot" "$device")" "$(pool_marker_file "$udid")"
+      printf '%s\n' "deleted $name ($udid)"
+    done
+    rmdir "$(pool_slot_dir "$slot")" 2>/dev/null || true
+  done
+}
+
+cmd_pool() {
+  case "${1:-}" in
+    status) shift; pool_status "$@";;
+    down) shift; pool_down "$@";;
+    reset) shift; pool_reset "$@";;
+    *) printf 'Usage: %s pool {status|down|reset}\n' "$0" >&2; return 2;;
+  esac
+}
+
 cmd_clean() {
   step clean rm -rf "$DERIVED"
   while read -r udid; do
@@ -549,7 +791,8 @@ case "${1:-}" in
   shots) shift; cmd_shots "$@";;
   flows) shift; cmd_flows "$@";;
   mocks) shift; cmd_mocks "$@";;
+  pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|shots|flows|mocks|clean|install}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|shots|flows|mocks|pool|clean|install}\n' "$0" >&2; exit 2;;
 esac
