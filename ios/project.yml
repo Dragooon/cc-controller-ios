@@ -64,6 +64,7 @@ targets:
         TEST_RUNNER_BEARER: "$(TEST_RUNNER_BEARER)"
         TEST_RUNNER_ONLY: "$(TEST_RUNNER_ONLY)"
         TEST_RUNNER_MOCKS: "$(TEST_RUNNER_MOCKS)"
+        TEST_RUNNER_FIXTURE_CONTROL_URL: "$(TEST_RUNNER_FIXTURE_CONTROL_URL)"
   CCControllerUITests:
     type: bundle.ui-testing
     platform: iOS
