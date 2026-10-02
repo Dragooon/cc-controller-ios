@@ -161,6 +161,18 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
 
         openSettings(app)
         try await expectValue(app, "settings-lock-interval", equals: "Immediately")
+
+        let persistedPicker = element(app, "settings-lock-interval")
+        persistedPicker.tap()
+        XCTAssertTrue(app.buttons["After 1 hour"].waitForExistence(timeout: 5), "After 1 hour option did not appear")
+        app.buttons["After 1 hour"].tap()
+        try await expectValue(app, "settings-lock-interval", equals: "After 1 hour")
+        app.buttons["Done"].tap()
+        let settingsClosedAfterHour = await waitUntilGone(element(app, "settings-lock-interval"))
+        XCTAssertTrue(settingsClosedAfterHour, "Settings did not close after choosing one hour")
+
+        openSettings(app)
+        try await expectValue(app, "settings-lock-interval", equals: "After 1 hour")
         addScreenshot(named: "settings-lock-interval-persisted")
     }
 

@@ -12,7 +12,8 @@ enum SettingsLockInterval: String, CaseIterable, Identifiable {
         switch interval {
         case .immediately: self = .immediately
         case .fiveMinutes: self = .fiveMinutes
-        case .oneHour, .custom: self = .fiveMinutes
+        case .oneHour: self = .oneHour
+        case .custom: self = .fiveMinutes
         }
     }
 
