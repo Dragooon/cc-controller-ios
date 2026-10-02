@@ -160,7 +160,7 @@ final class InspectorFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["97%"].waitForExistence(timeout: 15), "Long session cache usage did not load")
         let context = app.descendants(matching: .any).matching(identifier: "inspector-context").firstMatch
         XCTAssertTrue(context.waitForExistence(timeout: 15), "Long session context accessibility element did not load")
-        XCTAssertEqual(context.label, "Context 6 percent, 64k of 1M tokens")
+        XCTAssertEqual(context.label, "Context, 6 percent, 64k of 1M tokens")
         let responses = app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch
         XCTAssertTrue(responses.waitForExistence(timeout: 15), "Long session Responses tile did not load")
         XCTAssertEqual(responses.label, "1 Response")

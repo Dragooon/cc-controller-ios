@@ -225,8 +225,8 @@ struct InspectorView: View {
                                     isLive: subagent.state == .running,
                                     fallback: nil
                                 )
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.ccLabel)
+                                .font(.footnote.monospacedDigit())
+                                .foregroundStyle(.ccSecondary)
                             }
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.semibold))
@@ -237,7 +237,7 @@ struct InspectorView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("inspector-subagent-\(subagent.agentId ?? "")")
                     .accessibilityLabel(subagentAccessibilityLabel(subagent))
-                    .accessibilityElement(children: .ignore)
+                    .accessibilityElement(children: .combine)
                     .disabled(subagent.agentId == nil)
                 }
             } header: {
@@ -348,8 +348,15 @@ struct InspectorView: View {
     private func subagentAccessibilityLabel(_ subagent: Subagent) -> String {
         let name = subagent.agent ?? "agent"
         let state = subagent.state?.rawValue ?? "unknown"
-        guard let text = subagent.text, !text.isEmpty else { return "\(name), \(state)" }
-        return "\(name), \(state), \(text)"
+        var parts = [name, state]
+        if let text = subagent.text, !text.isEmpty {
+            parts.append(text)
+        }
+        if let startedAt = subagent.startedAt {
+            let finishedAt = subagent.finishedAt ?? Date()
+            parts.append(formatDuration(finishedAt.timeIntervalSince(startedAt) * 1000))
+        }
+        return parts.joined(separator: ", ")
     }
 
     private var elapsedAnchor: Date? {
