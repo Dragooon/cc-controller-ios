@@ -593,7 +593,7 @@ run_flow_shard() {
         web_port=$(json_value "$FIXTURE_OUT" webPort)
         bearer=$(json_value "$FIXTURE_OUT" bearer)
         control_port=$(json_value "$FIXTURE_OUT" controlPort)
-        local args=(xcodebuild -xctestrun "$xctestrun" -destination "id=$udid" -derivedDataPath "$DERIVED" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
+        local args=(xcodebuild -xctestrun "$xctestrun" -destination "id=$udid" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
         if run_flow_test "flows $flow_class/$flow_method $device" "$method_log" env \
           "CC_FLOW_OUTPUT_DIR=$output_dir" \
           "TEST_RUNNER_SERVER_URL=http://127.0.0.1:$web_port" \
@@ -749,6 +749,8 @@ cmd_flows() {
   for (( shard = 0; shard < shard_count; shard++ )); do
     : > "$shard_result_dir/shard-$shard.tsv"
     (
+      trap 'cleanup_run $?' EXIT
+      trap 'exit 130' INT TERM
       run_flow_shard "$shard" "$shard_count" "$shard_result_dir/shard-$shard.tsv" "$app_bundle" "$xctestrun" "$flow_root" "$flow_build_root"
     ) &
     shard_pid=$!
