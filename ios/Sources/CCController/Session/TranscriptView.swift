@@ -240,7 +240,8 @@ private struct PendingPromptView: View {
                 prompt: PromptEntry(text: note.text, attachments: note.attachments),
                 sessionID: sessionID,
                 downloadFile: promptDownload,
-                attachmentThumbnails: note.attachmentThumbnails
+                attachmentThumbnails: note.attachmentThumbnails,
+                bubbleAccessibilityIdentifier: "pending-prompt-bubble"
             )
                 .opacity(0.55)
             if note.queued {

@@ -29,10 +29,16 @@ final class AttachmentFlowTests: XCTestCase {
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
         if pending.waitForExistence(timeout: 5) {
-            XCTAssertFalse(pending.waitForExistence(timeout: 30), "Prompt attachment assertions ran against the pending bubble")
+            XCTAssertTrue(waitForNonExistence(of: pending, timeout: 20), "Prompt attachment assertions ran against the pending bubble")
         }
 
-        let image = app.descendants(matching: .any)
+        let bubbles = app.descendants(matching: .any).matching(identifier: "prompt-bubble")
+        let markerBubbles = bubbles.matching(NSPredicate(format: "label CONTAINS[c] %@", "delivered-attachment-flow-marker"))
+        XCTAssertTrue(markerBubbles.firstMatch.waitForExistence(timeout: 30), "Delivered prompt bubble did not appear")
+        XCTAssertEqual(markerBubbles.count, 1, "Expected exactly one bubble to contain the delivered marker")
+        let delivered = markerBubbles.firstMatch
+
+        let image = delivered.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] 'attachment.png'"))
             .firstMatch
         XCTAssertTrue(image.waitForExistence(timeout: 30), "Delivered image attachment did not appear")
@@ -40,7 +46,7 @@ final class AttachmentFlowTests: XCTestCase {
         XCTAssertEqual(image.identifier, "prompt-attachment")
         XCTAssertEqual(image.value as? String, "loaded")
 
-        let csv = app.descendants(matching: .any)
+        let csv = delivered.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] 'evidence.csv'"))
             .firstMatch
         XCTAssertTrue(csv.waitForExistence(timeout: 30), "Delivered CSV attachment did not appear")
@@ -273,5 +279,13 @@ final class AttachmentFlowTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 }

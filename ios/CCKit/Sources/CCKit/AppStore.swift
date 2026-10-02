@@ -167,7 +167,6 @@ public final class AppStore {
                     attachmentThumbnails: attachmentThumbnails
                 )
             )
-            reconcileQueuedNotesAgainstOpenTranscript(for: sessionID)
             return .success(())
         } catch {
             return .failure(actionError(for: error))
@@ -331,19 +330,6 @@ public final class AppStore {
         update(&items[index])
         attachments[sessionID] = items
         attachmentRevision += 1
-    }
-
-    private func reconcileQueuedNotesAgainstOpenTranscript(for sessionID: String) {
-        guard var pending = queuedNotes[sessionID], let store = openStores[sessionID] else { return }
-        for entry in store.entries.reversed() {
-            guard case .prompt = entry else { continue }
-            pending = reconcileQueuedNote(pending, promptEntry: entry)
-            if pending.isEmpty {
-                queuedNotes.removeValue(forKey: sessionID)
-                return
-            }
-        }
-        queuedNotes[sessionID] = pending
     }
 
     public func interrupt(sessionID: String) async -> Result<Void, ActionError> {

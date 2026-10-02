@@ -7,6 +7,7 @@ struct PromptBubble: View {
     let sessionID: String
     let downloadFile: (@MainActor @Sendable (String) async throws -> URL)?
     let attachmentThumbnails: [String: Data]
+    let bubbleAccessibilityIdentifier: String
     @State private var isExpanded = false
     @State private var previewURL: URL?
 
@@ -14,12 +15,14 @@ struct PromptBubble: View {
         prompt: PromptEntry,
         sessionID: String = "",
         downloadFile: (@MainActor @Sendable (String) async throws -> URL)? = nil,
-        attachmentThumbnails: [String: Data] = [:]
+        attachmentThumbnails: [String: Data] = [:],
+        bubbleAccessibilityIdentifier: String = "prompt-bubble"
     ) {
         self.prompt = prompt
         self.sessionID = sessionID
         self.downloadFile = downloadFile
         self.attachmentThumbnails = attachmentThumbnails
+        self.bubbleAccessibilityIdentifier = bubbleAccessibilityIdentifier
     }
 
     private var promptText: String {
@@ -88,6 +91,9 @@ struct PromptBubble: View {
             .background(.ccBubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .containerRelativeFrame(.horizontal) { width, _ in width * 0.85 }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(promptText)
+        .accessibilityIdentifier(bubbleAccessibilityIdentifier)
         .fullScreenCover(
             isPresented: Binding(
                 get: { previewURL != nil },
