@@ -248,7 +248,9 @@ struct SessionTranscriptView: View {
             .id(turn.id)
             #if DEBUG
             .onAppear {
-                if turn.id == turns.last?.id { TranscriptPerformance.shared.markFirstRows() }
+                if turn.id == turns.first?.id || turn.id == turns.last?.id {
+                    TranscriptPerformance.shared.markFirstRows()
+                }
             }
             #endif
         }
