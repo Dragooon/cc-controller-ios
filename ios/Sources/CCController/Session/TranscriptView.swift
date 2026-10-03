@@ -72,6 +72,9 @@ struct SessionTranscriptView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
                 .scrollTargetLayout()
+                #if DEBUG
+                .onAppear { TranscriptPerformance.shared.markFirstRows() }
+                #endif
             }
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor)
             .scrollDismissesKeyboard(.interactively)
