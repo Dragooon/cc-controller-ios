@@ -359,6 +359,11 @@ ensure_attachment_media() {
 
 configure_xctestrun() {
   local source=$1 destination=$2 server=$3 bearer=$4 control=$5 color=$6 output_dir=$7
+  local mocks="" set_mocks=0
+  if [[ $# -ge 8 ]]; then
+    mocks=$8
+    set_mocks=1
+  fi
   cp "$source" "$destination"
   if plutil -extract TestConfigurations xml1 -o - "$destination" >/dev/null 2>&1; then
     printf '%s\n' 'format-2 .xctestrun files with TestConfigurations are unsupported' >&2
@@ -375,6 +380,9 @@ configure_xctestrun() {
     TEST_RUNNER_COLOR_SCHEME "$color"
     CC_FLOW_OUTPUT_DIR "$output_dir"
   )
+  if [[ $set_mocks -eq 1 ]]; then
+    entries+=(TEST_RUNNER_MOCKS "$mocks")
+  fi
   local index key value
   for ((index = 0; index < ${#entries[@]}; index += 2)); do
     key=${entries[$index]}
@@ -829,58 +837,157 @@ cmd_flows() {
   printf '%s\n' "flow shots written to $flow_root"
 }
 
+run_mock_lane() {
+  local lane_index=$1 device=$2 only=$3 xctestrun=$4 mock_root=$5 result_root=$6 result_file=$7
+  SHARD_CONTROLLER=0
+  MOCK_RUN_DIR=""
+  DIAG_DIR=""
+  RUN_DIR=$(mktemp -d -t cc-controller-mock-lane.XXXXXX)
+  local device_key=$(echo "$device" | tr ' ()' '---')
+  local result="$result_root/MockScreenshot-$device_key.xcresult"
+  local output_dir="$mock_root/$device_key"
+  local lane_xctestrun="$RUN_DIR/CCController.xctestrun"
+  local lane_log="$RUN_DIR/xcodebuild.log"
+  local lane_status=0
+  local started=$SECONDS
+  local udid
+
+  if ! pool_acquire; then
+    lane_status=1
+  elif ! udid=$(ensure_pool_device "$device"); then
+    lane_status=1
+  else
+    rm -rf "$result"
+    mkdir -p "$output_dir"
+    ln -s "$DERIVED/Build/Products/Debug-iphonesimulator" "$RUN_DIR/Debug-iphonesimulator"
+    if ! configure_xctestrun "$xctestrun" "$lane_xctestrun" "" "" "" "" "$output_dir" "$only"; then
+      printf '%s\n' 'failed to configure per-lane xctestrun' | tee "$lane_log"
+      lane_status=1
+    else
+      local args=(xcodebuild -xctestrun "$lane_xctestrun" -destination "id=$udid" -resultBundlePath "$result" "-only-testing:CCControllerUITests/MockScreenshotTests/testDesignMocks" -collect-test-diagnostics never test-without-building)
+      if ! run_flow_test "mocks $device" "$lane_log" "${args[@]}"; then
+        lane_status=1
+      fi
+    fi
+  fi
+
+  local label=PASS
+  [[ $lane_status -eq 0 ]] || label=FAIL
+  printf '%s\t%s\t%s\t%s\n' "$lane_index" "$device" "$label" "$((SECONDS - started))" > "$result_file"
+  return "$lane_status"
+}
+
 cmd_mocks() {
   local only=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --only) only=$2; shift 2;;
+      --only)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'mocks --only requires a value' >&2; exit 2; }
+        only=$2
+        shift 2
+        ;;
       *) printf 'unknown mocks option: %s\n' "$1" >&2; exit 2;;
     esac
   done
   validate_mock_screens "$only"
   cmd_generate
-  pool_acquire
   local mock_root="$IOS/shots/mocks"
   if [[ -n "${CC_MOCK_LANE:-}" ]]; then mock_root="$mock_root/$CC_MOCK_LANE"; fi
   if [[ -n "${CC_MOCK_LANE:-}" ]]; then DERIVED="$IOS/build/mock-derived-$CC_MOCK_LANE"; else DERIVED="$IOS/build"; fi
   MOCK_RUN_DIR=$(mktemp -d -t cc-controller-mock-run.XXXXXX)
+  local result_root="$MOCK_RUN_DIR/results"
+  mkdir -p "$result_root"
   rm -rf "$mock_root"
   mkdir -p "$mock_root"
 
-  rm -rf "$DERIVED"
-  step build cmd_build
+  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing)
+  step 'mocks build-for-testing' "${build_args[@]}"
+  local app_bundle="$DERIVED/Build/Products/Debug-iphonesimulator/cc-controller.app"
+  if [[ ! -d "$app_bundle" ]]; then
+    printf 'build-for-testing did not produce %s\n' "$app_bundle" >&2
+    return 1
+  fi
+  local xctestrun
+  xctestrun=$(find "$DERIVED/Build/Products" -type f -name '*.xctestrun' -print -quit)
+  if [[ -z "$xctestrun" ]]; then
+    printf 'build-for-testing did not produce an .xctestrun file under %s\n' "$DERIVED/Build/Products" >&2
+    return 1
+  fi
+
+  local devices=("iPhone 16 Plus" "iPhone 18 Pro")
+  local device_index device shard_pid
+  for device_index in "${!devices[@]}"; do
+    device=${devices[$device_index]}
+    : > "$result_root/lane-$device_index.tsv"
+    (
+      trap 'cleanup_run $?' EXIT
+      trap 'exit 130' INT TERM
+      run_mock_lane "$device_index" "$device" "$only" "$xctestrun" "$mock_root" "$DERIVED" "$result_root/lane-$device_index.tsv"
+    ) &
+    shard_pid=$!
+    SHARD_PIDS+=("$shard_pid")
+  done
+
+  local lane_status=0
+  for shard_pid in "${SHARD_PIDS[@]}"; do
+    if wait "$shard_pid"; then
+      :
+    else
+      lane_status=1
+    fi
+  done
+  SHARD_PIDS=()
 
   local audit="$mock_root/audit.txt"
   : > "$audit"
-  local device
-  for device in "iPhone 16 Plus" "iPhone 18 Pro"; do
-    local udid result exported output_dir device_derived
-    udid=$(ensure_pool_device "$device")
-    result="$DERIVED/MockScreenshot-$(echo "$device" | tr ' ()' '---').xcresult"
-    exported="$MOCK_RUN_DIR/$(echo "$device" | tr ' ()' '---')"
-    output_dir="$mock_root/$(echo "$device" | tr ' ()' '---')"
-    device_derived="$DERIVED/mock-derived-$(echo "$device" | tr ' ()' '---')"
-    rm -rf "$result" "$exported" "$output_dir" "$device_derived"
+  local collection_status=0 result exported output_dir manifest scheme image
+  local images=()
+  for device_index in "${!devices[@]}"; do
+    device=${devices[$device_index]}
+    local device_key=$(echo "$device" | tr ' ()' '---')
+    result="$DERIVED/MockScreenshot-$device_key.xcresult"
+    exported="$MOCK_RUN_DIR/$device_key"
+    output_dir="$mock_root/$device_key"
     mkdir -p "$exported" "$output_dir"
-    local args=(xcodebuild -project "$PROJECT" -scheme CCController -destination "id=$udid" -derivedDataPath "$device_derived" -resultBundlePath "$result" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -only-testing:CCControllerUITests/MockScreenshotTests test)
-    TEST_RUNNER_MOCKS="$only" step "mocks $device" "${args[@]}"
-    xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null
-    local manifest="$exported/manifest.json"
-    node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+    if [[ ! -d "$result" ]]; then
+      printf 'missing mock result bundle for %s\n' "$device" >&2
+      collection_status=1
+      continue
+    fi
+    if ! xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null; then
+      printf 'failed to export mock attachments for %s\n' "$device" >&2
+      collection_status=1
+      continue
+    fi
+    manifest="$exported/manifest.json"
+    if [[ -f "$manifest" ]]; then
+      node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+    fi
     find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
     if [[ -f "$exported/audit.txt" ]]; then
       printf '## %s\n' "$device" >> "$audit"
       cat "$exported/audit.txt" >> "$audit"
       printf '\n' >> "$audit"
     fi
+  done
+
+  for device_index in "${!devices[@]}"; do
+    device=${devices[$device_index]}
+    local device_key=$(echo "$device" | tr ' ()' '---')
+    output_dir="$mock_root/$device_key"
     for scheme in light dark; do
-      local images=()
+      images=()
       while IFS= read -r image; do images+=("$image"); done < <(find "$output_dir" -maxdepth 1 -type f -name "*-$scheme-*.png" | sort)
       if [[ ${#images[@]} -gt 0 ]]; then
-        swift "$IOS/Scripts/contact-sheet.swift" "$mock_root/contact-$(echo "$device" | tr ' ()' '---')-$scheme.png" "${images[@]}"
+        swift "$IOS/Scripts/contact-sheet.swift" "$mock_root/contact-$device_key-$scheme.png" "${images[@]}"
       fi
     done
   done
+
+  if [[ $lane_status -ne 0 || $collection_status -ne 0 ]]; then
+    printf '%s\n' 'one or more mock lanes failed' >&2
+    return 1
+  fi
   printf '%s\n' "mock shots written to $mock_root"
 }
 
