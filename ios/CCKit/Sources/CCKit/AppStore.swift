@@ -726,6 +726,9 @@ public final class AppStore {
         session.usage = usage
         sessions[sessionID] = session
         updateOpenStores(for: session)
+        #if DEBUG
+        TranscriptPerformance.shared.markUsageUpdate()
+        #endif
         lastUpdated = clock.now
         scheduleCacheWrite()
     }

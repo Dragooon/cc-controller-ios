@@ -160,7 +160,15 @@ public actor APIClient {
             timeoutInterval: timeoutInterval,
             delegate: delegate
         )
-        do { return try JSONDecoder.ccKit().decode(T.self, from: data) } catch { throw APIError.decoding(error.localizedDescription) }
+        do {
+            let value = try JSONDecoder.ccKit().decode(T.self, from: data)
+            #if DEBUG
+            if path.contains("/transcript") {
+                await TranscriptPerformance.shared.markDecodeDone()
+            }
+            #endif
+            return value
+        } catch { throw APIError.decoding(error.localizedDescription) }
     }
 
     private func requestData(
@@ -188,6 +196,11 @@ public actor APIClient {
             }
             guard let http = response as? HTTPURLResponse else { throw APIError.decoding("Response was not HTTP") }
             guard (200..<300).contains(http.statusCode) else { throw await mappedError(status: http.statusCode, data: data, staleDecision: staleDecision) }
+            #if DEBUG
+            if path.contains("/transcript") {
+                await TranscriptPerformance.shared.markResponseReceived(bytes: data.count)
+            }
+            #endif
             return (data, http)
         } catch let error as APIError { throw error }
         catch let error as URLError { throw APIError.transport(error) }

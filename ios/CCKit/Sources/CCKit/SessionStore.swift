@@ -33,16 +33,24 @@ public final class SessionStore {
     }
 
     public func updateSession(_ session: Session) {
+        let wasWorking = self.session.state == .working
         self.session = session
-        refreshTurns()
+        if wasWorking != (session.state == .working) { refreshTurns() }
     }
 
     public func loadInitial() async throws {
         guard canFetch, !loading else { return }
         loading = true
         defer { loading = false }
+        #if DEBUG
+        TranscriptPerformance.shared.begin(sessionID: sessionID)
+        TranscriptPerformance.shared.markRequestSent()
+        #endif
         let page = try await client.transcriptPage(sessionID: sessionID, tail: 400, agent: agentID)
         _ = transcriptStore.replaceAll(with: page.entries)
+        #if DEBUG
+        TranscriptPerformance.shared.markMergeDone()
+        #endif
         hasMoreEarlier = page.hasMore
         totalEntries = page.total
         hasLoaded = true
@@ -107,5 +115,8 @@ public final class SessionStore {
 
     private func refreshTurns() {
         turns = groupTranscript(entries: transcriptStore.entries, working: session.state == .working)
+        #if DEBUG
+        TranscriptPerformance.shared.markGroupingDone()
+        #endif
     }
 }

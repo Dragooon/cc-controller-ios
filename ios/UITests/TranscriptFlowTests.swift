@@ -80,6 +80,40 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(toolGroup.waitForExistence(timeout: 10), "Transcript did not return after closing tool detail")
     }
 
+    func testOpeningPerformance() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "opening-performance")
+            app.terminate()
+        }
+        let searchButton = app.buttons["Search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
+        searchButton.tap()
+
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        search.typeText("Long session")
+
+        let longSession = app.buttons["session-long-session"]
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        longSession.tap()
+
+        let performance = app.staticTexts["transcript-performance"]
+        XCTAssertTrue(performance.waitForExistence(timeout: 60), "Transcript performance probe did not load")
+        let before = performance.label
+        XCTAssertTrue(before.contains("first_rows="), "Opening phases were incomplete: \(before)")
+        print("TRANSCRIPT_PERF_BEFORE \(before)")
+
+        try await postFixtureUsageUpdate()
+        let deadline = Date().addingTimeInterval(10)
+        while performance.label == before && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let after = performance.label
+        XCTAssertNotEqual(after, before, "Usage update did not reach the open session")
+        print("TRANSCRIPT_PERF_AFTER_USAGE \(after)")
+    }
+
     func testPagingAndJumpToLatest() throws {
         let app = launchFixture()
         defer {
@@ -239,6 +273,20 @@ final class TranscriptFlowTests: XCTestCase {
         app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
         ).count
+    }
+
+    private func postFixtureUsageUpdate() async throws {
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)/fixture/usage-update") else {
+            throw XCTSkip("Fixture control URL was invalid")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? "no response body"
+            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture usage update failed: \(body)"])
+        }
     }
 
     private func launchFixture() -> XCUIApplication {

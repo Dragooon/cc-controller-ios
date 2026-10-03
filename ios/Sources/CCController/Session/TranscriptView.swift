@@ -155,6 +155,16 @@ struct SessionTranscriptView: View {
             } message: {
                 Text(pagingError ?? "The earlier transcript could not be loaded.")
             }
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                Text(TranscriptPerformance.shared.snapshot)
+                    .accessibilityIdentifier("transcript-performance")
+                    .accessibilityLabel(TranscriptPerformance.shared.snapshot)
+                    .font(.caption2)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+            }
+            #endif
         }
     }
 
@@ -236,6 +246,11 @@ struct SessionTranscriptView: View {
                 downloadFile: downloadFile
             )
             .id(turn.id)
+            #if DEBUG
+            .onAppear {
+                if turn.id == turns.last?.id { TranscriptPerformance.shared.markFirstRows() }
+            }
+            #endif
         }
 
         ForEach(Array(queuedNotes.enumerated()), id: \.offset) { _, note in
