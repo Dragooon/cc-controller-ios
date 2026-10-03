@@ -15,7 +15,7 @@ public final class SessionStore {
     @ObservationIgnored private let client: APIClient
     @ObservationIgnored private var loadingEarlier = false
     @ObservationIgnored private var loading = false
-    @ObservationIgnored private var hasLoaded = false
+    private var hasLoaded = false
 
     public init(
         session: Session,
