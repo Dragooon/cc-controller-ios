@@ -1081,10 +1081,148 @@ cmd_clean() {
   done < <(simulator_udids exact all "cc-${DEFAULT_DEVICES[0]}" "cc-${DEFAULT_DEVICES[1]}" "cc-${DEFAULT_DEVICES[2]}")
 }
 
+resolve_install_device() {
+  local selector=${1:-}
+  local devices_json
+  devices_json=$(mktemp -t cc-controller-devices.XXXXXX)
+  if ! xcrun devicectl list devices --json-output "$devices_json" >/dev/null; then
+    rm -f "$devices_json"
+    printf '%s\n' 'install could not list devices with devicectl' >&2
+    return 1
+  fi
+
+  local resolved
+  if ! resolved=$(node - "$devices_json" "$selector" <<'NODE'
+const fs = require('node:fs');
+
+const jsonPath = process.argv[2];
+const selector = process.argv[3] || '';
+const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+const allDevices = data.result?.devices ?? [];
+const physicalDevices = allDevices.map((device) => {
+  const hardware = device.hardwareProperties ?? device.properties?.hardware ?? {};
+  const details = device.deviceProperties ?? {};
+  const connection = device.connectionProperties ?? device.properties?.connection ?? {};
+  return {
+    coreDeviceId: device.identifier,
+    hardwareUdid: hardware.udid,
+    name: details.name ?? device.properties?.state?.name ?? '',
+    model: hardware.marketingName ?? '',
+    osVersion: details.osVersionNumber ?? device.properties?.software?.osVersionNumber?.stringValue ?? '',
+    platform: hardware.platform,
+    reality: hardware.reality,
+    paired: connection.pairingState === 'paired',
+    connected: connection.tunnelState === 'connected' || connection.state === 'connected',
+  };
+}).filter((device) => device.platform === 'iOS' && device.reality === 'physical');
+const availableDevices = physicalDevices.filter((device) => device.paired && device.connected);
+const describe = (device) => `${device.name} (${device.model}, iOS ${device.osVersion})`;
+let matches;
+
+if (selector) {
+  matches = physicalDevices.filter((device) => device.hardwareUdid === selector || device.name === selector);
+  if (matches.length === 0) {
+    console.error(`install device not found: ${selector}`);
+    process.exit(2);
+  }
+  if (matches.length > 1) {
+    console.error(`install device selector matched several physical devices: ${matches.map(describe).join('; ')}`);
+    process.exit(2);
+  }
+  if (!availableDevices.includes(matches[0])) {
+    console.error(`install device is not paired and available: ${describe(matches[0])}`);
+    process.exit(2);
+  }
+} else {
+  matches = availableDevices;
+  if (matches.length === 0) {
+    console.error('install requires one paired and available physical iOS device; found none');
+    process.exit(2);
+  }
+  if (matches.length > 1) {
+    console.error(`install requires exactly one paired and available physical iOS device; found: ${matches.map(describe).join('; ')}`);
+    process.exit(2);
+  }
+}
+
+const device = matches[0];
+process.stdout.write([device.coreDeviceId, device.hardwareUdid, device.name, device.model, device.osVersion].join('\t') + '\n');
+NODE
+  ); then
+    rm -f "$devices_json"
+    return 2
+  fi
+  rm -f "$devices_json"
+  printf '%s\n' "$resolved"
+}
+
 cmd_install() {
+  local selector='' launch=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --device)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'install --device requires a value' >&2; return 2; }
+        selector=$2
+        shift 2
+        ;;
+      --launch)
+        launch=1
+        shift
+        ;;
+      *)
+        printf 'unknown install option: %s\n' "$1" >&2
+        return 2
+        ;;
+    esac
+  done
+
   cmd_generate
-  printf '%s\n' 'install requires a DEVELOPMENT_TEAM and a paired physical device; no install was attempted.' >&2
-  return 2
+  local team
+  team=$(signing_team)
+  if [[ -z "$team" ]]; then
+    printf '%s\n' 'install requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
+    return 2
+  fi
+
+  local device_info core_device_id hardware_udid device_name device_model device_os
+  device_info=$(resolve_install_device "$selector") || return $?
+  IFS=$'\t' read -r core_device_id hardware_udid device_name device_model device_os <<< "$device_info"
+  printf 'install device: %s (%s, iOS %s)\n' "$device_name" "$device_model" "$device_os"
+  printf 'install device identifiers: xcodebuild=%s devicectl=%s\n' "$hardware_udid" "$core_device_id"
+
+  local build_number
+  build_number=$(git -C "$ROOT" rev-list --count HEAD)
+  local device_derived="$DERIVED/device-derived"
+  local app_bundle="$device_derived/Build/Products/Release-iphoneos/cc-controller.app"
+  local build_args=(
+    xcodebuild
+    -project "$PROJECT"
+    -scheme CCController
+    -configuration Release
+    -destination "id=$hardware_udid"
+    -derivedDataPath "$device_derived"
+    -allowProvisioningUpdates
+    -allowProvisioningDeviceRegistration
+    DEVELOPMENT_TEAM="$team"
+    CURRENT_PROJECT_VERSION="$build_number"
+    build
+  )
+  step 'install build' "${build_args[@]}"
+  if [[ ! -d "$app_bundle" ]]; then
+    printf 'install build did not produce %s\n' "$app_bundle" >&2
+    return 1
+  fi
+
+  local bundle_id
+  if ! bundle_id=$(plutil -extract CFBundleIdentifier raw -o - "$app_bundle/Info.plist"); then
+    printf 'install build produced an app without CFBundleIdentifier: %s\n' "$app_bundle" >&2
+    return 1
+  fi
+  step 'install app' xcrun devicectl device install app --device "$core_device_id" "$app_bundle"
+  printf 'installed bundle ID: %s\n' "$bundle_id"
+  if [[ $launch -eq 1 ]]; then
+    step 'launch app' xcrun devicectl device process launch --device "$core_device_id" "$bundle_id"
+  fi
 }
 
 signing_team() {
@@ -1221,5 +1359,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|archive|upload|shots|flows|mocks|pool|clean|install}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|archive|upload|shots|flows|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
