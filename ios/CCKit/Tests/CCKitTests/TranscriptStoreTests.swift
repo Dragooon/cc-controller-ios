@@ -45,6 +45,19 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(store.entries.first?.text, nil)
     }
 
+    func testMergeKeepsOrderingAcrossInsertsAndReplacements() {
+        var store = TranscriptStore()
+        let late = TranscriptEntry.assistant(AssistantEntry(id: "late", ts: t1, text: "late"))
+        let early = TranscriptEntry.assistant(AssistantEntry(id: "early", ts: t0, text: "early"))
+        let middle = TranscriptEntry.assistant(AssistantEntry(id: "middle", ts: Date(timeIntervalSince1970: 100.5), text: "middle"))
+        _ = store.merge([late, early])
+        XCTAssertEqual(store.merge([middle]).inserted.map(\.id), ["middle"])
+        let replacement = TranscriptEntry.assistant(AssistantEntry(id: "early", rev: 1, ts: t0, text: "updated"))
+        XCTAssertEqual(store.merge([replacement], replace: true).updatedIDs, ["early"])
+        XCTAssertEqual(store.entries.map(\.id), ["early", "middle", "late"])
+        XCTAssertEqual(store.entries.first?.text, "updated")
+    }
+
     func testNoIDReplacementIsProtectedFromLaterRefetch() {
         var store = TranscriptStore()
         let running = TranscriptEntry.tool(ToolEntry(ts: t0, toolUseId: "task", text: "running", state: .running))

@@ -1,5 +1,30 @@
 import Foundation
 
+public final class MarkdownDocumentCache: @unchecked Sendable {
+    private final class Box: NSObject {
+        let document: MarkdownDocument
+        init(_ document: MarkdownDocument) { self.document = document }
+    }
+
+    public static let shared = MarkdownDocumentCache()
+    private let cache = NSCache<NSString, Box>()
+
+    public init(countLimit: Int = 128, totalCostLimit: Int = 4 * 1024 * 1024) {
+        cache.countLimit = countLimit
+        cache.totalCostLimit = totalCostLimit
+    }
+
+    public func document(for text: String) -> MarkdownDocument {
+        let key = text as NSString
+        if let cached = cache.object(forKey: key) { return cached.document }
+        let document = MarkdownDocument(parsing: text)
+        cache.setObject(Box(document), forKey: key, cost: text.utf8.count)
+        return document
+    }
+
+    public func removeAll() { cache.removeAllObjects() }
+}
+
 public struct MarkdownDocument: Sendable, Equatable {
     public let blocks: [MarkdownBlock]
 

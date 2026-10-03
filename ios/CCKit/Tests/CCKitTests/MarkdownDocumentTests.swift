@@ -46,6 +46,15 @@ final class MarkdownDocumentTests: XCTestCase {
         assertTable(document.blocks[7])
     }
 
+    func testDocumentCacheReturnsEquivalentDocumentsForExactText() {
+        let cache = MarkdownDocumentCache(countLimit: 2)
+        cache.removeAll()
+        let first = cache.document(for: "**cached**")
+        let second = cache.document(for: "**cached**")
+        XCTAssertEqual(first, second)
+        XCTAssertNotEqual(first, cache.document(for: "cached"))
+    }
+
     func testPlainTextIsOneParagraph() {
         let document = MarkdownDocument(parsing: "Hello, world.")
         XCTAssertEqual(document.blocks.count, 1)

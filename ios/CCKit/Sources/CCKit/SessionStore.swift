@@ -46,7 +46,7 @@ public final class SessionStore {
         TranscriptPerformance.shared.begin(sessionID: sessionID)
         TranscriptPerformance.shared.markRequestSent()
         #endif
-        let page = try await client.transcriptPage(sessionID: sessionID, tail: 400, agent: agentID)
+        let page = try await client.transcriptPage(sessionID: sessionID, tail: 100, agent: agentID)
         _ = transcriptStore.replaceAll(with: page.entries)
         #if DEBUG
         TranscriptPerformance.shared.markMergeDone()
@@ -79,26 +79,27 @@ public final class SessionStore {
         loading = true
         defer { loading = false }
         let page = try await client.transcriptPage(sessionID: sessionID, tail: min(400, max(1, limit)), agent: agentID)
+        let change: TranscriptChangeSet
         if reset {
-            _ = transcriptStore.replaceAll(with: page.entries)
+            change = transcriptStore.replaceAll(with: page.entries)
         } else {
-            transcriptStore.merge(page.entries)
+            change = transcriptStore.merge(page.entries)
         }
         hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
         hasLoaded = true
-        refreshTurns()
+        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
     }
 
     public func loadEarlier() async throws {
         guard canFetch, hasMoreEarlier, !loadingEarlier, !loading, let oldestID = entries.first?.id else { return }
         loadingEarlier = true
         defer { loadingEarlier = false }
-        let page = try await client.transcriptPage(sessionID: sessionID, before: oldestID, limit: 400, agent: agentID)
-        transcriptStore.merge(page.entries)
+        let page = try await client.transcriptPage(sessionID: sessionID, before: oldestID, limit: 200, agent: agentID)
+        let change = transcriptStore.merge(page.entries)
         hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
-        refreshTurns()
+        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
     }
 
     public func resetTranscript() {

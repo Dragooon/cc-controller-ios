@@ -8,10 +8,15 @@ public struct TranscriptChangeSet: Sendable, Equatable {
 
 public struct TranscriptStore: Sendable, Equatable {
     public private(set) var entries: [TranscriptEntry]
+    private var keys: [String]
+    private var identityIndex: [String: Int]
     private var protectedReplacementKeys: Set<String>
 
     public init(entries: [TranscriptEntry] = []) {
         self.entries = entries
+        let initialKeys = entries.map { Self.identityKey(for: $0) }
+        self.keys = initialKeys
+        self.identityIndex = Dictionary(uniqueKeysWithValues: initialKeys.enumerated().map { ($1, $0) })
         self.protectedReplacementKeys = []
     }
 
@@ -21,7 +26,7 @@ public struct TranscriptStore: Sendable, Equatable {
         var updatedIDs: [String] = []
         for entry in incoming {
             let key = identityKey(for: entry)
-            if let index = entries.firstIndex(where: { identityKey(for: $0) == key }) {
+            if let index = identityIndex[key] {
                 guard shouldAccept(entry, over: entries[index], key: key, replacement: replace) else { continue }
                 entries[index] = entry
                 if replace { protectedReplacementKeys.insert(key) }
@@ -30,6 +35,8 @@ public struct TranscriptStore: Sendable, Equatable {
             }
             let index = appendNewEntries ? entries.count : insertionIndex(for: entry)
             entries.insert(entry, at: index)
+            keys.insert(key, at: index)
+            for shiftedIndex in index..<keys.count { identityIndex[keys[shiftedIndex]] = shiftedIndex }
             inserted.append(entry)
         }
         return TranscriptChangeSet(inserted: inserted, updatedIDs: updatedIDs)
@@ -37,10 +44,16 @@ public struct TranscriptStore: Sendable, Equatable {
 
     public mutating func replaceAll(with entries: [TranscriptEntry]) -> TranscriptChangeSet {
         self.entries = []
+        self.keys = []
+        self.identityIndex = [:]
         return merge(entries)
     }
 
     public func identityKey(for entry: TranscriptEntry) -> String {
+        Self.identityKey(for: entry)
+    }
+
+    private static func identityKey(for entry: TranscriptEntry) -> String {
         if let id = entry.id { return "id|\(id)" }
         if (entry.kind == "tool" || entry.kind == "subagent" || entry.kind == "subagent_result"), let toolUseId = entry.toolUseId {
             return "\(entry.kind)|\(toolUseId)"

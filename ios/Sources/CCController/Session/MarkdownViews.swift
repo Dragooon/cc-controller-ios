@@ -15,7 +15,7 @@ struct MarkdownView: View {
     let markdown: String
 
     private var document: MarkdownDocument {
-        MarkdownDocument(parsing: markdown)
+        MarkdownDocumentCache.shared.document(for: markdown)
     }
 
     var body: some View {
