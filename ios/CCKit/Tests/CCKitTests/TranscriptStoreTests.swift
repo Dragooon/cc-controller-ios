@@ -26,6 +26,16 @@ final class TranscriptStoreTests: XCTestCase {
         XCTAssertEqual(store.entries.count, 2)
     }
 
+    func testInitialDuplicateIdentityKeepsFirstEntryIndexed() {
+        let first = TranscriptEntry.assistant(AssistantEntry(id: "duplicate", text: "first"))
+        let second = TranscriptEntry.assistant(AssistantEntry(id: "duplicate", text: "second"))
+        var store = TranscriptStore(entries: [first, second])
+        let update = TranscriptEntry.assistant(AssistantEntry(id: "duplicate", text: "updated"))
+
+        XCTAssertEqual(store.merge([update]).updatedIDs, ["duplicate"])
+        XCTAssertEqual(store.entries, [update, second])
+    }
+
     func testOutOfOrderEntriesAreInsertedByTimestamp() {
         var store = TranscriptStore()
         let late = TranscriptEntry.assistant(AssistantEntry(ts: t1, text: "late"))

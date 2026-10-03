@@ -102,6 +102,13 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(performance.waitForExistence(timeout: 60), "Transcript performance probe did not load")
         let before = performance.label
         XCTAssertTrue(before.contains("first_rows="), "Opening phases were incomplete: \(before)")
+        let firstRows = try XCTUnwrap(
+            before.split(separator: " ")
+                .first(where: { $0.hasPrefix("first_rows=") })
+                .flatMap { Double($0.dropFirst("first_rows=".count)) },
+            "Opening phases did not report first_rows: \(before)"
+        )
+        XCTAssertLessThan(firstRows, 3000, "Transcript first_rows regressed: \(before)")
         print("TRANSCRIPT_PERF_BEFORE \(before)")
 
         try await postFixtureUsageUpdate()

@@ -16,7 +16,11 @@ public struct TranscriptStore: Sendable, Equatable {
         self.entries = entries
         let initialKeys = entries.map { Self.identityKey(for: $0) }
         self.keys = initialKeys
-        self.identityIndex = Dictionary(uniqueKeysWithValues: initialKeys.enumerated().map { ($1, $0) })
+        var identityIndex: [String: Int] = [:]
+        for (index, key) in initialKeys.enumerated() {
+            if identityIndex[key] == nil { identityIndex[key] = index }
+        }
+        self.identityIndex = identityIndex
         self.protectedReplacementKeys = []
     }
 
