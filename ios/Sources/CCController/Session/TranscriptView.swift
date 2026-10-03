@@ -20,6 +20,7 @@ struct SessionTranscriptView: View {
     let scrollAnchor: UnitPoint
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
+    @State private var pagingRowIsVisible = false
     @State private var newestIsVisible = true
     @State private var pagingAnchorID: Turn.ID?
     @State private var pagingRestoreTask: Task<Void, Never>?
@@ -184,9 +185,11 @@ struct SessionTranscriptView: View {
             .frame(height: 24)
             .id("transcript-paging-top")
             .onAppear {
+                pagingRowIsVisible = true
                 loadEarlierIfNeeded()
             }
             .onDisappear {
+                pagingRowIsVisible = false
                 didTriggerPaging = false
             }
         }
@@ -199,12 +202,21 @@ struct SessionTranscriptView: View {
         didTriggerPaging = true
         isLoadingEarlier = true
         Task { @MainActor in
+            var loaded = false
             do {
                 try await loadEarlier()
+                loaded = true
             } catch {
                 pagingError = error.localizedDescription
             }
             isLoadingEarlier = false
+            didTriggerPaging = false
+            guard loaded, pagingRowIsVisible else { return }
+            Task { @MainActor in
+                await Task.yield()
+                guard pagingRowIsVisible else { return }
+                loadEarlierIfNeeded()
+            }
         }
     }
 
