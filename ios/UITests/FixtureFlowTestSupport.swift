@@ -101,6 +101,22 @@ class FixtureFlowTestSupport: XCTestCase {
         }
     }
 
+    func completeFaceID(
+        _ app: XCUIApplication,
+        until target: XCUIElement,
+        timeout: TimeInterval = 30,
+        _ message: String
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !target.exists && Date() < deadline {
+            try await postFixture("/fixture/biometric/match")
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { break }
+            _ = target.waitForExistence(timeout: min(3, remaining))
+        }
+        XCTAssertTrue(target.exists, message)
+    }
+
     func setBiometricEnrollment(_ enrolled: Bool) async throws {
         try await postFixture(enrolled ? "/fixture/biometric/enroll" : "/fixture/biometric/unenroll")
     }

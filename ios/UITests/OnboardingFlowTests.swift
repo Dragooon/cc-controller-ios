@@ -17,8 +17,7 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Native login did not load Sessions")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Native login did not load Sessions")
         let sessionRow = app.buttons["session-staff-account-exclusions"]
         XCTAssertTrue(sessionRow.waitForExistence(timeout: 30), "Native login did not load a session row")
         addScreenshot(named: "onboarding-sessions-arrival")
@@ -67,8 +66,7 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "onboarding-faceid-failure")
 
         app.buttons["Try again"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Native login did not load Sessions")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Native login did not load Sessions")
     }
 
     func testFaceIDNotEnrolledBlocksWithoutFallback() async throws {

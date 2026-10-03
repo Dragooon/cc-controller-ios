@@ -105,8 +105,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
 
@@ -121,8 +120,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "settings-lock-now")
 
         unlockButton.tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Face ID did not unlock after Lock now")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after Lock now")
     }
 
     func testLockIntervalPersistsAfterBackgroundLock() async throws {
@@ -135,8 +133,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
 
@@ -155,8 +152,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         try await Task.sleep(for: .seconds(1))
         app.activate()
         XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Immediate interval did not lock after backgrounding")
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Face ID did not unlock after interval lock")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after interval lock")
 
         openSettings(app)
         try await expectValue(app, "settings-lock-interval", equals: "Immediately")
@@ -219,10 +215,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        // A match posted while enrolment is still in flight reached no Face ID prompt in one run, and unlock never finished.
-        try await Task.sleep(for: .seconds(2))
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
 
@@ -238,8 +231,12 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         app.activate()
         XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
         try await expectNoProbes(for: .seconds(4), "while the app was locked")
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(element(app, "settings-latency").waitForExistence(timeout: 20), "Settings was not re-presented after unlock")
+        try await completeFaceID(
+            app,
+            until: element(app, "settings-latency"),
+            timeout: 20,
+            "Settings was not re-presented after unlock"
+        )
         try await expectValue(app, "settings-latency", matches: "[0-9]+ ms")
 
         let unpair = element(app, "settings-unpair")

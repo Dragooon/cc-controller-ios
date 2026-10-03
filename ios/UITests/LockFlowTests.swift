@@ -12,8 +12,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let notificationPrompt = waitForNotificationAuthorizationPrompt(in: springboard)
         notificationPrompt.buttons["Don’t Allow"].tap()
@@ -36,8 +35,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         XCTAssertEqual(unlockButton.value as? String, "authenticating", "Auto-prompt did not mark the lock button authenticating")
         XCTAssertFalse(unlockButton.isEnabled, "Unlock button was enabled during auto-prompt")
         addScreenshot(named: "lock-screen-authenticating")
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Face ID did not unlock after foreground lock")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after foreground lock")
     }
 
     func testColdLaunchLocksAndCancelShowsMessage() async throws {
@@ -45,8 +43,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(onboarding)
         onboarding.buttons["Turn on Face ID"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(onboarding.staticTexts["Sessions"].waitForExistence(timeout: 30), "Onboarding did not load Sessions")
+        try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
         onboarding.terminate()
 
         let app = launchCold()
@@ -67,7 +64,6 @@ final class LockFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitForExistence(timeout: 10), "Cancel message did not appear on the lock screen")
         addScreenshot(named: "lock-screen-cancel")
         app.buttons["Unlock with Face ID"].tap()
-        try await postFixture("/fixture/biometric/match")
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30), "Face ID did not unlock after cancel")
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after cancel")
     }
 }
