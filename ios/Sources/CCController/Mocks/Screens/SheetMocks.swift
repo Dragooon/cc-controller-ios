@@ -42,7 +42,7 @@ enum SheetMocks {
 
     static var onboardingWelcome: some View { OnboardingWelcomeView() }
     static var onboardingConnect: some View { OnboardingConnectView() }
-    static var onboardingPair: some View { OnboardingPairView() }
+    static var onboardingPair: some View { OnboardingPairView(expiresAt: .now.addingTimeInterval(4 * 60 + 32)) }
     static var onboardingFaceID: some View { OnboardingFaceIDView() }
     static var lock: some View { LockView() }
     static var privacyCover: some View { PrivacyCoverView() }
