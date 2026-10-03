@@ -80,7 +80,7 @@ xcodebuild test \\
         ]),
         permissionMode: "acceptEdits",
         agentType: "engineer",
-        receivedAt: MockFixtures.now.addingTimeInterval(-338),
+        receivedAt: Date.now.addingTimeInterval(-338),
         holdLimitMs: 590_000,
         mode: .remote,
         status: .remote
@@ -91,7 +91,7 @@ xcodebuild test \\
         sessionId: "mock-approval-session",
         toolName: "Read",
         toolInput: .object(["file_path": .string("tasks/native-app.md")]),
-        receivedAt: MockFixtures.now.addingTimeInterval(-120),
+        receivedAt: Date.now.addingTimeInterval(-120),
         holdLimitMs: 590_000,
         mode: .remote,
         status: .remote

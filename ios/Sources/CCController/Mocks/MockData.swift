@@ -5,7 +5,17 @@ enum MockFixtures {
     static let now = Date(timeIntervalSince1970: 1_790_740_920)
 
     static var sessions: [Session] {
-        load().sessions ?? []
+        load().sessions?.map { session in
+            var session = session
+            session.pending = session.pending?.map { approval in
+                var approval = approval
+                if approval.status == .remote {
+                    approval.receivedAt = Date.now.addingTimeInterval(-120)
+                }
+                return approval
+            }
+            return session
+        } ?? []
     }
 
     static var approvals: [Approval] {
