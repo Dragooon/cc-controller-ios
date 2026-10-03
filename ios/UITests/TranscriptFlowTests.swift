@@ -13,6 +13,27 @@ final class TranscriptFlowTests: XCTestCase {
         super.tearDown()
     }
 
+    func testAssistantReplyOffersCopyContextMenu() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "assistant-copy-context-menu")
+            app.terminate()
+        }
+        let staffRow = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff session row did not load")
+        staffRow.tap()
+
+        let assistantText = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "The exclusion is ready for monitored rollout"))
+            .firstMatch
+        XCTAssertTrue(assistantText.waitForExistence(timeout: 15), "Assistant reply did not load")
+        XCTAssertTrue(assistantText.isHittable, "Assistant reply is not visible")
+        assistantText.press(forDuration: 1.0)
+
+        let copyAction = app.menuItems["Copy"]
+        XCTAssertTrue(copyAction.waitForExistence(timeout: 10), "Assistant reply context menu did not offer Copy")
+    }
+
     func testToolGroupAndDetailSheet() throws {
         let app = launchFixture()
         defer {

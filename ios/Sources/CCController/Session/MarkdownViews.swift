@@ -1,26 +1,13 @@
 import CCKit
 import SwiftUI
-import UIKit
 
 struct AssistantReplyView: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MarkdownView(markdown: text)
-                .textSelection(.enabled)
-
-            Button { UIPasteboard.general.string = text } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.footnote)
-                    .foregroundStyle(.ccSecondary)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Copy reply")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        MarkdownView(markdown: text)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
