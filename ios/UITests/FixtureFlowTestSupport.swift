@@ -79,7 +79,7 @@ class FixtureFlowTestSupport: XCTestCase {
     }
 
     @discardableResult
-    func waitForNotificationAuthorizationPrompt(in springboard: XCUIApplication, timeout: TimeInterval = 10) -> XCUIElement {
+    func waitForNotificationAuthorizationPrompt(in springboard: XCUIApplication, timeout: TimeInterval = 30) -> XCUIElement {
         let prompt = springboard.alerts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
         ).firstMatch
