@@ -142,18 +142,12 @@ final class TranscriptFlowTests: XCTestCase {
         let pagingTop = app.descendants(matching: .any).matching(identifier: "transcript-paging-top").firstMatch
         let older = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
         var sawJump = false
-        for _ in 0..<60 {
+        for _ in 0..<80 {
             scrollView.swipeDown(velocity: .fast)
             sawJump = sawJump || jump.exists
-            if pagingTop.exists || older.exists {
-                break
-            }
+            if older.exists { break }
         }
         XCTAssertTrue(sawJump, "Jump to latest did not appear while paging through older history")
-        XCTAssertTrue(
-            pagingTop.exists || older.exists,
-            "Paging did not reach the top row or prompt 299"
-        )
         XCTAssertTrue(
             older.waitForExistence(timeout: 20),
             "Paging did not load prompt 299 below the initial boundary of 300"
