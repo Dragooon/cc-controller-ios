@@ -914,6 +914,7 @@ cmd_mocks() {
     return 1
   fi
 
+  rm -rf "$DERIVED"/MockScreenshot-*.xcresult
   local devices=("iPhone 16 Plus" "iPhone 18 Pro")
   local device_index device shard_pid
   for device_index in "${!devices[@]}"; do
