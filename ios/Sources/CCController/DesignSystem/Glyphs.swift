@@ -361,14 +361,21 @@ struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: 10) {
             compactContent
 
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) {
-                    denyButton
-                    allowButton
-                }
+            if dynamicTypeSize >= .accessibility1 {
                 VStack(spacing: 12) {
                     allowButton
                     denyButton
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        denyButton
+                        allowButton
+                    }
+                    VStack(spacing: 12) {
+                        allowButton
+                        denyButton
+                    }
                 }
             }
         }
@@ -385,9 +392,13 @@ struct ApprovalCard: View {
 
     private var compactContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ViewThatFits(in: .horizontal) {
-                compactHeader
+            if dynamicTypeSize >= .accessibility1 {
                 stackedHeader
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    compactHeader
+                    stackedHeader
+                }
             }
 
             if !copy.command.isEmpty {
@@ -396,6 +407,7 @@ struct ApprovalCard: View {
                     .foregroundStyle(.ccLabel)
                     .lineLimit(3)
                     .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
 
@@ -404,8 +416,10 @@ struct ApprovalCard: View {
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
     }
@@ -419,7 +433,6 @@ struct ApprovalCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.ccLabel)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
             Spacer(minLength: 4)
             countdown
         }

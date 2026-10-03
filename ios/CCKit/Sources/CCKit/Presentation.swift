@@ -364,6 +364,16 @@ public func formatDuration(_ milliseconds: Double) -> String {
     return "\(minutes / 60)h \((minutes % 60))m \(remainingSeconds)s"
 }
 
+public func formatListDuration(_ milliseconds: Double) -> String {
+    let seconds = Int(max(0, milliseconds) / 1000)
+    if seconds < 60 { return "\(seconds)s" }
+    let minutes = seconds / 60
+    if minutes < 60 { return "\(minutes)m" }
+    let hours = minutes / 60
+    if hours < 24 { return "\(hours)h \(minutes % 60)m" }
+    return "\(hours / 24)d \(hours % 24)h"
+}
+
 public func formatTokenCount(_ value: Double) -> String {
     guard value.isFinite else { return "" }
     let absolute = abs(value)
@@ -413,6 +423,19 @@ public func sessionStateSegment(_ session: Session, now: Date = .now) -> String 
     }
     if session.state == .needsYou, let receivedAt = session.pending?.first?.receivedAt {
         return "needs you \(formatDuration(elapsedMilliseconds(from: receivedAt, to: now)))"
+    }
+    return stateLabel(state: session.state?.rawValue)
+}
+
+public func sessionListStateSegment(_ session: Session, now: Date = .now) -> String {
+    if session.state == .working {
+        return "working \(formatListDuration(elapsedMilliseconds(from: session.startedAt, to: now)))"
+    }
+    if session.state == .idle, let idleSince = session.idleSince {
+        return "idle \(formatListDuration(elapsedMilliseconds(from: idleSince, to: now)))"
+    }
+    if session.state == .needsYou, let receivedAt = session.pending?.first?.receivedAt {
+        return "needs you \(formatListDuration(elapsedMilliseconds(from: receivedAt, to: now)))"
     }
     return stateLabel(state: session.state?.rawValue)
 }

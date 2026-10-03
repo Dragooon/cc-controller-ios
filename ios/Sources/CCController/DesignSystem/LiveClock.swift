@@ -87,7 +87,7 @@ struct SessionStateSegmentView: View {
 
     private func value(now: Date) -> String {
         [
-            sessionStateSegment(session, now: now),
+            sessionListStateSegment(session, now: now),
             formatContextUsage(session.usage),
         ]
         .filter { !$0.isEmpty }

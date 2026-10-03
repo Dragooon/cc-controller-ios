@@ -339,6 +339,7 @@ private struct SessionText: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var meta: some View {
@@ -349,8 +350,8 @@ private struct SessionText: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     SessionStateSegmentView(session: session)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: true)
+                        .lineLimit(dynamicTypeSize >= .accessibility1 ? 2 : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {

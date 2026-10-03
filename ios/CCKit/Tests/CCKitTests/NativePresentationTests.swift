@@ -45,6 +45,17 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(displayDuration(-1), "0.0s")
     }
 
+    func testFormatListDurationUsesCompactUnitBoundaries() {
+        XCTAssertEqual(formatListDuration(-1), "0s")
+        XCTAssertEqual(formatListDuration(59_999), "59s")
+        XCTAssertEqual(formatListDuration(60_000), "1m")
+        XCTAssertEqual(formatListDuration(59 * 60_000 + 59_999), "59m")
+        XCTAssertEqual(formatListDuration(60 * 60_000), "1h 0m")
+        XCTAssertEqual(formatListDuration(23 * 60 * 60_000 + 59 * 60_000), "23h 59m")
+        XCTAssertEqual(formatListDuration(24 * 60 * 60_000), "1d 0h")
+        XCTAssertEqual(formatListDuration(60 * 60 * 60_000 + 44 * 60_000 + 48_000), "2d 12h")
+    }
+
     func testSessionDetailSubtitleUsesNativeDurationAndPercentComposition() {
         let idleSince = Date(timeIntervalSince1970: 1_000)
         let session = Session(
