@@ -1036,7 +1036,7 @@ perf_process_sample() {
   if [[ "$target" == 'cc-controller' ]]; then
     pid=${PERF_HOST_APP_PID:-}
   else
-    pid=$(perf_host_pid 'backboardd')
+    pid=$(perf_host_pid 'backboardd' "$udid")
   fi
   [[ "$pid" =~ ^[0-9]+$ ]] || { printf '|||\n'; return 0; }
   row=$(ps -p "$pid" -o pid=,time=,rss= 2>/dev/null || true)
@@ -1080,7 +1080,13 @@ PY
 }
 
 perf_host_pid() {
-  local target=$1
+  local target=$1 udid=${2:-} parent_pid
+  if [[ "$target" == 'backboardd' && -n "$udid" ]]; then
+    parent_pid=$(ps -axo pid=,command= | awk -v udid="$udid" '$0 ~ udid && $0 ~ /launchd_sim/ { print $1; exit }' || true)
+    [[ "$parent_pid" =~ ^[0-9]+$ ]] || return 0
+    ps -axo pid=,ppid=,command= | awk -v parent="$parent_pid" '$2 == parent && $0 ~ /backboardd$/ { print $1; exit }' || true
+    return 0
+  fi
   ps -axo pid=,command= | awk -v target="$target" '$0 ~ target { print $1; exit }' || true
 }
 
@@ -1092,14 +1098,14 @@ perf_start_samples() {
       sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
       PERF_SAMPLE_PIDS+=("$!")
     else
-      host_app_pid=$(perf_host_pid 'cc-controller.app/cc-controller')
+      host_app_pid=$(perf_host_pid 'cc-controller.app/cc-controller' "$PERF_UDID")
       if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
         sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
         PERF_SAMPLE_PIDS+=("$!")
       fi
     fi
   }
-  render_pid=$(perf_host_pid 'backboardd')
+  render_pid=$(perf_host_pid 'backboardd' "$PERF_UDID")
   if [[ "$render_pid" =~ ^[0-9]+$ ]]; then
     sample "$render_pid" 10 -file "$PERF_OUTPUT_DIR/sample-render-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
     PERF_SAMPLE_PIDS+=("$!")
