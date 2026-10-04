@@ -902,10 +902,10 @@ public final class AppStore {
                 merged.append(value)
             }
         }
-        let positions: [String: Int] = Dictionary(uniqueKeysWithValues: merged.enumerated().compactMap { index, value in
+        let positions: [String: Int] = Dictionary(merged.enumerated().compactMap { index, value in
             guard let identity = subagentIdentity(value) else { return nil }
             return (identity, index)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         merged.sort { left, right in
             let leftDate = left.startedAt ?? .distantPast
             let rightDate = right.startedAt ?? .distantPast

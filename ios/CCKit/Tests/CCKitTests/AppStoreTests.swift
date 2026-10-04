@@ -302,6 +302,19 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.sessions["session-1"], before)
     }
 
+    func testSubagentUpsertToleratesDuplicateIdentities() async throws {
+        let app = makeApp()
+        let started = Date(timeIntervalSince1970: 10)
+        let duplicate = Subagent(agentId: "agent-1", state: .running, startedAt: started)
+        app.apply(.state(StateSnapshot(sessions: [Self.session(subagents: [duplicate, duplicate])], entries: ["session-1": 0])))
+        app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [
+            Subagent(agentId: "agent-1", state: .done, startedAt: started),
+        ])))
+        try await settleCoalescedEvents()
+        XCTAssertEqual(app.sessions["session-1"]?.subagents?.count, 2)
+        XCTAssertTrue(app.sessions["session-1"]?.subagents?.contains { $0.state == .done } == true)
+    }
+
     func testFullSubagentsEventReplacesAfterUpsert() async throws {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
