@@ -31,12 +31,14 @@ struct SpinnerGlyph: View {
     @State private var isVisible = false
 
     private let frames = ["·︎", "✢︎", "✳︎", "✶︎", "✻︎", "✽︎", "✻︎", "✶︎", "✳︎", "✢︎"]
+    private static let sizingGlyphs = ["○", "·︎", "✢︎", "✳︎", "✶︎", "✻︎", "✽︎"]
 
     var body: some View {
         ZStack {
-            Text("✽︎")
-                .hidden()
-                .accessibilityHidden(true)
+            ForEach(Self.sizingGlyphs, id: \.self) { glyph in
+                Text(glyph).hidden()
+            }
+            .accessibilityHidden(true)
             currentFrame
         }
         .onAppear { isVisible = true }
