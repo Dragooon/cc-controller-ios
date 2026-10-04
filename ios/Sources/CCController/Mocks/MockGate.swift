@@ -65,6 +65,11 @@ enum MockScreen: String, CaseIterable, Identifiable {
     case onboardingFaceID = "onboarding-faceid"
     case lock
     case privacyCover = "privacy-cover"
+    case workingBarThinking = "working-bar-1-thinking"
+    case workingBarToolAgents = "working-bar-2-tool-agents"
+    case workingBarTyping = "working-bar-3-typing"
+    case workingBarIdle = "working-bar-4-idle"
+    case workingBarCurrent = "working-bar-5-current"
 
     var id: String { rawValue }
 
@@ -73,7 +78,8 @@ enum MockScreen: String, CaseIterable, Identifiable {
         case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting,
              .sessionWorking, .subagentResultSheet, .sessionActivity, .composerSlash, .composerAttachments, .composerKeyboard,
              .inspector, .activitySheet, .settings, .onboardingWelcome, .onboardingConnect,
-             .onboardingPair, .onboardingFaceID, .lock, .privacyCover: true
+             .onboardingPair, .onboardingFaceID, .lock, .privacyCover,
+             .workingBarThinking, .workingBarToolAgents, .workingBarTyping, .workingBarIdle, .workingBarCurrent: true
         default: false
         }
     }
@@ -135,6 +141,16 @@ private struct MockScreenView: View {
                 SheetMocks.lock
             case .privacyCover:
                 SheetMocks.privacyCover
+            case .workingBarThinking:
+                WorkingBarMocks.thinking
+            case .workingBarToolAgents:
+                WorkingBarMocks.toolAgents
+            case .workingBarTyping:
+                WorkingBarMocks.typing
+            case .workingBarIdle:
+                WorkingBarMocks.idle
+            case .workingBarCurrent:
+                WorkingBarMocks.current
             default:
                 MockPlaceholder(screen: screen)
             }

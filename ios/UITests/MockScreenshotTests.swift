@@ -32,6 +32,11 @@ final class MockScreenshotTests: XCTestCase {
         "onboarding-faceid",
         "lock",
         "privacy-cover",
+        "working-bar-1-thinking",
+        "working-bar-2-tool-agents",
+        "working-bar-3-typing",
+        "working-bar-4-idle",
+        "working-bar-5-current",
     ]
 
     override func tearDown() {

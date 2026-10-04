@@ -40,7 +40,7 @@ targets:
           DEVELOPMENT_TEAM: ""
           PROVISIONING_PROFILE_SPECIFIER: ""
         Release:
-          EXCLUDED_SOURCE_FILE_NAMES: "MockBottomStackData.swift MockData.swift MockGate.swift SessionsMocks.swift ApprovalMocks.swift BottomStackMocks.swift SessionMocks.swift SheetMocks.swift sessions.json judge-alignment.png rollout.png"
+          EXCLUDED_SOURCE_FILE_NAMES: "MockBottomStackData.swift MockData.swift MockGate.swift SessionsMocks.swift ApprovalMocks.swift BottomStackMocks.swift SessionMocks.swift SheetMocks.swift WorkingBarMocks.swift sessions.json judge-alignment.png rollout.png"
     info:
       path: Info.plist
       properties:
