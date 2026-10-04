@@ -95,7 +95,7 @@ final class ActionTests: XCTestCase {
         _ = await app.send(text: "queued work", to: "s")
         XCTAssertEqual(app.queuedNotes(for: "s").count, 1)
         _ = app.openSession("s")
-        app.apply(.transcript(TranscriptEvent(sessionId: "s", entry: .prompt(PromptEntry(text: "queued work now")))) )
+        app.apply(.transcript(TranscriptEvent(sessionId: "s", entry: .prompt(PromptEntry(ts: Date(), text: "queued work now")))) )
         XCTAssertTrue(app.queuedNotes(for: "s").isEmpty)
     }
 
@@ -107,9 +107,9 @@ final class ActionTests: XCTestCase {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [session()], entries: ["s": 0])))
         _ = await app.send(text: "sent now", to: "s")
-        XCTAssertEqual(app.queuedNotes(for: "s"), [QueuedNote(text: "sent now")])
+        XCTAssertEqual(app.queuedNotes(for: "s").map(\.text), ["sent now"])
         _ = app.openSession("s")
-        app.apply(.transcript(TranscriptEvent(sessionId: "s", entry: .prompt(PromptEntry(text: "sent now")))) )
+        app.apply(.transcript(TranscriptEvent(sessionId: "s", entry: .prompt(PromptEntry(ts: Date(), text: "sent now")))) )
         XCTAssertTrue(app.queuedNotes(for: "s").isEmpty)
     }
 

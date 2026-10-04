@@ -13,6 +13,7 @@ public final class SessionStore {
     public var entries: [TranscriptEntry] { transcriptStore.entries }
 
     @ObservationIgnored private let client: APIClient
+    @ObservationIgnored private let onTranscriptChange: (([TranscriptEntry]) -> Void)?
     @ObservationIgnored private var loadingEarlier = false
     @ObservationIgnored private var loading = false
     private var hasLoaded = false
@@ -21,12 +22,14 @@ public final class SessionStore {
         session: Session,
         client: APIClient,
         agentID: String? = nil,
-        entries: [TranscriptEntry] = []
+        entries: [TranscriptEntry] = [],
+        onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil
     ) {
         self.session = session
         self.sessionID = session.id ?? ""
         self.client = client
         self.agentID = agentID
+        self.onTranscriptChange = onTranscriptChange
         self.transcriptStore = TranscriptStore(entries: entries)
         self.totalEntries = entries.count
         refreshTurns()
@@ -38,8 +41,9 @@ public final class SessionStore {
         if wasWorking != (session.state == .working) { refreshTurns() }
     }
 
-    public func loadInitial() async throws {
-        guard canFetch, !loading else { return }
+    @discardableResult
+    public func loadInitial() async throws -> TranscriptChangeSet {
+        guard canFetch, !loading else { return TranscriptChangeSet() }
         loading = true
         defer { loading = false }
         #if DEBUG
@@ -47,7 +51,7 @@ public final class SessionStore {
         TranscriptPerformance.shared.markRequestSent()
         #endif
         let page = try await client.transcriptPage(sessionID: sessionID, tail: 100, agent: agentID)
-        _ = transcriptStore.replaceAll(with: page.entries)
+        let change = transcriptStore.replaceAll(with: page.entries)
         #if DEBUG
         TranscriptPerformance.shared.markMergeDone()
         #endif
@@ -55,6 +59,8 @@ public final class SessionStore {
         totalEntries = page.total
         hasLoaded = true
         refreshTurns()
+        notify(change)
+        return change
     }
 
     @discardableResult
@@ -63,25 +69,29 @@ public final class SessionStore {
         if let entryCount { totalEntries = max(totalEntries, entryCount) }
         else if !hasLoaded { totalEntries = max(totalEntries, transcriptStore.entries.count) }
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
+        notify(change)
         return change
     }
 
-    public func refetchTail(reset: Bool = false) async throws {
+    @discardableResult
+    public func refetchTail(reset: Bool = false) async throws -> TranscriptChangeSet {
         try await refetchTail(limit: reset ? 100 : 400, reset: reset)
     }
 
-    public func refetchGap(limit: Int) async throws {
+    @discardableResult
+    public func refetchGap(limit: Int) async throws -> TranscriptChangeSet {
         #if CC_PERF
         PerfCounters.shared.record(.refetchGap, value: limit)
         #endif
-        try await refetchTail(limit: limit)
+        return try await refetchTail(limit: limit)
     }
 
-    public func refetchTail(limit: Int, reset: Bool = false) async throws {
+    @discardableResult
+    public func refetchTail(limit: Int, reset: Bool = false) async throws -> TranscriptChangeSet {
         #if CC_PERF
         PerfCounters.shared.record(.refetchTail, value: limit)
         #endif
-        guard canFetch, !loading else { return }
+        guard canFetch, !loading else { return TranscriptChangeSet() }
         loading = true
         defer { loading = false }
         let page = try await client.transcriptPage(sessionID: sessionID, tail: min(400, max(1, limit)), agent: agentID)
@@ -99,10 +109,13 @@ public final class SessionStore {
         totalEntries = max(totalEntries, page.total)
         hasLoaded = true
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
+        notify(change)
+        return change
     }
 
-    public func loadEarlier() async throws {
-        guard canFetch, hasMoreEarlier, !loadingEarlier, !loading, let oldestID = entries.first?.id else { return }
+    @discardableResult
+    public func loadEarlier() async throws -> TranscriptChangeSet {
+        guard canFetch, hasMoreEarlier, !loadingEarlier, !loading, let oldestID = entries.first?.id else { return TranscriptChangeSet() }
         loadingEarlier = true
         defer { loadingEarlier = false }
         let page = try await client.transcriptPage(sessionID: sessionID, before: oldestID, limit: 200, agent: agentID)
@@ -110,6 +123,8 @@ public final class SessionStore {
         hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
+        notify(change)
+        return change
     }
 
     public func resetTranscript() {
@@ -123,6 +138,11 @@ public final class SessionStore {
     public var isLoaded: Bool { hasLoaded }
 
     private var canFetch: Bool { session.live == true && !sessionID.isEmpty }
+
+    private func notify(_ change: TranscriptChangeSet) {
+        guard !change.changed.isEmpty else { return }
+        onTranscriptChange?(change.changed)
+    }
 
     private func refreshTurns() {
         #if CC_PERF

@@ -109,7 +109,7 @@ struct BottomStackView: View {
 
     init(configuration: BottomStackConfiguration) {
         self.configuration = configuration
-        _text = State(initialValue: configuration.composer.initialText)
+        _text = State(initialValue: configuration.composer.draft?.initialText() ?? configuration.composer.initialText)
     }
 
     var body: some View {
@@ -188,6 +188,9 @@ struct BottomStackView: View {
             DispatchQueue.main.async {
                 composerFocused = true
             }
+        }
+        .onChange(of: text) { _, newText in
+            configuration.composer.draft?.onChange(newText)
         }
     }
 

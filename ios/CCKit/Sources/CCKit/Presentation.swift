@@ -26,6 +26,7 @@ public struct QueuedNote: Codable, Sendable, Equatable {
     public var text: String
     public var queued: Bool
     public var forceSent: Bool
+    public var createdAt: Date
     public var attachments: [String]
     public var attachmentThumbnails: [String: Data]
 
@@ -33,22 +34,25 @@ public struct QueuedNote: Codable, Sendable, Equatable {
         text: String,
         queued: Bool = false,
         forceSent: Bool = false,
+        createdAt: Date = .distantPast,
         attachments: [String] = [],
         attachmentThumbnails: [String: Data] = [:]
     ) {
         self.text = text
         self.queued = queued
         self.forceSent = forceSent
+        self.createdAt = createdAt
         self.attachments = attachments
         self.attachmentThumbnails = attachmentThumbnails
     }
 
-    private enum CodingKeys: String, CodingKey { case text, queued, forceSent, attachments, attachmentThumbnails }
+    private enum CodingKeys: String, CodingKey { case text, queued, forceSent, createdAt, attachments, attachmentThumbnails }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
         queued = try container.decodeIfPresent(Bool.self, forKey: .queued) ?? false
         forceSent = try container.decodeIfPresent(Bool.self, forKey: .forceSent) ?? false
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
         attachments = try container.decodeIfPresent([String].self, forKey: .attachments) ?? []
         attachmentThumbnails = try container.decodeIfPresent([String: Data].self, forKey: .attachmentThumbnails) ?? [:]
     }
@@ -57,6 +61,7 @@ public struct QueuedNote: Codable, Sendable, Equatable {
         try container.encode(text, forKey: .text)
         try container.encode(queued, forKey: .queued)
         if forceSent { try container.encode(true, forKey: .forceSent) }
+        if createdAt != .distantPast { try container.encode(createdAt, forKey: .createdAt) }
         if !attachments.isEmpty { try container.encode(attachments, forKey: .attachments) }
         if !attachmentThumbnails.isEmpty { try container.encode(attachmentThumbnails, forKey: .attachmentThumbnails) }
     }
@@ -787,11 +792,13 @@ public func decisionText(_ entry: DecisionEntry, timeZone: TimeZone = .current, 
     return time.isEmpty ? text : "\(text), \(time)"
 }
 
-public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: TranscriptEntry) -> [QueuedNote] {
-    guard case .prompt(let prompt) = promptEntry else { return queuedEntries }
+public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: TranscriptEntry, skew: TimeInterval = 5) -> [QueuedNote] {
+    guard case .prompt(let prompt) = promptEntry,
+          let promptTime = prompt.ts else { return queuedEntries }
     let transcriptText = (normalisePromptText(prompt.text ?? prompt.command).text).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !transcriptText.isEmpty else { return queuedEntries }
     return queuedEntries.filter { note in
+        guard promptTime >= note.createdAt.addingTimeInterval(-skew) else { return true }
         let provisional = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return provisional.isEmpty || (transcriptText != provisional && !transcriptText.hasPrefix(provisional))
     }

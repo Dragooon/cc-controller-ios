@@ -15,6 +15,7 @@ public final class AppStore {
     public private(set) var attachments: [String: [AttachmentItem]] = [:]
     public private(set) var attachmentNotices: [String: String] = [:]
     public private(set) var attachmentRevision = 0
+    @ObservationIgnored private var drafts: [String: String] = [:]
     private var attachmentProgressDates: [String: Date] = [:]
     private var debugAttachmentSessions: Set<String> = []
 
@@ -43,6 +44,7 @@ public final class AppStore {
     @ObservationIgnored private let bearerProvider: @Sendable () async throws -> String
     @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let cache: DiskCache
+    @ObservationIgnored private let draftCache: DraftCache
     @ObservationIgnored private let uploadTimeout: TimeInterval
     @ObservationIgnored private let authenticationFailureHandler: (@Sendable () async -> Void)?
     @ObservationIgnored private var eventStream: EventStream?
@@ -76,6 +78,8 @@ public final class AppStore {
         self.bearerProvider = bearerProvider
         self.clock = clock
         self.cache = DiskCache(directory: cacheDirectory, clock: clock)
+        self.draftCache = DraftCache(directory: cacheDirectory, clock: clock)
+        self.drafts = (try? DraftCache.loadSync(directory: cacheDirectory)) ?? [:]
         self.uploadTimeout = uploadTimeout
         self.authenticationFailureHandler = authenticationFailureHandler
     }
@@ -99,6 +103,7 @@ public final class AppStore {
     public func suspend() {
         flushPendingEvents()
         flushCacheImmediately()
+        draftCache.saveNow(drafts)
         started = false
         lifecycleTask?.cancel()
         lifecycleTask = nil
@@ -146,6 +151,23 @@ public final class AppStore {
         queuedNotes[sessionID] ?? []
     }
 
+    public func draft(for sessionID: String, agentID: String? = nil) -> String {
+        drafts[draftKey(sessionID: sessionID, agentID: agentID)] ?? ""
+    }
+
+    public func setDraft(_ text: String, for sessionID: String, agentID: String? = nil) {
+        let key = draftKey(sessionID: sessionID, agentID: agentID)
+        if text.isEmpty { drafts.removeValue(forKey: key) }
+        else { drafts[key] = text }
+        draftCache.save(drafts)
+    }
+
+    public func clearDraft(for sessionID: String, agentID: String? = nil) {
+        let key = draftKey(sessionID: sessionID, agentID: agentID)
+        guard drafts.removeValue(forKey: key) != nil else { return }
+        draftCache.save(drafts)
+    }
+
     public func allow(_ approval: Approval, scope: ApprovalScope = .once) async -> Result<Void, ActionError> {
         await decide(approval, behavior: scope == .session ? .allowSession : .allow)
     }
@@ -163,16 +185,21 @@ public final class AppStore {
     ) async -> Result<Void, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .failure(.invalid("Message text is required.")) }
+        let createdAt = clock.now
         do {
             let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
             queuedNotes[sessionID, default: []].append(
                 QueuedNote(
                     text: trimmed,
                     queued: result.queued == true,
+                    createdAt: createdAt,
                     attachments: attachments,
                     attachmentThumbnails: attachmentThumbnails
                 )
             )
+            if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
+                reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
+            }
             return .success(())
         } catch {
             return .failure(actionError(for: error))
@@ -268,6 +295,7 @@ public final class AppStore {
             attachmentProgressDates = attachmentProgressDates.filter { !sentIDs.contains($0.key) }
             if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
             attachmentRevision += 1
+            clearDraft(for: sessionID)
         }
         return result
     }
@@ -402,6 +430,8 @@ public final class AppStore {
         suspend()
         await client.setBearerToken(nil)
         try? await cache.clear()
+        draftCache.clear()
+        drafts.removeAll()
         sessions.removeAll()
         approvals.removeAll()
         deciding.removeAll()
@@ -799,17 +829,22 @@ public final class AppStore {
             entryCount: event.entryCount,
             appendNewEntries: true
         )
-        let entryMatched = store.entries.contains(where: { $0 == entry })
-        if entryMatched {
-            let pending = reconcileQueuedNote(queuedNotes[sessionID] ?? [], promptEntry: entry)
-            if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) } else { queuedNotes[sessionID] = pending }
-        }
         let expectedCount = countBefore + (change.inserted.isEmpty ? 0 : 1)
         if let entryCount = event.entryCount {
             serverEntryCounts[sessionID] = entryCount
             if entryCount > expectedCount { refetchStoreGap(store, missing: entryCount - expectedCount) }
         }
         scheduleCacheWrite()
+    }
+
+    private func reconcileQueuedNotes(for sessionID: String, changedEntries: [TranscriptEntry]) {
+        guard var pending = queuedNotes[sessionID] else { return }
+        for entry in changedEntries {
+            pending = reconcileQueuedNote(pending, promptEntry: entry)
+            if pending.isEmpty { break }
+        }
+        if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) }
+        else { queuedNotes[sessionID] = pending }
     }
 
     private func applyUsage(_ event: UsageEvent) {
@@ -911,10 +946,20 @@ public final class AppStore {
         if let store = openStores[key] { return store }
         guard let session = sessions[sessionID], session.live == true else { return nil }
         let entries = cachedTranscripts[key] ?? []
-        let store = SessionStore(session: session, client: client, agentID: agentID, entries: entries)
+        let store = SessionStore(
+            session: session,
+            client: client,
+            agentID: agentID,
+            entries: entries,
+            onTranscriptChange: { [weak self] changedEntries in
+                guard agentID == nil else { return }
+                self?.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
+            }
+        )
         openStores[key] = store
+        if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
         Task {
-            do { try await store.loadInitial() }
+            do { _ = try await store.loadInitial() }
             catch { }
         }
         return store
@@ -938,7 +983,17 @@ public final class AppStore {
             let components = key.split(separator: "|", maxSplits: 1).map(String.init)
             guard let sessionID = components.first, let session = sessions[sessionID] else { continue }
             let agentID = components.count == 2 ? components[1] : nil
-            openStores[key] = SessionStore(session: session, client: client, agentID: agentID, entries: entries)
+            openStores[key] = SessionStore(
+                session: session,
+                client: client,
+                agentID: agentID,
+                entries: entries,
+                onTranscriptChange: { [weak self] changedEntries in
+                    guard agentID == nil else { return }
+                    self?.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
+                }
+            )
+            if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
         }
     }
 
@@ -1002,6 +1057,10 @@ public final class AppStore {
 
     private func storeKey(sessionID: String, agentID: String?) -> String {
         agentID.map { "\(sessionID)|\($0)" } ?? sessionID
+    }
+
+    private func draftKey(sessionID: String, agentID: String?) -> String {
+        storeKey(sessionID: sessionID, agentID: agentID)
     }
 
     private func activityDate(_ session: Session) -> Date {

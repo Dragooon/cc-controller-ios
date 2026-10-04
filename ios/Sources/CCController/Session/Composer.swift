@@ -5,8 +5,22 @@ import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
 
+struct ComposerDraft {
+    let initialText: @MainActor () -> String
+    let onChange: @MainActor (String) -> Void
+
+    init(
+        initialText: @escaping @MainActor () -> String,
+        onChange: @escaping @MainActor (String) -> Void
+    ) {
+        self.initialText = initialText
+        self.onChange = onChange
+    }
+}
+
 struct ComposerConfiguration {
     let initialText: String
+    let draft: ComposerDraft?
     let modelName: String?
     let placeholder: String
     let isWorking: Bool
@@ -17,6 +31,7 @@ struct ComposerConfiguration {
 
     init(
         initialText: String = "",
+        draft: ComposerDraft? = nil,
         modelName: String? = "Fable 5.1",
         placeholder: String = "Message",
         isWorking: Bool = false,
@@ -26,6 +41,7 @@ struct ComposerConfiguration {
         hasAttachments: Bool = false
     ) {
         self.initialText = initialText
+        self.draft = draft
         self.modelName = modelName
         self.placeholder = placeholder
         self.isWorking = isWorking

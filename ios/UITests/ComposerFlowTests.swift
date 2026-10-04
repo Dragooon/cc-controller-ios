@@ -58,7 +58,7 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
     }
 
-    func testQueueWhileWorking() throws {
+    func testQueueWhileWorking() async throws {
         let app = launchFixture()
         defer {
             audit(app: app, name: "composer-queued")
@@ -80,14 +80,15 @@ final class ComposerFlowTests: XCTestCase {
         field.tap()
         let focusedComposerHeight = composer.frame.height
         field.typeText(marker)
+        try await postFixture("/fixture/tail-only")
         let send = app.buttons["composer-queue"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Queue button did not load while working")
         send.tap()
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        try await Task.sleep(for: .milliseconds(100))
         let earlyComposerHeight = composer.frame.height
         attach(named: "composer-queued-0.1s")
-        RunLoop.current.run(until: Date().addingTimeInterval(1.4))
+        try await Task.sleep(for: .milliseconds(1400))
         let settledComposerHeight = composer.frame.height
         attach(named: "composer-queued-1.5s")
         print("composer queue timing glassUnfocused=\(unfocusedComposerHeight) glassFocused=\(focusedComposerHeight) glassAt0.1=\(earlyComposerHeight) glassAt1.5=\(settledComposerHeight)")
@@ -95,7 +96,7 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(settledComposerHeight - focusedComposerHeight), 2, "Composer glass did not settle: focused \(focusedComposerHeight), at 1.5s \(settledComposerHeight)")
 
         XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
-        XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 15), "Queued caption did not render")
+        XCTAssertTrue(waitForNonExistence(of: app.staticTexts["Queued"], timeout: 10), "Queued caption did not clear after tail delivery")
         let resetField = composerField(in: app)
         XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not remain visible after queue")
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after queue")
@@ -130,6 +131,89 @@ final class ComposerFlowTests: XCTestCase {
 
         compact.tap()
         XCTAssertEqual(field.value as? String, "/compact ", "Suggestion did not replace composer text")
+    }
+
+    func testComposerDraftSurvivesNavigationBackgroundReconnectAndRelaunch() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "composer-draft-relaunch")
+            attach(named: "composer-draft-relaunch")
+            app.terminate()
+        }
+
+        try await postFixture("/fixture/clear-approvals")
+        openSession(id: "session-staff-account-exclusions", in: app)
+        let field = composerField(in: app)
+        let marker = "draft-survives-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker)
+
+        let resultRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH[c] 'subagent-result-row-'" )).firstMatch
+        XCTAssertTrue(resultRow.waitForExistence(timeout: 20), "Subagent result row did not load for draft navigation")
+        resultRow.tap()
+        let viewTranscript = app.buttons["View transcript"]
+        XCTAssertTrue(viewTranscript.waitForExistence(timeout: 10), "Subagent result sheet did not load")
+        viewTranscript.tap()
+        XCTAssertTrue(app.navigationBars["engineer"].waitForExistence(timeout: 15), "Subagent transcript did not open")
+        let back = app.navigationBars["engineer"].buttons.firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "Subagent transcript did not expose a back button")
+        back.tap()
+
+        let returnedField = composerField(in: app)
+        XCTAssertTrue(returnedField.waitForExistence(timeout: 10), "Composer did not return after subagent navigation")
+        XCTAssertEqual(returnedField.value as? String, marker, "Draft was lost after subagent navigation")
+
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(returnedField.waitForExistence(timeout: 10), "Composer did not return after foregrounding")
+        XCTAssertEqual(returnedField.value as? String, marker, "Draft was lost after backgrounding")
+
+        try await postFixture("/fixture/registry-event")
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertEqual(composerField(in: app).value as? String, marker, "Draft was lost after registry reconnect")
+
+        try await Task.sleep(for: .seconds(1))
+        app.terminate()
+        app.launch()
+        openSession(id: "session-staff-account-exclusions", in: app)
+        let relaunchedField = composerField(in: app)
+        XCTAssertTrue(relaunchedField.waitForExistence(timeout: 15), "Composer did not load after relaunch")
+        XCTAssertEqual(relaunchedField.value as? String, marker, "Draft was not restored after relaunch")
+    }
+
+    func testComposerDraftStaysOnRejectedSendAndClearsOnSuccess() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "composer-draft-send-outcomes")
+            attach(named: "composer-draft-send-outcomes")
+            app.terminate()
+        }
+
+        try await postFixture("/fixture/clear-approvals")
+        openSession(id: "session-staff-account-exclusions", in: app)
+        let field = composerField(in: app)
+        let marker = "draft-send-failure-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker)
+        try await postFixture("/fixture/reject-next-send")
+        app.buttons["composer-send"].tap()
+        XCTAssertTrue(waitForValue(of: field, equalTo: marker, timeout: 10), "Failed send wiped the draft")
+        if app.alerts.firstMatch.waitForExistence(timeout: 5) { app.alerts.buttons["OK"].tap() }
+
+        app.buttons["composer-send"].tap()
+        let resetField = composerField(in: app)
+        XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Successful send did not clear the draft")
+    }
+
+    private func postFixture(_ path: String) async throws {
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)\(path)") else { throw XCTSkip("Fixture control URL was invalid") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw NSError(domain: "ComposerFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "fixture request failed"])
+        }
     }
 
     private func launchFixture() -> XCUIApplication {

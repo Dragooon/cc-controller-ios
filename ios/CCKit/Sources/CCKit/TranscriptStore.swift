@@ -2,8 +2,15 @@ import Foundation
 
 public struct TranscriptChangeSet: Sendable, Equatable {
     public var inserted: [TranscriptEntry]
+    public var updated: [TranscriptEntry]
     public var updatedIDs: [String]
-    public init(inserted: [TranscriptEntry] = [], updatedIDs: [String] = []) { self.inserted = inserted; self.updatedIDs = updatedIDs }
+    public init(inserted: [TranscriptEntry] = [], updated: [TranscriptEntry] = [], updatedIDs: [String] = []) {
+        self.inserted = inserted
+        self.updated = updated
+        self.updatedIDs = updatedIDs
+    }
+
+    public var changed: [TranscriptEntry] { inserted + updated }
 }
 
 public struct TranscriptStore: Sendable, Equatable {
@@ -27,6 +34,7 @@ public struct TranscriptStore: Sendable, Equatable {
     @discardableResult
     public mutating func merge(_ incoming: [TranscriptEntry], replace: Bool = false, appendNewEntries: Bool = false) -> TranscriptChangeSet {
         var inserted: [TranscriptEntry] = []
+        var updated: [TranscriptEntry] = []
         var updatedIDs: [String] = []
         for entry in incoming {
             let key = identityKey(for: entry)
@@ -34,6 +42,7 @@ public struct TranscriptStore: Sendable, Equatable {
                 guard shouldAccept(entry, over: entries[index], key: key, replacement: replace) else { continue }
                 entries[index] = entry
                 if replace { protectedReplacementKeys.insert(key) }
+                updated.append(entry)
                 updatedIDs.append(entry.id ?? key)
                 continue
             }
@@ -43,7 +52,7 @@ public struct TranscriptStore: Sendable, Equatable {
             for shiftedIndex in index..<keys.count { identityIndex[keys[shiftedIndex]] = shiftedIndex }
             inserted.append(entry)
         }
-        return TranscriptChangeSet(inserted: inserted, updatedIDs: updatedIDs)
+        return TranscriptChangeSet(inserted: inserted, updated: updated, updatedIDs: updatedIDs)
     }
 
     public mutating func replaceAll(with entries: [TranscriptEntry]) -> TranscriptChangeSet {

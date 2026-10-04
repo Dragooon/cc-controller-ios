@@ -239,9 +239,10 @@ final class AppStoreTests: XCTestCase {
             XCTFail("Failed to create pending sent prompt")
             return
         }
-        XCTAssertEqual(app.queuedNotes(for: "session-1"), [QueuedNote(text: marker)])
+        XCTAssertEqual(app.queuedNotes(for: "session-1").map(\.text), [marker])
+        let promptTimestamp = app.queuedNotes(for: "session-1").first?.createdAt ?? Date()
         let rawEvent = """
-        {"sessionId":"session-1","path":"/tmp/long-session.jsonl","entry":{"ts":"2026-10-01T13:54:32.914Z","kind":"prompt","origin":"device","text":"\(marker)","id":"synthetic:339c819273ef8130","rev":1038},"entryCount":1001,"replace":false}
+        {"sessionId":"session-1","path":"/tmp/long-session.jsonl","entry":{"ts":"\(CCDateCoding.format(promptTimestamp))","kind":"prompt","origin":"device","text":"\(marker)","id":"synthetic:339c819273ef8130","rev":1038},"entryCount":1001,"replace":false}
         """
         let transcriptEvent = try JSONDecoder.ccKit().decode(
             TranscriptEvent.self,
@@ -376,15 +377,108 @@ final class AppStoreTests: XCTestCase {
             XCTFail("Send failed: \(result)")
             return
         }
-        XCTAssertEqual(
-            app.queuedNotes(for: "session-1"),
-            [QueuedNote(
-                text: "Inspect these files",
-                queued: true,
-                attachments: ["attachment.png", "evidence.csv"],
-                attachmentThumbnails: ["attachment.png": Data([1, 2, 3])]
-            )]
-        )
+        let note = try! XCTUnwrap(app.queuedNotes(for: "session-1").first)
+        XCTAssertEqual(note.text, "Inspect these files")
+        XCTAssertTrue(note.queued)
+        XCTAssertEqual(note.attachments, ["attachment.png", "evidence.csv"])
+        XCTAssertEqual(note.attachmentThumbnails["attachment.png"], Data([1, 2, 3]))
+    }
+
+    func testDraftPersistsAndRestoresAcrossStoreRecreation() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = makeApp(cacheDirectory: directory)
+        app.setDraft("unfinished work", for: "session-1")
+        app.suspend()
+
+        let restored = makeApp(cacheDirectory: directory)
+        XCTAssertEqual(restored.draft(for: "session-1"), "unfinished work")
+    }
+
+    func testDraftClearsOnlyAfterSuccessfulSend() async {
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8)) }
+        let app = makeApp()
+        app.setDraft("send this", for: "session-1")
+
+        guard case .success = await app.sendComposer(text: "send this", to: "session-1") else {
+            return XCTFail("Successful send was rejected")
+        }
+        XCTAssertEqual(app.draft(for: "session-1"), "")
+    }
+
+    func testDraftStaysAfterFailedSend() async {
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(500, body: Data("{\"error\":\"send failed\"}".utf8)) }
+        let app = makeApp()
+        app.setDraft("keep this", for: "session-1")
+
+        guard case .failure = await app.sendComposer(text: "keep this", to: "session-1") else {
+            return XCTFail("Failed send unexpectedly succeeded")
+        }
+        XCTAssertEqual(app.draft(for: "session-1"), "keep this")
+    }
+
+    func testQueuedNoteClearsViaRefetchGap() async throws {
+        let createdAt = Date()
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                return URLProtocolStub.json(Data("{\"delivered\":false,\"queued\":true}".utf8))
+            }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                return URLProtocolStub.json(Self.promptJSON(text: "gap delivery", timestamp: createdAt))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        for _ in 0..<20 {
+            if store.isLoaded { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(store.isLoaded)
+        try await Task.sleep(for: .milliseconds(50))
+        _ = await app.send(text: "gap delivery", to: "session-1")
+        try await store.refetchGap(limit: 1)
+        XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
+    }
+
+    func testQueuedNoteClearsViaLoadInitial() async throws {
+        let createdAt = Date()
+        var loadCount = 0
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                return URLProtocolStub.json(Data("{\"delivered\":false,\"queued\":true}".utf8))
+            }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                loadCount += 1
+                if loadCount > 1 { return URLProtocolStub.json(Self.promptJSON(text: "initial delivery", timestamp: createdAt)) }
+                return URLProtocolStub.json(Self.entriesJSON([]))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        for _ in 0..<20 where !store.isLoaded { try await Task.sleep(for: .milliseconds(10)) }
+        _ = await app.send(text: "initial delivery", to: "session-1")
+        try await store.loadInitial()
+        XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
+    }
+
+    func testOlderIdenticalPromptDoesNotClearQueuedNote() async {
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                return URLProtocolStub.json(Data("{\"delivered\":false,\"queued\":true}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        _ = app.openSession("session-1")
+        _ = await app.send(text: "same text", to: "session-1")
+        let oldPrompt = TranscriptEntry.prompt(PromptEntry(ts: Date(timeIntervalSinceNow: -10), text: "same text"))
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: oldPrompt)))
+
+        XCTAssertEqual(app.queuedNotes(for: "session-1").map(\.text), ["same text"])
     }
 
     func testEntryCountGapRefetchesOnlyGapPlusMargin() {
@@ -492,11 +586,15 @@ final class AppStoreTests: XCTestCase {
     }
 
     private func makeApp() -> AppStore {
+        makeApp(cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    }
+
+    private func makeApp(cacheDirectory: URL) -> AppStore {
         AppStore(
             serverURL: URL(string: "http://localhost:47832")!,
             bearerProvider: { "test-token" },
             session: URLProtocolStub.session,
-            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            cacheDirectory: cacheDirectory
         )
     }
 
@@ -517,6 +615,14 @@ final class AppStoreTests: XCTestCase {
 
     private static func pageJSON(entries: [TranscriptEntry], total: Int, hasMore: Bool) -> Data {
         try! JSONEncoder.ccKit().encode(TranscriptPage(entries: entries, total: total, hasMore: hasMore))
+    }
+
+    private static func entriesJSON(_ entries: [TranscriptEntry]) -> Data {
+        try! JSONEncoder.ccKit().encode(entries)
+    }
+
+    private static func promptJSON(text: String, timestamp: Date) -> Data {
+        Data("[{\"kind\":\"prompt\",\"ts\":\"\(CCDateCoding.format(timestamp))\",\"text\":\"\(text)\"}]".utf8)
     }
 }
 

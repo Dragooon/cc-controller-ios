@@ -201,6 +201,10 @@ struct SessionScreen: View {
         let modelName = current.usage?.model ?? transcriptModel
         return BottomStackConfiguration(
             composer: ComposerConfiguration(
+                draft: ComposerDraft(
+                    initialText: { model.store.draft(for: sessionID) },
+                    onChange: { [model] text in model.store.setDraft(text, for: sessionID) }
+                ),
                 modelName: composerModelName(modelName),
                 placeholder: current.state == .working ? "Queue a message" : "Message",
                 isWorking: current.state == .working,
