@@ -234,6 +234,7 @@ struct SessionScreen: View {
             onStop: { [model] in
                 await interrupt(sessionID: session.id ?? sessionID, using: model)
             },
+            onModel: { inspectorPresented = true },
             onAllow: { approval in
                 performApprovalDecision(approval, scope: .once)
             },

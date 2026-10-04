@@ -113,6 +113,9 @@ struct BottomStackView: View {
     }
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.bottomStackBody)
+        #endif
         GlassEffectContainer(spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
                 if !filteredCommands.isEmpty {
@@ -172,6 +175,7 @@ struct BottomStackView: View {
                         glassNamespace: glassNamespace,
                         resetGeneration: fieldResetGeneration
                     )
+                    .equatable()
                 }
             }
             .padding(.horizontal, 12)

@@ -18,7 +18,7 @@ struct ComposerDraft {
     }
 }
 
-struct ComposerConfiguration {
+struct ComposerConfiguration: Equatable {
     let initialText: String
     let draft: ComposerDraft?
     let modelName: String?
@@ -28,6 +28,15 @@ struct ComposerConfiguration {
     let focusesOnAppear: Bool
     var isSending: Bool
     var hasAttachments: Bool
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.modelName == rhs.modelName
+            && lhs.placeholder == rhs.placeholder
+            && lhs.isWorking == rhs.isWorking
+            && lhs.hasTmuxPane == rhs.hasTmuxPane
+            && lhs.isSending == rhs.isSending
+            && lhs.hasAttachments == rhs.hasAttachments
+    }
 
     init(
         initialText: String = "",
@@ -74,10 +83,9 @@ extension EnvironmentValues {
     }
 }
 
-struct ComposerView: View {
+struct ComposerView: View, Equatable {
     @Binding private var text: String
     @FocusState.Binding private var isFocused: Bool
-    @Environment(\.openInspector) private var openInspector
     let configuration: ComposerConfiguration
     let onModel: () -> Void
     let onStop: () -> Void
@@ -97,6 +105,11 @@ struct ComposerView: View {
     private let focusLogger = Logger(subsystem: "com.example.cc-controller", category: "composer")
     @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
     @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.configuration == rhs.configuration
+            && lhs.resetGeneration == rhs.resetGeneration
+    }
 
     init(
         text: Binding<String>,
@@ -123,6 +136,9 @@ struct ComposerView: View {
     }
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.composerBody)
+        #endif
         bodyContent
             .photosPicker(isPresented: $photosPresented, selection: $selectedPhotos, maxSelectionCount: 10, matching: .images)
             .fileImporter(isPresented: $filesPresented, allowedContentTypes: [.item], allowsMultipleSelection: true, onCompletion: handleFileImport)
@@ -233,7 +249,7 @@ struct ComposerView: View {
     @ViewBuilder
     private var modelButton: some View {
         if let modelName = configuration.modelName {
-            Button(action: openInspector) {
+            Button(action: onModel) {
                 Text(modelName)
                     .font(.footnote)
                     .foregroundStyle(.ccLabel)
