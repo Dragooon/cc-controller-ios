@@ -58,6 +58,8 @@ public final class AppStore {
     @ObservationIgnored private var openStores: [String: SessionStore] = [:]
     @ObservationIgnored private var cachedTranscripts: [String: [TranscriptEntry]] = [:]
     @ObservationIgnored private var reconnectSince: Date?
+    @ObservationIgnored private let eventCoalescer = LiveEventCoalescer()
+    @ObservationIgnored private var eventCoalescingTask: Task<Void, Never>?
 
     public init(
         serverURL: URL,
@@ -94,6 +96,7 @@ public final class AppStore {
     }
 
     public func suspend() {
+        flushPendingEvents()
         started = false
         lifecycleTask?.cancel()
         lifecycleTask = nil
@@ -424,38 +427,77 @@ public final class AppStore {
             #if CC_PERF
             PerfCounters.shared.hit(.sseState)
             #endif
-            applyState(snapshot)
+            flushPendingEvents()
+            applyMeasured(event) { [self] in applyState(snapshot) }
         case .stateDelta(let delta):
             #if CC_PERF
             PerfCounters.shared.hit(.sseStateDelta)
             #endif
-            applyMeasured(.stateDelta(delta)) { [self] in applyStateDelta(delta) }
+            enqueue(CoalescedLiveEvent.stateDelta(delta))
         case .transcript(let transcript):
             #if CC_PERF
             PerfCounters.shared.hit(.sseTranscript)
             #endif
-            applyMeasured(.transcript(transcript)) { [self] in applyTranscript(transcript) }
+            flushPendingEvents(for: transcript.sessionId)
+            applyMeasured(event) { [self] in applyTranscript(transcript) }
         case .usage(let usage):
             #if CC_PERF
             PerfCounters.shared.hit(.sseUsage)
             #endif
-            applyMeasured(.usage(usage)) { [self] in applyUsage(usage) }
+            enqueue(CoalescedLiveEvent.usage(usage))
         case .subagents(let subagents):
             #if CC_PERF
             PerfCounters.shared.hit(.sseSubagents)
             #endif
-            applyMeasured(.subagents(subagents)) { [self] in applySubagents(subagents) }
+            enqueue(CoalescedLiveEvent.subagents(subagents))
         case .approval(let approval):
-            applyApproval(approval)
+            flushPendingEvents(for: approval.sessionId)
+            applyMeasured(event) { [self] in applyApproval(approval) }
         case .decision(let decision):
-            applyDecision(decision)
+            flushPendingEvents(for: decision.sessionId)
+            applyMeasured(event) { [self] in applyDecision(decision) }
         case .file:
             break
         case .registry:
             #if CC_PERF
             PerfCounters.shared.hit(.sseRegistry)
             #endif
+            flushPendingEvents()
             refreshAfterRegistryEvent()
+        }
+    }
+
+    private func enqueue(_ event: CoalescedLiveEvent) {
+        eventCoalescer.enqueue(event)
+        guard eventCoalescingTask == nil else { return }
+        eventCoalescingTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            eventCoalescingTask = nil
+            flushPendingEvents()
+        }
+    }
+
+    private func flushPendingEvents(for sessionID: String? = nil) {
+        let events = if let sessionID {
+            eventCoalescer.drain(sessionID: sessionID)
+        } else {
+            eventCoalescer.drainAll()
+        }
+        for event in events {
+            switch event {
+            case .stateDelta(let delta): applyMeasured(.stateDelta(delta)) { [self] in applyStateDelta(delta) }
+            case .usage(let usage): applyMeasured(.usage(usage)) { [self] in applyUsage(usage) }
+            case .subagents(let subagents): applyMeasured(.subagents(subagents)) { [self] in applySubagents(subagents) }
+            }
+        }
+        if eventCoalescer.isEmpty {
+            eventCoalescingTask?.cancel()
+            eventCoalescingTask = nil
         }
     }
 
