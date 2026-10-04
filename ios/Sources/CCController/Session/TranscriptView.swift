@@ -285,22 +285,52 @@ struct SessionTranscriptView: View {
         }
     }
 
+    private func relevantSubagents(for turn: Turn) -> [Subagent] {
+        var identifiers = Set<String>()
+        var targets = Set<String>()
+        for item in turn.items {
+            switch item {
+            case .subagent(let entry):
+                if let agentId = entry.agentId { identifiers.insert(agentId) }
+                if let toolUseId = entry.toolUseId { identifiers.insert(toolUseId) }
+            case .subagentResult(let entry):
+                if let agentId = entry.agentId { identifiers.insert(agentId) }
+                if let toolUseId = entry.toolUseId { identifiers.insert(toolUseId) }
+            case .sendMessage(let entry):
+                let args = entry.args?.objectValue ?? [:]
+                if let target = args["to"]?.stringValue ?? args["recipient"]?.stringValue {
+                    targets.insert(target)
+                }
+            default:
+                break
+            }
+        }
+        guard !identifiers.isEmpty || !targets.isEmpty else { return [] }
+        return subagents.filter { subagent in
+            identifiers.contains(subagent.agentId ?? "")
+                || identifiers.contains(subagent.toolUseId ?? "")
+                || targets.contains(subagent.agentId ?? "")
+        }
+    }
+
     @ViewBuilder
     private var transcriptRows: some View {
         ForEach(turns) { turn in
+            let isNewest = turn.id == turns.last?.id
             TranscriptTurnView(
                 sessionID: sessionID,
                 turn: turn,
-                subagents: subagents,
+                subagents: relevantSubagents(for: turn),
                 showsWorkedFooter: showsWorkedFooter,
-                activityFooter: turn.id == turns.last?.id ? activityFooter : nil,
-                liveSession: liveSession,
+                activityFooter: isNewest ? activityFooter : nil,
+                liveSession: isNewest ? liveSession : nil,
                 onTool: onTool,
                 onSubagent: onSubagent,
                 onSubagentResult: onSubagentResult,
                 onCompaction: onCompaction,
                 downloadFile: downloadFile
             )
+            .equatable()
             .id(turn.id)
             #if DEBUG
             .onAppear {
@@ -356,7 +386,7 @@ private struct PendingPromptView: View {
     }
 }
 
-struct TranscriptTurnView: View {
+struct TranscriptTurnView: View, Equatable {
     let sessionID: String
     let turn: Turn
     let subagents: [Subagent]
@@ -393,6 +423,15 @@ struct TranscriptTurnView: View {
         self.onSubagentResult = onSubagentResult
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
+    }
+
+    nonisolated static func == (lhs: TranscriptTurnView, rhs: TranscriptTurnView) -> Bool {
+        lhs.sessionID == rhs.sessionID
+            && lhs.turn == rhs.turn
+            && lhs.subagents == rhs.subagents
+            && lhs.showsWorkedFooter == rhs.showsWorkedFooter
+            && lhs.activityFooter == rhs.activityFooter
+            && lhs.liveSession == rhs.liveSession
     }
 
     private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
