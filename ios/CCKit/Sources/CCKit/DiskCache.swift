@@ -15,12 +15,14 @@ public struct DiskCacheState: Codable, Sendable, Equatable {
 public actor DiskCache {
     private let directory: URL
     private let clock: any CCKitClock
+    let debounce: Duration
     private var pendingWrite: Task<Void, Never>?
     private let fileName = "state.json"
 
-    public init(directory: URL, clock: any CCKitClock = SystemCCKitClock()) {
+    public init(directory: URL, clock: any CCKitClock = SystemCCKitClock(), debounce: Duration = .seconds(5)) {
         self.directory = directory
         self.clock = clock
+        self.debounce = debounce
     }
 
     public func load() throws -> DiskCacheState? {
@@ -35,11 +37,20 @@ public actor DiskCache {
         pendingWrite = Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.clock.sleep(for: .seconds(1))
+                try await self.clock.sleep(for: self.debounce)
                 try await self.write(state)
             } catch is CancellationError {
             } catch {
             }
+        }
+    }
+
+    public func saveNow(_ state: DiskCacheState) {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        do {
+            try write(state)
+        } catch {
         }
     }
 

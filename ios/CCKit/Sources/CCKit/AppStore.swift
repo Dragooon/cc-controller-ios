@@ -60,6 +60,8 @@ public final class AppStore {
     @ObservationIgnored private var reconnectSince: Date?
     @ObservationIgnored private let eventCoalescer = LiveEventCoalescer()
     @ObservationIgnored private var eventCoalescingTask: Task<Void, Never>?
+    @ObservationIgnored private var cacheWriteTask: Task<Void, Never>?
+    @ObservationIgnored private var cacheWritePending = false
 
     public init(
         serverURL: URL,
@@ -97,6 +99,7 @@ public final class AppStore {
 
     public func suspend() {
         flushPendingEvents()
+        flushCacheImmediately()
         started = false
         lifecycleTask?.cancel()
         lifecycleTask = nil
@@ -925,6 +928,7 @@ public final class AppStore {
         cachedTranscripts = state.transcripts
         connection = .offline(lastUpdated: state.updatedAt, error: nil)
         for (key, entries) in state.transcripts {
+            guard openStores[key] == nil else { continue }
             let components = key.split(separator: "|", maxSplits: 1).map(String.init)
             guard let sessionID = components.first, let session = sessions[sessionID] else { continue }
             let agentID = components.count == 2 ? components[1] : nil
@@ -936,10 +940,47 @@ public final class AppStore {
         #if CC_PERF
         PerfCounters.shared.hit(.scheduleCacheWrite)
         #endif
-        guard let latestBootstrap else { return }
+        guard latestBootstrap != nil else { return }
+        cacheWritePending = true
+        guard cacheWriteTask == nil else { return }
+        cacheWriteTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
+            }
+            guard let self else { return }
+            cacheWriteTask = nil
+            writeCacheSnapshot()
+        }
+    }
+
+    private func flushCacheImmediately() {
+        cacheWriteTask?.cancel()
+        cacheWriteTask = nil
+        writeCacheSnapshot()
+    }
+
+    private func writeCacheSnapshot() {
+        guard cacheWritePending, let state = cacheStateSnapshot() else { return }
+        cacheWritePending = false
+        Task { await cache.saveNow(state) }
+    }
+
+    private func cacheStateSnapshot() -> DiskCacheState? {
+        guard let latestBootstrap else { return nil }
         let transcripts = Dictionary(uniqueKeysWithValues: openStores.map { ($0.key, Array($0.value.entries.suffix(400))) })
-        let state = DiskCacheState(bootstrap: Bootstrap(apiVersion: latestBootstrap.apiVersion, daemon: daemon, capabilities: latestBootstrap.capabilities, limits: latestBootstrap.limits, state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device)), transcripts: transcripts, updatedAt: lastUpdated ?? clock.now)
-        Task { await cache.save(state) }
+        return DiskCacheState(
+            bootstrap: Bootstrap(
+                apiVersion: latestBootstrap.apiVersion,
+                daemon: daemon,
+                capabilities: latestBootstrap.capabilities,
+                limits: latestBootstrap.limits,
+                state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device)
+            ),
+            transcripts: transcripts,
+            updatedAt: lastUpdated ?? clock.now
+        )
     }
 
     private func handleConnectionError(_ error: Error) {
