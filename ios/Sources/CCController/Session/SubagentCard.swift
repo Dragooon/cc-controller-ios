@@ -119,10 +119,7 @@ struct SubagentResultView: View {
                 Image(systemName: "person.2")
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
-                    .frame(width: 20, height: 20)
-                    .alignmentGuide(.firstTextBaseline) { dimensions in
-                        dimensions[.bottom]
-                    }
+                    .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(agent) \(stateVerb)")
