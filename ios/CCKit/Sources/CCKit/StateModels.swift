@@ -129,8 +129,6 @@ public struct StateDelta: Codable, Sendable, Equatable {
         return keys
     }
 
-    }
-
     public static func == (lhs: StateDelta, rhs: StateDelta) -> Bool {
         lhs.sessionId == rhs.sessionId && lhs.state == rhs.state && lhs.action == rhs.action && lhs.startedAt == rhs.startedAt && lhs.idleSince == rhs.idleSince && lhs.lastTool == rhs.lastTool && lhs.lastToolInput == rhs.lastToolInput && lhs.toolRunning == rhs.toolRunning && lhs.lastText == rhs.lastText && lhs.entries == rhs.entries && lhs.usage == rhs.usage && lhs.subagents == rhs.subagents && lhs.shells == rhs.shells && lhs.pending == rhs.pending
     }
