@@ -95,17 +95,12 @@ struct StatusLineView: View {
     }
 }
 
+// Static on purpose: this dot is on screen whenever agents run, and a repeating animation keeps the display link busy.
 private struct PulsingAccentDot: View {
-    @State private var isPulsing = false
-
     var body: some View {
         Circle()
             .fill(.ccAccent)
             .frame(width: 6, height: 6)
-            .scaleEffect(isPulsing ? 0.72 : 1)
-            .opacity(isPulsing ? 0.58 : 1)
-            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: isPulsing)
-            .onAppear { isPulsing = true }
             .accessibilityHidden(true)
     }
 }
