@@ -31,7 +31,7 @@ final class AppModel {
     var colorScheme: ColorScheme?
     var isSettingsPresented = false
     var actionError: ActionError?
-    #if DEBUG
+    #if DEBUG || CC_PERF
     let debugAttachmentPaths: [URL]
     var keychainSelfTestResult: String?
     #endif
@@ -77,7 +77,7 @@ final class AppModel {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
-        #if DEBUG
+        #if DEBUG || CC_PERF
         let bearer = environment["CCBearer"] ?? ""
         let serverURL = Self.serverURL(arguments: arguments)
         let isDebugOnboarding = arguments.contains("-CCOnboarding")
@@ -96,6 +96,9 @@ final class AppModel {
         debugPairingExpirySeconds = Self.argumentValue("-CCPairingExpirySeconds", in: arguments).flatMap(TimeInterval.init)
         #endif
         fixtureMode = isFixture
+        #if CC_PERF
+        selectedSessionID = Self.argumentValue("-CCSession", in: arguments)
+        #endif
 
         let credentials = KeychainCredentialStore()
         self.credentials = credentials
@@ -140,7 +143,7 @@ final class AppModel {
         let store = AppStore(
             serverURL: serverURL,
             bearerProvider: {
-                #if DEBUG
+                #if DEBUG || CC_PERF
                 if isFixture {
                     return bearer
                 }
@@ -604,7 +607,7 @@ final class AppModel {
         try? await UNUserNotificationCenter.current().setBadgeCount(count ?? store.approvals.count)
     }
 
-    #if DEBUG
+    #if DEBUG || CC_PERF
     private static func serverURL(arguments: [String]) -> URL {
         guard let value = argumentValue("-CCServer", in: arguments),
               let url = URL(string: value),

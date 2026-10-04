@@ -71,10 +71,16 @@ public final class SessionStore {
     }
 
     public func refetchGap(limit: Int) async throws {
+        #if CC_PERF
+        PerfCounters.shared.record(.refetchGap, value: limit)
+        #endif
         try await refetchTail(limit: limit)
     }
 
     public func refetchTail(limit: Int, reset: Bool = false) async throws {
+        #if CC_PERF
+        PerfCounters.shared.record(.refetchTail, value: limit)
+        #endif
         guard canFetch, !loading else { return }
         loading = true
         defer { loading = false }
@@ -115,6 +121,9 @@ public final class SessionStore {
     private var canFetch: Bool { session.live == true && !sessionID.isEmpty }
 
     private func refreshTurns() {
+        #if CC_PERF
+        PerfCounters.shared.hit(.refreshTurns)
+        #endif
         turns = groupTranscript(entries: transcriptStore.entries, working: session.state == .working)
         #if DEBUG
         TranscriptPerformance.shared.markGroupingDone()

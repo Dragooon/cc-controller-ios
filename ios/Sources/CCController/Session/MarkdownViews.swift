@@ -19,6 +19,9 @@ struct MarkdownView: View {
     }
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.markdownView)
+        #endif
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 MarkdownBlockView(block: block)

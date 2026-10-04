@@ -67,6 +67,9 @@ struct SessionTranscriptView: View {
     }
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.transcriptList)
+        #endif
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
@@ -235,6 +238,9 @@ struct SessionTranscriptView: View {
     }
 
     private func scrollToNewest(using proxy: ScrollViewProxy) {
+        #if CC_PERF
+        PerfCounters.shared.hit(.scrollToBottom)
+        #endif
         Task { @MainActor in
             do {
                 try await Task.sleep(for: .milliseconds(250))
@@ -367,6 +373,9 @@ struct TranscriptTurnView: View {
     }
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.turnRow)
+        #endif
         VStack(alignment: .leading, spacing: 20) {
             ForEach(Array(turn.prompts.enumerated()), id: \.offset) { _, prompt in
                 PromptBubble(

@@ -380,6 +380,9 @@ struct SessionScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
+                    #if CC_PERF
+                    let _ = PerfCounters.shared.hit(.sessionHeader)
+                    #endif
                     VStack(spacing: 0) {
                         Text(name)
                             .font(.headline)

@@ -421,14 +421,29 @@ public final class AppStore {
         case .connected:
             connection = .live
         case .state(let snapshot):
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseState)
+            #endif
             applyState(snapshot)
         case .stateDelta(let delta):
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseStateDelta)
+            #endif
             applyStateDelta(delta)
         case .transcript(let transcript):
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseTranscript)
+            #endif
             applyTranscript(transcript)
         case .usage(let usage):
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseUsage)
+            #endif
             applyUsage(usage)
         case .subagents(let subagents):
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseSubagents)
+            #endif
             applySubagents(subagents)
         case .approval(let approval):
             applyApproval(approval)
@@ -437,6 +452,9 @@ public final class AppStore {
         case .file:
             break
         case .registry:
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseRegistry)
+            #endif
             refreshAfterRegistryEvent()
         }
     }
@@ -635,6 +653,9 @@ public final class AppStore {
     }
 
     private func bootstrapAndReconcile(resetTranscripts: Bool) async throws {
+        #if CC_PERF
+        PerfCounters.shared.hit(.bootstrapAndReconcile)
+        #endif
         let bootstrap = try await client.bootstrap()
         let startedAtChanged = resetTranscripts || hasDaemonRestarted(bootstrap.daemon)
         if startedAtChanged { resetOpenTranscripts() }
@@ -851,6 +872,9 @@ public final class AppStore {
     }
 
     private func scheduleCacheWrite() {
+        #if CC_PERF
+        PerfCounters.shared.hit(.scheduleCacheWrite)
+        #endif
         guard let latestBootstrap else { return }
         let transcripts = Dictionary(uniqueKeysWithValues: openStores.map { ($0.key, Array($0.value.entries.suffix(400))) })
         let state = DiskCacheState(bootstrap: Bootstrap(apiVersion: latestBootstrap.apiVersion, daemon: daemon, capabilities: latestBootstrap.capabilities, limits: latestBootstrap.limits, state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device)), transcripts: transcripts, updatedAt: lastUpdated ?? clock.now)
@@ -869,11 +893,17 @@ public final class AppStore {
     }
 
     private func jsonObject<T: Encodable>(_ value: T) -> [String: JSONValue] {
+        #if CC_PERF
+        PerfCounters.shared.hit(.jsonObject)
+        #endif
         guard let data = try? JSONEncoder.ccKit().encode(value), let object = try? JSONDecoder.ccKit().decode([String: JSONValue].self, from: data) else { return [:] }
         return object
     }
 
     private func decodeSession(_ object: [String: JSONValue]) -> Session? {
+        #if CC_PERF
+        PerfCounters.shared.hit(.decodeSession)
+        #endif
         guard let data = try? JSONEncoder.ccKit().encode(JSONValue.object(object)) else { return nil }
         return try? JSONDecoder.ccKit().decode(Session.self, from: data)
     }

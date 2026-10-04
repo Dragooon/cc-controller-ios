@@ -16,7 +16,16 @@ public final class MarkdownDocumentCache: @unchecked Sendable {
 
     public func document(for text: String) -> MarkdownDocument {
         let key = text as NSString
-        if let cached = cache.object(forKey: key) { return cached.document }
+        if let cached = cache.object(forKey: key) {
+            #if CC_PERF
+            PerfCounters.shared.hit(.markdownCacheHit)
+            #endif
+            return cached.document
+        }
+        #if CC_PERF
+        PerfCounters.shared.hit(.markdownCacheMiss)
+        PerfCounters.shared.hit(.markdownParse)
+        #endif
         let document = MarkdownDocument(parsing: text)
         cache.setObject(Box(document), forKey: key, cost: text.utf8.count)
         return document

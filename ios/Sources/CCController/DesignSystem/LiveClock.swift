@@ -8,6 +8,9 @@ struct LiveElapsedText: View {
     let fallback: String?
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.liveClock)
+        #endif
         if let fallback, !fallback.isEmpty {
             Text(fallback)
         } else if let startedAt {
@@ -32,6 +35,9 @@ struct SessionSubtitleView: View {
     let session: Session
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.liveClock)
+        #endif
         if isLive, hasAnchor {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(sessionDetailSubtitle(session, now: context.date))
@@ -58,6 +64,9 @@ struct SubagentSubtitleView: View {
     let subagent: Subagent
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.liveClock)
+        #endif
         if subagent.state == .running, subagent.startedAt != nil {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(subagentSubtitle(subagent, now: context.date))
@@ -72,6 +81,9 @@ struct SessionStateSegmentView: View {
     let session: Session
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.liveClock)
+        #endif
         if isLive {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(value(now: context.date))

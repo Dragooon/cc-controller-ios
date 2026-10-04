@@ -11,6 +11,9 @@ struct LiveActivityFooterView: View {
     }
 
     var body: some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.activityFooter)
+        #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 SpinnerGlyph(active: true, frozen: false)

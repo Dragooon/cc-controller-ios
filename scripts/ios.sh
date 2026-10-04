@@ -24,6 +24,7 @@ DIAG_DIR=""
 MOCK_RUN_DIR=""
 SHARD_CONTROLLER=1
 SHARD_PIDS=()
+PERF_SAMPLE_PIDS=()
 
 step() {
   local name=$1; shift
@@ -113,8 +114,17 @@ stop_fixture_daemon() {
 
 start_fixture_daemon() {
   FIXTURE_LOG=$1
+  local scenario=${2:-default}
+  local mode=${3:-C}
+  local private_fixture=${4:-}
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
-  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  if [[ "$scenario" == 'perf' && -n "$private_fixture" ]]; then
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" CC_FIXTURE_LONG_SESSION_PATH="$private_fixture" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  elif [[ "$scenario" == 'perf' ]]; then
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  else
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+  fi
   STARTED_DAEMON=$!
   for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
   if [[ ! -s "$FIXTURE_OUT" ]]; then
@@ -405,7 +415,11 @@ stop_shards() {
 }
 
 cleanup_run() {
-  local status=$1
+  local status=$1 sample_pid
+  for sample_pid in "${PERF_SAMPLE_PIDS[@]:-}"; do
+    [[ -z "$sample_pid" ]] || { kill "$sample_pid" 2>/dev/null || true; wait "$sample_pid" 2>/dev/null || true; }
+  done
+  PERF_SAMPLE_PIDS=()
   stop_current_xcodebuild || true
   stop_fixture_daemon || true
   if [[ -n "$DIAG_DIR" ]]; then
@@ -992,6 +1006,299 @@ cmd_mocks() {
   printf '%s\n' "mock shots written to $mock_root"
 }
 
+perf_time_seconds() {
+  python3 - "$1" <<'PY'
+import sys
+value = sys.argv[1].strip()
+parts = value.split(':')
+try:
+    if len(parts) == 3:
+        result = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+    elif len(parts) == 2:
+        result = int(parts[0]) * 60 + float(parts[1])
+    else:
+        result = float(value)
+    print(result)
+except ValueError:
+    print('0')
+PY
+}
+
+perf_wall_seconds() {
+  python3 - <<'PY'
+import time
+print(time.monotonic())
+PY
+}
+
+perf_process_sample() {
+  local udid=$1 target=$2 pid row cpu rss
+  if [[ "$target" == 'cc-controller' ]]; then
+    pid=${PERF_HOST_APP_PID:-}
+  else
+    pid=$(perf_host_pid 'backboardd')
+  fi
+  [[ "$pid" =~ ^[0-9]+$ ]] || { printf '|||\n'; return 0; }
+  row=$(ps -p "$pid" -o pid=,time=,rss= 2>/dev/null || true)
+  [[ -n "$row" ]] || { printf '|||\n'; return 0; }
+  read -r pid cpu rss <<< "$row"
+  printf '%s|%s|%s\n' "$pid" "$(perf_time_seconds "$cpu")" "$rss"
+}
+
+perf_sample_loop() {
+  local udid=$1 file=$2
+  while :; do
+    local now app render
+    now=$(perf_wall_seconds)
+    app=$(perf_process_sample "$udid" cc-controller)
+    render=$(perf_process_sample "$udid" backboardd)
+    printf '%s|app|%s\n' "$now" "$app" >> "$file"
+    printf '%s|render|%s\n' "$now" "$render" >> "$file"
+    sleep 1
+  done
+}
+
+perf_peak_rss() {
+  python3 - "$1" <<'PY'
+import sys
+values = []
+for line in open(sys.argv[1]):
+    fields = line.rstrip().split('|')
+    if len(fields) != 5 or not fields[4].isdigit():
+        continue
+    values.append(int(fields[4]))
+print(max(values) if values else 0)
+PY
+}
+
+perf_cpu_delta() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import sys
+before, after, wall = map(float, sys.argv[1:])
+print(max(0.0, (after - before) * 100.0 / wall))
+PY
+}
+
+perf_host_pid() {
+  local target=$1
+  ps -axo pid=,command= | awk -v target="$target" '$0 ~ target { print $1; exit }' || true
+}
+
+perf_start_samples() {
+  local label=$1 host_app_pid=$2 case_dir=$3 render_pid
+  [[ "$label" == C ]] || return 0
+  [[ -f "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" ]] || {
+    if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
+      sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+      PERF_SAMPLE_PIDS+=("$!")
+    else
+      host_app_pid=$(perf_host_pid 'cc-controller.app/cc-controller')
+      if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
+        sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+        PERF_SAMPLE_PIDS+=("$!")
+      fi
+    fi
+  }
+  render_pid=$(perf_host_pid 'backboardd')
+  if [[ "$render_pid" =~ ^[0-9]+$ ]]; then
+    sample "$render_pid" 10 -file "$PERF_OUTPUT_DIR/sample-render-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+    PERF_SAMPLE_PIDS+=("$!")
+  fi
+}
+
+perf_run_case() {
+  local label=$1 mode=$2 duration=$3 private_fixture=${4:-}
+  local case_dir="$PERF_OUTPUT_DIR/$label/run-$PERF_RUN_NUMBER"
+  mkdir -p "$case_dir"
+  local fixture_log="$case_dir/fixture.log"
+  local app_bundle="$PERF_DERIVED/Build/Products/Release-iphonesimulator/cc-controller.app"
+  start_fixture_daemon "$fixture_log" perf "$mode" "$private_fixture"
+  local web_port bearer
+  web_port=$(json_value "$FIXTURE_OUT" webPort)
+  bearer=$(json_value "$FIXTURE_OUT" bearer)
+
+  xcrun simctl terminate "$PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl install "$PERF_UDID" "$app_bundle"
+  local launch_output host_app_pid
+  launch_output=$(SIMCTL_CHILD_CCBearer="$bearer" SIMCTL_CHILD_CC_PERF_SCENARIO="$label" xcrun simctl launch "$PERF_UDID" com.example.cc-controller \
+    -CCServer "http://127.0.0.1:$web_port" \
+    -CCSession long-session \
+    -CCColorScheme light)
+  host_app_pid=$(printf '%s\n' "$launch_output" | awk -F': ' 'NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }')
+
+  local app_sample="" render_sample="" app_pid=""
+  PERF_HOST_APP_PID="$host_app_pid"
+  for _ in {1..60}; do
+    app_sample=$(perf_process_sample "$PERF_UDID" cc-controller)
+    app_pid=${app_sample%%|*}
+    [[ "$app_pid" =~ ^[0-9]+$ ]] && break
+    sleep 0.25
+  done
+  [[ "$app_pid" =~ ^[0-9]+$ ]] || { printf 'perf %s: app did not launch (simctl=%s)\n' "$label" "$launch_output" >&2; return 1; }
+  sleep "${CC_PERF_WARMUP_SECONDS:-5}"
+  perf_start_samples "$label" "$host_app_pid" "$case_dir"
+
+  local before_app before_render before_rss start end after_app after_render after_rss sampler samples
+  before_app=$(perf_process_sample "$PERF_UDID" cc-controller)
+  before_render=$(perf_process_sample "$PERF_UDID" backboardd)
+  before_rss=${before_app##*|}
+  start=$(perf_wall_seconds)
+  samples="$case_dir/process-samples.txt"
+  : > "$samples"
+  perf_sample_loop "$PERF_UDID" "$samples" &
+  sampler=$!
+  sleep "$duration"
+  end=$(perf_wall_seconds)
+  kill "$sampler" 2>/dev/null || true
+  wait "$sampler" 2>/dev/null || true
+  local sample_pid
+  for sample_pid in "${PERF_SAMPLE_PIDS[@]:-}"; do
+    [[ -z "$sample_pid" ]] || wait "$sample_pid" 2>/dev/null || true
+  done
+  PERF_SAMPLE_PIDS=()
+  after_app=$(perf_process_sample "$PERF_UDID" cc-controller)
+  after_render=$(perf_process_sample "$PERF_UDID" backboardd)
+  after_rss=${after_app##*|}
+  local wall app_before_cpu app_after_cpu render_before_cpu render_after_cpu app_cpu render_cpu peak_rss
+  wall=$(python3 - "$start" "$end" <<'PY'
+import sys
+print(float(sys.argv[2]) - float(sys.argv[1]))
+PY
+)
+  app_before_cpu=$(printf '%s' "$before_app" | cut -d'|' -f2)
+  app_after_cpu=$(printf '%s' "$after_app" | cut -d'|' -f2)
+  render_before_cpu=$(printf '%s' "$before_render" | cut -d'|' -f2)
+  render_after_cpu=$(printf '%s' "$after_render" | cut -d'|' -f2)
+  app_cpu=$(perf_cpu_delta "$app_before_cpu" "$app_after_cpu" "$wall")
+  render_cpu=null
+  if [[ -n "$render_before_cpu" && -n "$render_after_cpu" ]]; then
+    render_cpu=$(perf_cpu_delta "$render_before_cpu" "$render_after_cpu" "$wall")
+  fi
+  peak_rss=$(perf_peak_rss "$samples")
+
+  local before_shot after_shot rendering
+  before_shot="$case_dir/before.png"
+  after_shot="$case_dir/after.png"
+  xcrun simctl io "$PERF_UDID" screenshot "$before_shot" >/dev/null 2>&1 || true
+  sleep 1
+  xcrun simctl io "$PERF_UDID" screenshot "$after_shot" >/dev/null 2>&1 || true
+  rendering=false
+  if [[ -s "$before_shot" && -s "$after_shot" ]] && ! cmp -s "$before_shot" "$after_shot"; then rendering=true; fi
+  if [[ "$render_cpu" != null ]] && python3 - "$render_cpu" <<'PY'
+import sys
+raise SystemExit(0 if float(sys.argv[1]) > 0 else 1)
+PY
+  then rendering=true; fi
+
+  xcrun simctl terminate "$PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  local container counter_file
+  container=$(xcrun simctl get_app_container "$PERF_UDID" com.example.cc-controller data)
+  counter_file="$container/Library/cc-perf.json"
+  local json_file="$case_dir/result.json"
+  PERF_LABEL="$label" PERF_RUN_NUMBER="$PERF_RUN_NUMBER" PERF_MODE="$mode" PERF_DURATION="$duration" PERF_WALL="$wall" PERF_APP_CPU="$app_cpu" PERF_RENDER_CPU="$render_cpu" PERF_PEAK_RSS="$peak_rss" PERF_RENDERING="$rendering" PERF_COUNTER_FILE="$counter_file" PERF_JSON_FILE="$json_file" python3 - <<'PY'
+import json, os
+payload = {
+  'scenario': os.environ['PERF_LABEL'], 'run': int(os.environ['PERF_RUN_NUMBER']), 'mode': os.environ['PERF_MODE'],
+  'duration_seconds': float(os.environ['PERF_DURATION']), 'wall_seconds': float(os.environ['PERF_WALL']),
+  'app_cpu_percent_one_core': float(os.environ['PERF_APP_CPU']),
+  'render_server_cpu_percent_one_core': None if os.environ['PERF_RENDER_CPU'] == 'null' else float(os.environ['PERF_RENDER_CPU']),
+  'peak_memory_kb': int(os.environ['PERF_PEAK_RSS']), 'headless_rendering_changed': os.environ['PERF_RENDERING'] == 'true',
+}
+try:
+    with open(os.environ['PERF_COUNTER_FILE']) as f: payload['counters'] = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    payload['counters'] = None
+with open(os.environ['PERF_JSON_FILE'], 'w') as f: json.dump(payload, f, indent=2, sort_keys=True)
+PY
+  local counter_summary
+  counter_summary=$(python3 - "$json_file" <<'PY'
+import json, sys
+p=json.load(open(sys.argv[1])); c=p.get('counters') or {}; r=c.get('per_second') or {}; print(' '.join(f'{k}={v:.2f}/s' for k,v in sorted(r.items())))
+PY
+)
+  printf 'PERF %s run=%s app_cpu=%.2f%% render_cpu=%s%% peak_rss=%skB rendering=%s %s\n' "$label" "$PERF_RUN_NUMBER" "$app_cpu" "$render_cpu" "$peak_rss" "$rendering" "$counter_summary"
+  stop_fixture_daemon
+  local budget
+  case "$label" in A) budget=${CC_PERF_BUDGET_A:-1};; B) budget=${CC_PERF_BUDGET_B:-3};; C|D) budget=${CC_PERF_BUDGET_C:-15};; esac
+  if python3 - "$app_cpu" "$budget" <<'PY'
+import sys
+raise SystemExit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)
+PY
+  then :; else PERF_BUDGET_FAILED=1; fi
+}
+
+cmd_perf() {
+  local only_scenario='' no_build=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --scenario)
+        [[ $# -ge 2 && "$2" =~ ^[ABCD]$ ]] || { printf '%s\n' 'perf --scenario requires A, B, C, or D' >&2; return 2; }
+        only_scenario=$2
+        shift 2
+        ;;
+      --no-build)
+        no_build=1
+        shift
+        ;;
+      *) printf 'unknown perf option: %s\n' "$1" >&2; return 2;;
+    esac
+  done
+  local default_repeats=3
+  [[ -z "$only_scenario" ]] || default_repeats=1
+  local repeats=${CC_PERF_REPEATS:-$default_repeats}
+  [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { printf 'CC_PERF_REPEATS must be a positive integer\n' >&2; return 2; }
+  PERF_OUTPUT_DIR=${CC_PERF_OUTPUT_DIR:-$HOME/Documents/dev/cc-controller-evidence/perf-2026-10-04/harness}
+  PERF_DERIVED="$IOS/build/perf-release"
+  PERF_RUN_NUMBER=0
+  PERF_BUDGET_FAILED=0
+  mkdir -p "$PERF_OUTPUT_DIR"
+  local iteration_start
+  iteration_start=$(perf_wall_seconds)
+  pool_acquire
+  PERF_UDID=$(ensure_pool_device "${CC_PERF_DEVICE:-iPhone 18 Pro}")
+  local app_bundle="$PERF_DERIVED/Build/Products/Release-iphonesimulator/cc-controller.app"
+  if [[ "$no_build" -eq 0 ]]; then
+    cmd_generate
+    step 'perf Release build' xcodebuild -project "$PROJECT" -scheme CCController -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$PERF_DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES SWIFT_ACTIVE_COMPILATION_CONDITIONS=CC_PERF build
+  fi
+  [[ -d "$app_bundle" ]] || { printf 'perf requires Release+CC_PERF app at %s; omit --no-build\n' "$app_bundle" >&2; return 1; }
+
+  local label private_fixture
+  for label in A B C D; do
+    [[ -z "$only_scenario" || "$only_scenario" == "$label" ]] || continue
+    if [[ "$label" == D ]]; then
+      private_fixture=/Users/owner/Documents/dev/cc-controller-evidence/perf-2026-10-04/fixture/long-session.jsonl
+      if [[ ! -f "$private_fixture" ]]; then
+        printf 'perf D skipped: private fixture is missing at %s\n' "$private_fixture" >&2
+        PERF_BUDGET_FAILED=1
+        continue
+      fi
+      PERF_RUN_NUMBER=1
+      perf_run_case D C 60 "$private_fixture"
+      continue
+    fi
+    for ((PERF_RUN_NUMBER = 1; PERF_RUN_NUMBER <= repeats; PERF_RUN_NUMBER++)); do
+      case "$label" in A|B) perf_run_case "$label" "$label" 30;; C) perf_run_case C C 60;; esac
+    done
+  done
+  local iteration_end
+  iteration_end=$(perf_wall_seconds)
+  if [[ "$only_scenario" == C ]]; then
+    python3 - "$iteration_start" "$iteration_end" <<'PY'
+import sys
+print(f'PERF iteration rebuild_plus_C_seconds={float(sys.argv[2]) - float(sys.argv[1]):.1f}')
+PY
+  fi
+  python3 - "$PERF_OUTPUT_DIR" "$ROOT" <<'PY'
+import pathlib, subprocess, sys
+out, root = map(pathlib.Path, sys.argv[1:])
+diff = subprocess.check_output(['git', '-C', str(root), 'diff', 'main', '--'])
+(out / 'perf-harness.diff').write_bytes(diff)
+PY
+  [[ "$PERF_BUDGET_FAILED" -eq 0 ]]
+}
+
 pool_status() {
   mkdir -p "$POOL_CACHE"
   local slot device name udid state marker last display lane
@@ -1351,6 +1658,7 @@ case "${1:-}" in
   build) shift; step build cmd_build "$@";;
   test) shift; step test cmd_test "$@";;
   release-check) shift; cmd_release_check "$@";;
+  perf) shift; cmd_perf "$@";;
   archive) shift; cmd_archive "$@";;
   upload) shift; cmd_upload "$@";;
   shots) shift; cmd_shots "$@";;
@@ -1359,5 +1667,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|archive|upload|shots|flows|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|archive|upload|shots|flows|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
