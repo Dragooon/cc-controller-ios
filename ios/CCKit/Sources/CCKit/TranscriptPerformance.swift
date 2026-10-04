@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CC_PERF
 import Foundation
 import Observation
 
@@ -62,6 +62,10 @@ public final class TranscriptPerformance {
 
     public func markFirstRows() {
         guard phases["first_rows"] == nil else { return }
+        let elapsed = Date().timeIntervalSince(startedAt) * 1000
+        #if CC_PERF
+        PerfCounters.shared.recordMilliseconds(.firstRowsMilliseconds, value: elapsed)
+        #endif
         mark("first_rows")
     }
 

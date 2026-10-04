@@ -95,7 +95,7 @@ struct SessionTranscriptView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
                 .scrollTargetLayout()
-                #if DEBUG
+                #if DEBUG || CC_PERF
                 .onAppear { TranscriptPerformance.shared.markFirstRows() }
                 #endif
             }
@@ -226,7 +226,7 @@ struct SessionTranscriptView: View {
             } message: {
                 Text(pagingError ?? "The earlier transcript could not be loaded.")
             }
-            #if DEBUG
+            #if DEBUG || CC_PERF
             .overlay(alignment: .topLeading) {
                 Text(TranscriptPerformance.shared.snapshot)
                     .accessibilityIdentifier("transcript-performance")
@@ -352,7 +352,7 @@ struct SessionTranscriptView: View {
             )
             .equatable()
             .id(row.id)
-            #if DEBUG
+            #if DEBUG || CC_PERF
             .onAppear {
                 TranscriptPerformance.shared.markFirstRows()
             }

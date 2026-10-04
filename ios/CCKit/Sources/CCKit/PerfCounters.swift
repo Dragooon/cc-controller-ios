@@ -30,6 +30,7 @@ public final class PerfCounters: @unchecked Sendable {
         case stateDeltaApplyMilliseconds
         case subagentsApplyMilliseconds
         case transcriptApplyMilliseconds
+        case firstRowsMilliseconds
         case mainActorBusyMilliseconds
     }
 
