@@ -345,7 +345,8 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
             throw XCTSkip("Fixture control URL was invalid")
         }
         let (data, _) = try await URLSession.shared.data(from: url)
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Int])
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(payload["counts"] as? [String: Int])
     }
 
     private func fixtureJSON(_ path: String) async throws -> [String: Any] {
