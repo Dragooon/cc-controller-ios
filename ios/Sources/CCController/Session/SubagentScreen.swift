@@ -32,6 +32,7 @@ struct SubagentScreen: View {
         if let store = model.store.openSubagent(sessionID: sessionID, agentID: agentID) {
             SessionTranscriptView(
                 turns: store.turns,
+                rows: store.rows,
                 showsComposer: false,
                 subagents: store.session.subagents ?? [],
                 scrollAnchor: .top

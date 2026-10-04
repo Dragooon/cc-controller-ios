@@ -214,6 +214,81 @@ public struct Turn: Identifiable, Sendable, Equatable {
     }
 }
 
+public enum TranscriptRowKind: Sendable, Equatable {
+    case prompt(PromptEntry)
+    case item(TurnItem)
+    case workedFooter(durationMs: Int)
+    case liveActivityFooter(ActivityFooter)
+}
+
+public struct TranscriptRow: Identifiable, Sendable, Equatable {
+    public let id: String
+    public let turnID: String
+    public let kind: TranscriptRowKind
+
+    public init(id: String, turnID: String, kind: TranscriptRowKind) {
+        self.id = id
+        self.turnID = turnID
+        self.kind = kind
+    }
+}
+
+public func transcriptRows(for turn: Turn) -> [TranscriptRow] {
+    var rows = turn.prompts.map { prompt in
+        TranscriptRow(id: prompt.stablePresentationID, turnID: turn.id, kind: .prompt(prompt))
+    }
+    rows += turn.items.map { item in
+        TranscriptRow(id: item.id, turnID: turn.id, kind: .item(item))
+    }
+    if turn.hasWorkedFooter {
+        rows.append(TranscriptRow(id: "\(turn.id)-worked", turnID: turn.id, kind: .workedFooter(durationMs: turn.durationMs)))
+    }
+    return rows
+}
+
+public func transcriptRows(for turns: [Turn]) -> [TranscriptRow] {
+    turns.flatMap(transcriptRows(for:))
+}
+
+public struct SubagentIndex: Sendable, Equatable {
+    private let byToolUseID: [String: Subagent]
+    private let byAgentID: [String: Subagent]
+
+    public init(_ subagents: [Subagent]) {
+        byToolUseID = Dictionary(uniqueKeysWithValues: subagents.compactMap { subagent in
+            guard let toolUseID = subagent.toolUseId, !toolUseID.isEmpty else { return nil }
+            return (toolUseID, subagent)
+        })
+        byAgentID = Dictionary(uniqueKeysWithValues: subagents.compactMap { subagent in
+            guard let agentID = subagent.agentId, !agentID.isEmpty else { return nil }
+            return (agentID, subagent)
+        })
+    }
+
+    public func matchingSubagents(for item: TurnItem) -> [Subagent] {
+        let keys: [(toolUseID: String?, agentID: String?)]
+        switch item {
+        case .subagent(let entry): keys = [(entry.toolUseId, entry.agentId)]
+        case .subagentResult(let entry): keys = [(entry.toolUseId, entry.agentId)]
+        case .sendMessage(let entry):
+            let args: [String: JSONValue]
+            if case .object(let object)? = entry.args { args = object } else { args = [:] }
+            keys = [(nil, args["to"]?.stringValue ?? args["recipient"]?.stringValue)]
+        default: return []
+        }
+        var matches: [Subagent] = []
+        var ids = Set<String>()
+        for key in keys {
+            for subagent in [key.toolUseID.flatMap { byToolUseID[$0] }, key.agentID.flatMap { byAgentID[$0] }].compactMap({ $0 }) {
+                let id = subagent.agentId ?? subagent.toolUseId ?? ""
+                guard ids.insert(id).inserted else { continue }
+                matches.append(subagent)
+            }
+        }
+        return matches
+    }
+}
+
 public struct PermissionCopy: Codable, Sendable, Equatable {
     public let header: String
     public let command: String

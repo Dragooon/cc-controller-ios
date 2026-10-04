@@ -119,6 +119,7 @@ struct SessionScreen: View {
                     SessionTranscriptView(
                         sessionID: sessionID,
                         turns: sessionStore.turns,
+                        rows: sessionStore.rows,
                         bottomStackConfiguration: bottomStackConfiguration(
                             for: sessionStore.session,
                             liveSession: model.store.sessions[sessionID],

@@ -8,6 +8,7 @@ public final class SessionStore {
     public private(set) var session: Session
     public private(set) var transcriptStore: TranscriptStore
     public private(set) var turns: [Turn] = []
+    public private(set) var rows: [TranscriptRow] = []
     public private(set) var hasMoreEarlier = false
     public private(set) var totalEntries = 0
     public var entries: [TranscriptEntry] { transcriptStore.entries }
@@ -19,6 +20,7 @@ public final class SessionStore {
     @ObservationIgnored private var loading = false
     private var hasLoaded = false
     private var turnStartIndices: [Int] = []
+    private var turnRows: [[TranscriptRow]] = []
     private var earlierIdentityKeys: Set<String> = []
 
     public convenience init(
@@ -168,7 +170,9 @@ public final class SessionStore {
     public func resetTranscript() {
         transcriptStore = TranscriptStore()
         turns = []
+        rows = []
         turnStartIndices = []
+        turnRows = []
         earlierIdentityKeys = []
         hasMoreEarlier = false
         totalEntries = 0
@@ -199,6 +203,8 @@ public final class SessionStore {
                 turnIndexOffset: prefixCount
             )
             turns = Array(turns.prefix(prefixCount)) + grouped.turns
+            turnRows = Array(turnRows.prefix(prefixCount)) + grouped.turns.map(transcriptRows(for:))
+            rows = turnRows.flatMap { $0 }
             turnStartIndices = Array(turnStartIndices.prefix(prefixCount)) + grouped.startIndices.map { startIndex + $0 }
             let newPrefixCount = max(0, turns.count - 2)
             let newStartIndex = turnStartIndices.indices.contains(newPrefixCount) ? turnStartIndices[newPrefixCount] : 0
@@ -206,6 +212,8 @@ public final class SessionStore {
         } else {
             let grouped = groupTurnsWithStarts(entries: transcriptStore.entries, working: session.state == .working, now: now)
             turns = grouped.turns
+            turnRows = grouped.turns.map(transcriptRows(for:))
+            rows = turnRows.flatMap { $0 }
             turnStartIndices = grouped.startIndices
             updateEarlierIdentityKeys()
         }

@@ -10,6 +10,7 @@ private struct TranscriptScrollMetrics: Equatable {
 struct SessionTranscriptView: View {
     let sessionID: String
     let turns: [Turn]
+    let rows: [TranscriptRow]
     let subagents: [Subagent]
     let showsComposer: Bool
     let showsWorkedFooter: Bool
@@ -37,10 +38,12 @@ struct SessionTranscriptView: View {
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
     @State private var userIsScrolling = false
+    @State private var subagentIndex: SubagentIndex
 
     init(
         sessionID: String = "",
         turns: [Turn],
+        rows: [TranscriptRow]? = nil,
         showsComposer: Bool = true,
         showsWorkedFooter: Bool = true,
         bottomStackConfiguration: BottomStackConfiguration? = nil,
@@ -59,6 +62,7 @@ struct SessionTranscriptView: View {
     ) {
         self.sessionID = sessionID
         self.turns = turns
+        self.rows = rows ?? CCKit.transcriptRows(for: turns)
         self.showsComposer = showsComposer
         self.showsWorkedFooter = showsWorkedFooter
         self.bottomStackConfiguration = bottomStackConfiguration
@@ -66,6 +70,7 @@ struct SessionTranscriptView: View {
         self.activityFooter = activityFooter
         self.liveSession = liveSession
         self.subagents = subagents
+        _subagentIndex = State(initialValue: SubagentIndex(subagents))
         self.hasMoreEarlier = hasMoreEarlier
         self.loadEarlier = loadEarlier
         self.onTool = onTool
@@ -172,7 +177,11 @@ struct SessionTranscriptView: View {
                     break
                 }
             }
+            .onChange(of: subagents) { _, newSubagents in
+                subagentIndex = SubagentIndex(newSubagents)
+            }
             .onChange(of: sessionID) { _, _ in
+                subagentIndex = SubagentIndex(subagents)
                 userHasScrolled = false
                 contentFitsViewport = false
                 isPinnedToBottom = true
@@ -313,45 +322,28 @@ struct SessionTranscriptView: View {
         }
     }
 
-    private func relevantSubagents(for turn: Turn) -> [Subagent] {
-        var identifiers = Set<String>()
-        var targets = Set<String>()
-        for item in turn.items {
-            switch item {
-            case .subagent(let entry):
-                if let agentId = entry.agentId { identifiers.insert(agentId) }
-                if let toolUseId = entry.toolUseId { identifiers.insert(toolUseId) }
-            case .subagentResult(let entry):
-                if let agentId = entry.agentId { identifiers.insert(agentId) }
-                if let toolUseId = entry.toolUseId { identifiers.insert(toolUseId) }
-            case .sendMessage(let entry):
-                let args = entry.args?.objectValue ?? [:]
-                if let target = args["to"]?.stringValue ?? args["recipient"]?.stringValue {
-                    targets.insert(target)
-                }
-            default:
-                break
+    private var displayRows: [TranscriptRow] {
+        var result = rows
+        if !showsWorkedFooter {
+            result.removeAll { row in
+                if case .workedFooter = row.kind { return true }
+                return false
             }
         }
-        guard !identifiers.isEmpty || !targets.isEmpty else { return [] }
-        return subagents.filter { subagent in
-            identifiers.contains(subagent.agentId ?? "")
-                || identifiers.contains(subagent.toolUseId ?? "")
-                || targets.contains(subagent.agentId ?? "")
+        if let activityFooter, let turnID = turns.last?.id {
+            result.append(TranscriptRow(id: "\(turnID)-activity", turnID: turnID, kind: .liveActivityFooter(activityFooter)))
         }
+        return result
     }
 
     @ViewBuilder
     private var transcriptRows: some View {
-        ForEach(turns) { turn in
-            let isNewest = turn.id == turns.last?.id
-            TranscriptTurnView(
+        ForEach(displayRows) { row in
+            TranscriptRowView(
                 sessionID: sessionID,
-                turn: turn,
-                subagents: relevantSubagents(for: turn),
-                showsWorkedFooter: showsWorkedFooter,
-                activityFooter: isNewest ? activityFooter : nil,
-                liveSession: isNewest ? liveSession : nil,
+                row: row,
+                subagents: rowSubagents(for: row),
+                liveSession: row.turnID == turns.last?.id ? liveSession : nil,
                 onTool: onTool,
                 onSubagent: onSubagent,
                 onSubagentResult: onSubagentResult,
@@ -359,7 +351,7 @@ struct SessionTranscriptView: View {
                 downloadFile: downloadFile
             )
             .equatable()
-            .id(turn.id)
+            .id(row.id)
             #if DEBUG
             .onAppear {
                 TranscriptPerformance.shared.markFirstRows()
@@ -375,6 +367,11 @@ struct SessionTranscriptView: View {
             .frame(height: 1)
             .id("transcript-bottom")
             .accessibilityHidden(true)
+    }
+
+    private func rowSubagents(for row: TranscriptRow) -> [Subagent] {
+        guard case .item(let item) = row.kind else { return [] }
+        return subagentIndex.matchingSubagents(for: item)
     }
 }
 
@@ -414,12 +411,10 @@ private struct PendingPromptView: View {
     }
 }
 
-struct TranscriptTurnView: View, Equatable {
+struct TranscriptRowView: View, Equatable {
     let sessionID: String
-    let turn: Turn
+    let row: TranscriptRow
     let subagents: [Subagent]
-    let showsWorkedFooter: Bool
-    let activityFooter: CCKit.ActivityFooter?
     let liveSession: Session?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
@@ -427,38 +422,10 @@ struct TranscriptTurnView: View, Equatable {
     let onCompaction: (CompactionEntry) -> Void
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
 
-    init(
-        sessionID: String = "",
-        turn: Turn,
-        subagents: [Subagent] = [],
-        showsWorkedFooter: Bool,
-        activityFooter: CCKit.ActivityFooter? = nil,
-        liveSession: Session? = nil,
-        onTool: @escaping (ToolEntry) -> Void,
-        onSubagent: @escaping (SubagentEntry) -> Void,
-        onSubagentResult: @escaping (SubagentResultEntry, Subagent?) -> Void = { _, _ in },
-        onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
-        downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
-    ) {
-        self.sessionID = sessionID
-        self.turn = turn
-        self.subagents = subagents
-        self.showsWorkedFooter = showsWorkedFooter
-        self.activityFooter = activityFooter
-        self.liveSession = liveSession
-        self.onTool = onTool
-        self.onSubagent = onSubagent
-        self.onSubagentResult = onSubagentResult
-        self.onCompaction = onCompaction
-        self.downloadFile = downloadFile
-    }
-
-    nonisolated static func == (lhs: TranscriptTurnView, rhs: TranscriptTurnView) -> Bool {
+    nonisolated static func == (lhs: TranscriptRowView, rhs: TranscriptRowView) -> Bool {
         lhs.sessionID == rhs.sessionID
-            && lhs.turn == rhs.turn
+            && lhs.row == rhs.row
             && lhs.subagents == rhs.subagents
-            && lhs.showsWorkedFooter == rhs.showsWorkedFooter
-            && lhs.activityFooter == rhs.activityFooter
             && lhs.liveSession == rhs.liveSession
     }
 
@@ -470,20 +437,16 @@ struct TranscriptTurnView: View, Equatable {
         }
     }
 
+    @ViewBuilder
     var body: some View {
         #if CC_PERF
-        let _ = PerfCounters.shared.hit(.turnRow)
+        let _ = PerfCounters.shared.hit(.transcriptRow)
         #endif
-        VStack(alignment: .leading, spacing: 20) {
-            ForEach(Array(turn.prompts.enumerated()), id: \.offset) { _, prompt in
-                PromptBubble(
-                    prompt: prompt,
-                    sessionID: sessionID,
-                    downloadFile: promptDownload
-                )
-            }
-
-            ForEach(turn.items) { item in
+        Group {
+            switch row.kind {
+            case .prompt(let prompt):
+                PromptBubble(prompt: prompt, sessionID: sessionID, downloadFile: promptDownload)
+            case .item(let item):
                 TurnItemView(
                     item: item,
                     subagents: subagents,
@@ -493,14 +456,10 @@ struct TranscriptTurnView: View, Equatable {
                     onCompaction: onCompaction,
                     downloadFile: downloadFile
                 )
-            }
-
-            if showsWorkedFooter && turn.hasWorkedFooter {
-                WorkedFooter(durationMs: turn.durationMs)
-            }
-
-            if let activityFooter {
-                LiveActivityFooterView(footer: activityFooter, session: liveSession)
+            case .workedFooter(let durationMs):
+                WorkedFooter(durationMs: durationMs)
+            case .liveActivityFooter(let footer):
+                LiveActivityFooterView(footer: footer, session: liveSession)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

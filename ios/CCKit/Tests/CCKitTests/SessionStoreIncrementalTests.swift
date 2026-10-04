@@ -18,6 +18,7 @@ final class SessionStoreIncrementalTests: XCTestCase {
                 applyRandomOperation(to: store, random: &random, step: step, working: &working)
                 let expected = groupTurns(entries: store.entries, working: working, now: fixedNow)
                 XCTAssertEqual(store.turns, expected, "seed=\(seed) step=\(step)")
+                XCTAssertEqual(store.rows, transcriptRows(for: expected), "rows seed=\(seed) step=\(step)")
                 assertions += 1
             }
         }

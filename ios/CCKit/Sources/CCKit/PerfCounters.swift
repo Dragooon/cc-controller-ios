@@ -5,6 +5,7 @@ public final class PerfCounters: @unchecked Sendable {
     public enum Counter: String, CaseIterable, Sendable {
         case transcriptList
         case turnRow
+        case transcriptRow
         case composerBody
         case bottomStackBody
         case markdownView
