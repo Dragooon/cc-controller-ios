@@ -3,10 +3,10 @@ import XCTest
 @testable import CCKit
 
 final class DiskCacheTests: XCTestCase {
-    func testDefaultDebounceIsFiveSeconds() async {
+    func testDefaultDebounceIsThirtySeconds() async {
         let cache = DiskCache(directory: temporaryDirectory())
         let debounce = await cache.debounce
-        XCTAssertEqual(debounce, .seconds(5))
+        XCTAssertEqual(debounce, .seconds(30))
     }
 
     func testOnlyChangedTranscriptsAreWrittenAndUnopenedTranscriptSurvives() async throws {

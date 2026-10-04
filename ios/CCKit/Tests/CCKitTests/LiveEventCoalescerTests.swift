@@ -27,6 +27,16 @@ final class LiveEventCoalescerTests: XCTestCase {
         XCTAssertEqual(coalescer.drainAll(), [.stateDelta(first), .usage(second)])
     }
 
+    func testSubagentUpsertsCoalesceDistinctIdentities() throws {
+        let coalescer = LiveEventCoalescer()
+        coalescer.enqueue(.subagent(SubagentEvent(sessionId: "session-1", subagents: [Subagent(state: .running, toolUseId: "task-1")])))
+        coalescer.enqueue(.subagent(SubagentEvent(sessionId: "session-1", subagents: [Subagent(state: .done, toolUseId: "task-2")])))
+        guard case .subagent(let event) = try XCTUnwrap(coalescer.drain(sessionID: "session-1").first) else {
+            return XCTFail("Expected a coalesced subagent event")
+        }
+        XCTAssertEqual(event.subagents?.map(\.toolUseId), ["task-1", "task-2"])
+    }
+
     func testSuccessiveStateDeltasMergeKeysAndRetainExplicitNulls() throws {
         let coalescer = LiveEventCoalescer()
         let first = StateDelta(sessionId: "session-1", state: .working, lastTool: "Bash", toolRunning: true)

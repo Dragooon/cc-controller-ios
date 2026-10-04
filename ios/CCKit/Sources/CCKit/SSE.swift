@@ -51,6 +51,7 @@ public struct TranscriptEvent: Codable, Sendable, Equatable {
 }
 public struct UsageEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var usage:Usage?;public init(sessionId:String? = nil,usage:Usage? = nil){self.sessionId = sessionId;self.usage = usage} }
 public struct SubagentsEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var subagents:[Subagent]?;public init(sessionId:String? = nil,subagents:[Subagent]? = nil){self.sessionId = sessionId;self.subagents = subagents} }
+public typealias SubagentEvent = SubagentsEvent
 public struct ApprovalEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var requestId:String?;public var toolName:String?;public var toolInput:JSONValue?;public var toolUseId:String?;public var permissionMode:String?;public var agentType:String?;public var receivedAt:Date?;public var holdLimitMs:Int?;public var mode:ApprovalMode?;public var status:ApprovalStatus?;public var timedOutAt:Date?;public var permissionSuggestions:[JSONValue]?;enum CodingKeys:String,CodingKey{case sessionId,requestId,toolName = "tool_name",toolInput = "tool_input",toolUseId = "tool_use_id",permissionMode = "permission_mode",agentType = "agent_type",receivedAt,holdLimitMs,mode,status,timedOutAt,permissionSuggestions = "permission_suggestions"};public init(sessionId:String? = nil,requestId:String? = nil,toolName:String? = nil,toolInput:JSONValue? = nil,toolUseId:String? = nil,permissionMode:String? = nil,agentType:String? = nil,receivedAt:Date? = nil,holdLimitMs:Int? = nil,mode:ApprovalMode? = nil,status:ApprovalStatus? = nil,timedOutAt:Date? = nil,permissionSuggestions:[JSONValue]? = nil){self.sessionId = sessionId;self.requestId = requestId;self.toolName = toolName;self.toolInput = toolInput;self.toolUseId = toolUseId;self.permissionMode = permissionMode;self.agentType = agentType;self.receivedAt = receivedAt;self.holdLimitMs = holdLimitMs;self.mode = mode;self.status = status;self.timedOutAt = timedOutAt;self.permissionSuggestions = permissionSuggestions} }
 public struct DecisionEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var requestId:String?;public var toolName:String?;public var toolInput:JSONValue?;public var permissionMode:String?;public var receivedAt:Date?;public var holdLimitMs:Int?;public var mode:ApprovalMode?;public var status:ApprovalStatus?;public var timedOutAt:Date?;public var behavior:DecisionBehavior?;public var via:String?;public var text:String?;enum CodingKeys:String,CodingKey{case sessionId,requestId,toolName = "tool_name",toolInput = "tool_input",permissionMode = "permission_mode",receivedAt,holdLimitMs,mode,status,timedOutAt,behavior,via,text};public init(sessionId:String? = nil,requestId:String? = nil,toolName:String? = nil,toolInput:JSONValue? = nil,permissionMode:String? = nil,receivedAt:Date? = nil,holdLimitMs:Int? = nil,mode:ApprovalMode? = nil,status:ApprovalStatus? = nil,timedOutAt:Date? = nil,behavior:DecisionBehavior? = nil,via:String? = nil,text:String? = nil){self.sessionId = sessionId;self.requestId = requestId;self.toolName = toolName;self.toolInput = toolInput;self.permissionMode = permissionMode;self.receivedAt = receivedAt;self.holdLimitMs = holdLimitMs;self.mode = mode;self.status = status;self.timedOutAt = timedOutAt;self.behavior = behavior;self.via = via;self.text = text} }
 public struct FileEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var name:String?;public var size:Int?;public var mime:String?;public var url:String?;public init(sessionId:String? = nil,name:String? = nil,size:Int? = nil,mime:String? = nil,url:String? = nil){self.sessionId = sessionId;self.name = name;self.size = size;self.mime = mime;self.url = url} }
@@ -64,6 +65,7 @@ public enum LiveEvent: Sendable, Equatable {
     case transcript(TranscriptEvent)
     case usage(UsageEvent)
     case subagents(SubagentsEvent)
+    case subagent(SubagentEvent)
     case approval(ApprovalEvent)
     case decision(DecisionEvent)
     case file(FileEvent)
@@ -85,6 +87,7 @@ public enum LiveEvent: Sendable, Equatable {
         case "transcript": return try? .transcript(decoder.decode(TranscriptEvent.self, from: bytes))
         case "usage": return try? .usage(decoder.decode(UsageEvent.self, from: bytes))
         case "subagents": return try? .subagents(decoder.decode(SubagentsEvent.self, from: bytes))
+        case "subagent": return try? .subagent(decoder.decode(SubagentEvent.self, from: bytes))
         case "approval": return try? .approval(decoder.decode(ApprovalEvent.self, from: bytes))
         case "decision": return try? .decision(decoder.decode(DecisionEvent.self, from: bytes))
         case "file": return try? .file(decoder.decode(FileEvent.self, from: bytes))

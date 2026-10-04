@@ -30,6 +30,16 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
     }
 
+    func testEventRequestOptsIntoSubagentUpsertsWhenAdvertised() async throws {
+        let client = makeClient()
+        StubURLProtocol.handler = { _ in
+            StubURLProtocol.response(status: 200, body: Data("{\"apiVersion\":2,\"capabilities\":{\"subagentUpsert\":true}}".utf8))
+        }
+        _ = try await client.bootstrap()
+        let request = await client.eventRequest()
+        XCTAssertEqual(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems, [URLQueryItem(name: "subagentUpsert", value: "true")])
+    }
+
     func testMessageNowAndMultipartUpload() async throws {
         var bodies: [Data] = []
         var contentTypes: [String?] = []

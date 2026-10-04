@@ -4,6 +4,10 @@ import XCTest
 
 @MainActor
 final class AppStoreTests: XCTestCase {
+    func testCacheWriteDebounceIsThirtySeconds() {
+        XCTAssertEqual(AppStore.cacheWriteDebounce, .seconds(30))
+    }
+
     func testBootstrapToLive() async throws {
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/bootstrap" {
@@ -268,6 +272,44 @@ final class AppStoreTests: XCTestCase {
         app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [Subagent(agentId: "agent-1", state: .running)])))
         try await settleCoalescedEvents()
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-1")
+    }
+
+    func testSubagentUpsertMergesAndOrdersNewestFirst() async throws {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let older = Date(timeIntervalSince1970: 10)
+        let newer = Date(timeIntervalSince1970: 20)
+        app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [
+            Subagent(agentId: "agent-old", state: .running, startedAt: older, toolUseId: "task-old"),
+        ])))
+        try await settleCoalescedEvents()
+        app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [
+            Subagent(agentId: "agent-new", state: .running, startedAt: newer, toolUseId: "task-new"),
+            Subagent(agentId: "agent-old", state: .done, startedAt: older, toolUseId: "task-old"),
+        ])))
+        try await settleCoalescedEvents()
+        XCTAssertEqual(app.sessions["session-1"]?.subagents?.map(\.toolUseId), ["task-new", "task-old"])
+        XCTAssertEqual(app.sessions["session-1"]?.subagents?.last?.state, .done)
+    }
+
+    func testNoOpSubagentUpsertDoesNotMutateSession() async throws {
+        let app = makeApp()
+        let existing = Subagent(agentId: "agent-1", state: .done, startedAt: Date(timeIntervalSince1970: 10), toolUseId: "task-1")
+        app.apply(.state(StateSnapshot(sessions: [Self.session(subagents: [existing])], entries: ["session-1": 0])))
+        let before = app.sessions["session-1"]
+        app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [existing])))
+        try await settleCoalescedEvents()
+        XCTAssertEqual(app.sessions["session-1"], before)
+    }
+
+    func testFullSubagentsEventReplacesAfterUpsert() async throws {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [Subagent(agentId: "agent-1", state: .running)])))
+        try await settleCoalescedEvents()
+        app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [])))
+        try await settleCoalescedEvents()
+        XCTAssertEqual(app.sessions["session-1"]?.subagents, [])
     }
 
     func testApprovalModeUpdatesSessionFromModeRoute() async {
@@ -575,6 +617,31 @@ final class AppStoreTests: XCTestCase {
         app.suspend()
     }
 
+    func testClosingStoreFlushesTranscriptCacheWithoutDebounce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        URLProtocolStub.keepEvents = true
+        defer { URLProtocolStub.keepEvents = false }
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data(), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true { return URLProtocolStub.json(Self.entriesJSON([])) }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp(cacheDirectory: directory)
+        app.start()
+        try await waitUntil { app.lastUpdated != nil && app.sessions["session-1"] != nil }
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        store.merge([Self.entry(id: "closed-entry")])
+        app.closeSession("session-1")
+        for _ in 0..<50 {
+            if (try? await DiskCache(directory: directory).load()?.transcripts["session-1"]?.contains(where: { $0.id == "closed-entry" })) == true { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let loaded = try await DiskCache(directory: directory).load()
+        XCTAssertEqual(loaded?.transcripts["session-1"]?.first?.id, "closed-entry")
+        app.suspend()
+    }
+
     func testUnauthorizedBootstrapIsExplicitOfflineState() async throws {
         URLProtocolStub.handler = { _ in URLProtocolStub.json(401, body: Data("{\"error\":\"Authentication required\"}".utf8)) }
         let app = makeApp()
@@ -609,8 +676,8 @@ final class AppStoreTests: XCTestCase {
         )
     }
 
-    private static func session(state: SessionState = .idle) -> Session {
-        Session(id: "session-1", name: "Fixture", live: true, state: state, usage: Usage())
+    private static func session(state: SessionState = .idle, subagents: [Subagent]? = nil) -> Session {
+        Session(id: "session-1", name: "Fixture", live: true, state: state, usage: Usage(), subagents: subagents)
     }
 
     private static func entry(id: String) -> TranscriptEntry {

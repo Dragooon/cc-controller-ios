@@ -32,9 +32,10 @@ public struct Capabilities: Codable, Sendable, Equatable {
     public var sendNow: Bool?
     public var logout: Bool?
     public var errorCodes: Bool?
-    public var values: [String: Bool] { var result: [String: Bool] = [:]; if let bearer { result["bearer"] = bearer }; if let pagination { result["pagination"] = pagination }; if let gzip { result["gzip"] = gzip }; if let sendNow { result["sendNow"] = sendNow }; if let logout { result["logout"] = logout }; if let errorCodes { result["errorCodes"] = errorCodes }; return result }
-    public init(bearer: Bool? = nil, pagination: Bool? = nil, gzip: Bool? = nil, sendNow: Bool? = nil, logout: Bool? = nil, errorCodes: Bool? = nil) {
-        self.bearer = bearer; self.pagination = pagination; self.gzip = gzip; self.sendNow = sendNow; self.logout = logout; self.errorCodes = errorCodes
+    public var subagentUpsert: Bool?
+    public var values: [String: Bool] { var result: [String: Bool] = [:]; if let bearer { result["bearer"] = bearer }; if let pagination { result["pagination"] = pagination }; if let gzip { result["gzip"] = gzip }; if let sendNow { result["sendNow"] = sendNow }; if let logout { result["logout"] = logout }; if let errorCodes { result["errorCodes"] = errorCodes }; if let subagentUpsert { result["subagentUpsert"] = subagentUpsert }; return result }
+    public init(bearer: Bool? = nil, pagination: Bool? = nil, gzip: Bool? = nil, sendNow: Bool? = nil, logout: Bool? = nil, errorCodes: Bool? = nil, subagentUpsert: Bool? = nil) {
+        self.bearer = bearer; self.pagination = pagination; self.gzip = gzip; self.sendNow = sendNow; self.logout = logout; self.errorCodes = errorCodes; self.subagentUpsert = subagentUpsert
     }
 }
 

@@ -43,7 +43,7 @@ public actor DiskCache {
     private let transcriptPrefix = "transcript-"
     private let transcriptSuffix = ".json"
 
-    public init(directory: URL, clock: any CCKitClock = SystemCCKitClock(), debounce: Duration = .seconds(5)) {
+    public init(directory: URL, clock: any CCKitClock = SystemCCKitClock(), debounce: Duration = .seconds(30)) {
         self.directory = directory
         self.clock = clock
         self.debounce = debounce

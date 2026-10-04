@@ -24,4 +24,12 @@ final class SSEParserTests: XCTestCase {
             XCTAssertEqual(delta.state, .unknown("mystery"))
         } else { XCTFail("Expected state delta") }
     }
+
+    func testSubagentUpsertEventDecodes() {
+        guard case .subagent(let event) = LiveEvent.decode(name: "subagent", data: "{\"sessionId\":\"s\",\"subagents\":[{\"toolUseId\":\"task-1\",\"state\":\"done\"}]}") else {
+            return XCTFail("Expected subagent upsert")
+        }
+        XCTAssertEqual(event.sessionId, "s")
+        XCTAssertEqual(event.subagents?.first?.toolUseId, "task-1")
+    }
 }

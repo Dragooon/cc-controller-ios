@@ -1,8 +1,13 @@
 import Foundation
 import Observation
 
+private func subagentIdentity(_ value: Subagent) -> String? {
+    value.toolUseId ?? value.agentId
+}
+
 @MainActor @Observable
 public final class AppStore {
+    static let cacheWriteDebounce: Duration = .seconds(30)
     public private(set) var connection: ConnectionState = .offline(lastUpdated: nil, error: nil)
     public private(set) var sessions: [String: Session] = [:]
     public private(set) var approvals: [Approval] = []
@@ -492,6 +497,11 @@ public final class AppStore {
             PerfCounters.shared.hit(.sseSubagents)
             #endif
             enqueue(CoalescedLiveEvent.subagents(subagents))
+        case .subagent(let subagent):
+            #if CC_PERF
+            PerfCounters.shared.hit(.sseSubagents)
+            #endif
+            enqueue(CoalescedLiveEvent.subagent(subagent))
         case .approval(let approval):
             flushPendingEvents(for: approval.sessionId)
             applyMeasured(event) { [self] in applyApproval(approval) }
@@ -535,6 +545,7 @@ public final class AppStore {
             case .stateDelta(let delta): applyMeasured(.stateDelta(delta)) { [self] in applyStateDelta(delta) }
             case .usage(let usage): applyMeasured(.usage(usage)) { [self] in applyUsage(usage) }
             case .subagents(let subagents): applyMeasured(.subagents(subagents)) { [self] in applySubagents(subagents) }
+            case .subagent(let subagent): applyMeasured(.subagent(subagent)) { [self] in applySubagent(subagent) }
             }
         }
         if eventCoalescer.isEmpty {
@@ -551,7 +562,7 @@ public final class AppStore {
         PerfCounters.shared.recordMilliseconds(.mainActorBusyMilliseconds, value: elapsed)
         switch event {
         case .stateDelta: PerfCounters.shared.recordMilliseconds(.stateDeltaApplyMilliseconds, value: elapsed)
-        case .subagents: PerfCounters.shared.recordMilliseconds(.subagentsApplyMilliseconds, value: elapsed)
+        case .subagents, .subagent: PerfCounters.shared.recordMilliseconds(.subagentsApplyMilliseconds, value: elapsed)
         case .transcript: PerfCounters.shared.recordMilliseconds(.transcriptApplyMilliseconds, value: elapsed)
         default: break
         }
@@ -881,6 +892,36 @@ public final class AppStore {
         scheduleCacheWrite()
     }
 
+    private func applySubagent(_ event: SubagentEvent) {
+        guard let sessionID = event.sessionId, var session = sessions[sessionID], let incoming = event.subagents else { return }
+        var merged = session.subagents ?? []
+        for value in incoming {
+            if let identity = subagentIdentity(value), let index = merged.firstIndex(where: { subagentIdentity($0) == identity }) {
+                merged[index] = value
+            } else {
+                merged.append(value)
+            }
+        }
+        let positions: [String: Int] = Dictionary(uniqueKeysWithValues: merged.enumerated().compactMap { index, value in
+            guard let identity = subagentIdentity(value) else { return nil }
+            return (identity, index)
+        })
+        merged.sort { left, right in
+            let leftDate = left.startedAt ?? .distantPast
+            let rightDate = right.startedAt ?? .distantPast
+            if leftDate != rightDate { return leftDate > rightDate }
+            let leftPosition = positions[subagentIdentity(left) ?? ""] ?? 0
+            let rightPosition = positions[subagentIdentity(right) ?? ""] ?? 0
+            return leftPosition < rightPosition
+        }
+        guard session.subagents != merged else { return }
+        session.subagents = merged
+        sessions[sessionID] = session
+        updateOpenStores(for: session)
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+    }
+
     private func applyApproval(_ event: ApprovalEvent) {
         guard let sessionID = event.sessionId, let requestID = event.requestId else { return }
         var pending = sessions[sessionID]?.pending ?? []
@@ -1005,7 +1046,7 @@ public final class AppStore {
         guard cacheWriteTask == nil else { return }
         cacheWriteTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: .seconds(5))
+                try await Task.sleep(for: Self.cacheWriteDebounce)
             } catch {
                 return
             }
@@ -1061,6 +1102,9 @@ public final class AppStore {
     private func closeStore(forKey key: String) {
         guard let store = openStores.removeValue(forKey: key) else { return }
         cachedTranscripts[key] = Array(store.entries.suffix(400))
+        cacheChangedStoreKeys.insert(key)
+        cacheWritePending = true
+        writeCacheSnapshot()
     }
 
     private func transcriptDidChange(for key: String) {

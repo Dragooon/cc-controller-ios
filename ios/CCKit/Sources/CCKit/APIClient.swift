@@ -121,7 +121,11 @@ public actor APIClient {
     }
 
     public func eventRequest() -> URLRequest {
-        var request = URLRequest(url: endpoint("/api/events"))
+        var query: [URLQueryItem] = []
+        if lastCapabilities?.subagentUpsert == true {
+            query.append(URLQueryItem(name: "subagentUpsert", value: "true"))
+        }
+        var request = URLRequest(url: endpoint("/api/events", query: query))
         request.httpMethod = "GET"
         applyHeaders(to: &request)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
