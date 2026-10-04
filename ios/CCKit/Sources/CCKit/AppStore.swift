@@ -168,6 +168,15 @@ public final class AppStore {
         draftCache.save(drafts)
     }
 
+    private func clearDraft(for sessionID: String, matching sentText: String, agentID: String? = nil) {
+        let key = draftKey(sessionID: sessionID, agentID: agentID)
+        guard let current = drafts[key],
+              current.trimmingCharacters(in: .whitespacesAndNewlines)
+                  == sentText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        drafts.removeValue(forKey: key)
+        draftCache.save(drafts)
+    }
+
     public func allow(_ approval: Approval, scope: ApprovalScope = .once) async -> Result<Void, ActionError> {
         await decide(approval, behavior: scope == .session ? .allowSession : .allow)
     }
@@ -295,7 +304,7 @@ public final class AppStore {
             attachmentProgressDates = attachmentProgressDates.filter { !sentIDs.contains($0.key) }
             if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
             attachmentRevision += 1
-            clearDraft(for: sessionID)
+            clearDraft(for: sessionID, matching: trimmed)
         }
         return result
     }

@@ -416,6 +416,17 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.draft(for: "session-1"), "keep this")
     }
 
+    func testSuccessfulSendDoesNotClearNewerDraftText() async {
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8)) }
+        let app = makeApp()
+        app.setDraft("send this plus newer text", for: "session-1")
+
+        guard case .success = await app.sendComposer(text: " send this ", to: "session-1") else {
+            return XCTFail("Successful send was rejected")
+        }
+        XCTAssertEqual(app.draft(for: "session-1"), "send this plus newer text")
+    }
+
     func testQueuedNoteClearsViaRefetchGap() async throws {
         let createdAt = Date()
         URLProtocolStub.handler = { request in

@@ -30,6 +30,7 @@ struct SessionTranscriptView: View {
     @State private var newestIsVisible = true
     @State private var pagingAnchorEntryID: String?
     @State private var pagingRestoreTask: Task<Void, Never>?
+    @State private var newestScrollTask: Task<Void, Never>?
     @State private var pagingError: String?
     @State private var transcriptHeight: CGFloat = 0
     @State private var userHasScrolled = false
@@ -120,7 +121,7 @@ struct SessionTranscriptView: View {
                     scrollToPagingAnchor(anchorID, using: proxy)
                 }
             }
-            .onChange(of: turns.last?.id) { _, _ in
+            .onChange(of: turns) { _, _ in
                 scrollToNewest(using: proxy)
             }
             .onChange(of: queuedNotes) { _, _ in
@@ -143,6 +144,7 @@ struct SessionTranscriptView: View {
             }
             .onScrollPhaseChange { _, phase in
                 guard phase == .interacting else { return }
+                newestScrollTask?.cancel()
                 userHasScrolled = true
                 if pagingRowIsVisible {
                     loadEarlierIfNeeded()
@@ -273,13 +275,11 @@ struct SessionTranscriptView: View {
         #if CC_PERF
         PerfCounters.shared.hit(.scrollToBottom)
         #endif
-        Task { @MainActor in
-            do {
-                try await Task.sleep(for: .milliseconds(250))
-            } catch {
-                return
-            }
-            guard newestIsVisible else { return }
+        guard newestIsVisible else { return }
+        newestScrollTask?.cancel()
+        newestScrollTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
             withAnimation(.snappy) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }

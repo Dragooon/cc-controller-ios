@@ -84,6 +84,7 @@ final class ComposerFlowTests: XCTestCase {
         let send = app.buttons["composer-queue"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Queue button did not load while working")
         send.tap()
+        XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 10), "Queued caption did not render")
 
         try await Task.sleep(for: .milliseconds(100))
         let earlyComposerHeight = composer.frame.height
@@ -200,9 +201,13 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(waitForValue(of: field, equalTo: marker, timeout: 10), "Failed send wiped the draft")
         if app.alerts.firstMatch.waitForExistence(timeout: 5) { app.alerts.buttons["OK"].tap() }
 
+        try await postFixture("/fixture/delay-next-send")
         app.buttons["composer-send"].tap()
+        try await Task.sleep(for: .milliseconds(100))
+        let extraText = " while sending"
+        field.typeText(extraText)
         let resetField = composerField(in: app)
-        XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Successful send did not clear the draft")
+        XCTAssertTrue(waitForValue(of: resetField, equalTo: extraText, timeout: 10), "Text typed during send did not survive")
     }
 
     private func postFixture(_ path: String) async throws {

@@ -224,17 +224,23 @@ struct BottomStackView: View {
     private func submit(now: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!trimmed.isEmpty || !configuration.attachments.isEmpty), !isSending else { return }
+        let submittedText = trimmed
         isSending = true
         Task { @MainActor in
-            let result = await configuration.onSend(trimmed, now)
+            let result = await configuration.onSend(submittedText, now)
             isSending = false
             switch result {
             case .success:
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    text = ""
-                    fieldResetGeneration += 1
+                    if text == submittedText {
+                        text = ""
+                        fieldResetGeneration += 1
+                    } else if text.hasPrefix(submittedText) {
+                        text = String(text.dropFirst(submittedText.count))
+                        fieldResetGeneration += 1
+                    }
                 }
                 sendFeedbackCount += 1
             case .failure(let error):
