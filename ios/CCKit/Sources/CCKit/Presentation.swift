@@ -255,14 +255,14 @@ public struct SubagentIndex: Sendable, Equatable {
     private let byAgentID: [String: Subagent]
 
     public init(_ subagents: [Subagent]) {
-        byToolUseID = Dictionary(uniqueKeysWithValues: subagents.compactMap { subagent in
+        byToolUseID = Dictionary(subagents.compactMap { subagent in
             guard let toolUseID = subagent.toolUseId, !toolUseID.isEmpty else { return nil }
             return (toolUseID, subagent)
-        })
-        byAgentID = Dictionary(uniqueKeysWithValues: subagents.compactMap { subagent in
+        }, uniquingKeysWith: { first, _ in first })
+        byAgentID = Dictionary(subagents.compactMap { subagent in
             guard let agentID = subagent.agentId, !agentID.isEmpty else { return nil }
             return (agentID, subagent)
-        })
+        }, uniquingKeysWith: { first, _ in first })
     }
 
     public func matchingSubagents(for item: TurnItem) -> [Subagent] {

@@ -103,6 +103,7 @@ struct SessionTranscriptView: View {
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .alignment)
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .sizeChanges)
             .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("transcript-scroll")
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
             } action: { _, height in
@@ -343,7 +344,7 @@ struct SessionTranscriptView: View {
                 sessionID: sessionID,
                 row: row,
                 subagents: rowSubagents(for: row),
-                liveSession: row.turnID == turns.last?.id ? liveSession : nil,
+                liveSession: rowUsesLiveSession(row) ? liveSession : nil,
                 onTool: onTool,
                 onSubagent: onSubagent,
                 onSubagentResult: onSubagentResult,
@@ -367,6 +368,11 @@ struct SessionTranscriptView: View {
             .frame(height: 1)
             .id("transcript-bottom")
             .accessibilityHidden(true)
+    }
+
+    private func rowUsesLiveSession(_ row: TranscriptRow) -> Bool {
+        guard case .liveActivityFooter = row.kind else { return false }
+        return true
     }
 
     private func rowSubagents(for row: TranscriptRow) -> [Subagent] {

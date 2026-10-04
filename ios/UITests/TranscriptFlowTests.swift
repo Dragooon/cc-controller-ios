@@ -48,7 +48,7 @@ final class TranscriptFlowTests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools'")
         ).firstMatch
         XCTAssertTrue(toolGroup.waitForExistence(timeout: 20), "Tool group did not load")
-        let transcriptScroll = app.scrollViews.firstMatch
+        let transcriptScroll = app.scrollViews["transcript-scroll"]
         transcriptScroll.swipeDown()
         for _ in 0..<4 where !toolGroup.isHittable {
             transcriptScroll.swipeDown()
@@ -234,7 +234,7 @@ final class TranscriptFlowTests: XCTestCase {
         let initialRow = app.staticTexts["Long-session prompt 499: inspect the next checkpoint."]
         XCTAssertTrue(initialRow.waitForExistence(timeout: 30), "Newest long-session row did not load")
         let visibleRow = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
-        let scrollView = app.scrollViews.firstMatch
+        let scrollView = app.scrollViews["transcript-scroll"]
         for _ in 0..<80 {
             scrollView.swipeDown(velocity: .fast)
             if visibleRow.exists && visibleRow.isHittable { break }
@@ -273,7 +273,7 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
         let jump = app.buttons["Jump to latest"]
         XCTAssertFalse(jump.exists, "Jump to latest is visible while the long session is bottom-anchored")
-        let scrollView = app.scrollViews.firstMatch
+        let scrollView = app.scrollViews["transcript-scroll"]
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
 
         let older = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
@@ -332,7 +332,7 @@ final class TranscriptFlowTests: XCTestCase {
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
-        let scrollView = app.scrollViews.firstMatch
+        let scrollView = app.scrollViews["transcript-scroll"]
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
         try await Task.sleep(for: .seconds(3))
         let visibleRows = app.staticTexts.matching(
@@ -368,7 +368,7 @@ final class TranscriptFlowTests: XCTestCase {
         let coldInApp = try await firstRowsMilliseconds(in: app)
         print("INSTANT_OPEN_COLD_MS \(Int(Date().timeIntervalSince(coldStart) * 1000))")
         print("INSTANT_OPEN_COLD_IN_APP_MS \(String(format: "%.1f", coldInApp))")
-        let coldScroll = app.scrollViews.firstMatch
+        let coldScroll = app.scrollViews["transcript-scroll"]
         XCTAssertTrue(coldScroll.waitForExistence(timeout: 10), "Cold transcript scroll view did not load")
         let cacheSeedRow = app.staticTexts["Long-session prompt 350: inspect the next checkpoint."]
         for _ in 0..<80 where !cacheSeedRow.isHittable {
@@ -403,7 +403,7 @@ final class TranscriptFlowTests: XCTestCase {
         middleSession.tap()
         let cachedRow = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(cachedRow.waitForExistence(timeout: 1), "Cached transcript was not visible for middle-scroll check")
-        let scrollView = app.scrollViews.firstMatch
+        let scrollView = app.scrollViews["transcript-scroll"]
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
         let visibleRows = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")

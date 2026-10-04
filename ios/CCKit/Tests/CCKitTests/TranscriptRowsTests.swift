@@ -86,4 +86,12 @@ final class TranscriptRowsTests: XCTestCase {
         XCTAssertEqual(footer.primary, "Working")
         XCTAssertEqual(footer.detail, "Reading")
     }
+
+    func testSubagentIndexToleratesDuplicateIdentities() {
+        let first = Subagent(agentId: "agent-1", state: .running, toolUseId: "task-1")
+        let second = Subagent(agentId: "agent-1", state: .done, toolUseId: "task-1")
+        let index = SubagentIndex([first, second])
+        let item = TurnItem.subagent(SubagentEntry(id: "subagent", toolUseId: "task-1", agentId: "agent-1"))
+        XCTAssertEqual(index.matchingSubagents(for: item), [first])
+    }
 }
