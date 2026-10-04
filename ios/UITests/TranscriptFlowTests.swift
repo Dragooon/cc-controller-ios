@@ -437,6 +437,36 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Jump to latest is visible for a fully visible short transcript")
     }
 
+    func testKeyboardBottomStaysPinnedThroughReconnectAndDelayedDelivery() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "keyboard-reconnect-delivery")
+            app.terminate()
+        }
+        let longSession = findLongSession(in: app)
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        longSession.tap()
+
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "Transcript composer did not load")
+        composer.tap()
+        let marker = "keyboard-reconnect-\(UUID().uuidString)"
+        composer.typeText(marker + String(repeating: " wrap", count: 30))
+        app.buttons["composer-send"].tap()
+
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Delayed delivery did not show a pending prompt")
+        XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
+        let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
+        XCTAssertTrue(delivered.waitForExistence(timeout: 15), "Delayed delivered prompt did not render")
+        XCTAssertTrue(waitForHittable(delivered, timeout: 15), "Delayed delivered prompt was not visible at the bottom")
+        XCTAssertFalse(app.buttons["Jump to latest"].exists, "Reconnect and delayed delivery moved the transcript away from the bottom")
+        let paths = try await fixtureRequestPaths()
+        XCTAssertTrue(paths.contains { $0.contains("tail=400") }, "Delayed delivery did not exercise reconnect refetch: \(paths)")
+    }
+
     func testJumpHiddenAfterLiveAppendAtBottom() throws {
         let app = launchFixture()
         defer {
@@ -462,6 +492,46 @@ final class TranscriptFlowTests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(workingStatus.waitForExistence(timeout: 15), "Working Dune status did not load")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Jump to latest is visible after a live append at the bottom")
+    }
+
+    func testRunningSpinnerDoesNotReflowTranscript() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "spinner-transcript-reflow")
+            app.terminate()
+        }
+
+        let liveRow = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(liveRow.waitForExistence(timeout: 30), "Working underwriting session did not load")
+        liveRow.tap()
+
+        let paragraphText = "I am checking the active underwriting run while the agents continue. The latest model routing and fixture coverage checks are still running while the owner reviews the newest underwriting decision evidence."
+        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 20), "Working underwriting transcript did not load")
+        guard let paragraph = app.staticTexts.allElementsBoundByIndex.first(where: { $0.label == paragraphText }) else {
+            XCTFail("Working underwriting assistant paragraph did not load")
+            return
+        }
+        var samples: [CGRect] = []
+        for _ in 0..<30 {
+            samples.append(paragraph.frame)
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let minLeading = samples.map(\.minX).min() ?? 0
+        let maxLeading = samples.map(\.minX).max() ?? 0
+        let minTrailing = samples.map(\.maxX).min() ?? 0
+        let maxTrailing = samples.map(\.maxX).max() ?? 0
+        let minTop = samples.map(\.minY).min() ?? 0
+        let maxTop = samples.map(\.minY).max() ?? 0
+        let minBottom = samples.map(\.maxY).min() ?? 0
+        let maxBottom = samples.map(\.maxY).max() ?? 0
+        let minHeight = samples.map(\.height).min() ?? 0
+        let maxHeight = samples.map(\.height).max() ?? 0
+        print("SPINNER_TRANSCRIPT_FRAMES samples=\(samples.count) leading=\(minLeading)...\(maxLeading) trailing=\(minTrailing)...\(maxTrailing) top=\(minTop)...\(maxTop) bottom=\(minBottom)...\(maxBottom) height=\(minHeight)...\(maxHeight)")
+        XCTAssertLessThanOrEqual(maxLeading - minLeading, 1, "Spinner changed transcript paragraph leading edge: \(samples)")
+        XCTAssertLessThanOrEqual(maxTrailing - minTrailing, 1, "Spinner changed transcript paragraph trailing edge: \(samples)")
+        XCTAssertLessThanOrEqual(maxTop - minTop, 1, "Spinner changed transcript paragraph top edge: \(samples)")
+        XCTAssertLessThanOrEqual(maxBottom - minBottom, 1, "Spinner changed transcript paragraph bottom edge: \(samples)")
+        XCTAssertLessThanOrEqual(maxHeight - minHeight, 1, "Spinner changed transcript paragraph wrapping: \(samples)")
     }
 
     private func promptCount(in app: XCUIApplication) -> Int {
@@ -557,4 +627,23 @@ final class TranscriptFlowTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+@MainActor
+private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+    let expectation = XCTNSPredicateExpectation(
+        predicate: NSPredicate(format: "exists == false"),
+        object: element
+    )
+    return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+}
+
+@MainActor
+private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if element.exists && element.isHittable { return true }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while Date() < deadline
+    return false
 }

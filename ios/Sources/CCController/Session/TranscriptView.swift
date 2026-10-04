@@ -2,8 +2,9 @@ import CCKit
 import SwiftUI
 
 private struct TranscriptScrollMetrics: Equatable {
-    let isAtBottom: Bool
     let contentFitsViewport: Bool
+    let contentHeight: CGFloat
+    let containerHeight: CGFloat
 }
 
 struct SessionTranscriptView: View {
@@ -27,7 +28,6 @@ struct SessionTranscriptView: View {
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
     @State private var pagingRowIsVisible = false
-    @State private var newestIsVisible = true
     @State private var pagingAnchorEntryID: String?
     @State private var pagingRestoreTask: Task<Void, Never>?
     @State private var newestScrollTask: Task<Void, Never>?
@@ -35,6 +35,8 @@ struct SessionTranscriptView: View {
     @State private var transcriptHeight: CGFloat = 0
     @State private var userHasScrolled = false
     @State private var contentFitsViewport = false
+    @State private var isPinnedToBottom = true
+    @State private var userIsScrolling = false
 
     init(
         sessionID: String = "",
@@ -84,6 +86,7 @@ struct SessionTranscriptView: View {
                     pagingRow
                     transcriptRows
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 18)
                 .scrollTargetLayout()
@@ -91,7 +94,9 @@ struct SessionTranscriptView: View {
                 .onAppear { TranscriptPerformance.shared.markFirstRows() }
                 #endif
             }
-            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor)
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .initialOffset)
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .alignment)
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .sizeChanges)
             .scrollDismissesKeyboard(.interactively)
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
@@ -125,43 +130,60 @@ struct SessionTranscriptView: View {
                 scrollToNewest(using: proxy)
             }
             .onChange(of: queuedNotes) { _, _ in
+                isPinnedToBottom = true
                 scrollToNewest(using: proxy)
             }
             .background(.ccBackground)
             .scrollEdgeEffectStyle(.hard, for: .bottom)
             .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
-                let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
-                return TranscriptScrollMetrics(
-                    isAtBottom: visibleBottom >= geometry.contentSize.height - 36,
-                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height
+                TranscriptScrollMetrics(
+                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height,
+                    contentHeight: geometry.contentSize.height,
+                    containerHeight: geometry.visibleRect.height
                 )
-            } action: { _, metrics in
-                newestIsVisible = metrics.isAtBottom
+            } action: { oldMetrics, metrics in
                 contentFitsViewport = metrics.contentFitsViewport
                 if metrics.contentFitsViewport {
                     loadEarlierIfNeeded()
                 }
+                guard isPinnedToBottom,
+                      !userIsScrolling,
+                      oldMetrics.contentHeight != metrics.contentHeight
+                          || oldMetrics.containerHeight != metrics.containerHeight else { return }
+                scrollToNewest(using: proxy)
             }
-            .onScrollPhaseChange { _, phase in
-                guard phase == .interacting else { return }
-                newestScrollTask?.cancel()
-                userHasScrolled = true
-                if pagingRowIsVisible {
-                    loadEarlierIfNeeded()
+            .onScrollPhaseChange { _, phase, context in
+                switch phase {
+                case .interacting:
+                    newestScrollTask?.cancel()
+                    userIsScrolling = true
+                    userHasScrolled = true
+                    if pagingRowIsVisible {
+                        loadEarlierIfNeeded()
+                    }
+                    cancelPagingRestore()
+                case .decelerating:
+                    userIsScrolling = true
+                case .idle:
+                    guard userIsScrolling else { return }
+                    userIsScrolling = false
+                    isPinnedToBottom = isAtBottom(in: context.geometry)
+                default:
+                    break
                 }
-                cancelPagingRestore()
             }
             .onChange(of: sessionID) { _, _ in
                 userHasScrolled = false
                 contentFitsViewport = false
+                isPinnedToBottom = true
+                userIsScrolling = false
                 pagingAnchorEntryID = nil
             }
             .overlay(alignment: .bottomTrailing) {
-                if !newestIsVisible, let newestID = turns.last?.id {
+                if !isPinnedToBottom, turns.last != nil {
                     Button {
-                        withAnimation(.snappy) {
-                            proxy.scrollTo("transcript-bottom", anchor: .bottom)
-                        }
+                        isPinnedToBottom = true
+                        scrollToNewest(using: proxy)
                     } label: {
                         Image(systemName: "arrow.down")
                             .font(.body.weight(.semibold))
@@ -271,16 +293,21 @@ struct SessionTranscriptView: View {
         }
     }
 
+    private func isAtBottom(in geometry: ScrollGeometry) -> Bool {
+        let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
+        return visibleBottom >= geometry.contentSize.height - 36
+    }
+
     private func scrollToNewest(using proxy: ScrollViewProxy) {
         #if CC_PERF
         PerfCounters.shared.hit(.scrollToBottom)
         #endif
-        guard newestIsVisible else { return }
+        guard isPinnedToBottom, !userIsScrolling else { return }
         newestScrollTask?.cancel()
         newestScrollTask = Task { @MainActor in
             await Task.yield()
-            guard !Task.isCancelled else { return }
-            withAnimation(.snappy) {
+            guard !Task.isCancelled, isPinnedToBottom, !userIsScrolling else { return }
+            withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
         }

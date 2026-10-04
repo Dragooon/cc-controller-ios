@@ -33,35 +33,43 @@ struct SpinnerGlyph: View {
     private let frames = ["·︎", "✢︎", "✳︎", "✶︎", "✻︎", "✽︎", "✻︎", "✶︎", "✳︎", "✢︎"]
 
     var body: some View {
-        Group {
-            if !active {
-                Text("○")
-                    .foregroundStyle(.ccTertiary)
-                    .accessibilityHidden(true)
-            } else if frozen || reduceMotion {
-                Text("✻︎")
-                    .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
-                    .accessibilityHidden(true)
-            } else if !isVisible {
-                Text("✻︎")
-                    .foregroundStyle(.ccAccent)
-                    .accessibilityHidden(true)
-            } else {
-                TimelineView(.periodic(from: .now, by: 0.12)) { context in
-                    let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)
-                    let frame = frames[Int(elapsed / 0.12) % frames.count]
-                    Text(frame)
-                        .foregroundStyle(.ccAccent)
-                        .accessibilityHidden(true)
-                }
+        ZStack {
+            Text("✽︎")
+                .hidden()
                 .accessibilityHidden(true)
-            }
+            currentFrame
         }
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
         .accessibilityElement(children: .ignore)
         .accessibilityHidden(true)
         .accessibilityRepresentation { EmptyView() }
+    }
+
+    @ViewBuilder
+    private var currentFrame: some View {
+        if !active {
+            Text("○")
+                .foregroundStyle(.ccTertiary)
+                .accessibilityHidden(true)
+        } else if frozen || reduceMotion {
+            Text("✻︎")
+                .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
+                .accessibilityHidden(true)
+        } else if !isVisible {
+            Text("✻︎")
+                .foregroundStyle(.ccAccent)
+                .accessibilityHidden(true)
+        } else {
+            TimelineView(.periodic(from: .now, by: 0.12)) { context in
+                let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)
+                let frame = frames[Int(elapsed / 0.12) % frames.count]
+                Text(frame)
+                    .foregroundStyle(.ccAccent)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityHidden(true)
+        }
     }
 }
 
