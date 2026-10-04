@@ -11,6 +11,8 @@ struct SlashCommand: Identifiable {
 struct BottomStackConfiguration: @unchecked Sendable {
     let composer: ComposerConfiguration
     let statusSegments: [String]
+    let activitySession: Session?
+    let onActivity: () -> Void
     let slashCommands: [SlashCommand]
     let attachments: [ComposerAttachment]
     let attachmentNotice: String?
@@ -30,6 +32,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
     init(
         composer: ComposerConfiguration = ComposerConfiguration(),
         statusSegments: [String] = [],
+        activitySession: Session? = nil,
+        onActivity: @escaping () -> Void = {},
         slashCommands: [SlashCommand] = [],
         attachments: [ComposerAttachment] = [],
         attachmentNotice: String? = nil,
@@ -48,6 +52,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
     ) {
         self.composer = composer
         self.statusSegments = statusSegments
+        self.activitySession = activitySession
+        self.onActivity = onActivity
         self.slashCommands = slashCommands
         self.attachments = attachments
         self.attachmentNotice = attachmentNotice
@@ -69,6 +75,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
         Self(
             composer: composer,
             statusSegments: statusSegments,
+            activitySession: activitySession,
+            onActivity: onActivity,
             slashCommands: slashCommands,
             attachments: attachments,
             attachmentNotice: attachmentNotice,
@@ -143,7 +151,11 @@ struct BottomStackView: View {
                 }
 
                 if !composerFocused, configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
-                    StatusLineView(segments: configuration.statusSegments)
+                    StatusLineView(
+                        segments: configuration.statusSegments,
+                        activitySession: configuration.activitySession,
+                        onActivity: configuration.onActivity
+                    )
                         .transition(.opacity)
                 }
 

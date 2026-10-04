@@ -43,7 +43,7 @@ json_value() {
 validate_mock_screens() {
   local selection=$1
   [[ -z "$selection" ]] && return 0
-  local valid=",sessions,sessions-empty,sessions-offline,sessions-reconnecting,session-idle,session-working,subagent-result-sheet,session-approvals,session-terminal-approval,composer-slash,composer-attachments,composer-keyboard,tool-detail,tool-detail-edit,subagent,inspector,settings,onboarding-welcome,onboarding-connect,onboarding-pair,onboarding-faceid,lock,privacy-cover,"
+  local valid=",sessions,sessions-empty,sessions-offline,sessions-reconnecting,session-idle,session-working,subagent-result-sheet,session-activity,session-approvals,session-terminal-approval,activity-sheet,composer-slash,composer-attachments,composer-keyboard,tool-detail,tool-detail-edit,subagent,inspector,settings,onboarding-welcome,onboarding-connect,onboarding-pair,onboarding-faceid,lock,privacy-cover,"
   local item
   local items=()
   IFS=, read -r -a items <<< "$selection"

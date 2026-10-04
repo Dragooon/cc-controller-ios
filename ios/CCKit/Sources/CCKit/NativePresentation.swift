@@ -57,11 +57,6 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
         parts.append(displayDuration(milliseconds))
     }
 
-    let count = session.subagents?.count ?? 0
-    if count > 0 {
-        parts.append("\(count) agent\(count == 1 ? "" : "s")")
-    }
-
     let context = formatContextUsage(session.usage)
     if !context.isEmpty {
         parts.append(context)

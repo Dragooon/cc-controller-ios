@@ -393,6 +393,59 @@ public func formatListDuration(_ milliseconds: Double) -> String {
     return "\(hours / 24)d \(hours % 24)h"
 }
 
+public enum ActivityItem: Sendable, Equatable, Identifiable {
+    case agent(Subagent)
+    case shell(Shell)
+
+    public var id: String {
+        switch self {
+        case .agent(let agent): agent.agentId ?? agent.toolUseId ?? "agent"
+        case .shell(let shell): shell.toolUseId ?? shell.taskId ?? "shell"
+        }
+    }
+
+    public var finishedAt: Date? {
+        switch self {
+        case .agent(let agent): agent.finishedAt
+        case .shell(let shell): shell.finishedAt
+        }
+    }
+}
+
+public func activityCounts(for session: Session) -> (agents: Int, shells: Int) {
+    let agents = session.subagents?.filter { $0.state == .running }.count ?? 0
+    let shells = session.shells?.filter { $0.state == .running }.count ?? 0
+    return (agents: agents, shells: shells)
+}
+
+public func activitySummaryText(for session: Session) -> String? {
+    let counts = activityCounts(for: session)
+    guard counts.agents > 0 || counts.shells > 0 else { return nil }
+    var parts: [String] = []
+    if counts.agents > 0 { parts.append("\(counts.agents) agent\(counts.agents == 1 ? "" : "s")") }
+    if counts.shells > 0 { parts.append("\(counts.shells) shell\(counts.shells == 1 ? "" : "s")") }
+    return parts.joined(separator: " · ")
+}
+
+public func finishedRecently(for session: Session, now: Date = .now) -> [ActivityItem] {
+    let cutoff = now.addingTimeInterval(-10 * 60)
+    let agents = (session.subagents ?? []).compactMap { agent -> ActivityItem? in
+        guard let finishedAt = agent.finishedAt,
+              finishedAt >= cutoff,
+              finishedAt <= now,
+              agent.state == .done || agent.state == .stopped || agent.state == .failed else { return nil }
+        return .agent(agent)
+    }
+    let shells = (session.shells ?? []).compactMap { shell -> ActivityItem? in
+        guard let finishedAt = shell.finishedAt,
+              finishedAt >= cutoff,
+              finishedAt <= now,
+              shell.state == .done || shell.state == .stopped || shell.state == .failed else { return nil }
+        return .shell(shell)
+    }
+    return (agents + shells).sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
+}
+
 public func formatTokenCount(_ value: Double) -> String {
     guard value.isFinite else { return "" }
     let absolute = abs(value)

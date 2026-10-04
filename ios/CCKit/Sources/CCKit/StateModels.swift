@@ -70,19 +70,20 @@ public struct StateDelta: Codable, Sendable, Equatable {
     public var entries: [String: Int]?
     public var usage: Usage?
     public var subagents: [Subagent]?
+    public var shells: [Shell]?
     public var pending: [Approval]?
     var rawObject: [String: JSONValue] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case sessionId, state, action, startedAt, idleSince, lastTool, lastToolInput, toolRunning, lastText, entries, usage, subagents, pending
+        case sessionId, state, action, startedAt, idleSince, lastTool, lastToolInput, toolRunning, lastText, entries, usage, subagents, shells, pending
     }
 
-    public init(sessionId: String? = nil, state: SessionState? = nil, action: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, entries: [String: Int]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, pending: [Approval]? = nil) {
-        self.sessionId = sessionId; self.state = state; self.action = action; self.startedAt = startedAt; self.idleSince = idleSince; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.entries = entries; self.usage = usage; self.subagents = subagents; self.pending = pending; self.rawObject = [:]
+    public init(sessionId: String? = nil, state: SessionState? = nil, action: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, entries: [String: Int]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, pending: [Approval]? = nil) {
+        self.sessionId = sessionId; self.state = state; self.action = action; self.startedAt = startedAt; self.idleSince = idleSince; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.entries = entries; self.usage = usage; self.subagents = subagents; self.shells = shells; self.pending = pending; self.rawObject = [:]
     }
 
     public static func == (lhs: StateDelta, rhs: StateDelta) -> Bool {
-        lhs.sessionId == rhs.sessionId && lhs.state == rhs.state && lhs.action == rhs.action && lhs.startedAt == rhs.startedAt && lhs.idleSince == rhs.idleSince && lhs.lastTool == rhs.lastTool && lhs.lastToolInput == rhs.lastToolInput && lhs.toolRunning == rhs.toolRunning && lhs.lastText == rhs.lastText && lhs.entries == rhs.entries && lhs.usage == rhs.usage && lhs.subagents == rhs.subagents && lhs.pending == rhs.pending
+        lhs.sessionId == rhs.sessionId && lhs.state == rhs.state && lhs.action == rhs.action && lhs.startedAt == rhs.startedAt && lhs.idleSince == rhs.idleSince && lhs.lastTool == rhs.lastTool && lhs.lastToolInput == rhs.lastToolInput && lhs.toolRunning == rhs.toolRunning && lhs.lastText == rhs.lastText && lhs.entries == rhs.entries && lhs.usage == rhs.usage && lhs.subagents == rhs.subagents && lhs.shells == rhs.shells && lhs.pending == rhs.pending
     }
 }
 
@@ -115,10 +116,11 @@ public struct Session: Codable, Sendable, Equatable {
     public var pending: [Approval]?
     public var usage: Usage?
     public var subagents: [Subagent]?
+    public var shells: [Shell]?
     public var mode: ApprovalMode?
     public var startedAt: Date?
     public var idleSince: Date?
-    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, mode: ApprovalMode? = nil, startedAt: Date? = nil, idleSince: Date? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.mode = mode; self.startedAt = startedAt; self.idleSince = idleSince }
+    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, startedAt: Date? = nil, idleSince: Date? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.startedAt = startedAt; self.idleSince = idleSince }
 }
 
 public struct Usage: Codable, Sendable, Equatable {
@@ -152,10 +154,26 @@ public struct Subagent: Codable, Sendable, Equatable {
     public var linked: Bool?
     public var toolUseId: String?
     public var result: String?
-    public init(agentId: String? = nil, agent: String? = nil, text: String? = nil, state: SubagentState? = nil, startedAt: Date? = nil, finishedAt: Date? = nil, linked: Bool? = nil, toolUseId: String? = nil, result: String? = nil) { self.agentId = agentId; self.agent = agent; self.text = text; self.state = state; self.startedAt = startedAt; self.finishedAt = finishedAt; self.linked = linked; self.toolUseId = toolUseId; self.result = result }
+    public var background: Bool?
+    public init(agentId: String? = nil, agent: String? = nil, text: String? = nil, state: SubagentState? = nil, startedAt: Date? = nil, finishedAt: Date? = nil, linked: Bool? = nil, toolUseId: String? = nil, result: String? = nil, background: Bool? = nil) { self.agentId = agentId; self.agent = agent; self.text = text; self.state = state; self.startedAt = startedAt; self.finishedAt = finishedAt; self.linked = linked; self.toolUseId = toolUseId; self.result = result; self.background = background }
 }
 
 public enum SubagentState: Codable, Sendable, Equatable { case running, done, stopped, failed, unknown(String); public init(from d: Decoder) throws { let s = try d.singleValueContainer().decode(String.self); switch s { case "running":self = .running; case "done":self = .done; case "stopped":self = .stopped; case "failed":self = .failed; default:self = .unknown(s) } }; public func encode(to e: Encoder) throws { var c = e.singleValueContainer(); try c.encode(rawValue) }; public var rawValue:String { switch self { case .running:"running"; case .done:"done"; case .stopped:"stopped"; case .failed:"failed"; case .unknown(let s):s } } }
+
+public enum ShellState: Codable, Sendable, Equatable { case running, done, stopped, failed, unknown(String); public init(from d: Decoder) throws { let s = try d.singleValueContainer().decode(String.self); switch s { case "running":self = .running; case "done":self = .done; case "stopped":self = .stopped; case "failed":self = .failed; default:self = .unknown(s) } }; public func encode(to e: Encoder) throws { var c = e.singleValueContainer(); try c.encode(rawValue) }; public var rawValue:String { switch self { case .running:"running"; case .done:"done"; case .stopped:"stopped"; case .failed:"failed"; case .unknown(let s):s } } }
+
+public struct Shell: Codable, Sendable, Equatable {
+    public var toolUseId: String?
+    public var taskId: String?
+    public var description: String?
+    public var command: String?
+    public var state: ShellState?
+    public var startedAt: Date?
+    public var finishedAt: Date?
+    public init(toolUseId: String? = nil, taskId: String? = nil, description: String? = nil, command: String? = nil, state: ShellState? = nil, startedAt: Date? = nil, finishedAt: Date? = nil) {
+        self.toolUseId = toolUseId; self.taskId = taskId; self.description = description; self.command = command; self.state = state; self.startedAt = startedAt; self.finishedAt = finishedAt
+    }
+}
 
 public struct Approval: Codable, Sendable, Equatable {
     public var requestId: String?

@@ -13,6 +13,10 @@ enum SessionMocks {
         )
     }
 
+    static var activity: some View {
+        ActivitySessionMock()
+    }
+
     static var toolDetail: some View {
         ToolDetailMock(
             session: MockSessionData.session,
@@ -60,6 +64,33 @@ private struct SessionMockScreen: View {
                         .accessibilityLabel("Session info")
                     }
                 }
+        }
+        .tint(.ccAccent)
+        .background(.ccBackground)
+    }
+}
+
+private struct ActivitySessionMock: View {
+    private let session = MockBottomStackData.activitySession
+
+    var body: some View {
+        NavigationStack {
+            SessionTranscriptView(
+                turns: MockBottomStackData.workingTurns,
+                showsWorkedFooter: false,
+                bottomStackConfiguration: MockBottomStackData.activityBottomStack
+            )
+            .navigationTitle(session.name ?? "Session")
+            .navigationSubtitle(sessionDetailSubtitle(session))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {} label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("Session info")
+                }
+            }
         }
         .tint(.ccAccent)
         .background(.ccBackground)

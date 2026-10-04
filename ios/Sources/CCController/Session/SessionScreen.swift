@@ -32,10 +32,12 @@ struct SessionScreen: View {
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
     @State private var inspectorPresented = false
+    @State private var activityPresented = false
     @State private var filePreviewURL: URL?
     @State private var destination: SessionDestination?
     @State private var pendingInspectorDestination: SessionDestination?
     @State private var pendingSubagentDestination: SessionDestination?
+    @State private var pendingActivityDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
     @State private var knownApprovalIDs: Set<String> = []
@@ -170,6 +172,11 @@ struct SessionScreen: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(isPresented: $activityPresented, onDismiss: presentPendingActivityDestination) {
+                if let session = model.store.openSession(sessionID)?.session {
+                    ActivitySheet(session: session, onSubagent: openSubagentFromActivity)
+                }
+            }
         } else {
             ProgressView()
                 .accessibilityIdentifier("session-loading")
@@ -200,6 +207,8 @@ struct SessionScreen: View {
                 hasTmuxPane: current.tmuxPane?.isEmpty == false
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
+            activitySession: current,
+            onActivity: { activityPresented = true },
             slashCommands: commands,
             attachments: (model.store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
             attachmentNotice: model.store.attachmentNotices[sessionID],
@@ -351,6 +360,18 @@ struct SessionScreen: View {
         guard let agentID = subagent.agentId, !agentID.isEmpty else { return }
         pendingInspectorDestination = SessionDestination(sessionID: sessionID, agentID: agentID)
         inspectorPresented = false
+    }
+
+    private func openSubagentFromActivity(_ subagent: Subagent) {
+        guard let agentID = subagent.agentId, !agentID.isEmpty else { return }
+        pendingActivityDestination = SessionDestination(sessionID: sessionID, agentID: agentID)
+        activityPresented = false
+    }
+
+    private func presentPendingActivityDestination() {
+        guard let pendingActivityDestination else { return }
+        self.pendingActivityDestination = nil
+        destination = pendingActivityDestination
     }
 
     private func presentPendingInspectorDestination() {

@@ -100,6 +100,12 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.sessions["session-1"]?.usage?.model, "new")
         XCTAssertNil(app.sessions["session-1"]?.usage?.inputTokens)
         XCTAssertEqual(app.sessions["session-1"]?.usage?.outputTokens, 3)
+
+        let activity = try XCTUnwrap(LiveEvent.decode(name: "state", data: """
+        {"sessionId":"session-1","shells":[{"toolUseId":"shell-1","description":"Run tests","command":"swift test","state":"running"}]}
+        """))
+        app.apply(activity)
+        XCTAssertEqual(app.sessions["session-1"]?.shells?.first?.toolUseId, "shell-1")
     }
 
     func testSuspendClosesStreamAndResumeRebootstraps() async throws {

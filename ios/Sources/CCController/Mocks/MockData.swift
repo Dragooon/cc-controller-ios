@@ -14,6 +14,20 @@ enum MockFixtures {
                 }
                 return approval
             }
+            if session.id == "session-staff-exclusions" {
+                let now = Date.now
+                session.startedAt = now.addingTimeInterval(-12 * 60)
+                session.subagents = session.subagents?.enumerated().map { index, agent in
+                    var agent = agent
+                    agent.startedAt = now.addingTimeInterval(Double(-(9 + index * 2) * 60))
+                    return agent
+                }
+                session.shells = session.shells?.map { shell in
+                    var shell = shell
+                    shell.startedAt = now.addingTimeInterval(-4 * 60)
+                    return shell
+                }
+            }
             return session
         } ?? []
     }

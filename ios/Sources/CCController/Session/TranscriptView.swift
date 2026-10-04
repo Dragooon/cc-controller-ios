@@ -127,6 +127,7 @@ struct SessionTranscriptView: View {
                 scrollToNewest(using: proxy)
             }
             .background(.ccBackground)
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
             .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
                 let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
                 return TranscriptScrollMetrics(

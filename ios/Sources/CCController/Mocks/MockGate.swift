@@ -47,6 +47,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     case sessionIdle = "session-idle"
     case sessionWorking = "session-working"
     case subagentResultSheet = "subagent-result-sheet"
+    case sessionActivity = "session-activity"
     case sessionApprovals = "session-approvals"
     case sessionTerminalApproval = "session-terminal-approval"
     case composerSlash = "composer-slash"
@@ -56,6 +57,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     case toolDetailEdit = "tool-detail-edit"
     case subagent
     case inspector
+    case activitySheet = "activity-sheet"
     case settings
     case onboardingWelcome = "onboarding-welcome"
     case onboardingConnect = "onboarding-connect"
@@ -69,8 +71,8 @@ enum MockScreen: String, CaseIterable, Identifiable {
     var isBuilt: Bool {
         switch self {
         case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting,
-             .sessionWorking, .subagentResultSheet, .composerSlash, .composerAttachments, .composerKeyboard,
-             .inspector, .settings, .onboardingWelcome, .onboardingConnect,
+             .sessionWorking, .subagentResultSheet, .sessionActivity, .composerSlash, .composerAttachments, .composerKeyboard,
+             .inspector, .activitySheet, .settings, .onboardingWelcome, .onboardingConnect,
              .onboardingPair, .onboardingFaceID, .lock, .privacyCover: true
         default: false
         }
@@ -101,6 +103,8 @@ private struct MockScreenView: View {
                 BottomStackMocks.working
             case .subagentResultSheet:
                 SessionMocks.resultSheet
+            case .sessionActivity:
+                SessionMocks.activity
             case .composerSlash:
                 BottomStackMocks.slash
             case .composerAttachments:
@@ -115,6 +119,8 @@ private struct MockScreenView: View {
                 SessionMocks.subagent
             case .inspector:
                 SheetMocks.inspector
+            case .activitySheet:
+                SheetMocks.activity
             case .settings:
                 SheetMocks.settings
             case .onboardingWelcome:

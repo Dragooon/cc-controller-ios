@@ -14,6 +14,7 @@ final class MockScreenshotTests: XCTestCase {
         "session-idle",
         "session-working",
         "subagent-result-sheet",
+        "session-activity",
         "session-approvals",
         "session-terminal-approval",
         "composer-slash",
@@ -23,6 +24,7 @@ final class MockScreenshotTests: XCTestCase {
         "tool-detail-edit",
         "subagent",
         "inspector",
+        "activity-sheet",
         "settings",
         "onboarding-welcome",
         "onboarding-connect",
@@ -55,7 +57,7 @@ final class MockScreenshotTests: XCTestCase {
         let schemes = ["light", "dark"]
 
         for screen in screens {
-            let sizes = ["sessions", "settings", "onboarding-pair", "session-idle", "session-working", "subagent-result-sheet", "session-approvals", "session-terminal-approval"].contains(screen)
+            let sizes = ["sessions", "settings", "onboarding-pair", "session-idle", "session-working", "subagent-result-sheet", "session-activity", "activity-sheet", "session-approvals", "session-terminal-approval"].contains(screen)
                 ? [("default", "UICTContentSizeCategoryLarge"), ("accessibilityXL", "UICTContentSizeCategoryAccessibilityXL")]
                 : [("default", "UICTContentSizeCategoryLarge")]
             for scheme in schemes {

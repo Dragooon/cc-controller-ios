@@ -30,8 +30,33 @@ enum MockBottomStackData {
             Subagent(agentId: "engineer-1", agent: "engineer", state: .running),
             Subagent(agentId: "researcher-1", agent: "researcher", state: .running)
         ],
+        shells: [
+            Shell(toolUseId: "shell-working", description: "Run the sharded flow suite", command: "scripts/ios.sh flows --shards 3", state: .running, startedAt: MockFixtures.now.addingTimeInterval(-35))
+        ],
         startedAt: MockFixtures.now.addingTimeInterval(-42)
     )
+
+    static let activitySession: Session = {
+        let now = Date.now
+        return Session(
+            id: "mock-activity-session",
+            name: "cc-controller native app",
+            project: "cc-controller",
+            tmuxPane: "%4",
+            tmux: true,
+            state: .working,
+            lastTool: "Bash",
+            toolRunning: true,
+            subagents: [
+                Subagent(agentId: "activity-engineer", agent: "engineer", text: "Polish the activity sheet", state: .running, startedAt: now.addingTimeInterval(-7 * 60), background: true),
+                Subagent(agentId: "activity-researcher", agent: "researcher", text: "Check the live shell lifecycle", state: .running, startedAt: now.addingTimeInterval(-3 * 60), background: true)
+            ],
+            shells: [
+                Shell(toolUseId: "activity-shell", description: "Run the sharded flow suite", command: "scripts/ios.sh flows --shards 3 --test TranscriptFlowTests --device 'iPhone 18 Pro'", state: .running, startedAt: now.addingTimeInterval(-2 * 60))
+            ],
+            startedAt: now.addingTimeInterval(-11 * 60)
+        )
+    }()
 
     static let statusSegments = ["3.1M in", "84k out", "cache 92%"]
 
@@ -62,7 +87,18 @@ enum MockBottomStackData {
             isWorking: true,
             hasTmuxPane: true
         ),
-        statusSegments: statusSegments
+        statusSegments: statusSegments,
+        activitySession: workingSession
+    )
+
+    static let activityBottomStack = BottomStackConfiguration(
+        composer: ComposerConfiguration(
+            placeholder: "Queue a message",
+            isWorking: true,
+            hasTmuxPane: true
+        ),
+        statusSegments: statusSegments,
+        activitySession: activitySession
     )
 
     static let slashBottomStack = BottomStackConfiguration(

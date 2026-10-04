@@ -95,7 +95,7 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertNil(composerModelName("unknown"))
     }
 
-    func testSessionDetailSubtitleIncludesAgentCount() {
+    func testSessionDetailSubtitleOmitsAgentCount() {
         let session = Session(
             state: .working,
             usage: Usage(contextPercent: 32),
@@ -105,8 +105,50 @@ final class NativePresentationTests: XCTestCase {
 
         XCTAssertEqual(
             sessionDetailSubtitle(session, now: Date(timeIntervalSince1970: 2_000 + 65 * 60)),
-            "working · 1h 5m · 2 agents · ctx 32%"
+            "working · 1h 5m · ctx 32%"
         )
+    }
+
+    func testActivityCountsOnlyRunningAgentsAndShells() {
+        let session = Session(
+            subagents: [Subagent(state: .running), Subagent(state: .done), Subagent(state: .failed)],
+            shells: [Shell(state: .running), Shell(state: .stopped)]
+        )
+
+        let counts = activityCounts(for: session)
+
+        XCTAssertEqual(counts.agents, 1)
+        XCTAssertEqual(counts.shells, 1)
+    }
+
+    func testActivitySummaryTextUsesSingularAndPluralLabels() {
+        XCTAssertEqual(
+            activitySummaryText(for: Session(subagents: [Subagent(state: .running), Subagent(state: .running)], shells: [Shell(state: .running)])),
+            "2 agents · 1 shell"
+        )
+        XCTAssertEqual(activitySummaryText(for: Session(subagents: [Subagent(state: .running)])), "1 agent")
+        XCTAssertEqual(activitySummaryText(for: Session(shells: [Shell(state: .running), Shell(state: .running), Shell(state: .running)])), "3 shells")
+        XCTAssertNil(activitySummaryText(for: Session(subagents: [Subagent(state: .done)])))
+    }
+
+    func testFinishedRecentlyReturnsOnlyTenMinuteWindowNewestFirst() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let recentAgent = Subagent(agentId: "agent", state: .done, finishedAt: now.addingTimeInterval(-4 * 60), result: "agent result")
+        let recentShell = Shell(toolUseId: "shell", state: .failed, finishedAt: now.addingTimeInterval(-2 * 60))
+        let boundary = Shell(toolUseId: "boundary", state: .stopped, finishedAt: now.addingTimeInterval(-10 * 60))
+        let old = Subagent(agentId: "old", state: .done, finishedAt: now.addingTimeInterval(-11 * 60))
+        let running = Shell(toolUseId: "running", state: .running, finishedAt: now.addingTimeInterval(-1 * 60))
+        let session = Session(subagents: [recentAgent, old], shells: [recentShell, boundary, running])
+
+        let items = finishedRecently(for: session, now: now)
+
+        XCTAssertEqual(items.count, 3)
+        guard case .shell(let first) = items[0], case .agent(let second) = items[1], case .shell(let third) = items[2] else {
+            return XCTFail("Expected newest finished shell, agent, then boundary shell")
+        }
+        XCTAssertEqual(first.toolUseId, "shell")
+        XCTAssertEqual(second.agentId, "agent")
+        XCTAssertEqual(third.toolUseId, "boundary")
     }
 
     func testSubagentSubtitleUsesLowercaseStateAndElapsedTime() {

@@ -48,6 +48,15 @@
       "subagents": [
         { "agentId": "researcher-1", "agent": "researcher", "state": "running", "startedAt": "2026-09-30T03:54:30Z" },
         { "agentId": "engineer-1", "agent": "engineer", "state": "running", "startedAt": "2026-09-30T03:55:00Z" }
+      ],
+      "shells": [
+        {
+          "toolUseId": "shell-staff-flows",
+          "description": "Run the sharded flow suite",
+          "command": "scripts/ios.sh flows --shards 3 --test TranscriptFlowTests",
+          "state": "running",
+          "startedAt": "2026-09-30T03:56:00Z"
+        }
       ]
     },
     {

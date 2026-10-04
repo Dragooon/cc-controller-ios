@@ -17,6 +17,13 @@ enum SheetMocks {
             }
     }
 
+    static var activity: some View {
+        ActivityBackdrop()
+            .sheet(isPresented: .constant(true)) {
+                ActivitySheet(session: activitySession, initialDetent: .large)
+            }
+    }
+
     static var settings: some View {
         Color.ccBackground
             .sheet(isPresented: .constant(true)) {
@@ -47,6 +54,25 @@ enum SheetMocks {
     static var lock: some View { LockView() }
     static var privacyCover: some View { PrivacyCoverView() }
 
+    private static let activitySession: Session = {
+        let now = Date.now
+        return Session(
+            id: "session-activity",
+            name: "cc-controller native app",
+            project: "cc-controller",
+            state: .working,
+            subagents: [
+                Subagent(agentId: "activity-engineer", agent: "engineer", text: "Implement the activity presentation", state: .running, startedAt: now.addingTimeInterval(-8 * 60), background: true),
+                Subagent(agentId: "activity-researcher", agent: "researcher", text: "Compare daemon activity payloads", state: .running, startedAt: now.addingTimeInterval(-5 * 60), background: true),
+                Subagent(agentId: "activity-finished", agent: "reviewer", state: .done, startedAt: now.addingTimeInterval(-9 * 60), finishedAt: now.addingTimeInterval(-4 * 60), result: "Confirmed the activity rows match the live payload.", background: true)
+            ],
+            shells: [
+                Shell(toolUseId: "activity-running-shell", description: "Run the sharded flow suite", command: "scripts/ios.sh flows --shards 3 --test TranscriptFlowTests --device 'iPhone 18 Pro'", state: .running, startedAt: now.addingTimeInterval(-3 * 60)),
+                Shell(toolUseId: "activity-failed-shell", description: "Build the release archive", command: "scripts/ios.sh release-check --configuration Release", state: .failed, startedAt: now.addingTimeInterval(-7 * 60), finishedAt: now.addingTimeInterval(-2 * 60))
+            ]
+        )
+    }()
+
     private static let inspectorSession = Session(
         id: "session-eval-dataset",
         name: "Eval dataset versioning",
@@ -71,6 +97,24 @@ enum SheetMocks {
         ],
         mode: .remote
     )
+}
+
+private struct ActivityBackdrop: View {
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("The sharded flow suite is still running in the background.")
+                Text("The main turn can continue while the activity stays visible here.")
+            }
+            .font(.body)
+            .foregroundStyle(.ccSecondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(24)
+            .background(.ccBackground)
+            .navigationTitle("cc-controller native app")
+        }
+        .tint(.ccAccent)
+    }
 }
 
 private struct InspectorBackdrop: View {

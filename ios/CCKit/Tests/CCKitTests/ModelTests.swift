@@ -25,6 +25,20 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(tool.args, nil)
         XCTAssertNil(tool.toolUseId)
     }
+
+    func testActivityFieldsDecodeAndRemainOptional() throws {
+        let session = try JSONDecoder.ccKit().decode(
+            Session.self,
+            from: Data("""
+            {"id":"session","subagents":[{"agentId":"agent","background":true}],"shells":[{"toolUseId":"shell","description":"Run tests","command":"swift test","state":"running","startedAt":"2026-10-04T00:00:00Z"}]}
+            """.utf8)
+        )
+
+        XCTAssertEqual(session.subagents?.first?.background, true)
+        XCTAssertEqual(session.shells?.first?.state, .running)
+        XCTAssertEqual(session.shells?.first?.command, "swift test")
+        XCTAssertNil(try JSONDecoder.ccKit().decode(Session.self, from: Data("{\"id\":\"old\"}".utf8)).shells)
+    }
 }
 
 private extension JSONValue {

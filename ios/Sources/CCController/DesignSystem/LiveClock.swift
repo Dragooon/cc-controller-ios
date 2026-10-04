@@ -94,12 +94,13 @@ struct SessionStateSegmentView: View {
     }
 
     private var isLive: Bool {
-        session.state == .working || session.state == .needsYou
+        session.state == .working || session.state == .needsYou || activityCounts(for: session).agents > 0 || activityCounts(for: session).shells > 0
     }
 
     private func value(now: Date) -> String {
         [
             sessionListStateSegment(session, now: now),
+            activitySummaryText(for: session) ?? "",
             formatContextUsage(session.usage),
         ]
         .filter { !$0.isEmpty }
