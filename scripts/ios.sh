@@ -1226,7 +1226,7 @@ PY
   printf 'PERF %s run=%s app_cpu=%.2f%% render_cpu=%s%% peak_rss=%skB rendering=%s %s\n' "$label" "$PERF_RUN_NUMBER" "$app_cpu" "$render_cpu" "$peak_rss" "$rendering" "$counter_summary"
   stop_fixture_daemon
   local budget
-  case "$label" in A) budget=${CC_PERF_BUDGET_A:-1};; B) budget=${CC_PERF_BUDGET_B:-3};; C|D) budget=${CC_PERF_BUDGET_C:-15};; esac
+  case "$label" in A) budget=${CC_PERF_BUDGET_A:-1};; B) budget=${CC_PERF_BUDGET_B:-3};; C|D|E) budget=${CC_PERF_BUDGET_C:-15};; esac
   if python3 - "$app_cpu" "$budget" <<'PY'
 import sys
 raise SystemExit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)
@@ -1239,7 +1239,7 @@ cmd_perf() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --scenario)
-        [[ $# -ge 2 && "$2" =~ ^[ABCD]$ ]] || { printf '%s\n' 'perf --scenario requires A, B, C, or D' >&2; return 2; }
+        [[ $# -ge 2 && "$2" =~ ^[ABCDE]$ ]] || { printf '%s\n' 'perf --scenario requires A, B, C, D, or E' >&2; return 2; }
         only_scenario=$2
         shift 2
         ;;
@@ -1271,12 +1271,17 @@ cmd_perf() {
   [[ -d "$app_bundle" ]] || { printf 'perf requires Release+CC_PERF app at %s; omit --no-build\n' "$app_bundle" >&2; return 1; }
 
   local label private_fixture
-  for label in A B C D; do
+  for label in A B C D E; do
     [[ -z "$only_scenario" || "$only_scenario" == "$label" ]] || continue
     if [[ "$label" == D ]]; then
-      private_fixture=/Users/owner/Documents/dev/cc-controller-evidence/perf-2026-10-04/fixture/long-session.jsonl
+      private_fixture=${CC_FIXTURE_LONG_SESSION_PATH:-}
+      if [[ -z "$private_fixture" ]]; then
+        printf '%s\n' 'perf D requires CC_FIXTURE_LONG_SESSION_PATH to point to the private long-session fixture' >&2
+        PERF_BUDGET_FAILED=1
+        continue
+      fi
       if [[ ! -f "$private_fixture" ]]; then
-        printf 'perf D skipped: private fixture is missing at %s\n' "$private_fixture" >&2
+        printf 'perf D private fixture is missing at %s\n' "$private_fixture" >&2
         PERF_BUDGET_FAILED=1
         continue
       fi
@@ -1285,7 +1290,7 @@ cmd_perf() {
       continue
     fi
     for ((PERF_RUN_NUMBER = 1; PERF_RUN_NUMBER <= repeats; PERF_RUN_NUMBER++)); do
-      case "$label" in A|B) perf_run_case "$label" "$label" 30;; C) perf_run_case C C 60;; esac
+      case "$label" in A|B) perf_run_case "$label" "$label" 30;; C) perf_run_case C C 60;; E) perf_run_case E E 60;; esac
     done
   done
   local iteration_end

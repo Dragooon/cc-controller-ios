@@ -429,22 +429,22 @@ public final class AppStore {
             #if CC_PERF
             PerfCounters.shared.hit(.sseStateDelta)
             #endif
-            applyStateDelta(delta)
+            applyMeasured(.stateDelta(delta)) { [self] in applyStateDelta(delta) }
         case .transcript(let transcript):
             #if CC_PERF
             PerfCounters.shared.hit(.sseTranscript)
             #endif
-            applyTranscript(transcript)
+            applyMeasured(.transcript(transcript)) { [self] in applyTranscript(transcript) }
         case .usage(let usage):
             #if CC_PERF
             PerfCounters.shared.hit(.sseUsage)
             #endif
-            applyUsage(usage)
+            applyMeasured(.usage(usage)) { [self] in applyUsage(usage) }
         case .subagents(let subagents):
             #if CC_PERF
             PerfCounters.shared.hit(.sseSubagents)
             #endif
-            applySubagents(subagents)
+            applyMeasured(.subagents(subagents)) { [self] in applySubagents(subagents) }
         case .approval(let approval):
             applyApproval(approval)
         case .decision(let decision):
@@ -457,6 +457,23 @@ public final class AppStore {
             #endif
             refreshAfterRegistryEvent()
         }
+    }
+
+    private func applyMeasured(_ event: LiveEvent, operation: () -> Void) {
+        #if CC_PERF
+        let started = DispatchTime.now().uptimeNanoseconds
+        operation()
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
+        PerfCounters.shared.recordMilliseconds(.mainActorBusyMilliseconds, value: elapsed)
+        switch event {
+        case .stateDelta: PerfCounters.shared.recordMilliseconds(.stateDeltaApplyMilliseconds, value: elapsed)
+        case .subagents: PerfCounters.shared.recordMilliseconds(.subagentsApplyMilliseconds, value: elapsed)
+        case .transcript: PerfCounters.shared.recordMilliseconds(.transcriptApplyMilliseconds, value: elapsed)
+        default: break
+        }
+        #else
+        operation()
+        #endif
     }
 
     private func decide(_ approval: Approval, behavior: DecisionBehavior) async -> Result<Void, ActionError> {

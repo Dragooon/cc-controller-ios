@@ -26,6 +26,10 @@ public final class PerfCounters: @unchecked Sendable {
         case sseRegistry
         case sseUsage
         case sseSubagents
+        case stateDeltaApplyMilliseconds
+        case subagentsApplyMilliseconds
+        case transcriptApplyMilliseconds
+        case mainActorBusyMilliseconds
     }
 
     public static let shared = PerfCounters()
@@ -34,6 +38,7 @@ public final class PerfCounters: @unchecked Sendable {
     private let startedAt = Date()
     private var counts: [String: Int] = [:]
     private var values: [String: [Int]] = [:]
+    private var durationTotals: [String: Double] = [:]
     private var timer: DispatchSourceTimer?
 
     private init() {
@@ -62,21 +67,32 @@ public final class PerfCounters: @unchecked Sendable {
         lock.unlock()
     }
 
+    public func recordMilliseconds(_ counter: Counter, value: Double) {
+        _ = hit(counter)
+        lock.lock()
+        durationTotals[counter.rawValue, default: 0] += max(0, value)
+        lock.unlock()
+    }
+
     public func dump() {
         let elapsed = max(Date().timeIntervalSince(startedAt), 0.001)
         lock.lock()
         let snapshot = counts
         let valueSnapshot = values
+        let durationSnapshot = durationTotals
         lock.unlock()
         let rates = Dictionary(uniqueKeysWithValues: Counter.allCases.map { counter in
             (counter.rawValue, (Double(snapshot[counter.rawValue] ?? 0) / elapsed))
         })
+        let durationRates = durationSnapshot.mapValues { $0 / elapsed }
         let payload: [String: Any] = [
             "scenario": ProcessInfo.processInfo.environment["CC_PERF_SCENARIO"] ?? "unknown",
             "elapsed_seconds": elapsed,
             "counts": snapshot,
             "per_second": rates,
             "values": valueSnapshot,
+            "duration_ms_total": durationSnapshot,
+            "duration_ms_per_second": durationRates,
             "updated_at": ISO8601DateFormatter().string(from: Date()),
         ]
         guard JSONSerialization.isValidJSONObject(payload),
