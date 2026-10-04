@@ -58,6 +58,46 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
     }
 
+    func testSendClearsTrailingWhitespace() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "composer-trailing-whitespace")
+            attach(named: "composer-trailing-whitespace")
+            app.terminate()
+        }
+
+        openSession(id: "session-long-session", in: app)
+        let field = composerField(in: app)
+        let marker = "trailing-space-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker + " ")
+        app.buttons["composer-send"].tap()
+
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Trailing-space send did not appear as a pending prompt")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 10), "Composer retained trailing whitespace after successful send")
+    }
+
+    func testSendClearsLeadingWhitespace() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "composer-leading-whitespace")
+            attach(named: "composer-leading-whitespace")
+            app.terminate()
+        }
+
+        openSession(id: "session-long-session", in: app)
+        let field = composerField(in: app)
+        let marker = "leading-space-\(UUID().uuidString)"
+        field.tap()
+        field.typeText("  " + marker)
+        app.buttons["composer-send"].tap()
+
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Leading-space send did not appear as a pending prompt")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 10), "Composer retained leading whitespace after successful send")
+    }
+
     func testQueueWhileWorking() async throws {
         let app = launchFixture()
         defer {
@@ -207,7 +247,7 @@ final class ComposerFlowTests: XCTestCase {
         let extraText = " while sending"
         field.typeText(extraText)
         let resetField = composerField(in: app)
-        XCTAssertTrue(waitForValue(of: resetField, equalTo: extraText, timeout: 10), "Text typed during send did not survive")
+        XCTAssertTrue(waitForValue(of: resetField, equalTo: "while sending", timeout: 10), "Text typed during send did not survive")
     }
 
     private func postFixture(_ path: String) async throws {

@@ -222,9 +222,9 @@ struct BottomStackView: View {
     }
 
     private func submit(now: Bool) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (!trimmed.isEmpty || !configuration.attachments.isEmpty), !isSending else { return }
-        let submittedText = trimmed
+        let originalText = text
+        let submittedText = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (!submittedText.isEmpty || !configuration.attachments.isEmpty), !isSending else { return }
         isSending = true
         Task { @MainActor in
             let result = await configuration.onSend(submittedText, now)
@@ -234,11 +234,12 @@ struct BottomStackView: View {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {
-                    if text == submittedText {
-                        text = ""
-                        fieldResetGeneration += 1
-                    } else if text.hasPrefix(submittedText) {
-                        text = String(text.dropFirst(submittedText.count))
+                    if let nextText = composerTextAfterSuccessfulSend(
+                        originalText: originalText,
+                        submittedText: submittedText,
+                        currentText: text
+                    ) {
+                        text = nextText
                         fieldResetGeneration += 1
                     }
                 }

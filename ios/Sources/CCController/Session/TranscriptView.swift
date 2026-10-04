@@ -121,7 +121,7 @@ struct SessionTranscriptView: View {
                     scrollToPagingAnchor(anchorID, using: proxy)
                 }
             }
-            .onChange(of: turns) { _, _ in
+            .onChange(of: turns.last) { _, _ in
                 scrollToNewest(using: proxy)
             }
             .onChange(of: queuedNotes) { _, _ in

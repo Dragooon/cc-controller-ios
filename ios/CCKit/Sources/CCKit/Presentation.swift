@@ -595,6 +595,15 @@ public func promptCollapse(_ text: String?, maxLines: Int = 8, collapsedLines: I
     return PromptCollapse(collapsed: collapsed, lineCount: lineCount, visibleText: collapsed ? lines.prefix(collapsedLines).joined(separator: "\n") : source)
 }
 
+/// Returns the composer text that remains after a successful send, or `nil` when the user edited it independently.
+public func composerTextAfterSuccessfulSend(originalText: String, submittedText: String, currentText: String) -> String? {
+    if currentText == originalText || currentText.trimmingCharacters(in: .whitespacesAndNewlines) == submittedText {
+        return ""
+    }
+    guard currentText.hasPrefix(originalText) else { return nil }
+    return String(currentText.dropFirst(originalText.count).drop(while: { $0.isWhitespace }))
+}
+
 public func normalisePromptText(_ value: String?) -> NormalizedPromptText {
     let source = value ?? ""
     guard let match = source.range(of: "\\nAttached files:\\s*\\n((?:\\s*-\\s*.+(?:\\r?\\n|$))+)[ \\t]*$", options: [.regularExpression, .caseInsensitive]) else {
