@@ -1092,22 +1092,23 @@ perf_host_pid() {
 
 perf_start_samples() {
   local label=$1 host_app_pid=$2 case_dir=$3 render_pid
-  [[ "$label" == C ]] || return 0
-  [[ -f "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" ]] || {
+  [[ "$label" == C || "$label" == E ]] || return 0
+  local sample_prefix="sample-$label-$PERF_RUN_NUMBER"
+  [[ -f "$PERF_OUTPUT_DIR/$sample_prefix.txt" ]] || {
     if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
-      sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+      sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/$sample_prefix.txt" >/dev/null 2>&1 &
       PERF_SAMPLE_PIDS+=("$!")
     else
       host_app_pid=$(perf_host_pid 'cc-controller.app/cc-controller' "$PERF_UDID")
       if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
-        sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/sample-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+        sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/$sample_prefix.txt" >/dev/null 2>&1 &
         PERF_SAMPLE_PIDS+=("$!")
       fi
     fi
   }
   render_pid=$(perf_host_pid 'backboardd' "$PERF_UDID")
   if [[ "$render_pid" =~ ^[0-9]+$ ]]; then
-    sample "$render_pid" 10 -file "$PERF_OUTPUT_DIR/sample-render-C-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+    sample "$render_pid" 10 -file "$PERF_OUTPUT_DIR/sample-render-$label-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
     PERF_SAMPLE_PIDS+=("$!")
   fi
 }
