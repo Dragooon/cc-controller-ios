@@ -28,6 +28,7 @@ struct SpinnerGlyph: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
 
     private let frames = ["·︎", "✢︎", "✳︎", "✶︎", "✻︎", "✽︎", "✻︎", "✶︎", "✳︎", "✢︎"]
 
@@ -41,6 +42,10 @@ struct SpinnerGlyph: View {
                 Text("✻︎")
                     .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
                     .accessibilityHidden(true)
+            } else if !isVisible {
+                Text("✻︎")
+                    .foregroundStyle(.ccAccent)
+                    .accessibilityHidden(true)
             } else {
                 TimelineView(.periodic(from: .now, by: 0.12)) { context in
                     let elapsed = max(0, context.date.timeIntervalSinceReferenceDate)
@@ -52,6 +57,8 @@ struct SpinnerGlyph: View {
                 .accessibilityHidden(true)
             }
         }
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
         .accessibilityElement(children: .ignore)
         .accessibilityHidden(true)
         .accessibilityRepresentation { EmptyView() }

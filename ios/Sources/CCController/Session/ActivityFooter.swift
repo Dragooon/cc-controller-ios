@@ -16,7 +16,7 @@ struct LiveActivityFooterView: View {
         #endif
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                SpinnerGlyph(active: true, frozen: false)
+                SpinnerGlyph(active: session?.state == .working, frozen: false)
                     .font(.footnote)
                     .accessibilityHidden(true)
                 primary
