@@ -34,11 +34,19 @@ final class BiometricMessageTests: XCTestCase {
         XCTAssertEqual(faceIDFailureMessage(for: .biometric(.biometryNotAvailable)), "Face ID is off for cc-controller. Turn it on in Settings.")
     }
 
-    func testOtherBiometricErrorMessage() {
-        XCTAssertEqual(faceIDFailureMessage(for: .biometric(LAError.Code(rawValue: 999)!)), "Face ID did not work. Try again.")
+    func testOtherBiometricErrorMessageIncludesLAErrorCode() {
+        XCTAssertEqual(
+            faceIDFailureMessage(for: .biometric(LAError.Code(rawValue: 999)!)),
+            "Face ID did not work. Try again. (LAError 999)"
+        )
     }
 
-    func testKeychainFailureAfterScanMessage() {
-        XCTAssertEqual(faceIDFailureMessage(for: .accessDenied), "Secure storage could not be unlocked.")
+    func testKeychainFailureAfterScanIncludesOSStatus() {
+        XCTAssertEqual(faceIDFailureMessage(for: .keychain(-25293)), "Secure storage could not be unlocked. (OSStatus -25293)")
+    }
+
+    func testDiagnosticCodePreservesUnderlyingDomainCode() {
+        XCTAssertEqual(CredentialStoreError.biometric(.authenticationFailed).diagnosticCode, "LAError -1")
+        XCTAssertEqual(CredentialStoreError.keychain(-25293).diagnosticCode, "OSStatus -25293")
     }
 }

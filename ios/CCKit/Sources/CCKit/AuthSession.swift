@@ -26,6 +26,7 @@ public final class AuthSession {
     @ObservationIgnored private var deviceName: String?
 
     public private(set) var lastUnlockBiometricErrorCode: Int?
+    public private(set) var lastUnlockFailureCode: String?
 
     public init(
         client: AuthClient,
@@ -152,6 +153,7 @@ public final class AuthSession {
     public func unlock() async -> Result<Void, AuthError> {
         state = .unlocking
         lastUnlockBiometricErrorCode = nil
+        lastUnlockFailureCode = nil
         do {
             guard let secret = try await credentials.getNativeSecret() else { return fail(.notEnrolled) }
             let response = try await client.login(secret: secret)
@@ -220,6 +222,7 @@ public final class AuthSession {
     private func asAuthError(_ error: Error) -> AuthError {
         if let error = error as? AuthError { return error }
         if let error = error as? CredentialStoreError {
+            lastUnlockFailureCode = error.diagnosticCode
             if case .biometric(let code) = error {
                 lastUnlockBiometricErrorCode = code.rawValue
             }

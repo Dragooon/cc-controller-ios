@@ -4,17 +4,13 @@ import LocalAuthentication
 import Observation
 import SwiftUI
 import UIKit
-#if DEBUG
 import os
-#endif
 import UserNotifications
 
-#if DEBUG
-private let lockLogger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.example.cc-controller",
-    category: "lock"
+private let authLogger = Logger(
+    subsystem: "com.example.cc-controller",
+    category: "auth"
 )
-#endif
 
 @MainActor @Observable
 final class AppModel {
@@ -201,15 +197,13 @@ final class AppModel {
         defer { isAuthenticating = false }
 
         let result = await auth.unlock()
-        #if DEBUG
-        let errorCode = auth.lastUnlockBiometricErrorCode.map(String.init) ?? "none"
+        let errorCode = auth.lastUnlockFailureCode ?? "none"
         switch result {
         case .success:
-            lockLogger.notice("unlock result=success laErrorCode=\(errorCode, privacy: .public)")
+            authLogger.notice("unlock result=success errorCode=\(errorCode, privacy: .public)")
         case .failure:
-            lockLogger.notice("unlock result=failure laErrorCode=\(errorCode, privacy: .public)")
+            authLogger.error("unlock result=failure errorCode=\(errorCode, privacy: .public)")
         }
-        #endif
         switch result {
         case .success:
             faceIDMessage = nil
@@ -223,7 +217,7 @@ final class AppModel {
         guard phase == .locked, currentScenePhase == .active, !hasAutoPromptedLockScreen else { return }
         hasAutoPromptedLockScreen = true
         #if DEBUG
-        lockLogger.notice("auto-prompt trigger")
+        authLogger.notice("auto-prompt trigger")
         #endif
         Task { @MainActor [weak self] in
             await self?.unlock()
@@ -364,10 +358,13 @@ final class AppModel {
         let context = LAContext()
         var evaluationError: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &evaluationError) else {
-            if let code = evaluationError.flatMap({ LAError.Code(rawValue: $0.code) }) {
+            if let evaluationError, let code = LAError.Code(rawValue: evaluationError.code) {
                 faceIDMessage = CCKit.faceIDFailureMessage(for: .biometric(code))
+                authLogger.error("enrollment biometric availability failed domain=\(evaluationError.domain, privacy: .public) errorCode=LAError \(code.rawValue, privacy: .public)")
             } else {
-                faceIDMessage = "Face ID did not work. Try again."
+                let rawCode = evaluationError.map { String($0.code) } ?? "unknown"
+                faceIDMessage = "Face ID did not work. Try again. (LAError \(rawCode))"
+                authLogger.error("enrollment biometric availability failed domain=\(evaluationError?.domain ?? "unknown", privacy: .public) errorCode=LAError \(rawCode, privacy: .public)")
             }
             return
         }
@@ -511,7 +508,7 @@ final class AppModel {
 
     func scenePhaseDidChange(_ scenePhase: ScenePhase) {
         #if DEBUG
-        lockLogger.notice("scene transition=\(String(describing: scenePhase), privacy: .public)")
+        authLogger.notice("scene transition=\(String(describing: scenePhase), privacy: .public)")
         #endif
         currentScenePhase = scenePhase
         defer { updateSettingsProbing() }

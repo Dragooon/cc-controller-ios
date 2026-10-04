@@ -5,20 +5,32 @@ public enum CredentialStoreError: Error, Sendable, Equatable, LocalizedError {
     case unavailable
     case accessDenied
     case biometric(LAError.Code)
+    case keychain(Int32)
     case invalidData
     case system(String)
     case systemStatus(Int32, String)
 
     public var statusCode: Int32? {
-        guard case .systemStatus(let status, _) = self else { return nil }
-        return status
+        switch self {
+        case .keychain(let status), .systemStatus(let status, _): status
+        default: nil
+        }
+    }
+
+    public var diagnosticCode: String? {
+        switch self {
+        case .biometric(let code): "LAError \(code.rawValue)"
+        case .keychain(let status), .systemStatus(let status, _): "OSStatus \(status)"
+        default: nil
+        }
     }
 
     public var errorDescription: String? {
         switch self {
         case .unavailable: "Secure storage is unavailable on this device."
         case .accessDenied: "Secure storage could not be unlocked."
-        case .biometric: "Face ID did not work. Try again."
+        case .biometric(let code): "Face ID did not work. Try again. (LAError \(code.rawValue))"
+        case .keychain(let status): "Secure storage could not be unlocked. (OSStatus \(status))"
         case .invalidData: "Secure storage contained invalid data."
         case .system(let message): message
         case .systemStatus(_, let message): message
@@ -150,7 +162,7 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
             guard let data = result as? Data, let value = String(data: data, encoding: .utf8) else { throw CredentialStoreError.invalidData }
             return value
         case errSecItemNotFound: return nil
-        case errSecAuthFailed, errSecInteractionNotAllowed, errSecUserCanceled: throw CredentialStoreError.accessDenied
+        case errSecAuthFailed, errSecInteractionNotAllowed, errSecUserCanceled: throw CredentialStoreError.keychain(status)
         default: throw CredentialStoreError.systemStatus(status, SecCopyErrorMessageString(status, nil) as String? ?? "Keychain error \(status)")
         }
     }
