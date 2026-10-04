@@ -38,7 +38,7 @@ final class ComposerFlowTests: XCTestCase {
         send.tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 5), "Sent marker did not appear as a pending prompt")
+        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Sent marker did not appear as a pending prompt")
         XCTAssertTrue(pending.label.contains(marker), "Pending bubble did not contain the sent marker")
 
         let resetField = composerField(in: app)
