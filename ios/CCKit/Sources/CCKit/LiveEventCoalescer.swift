@@ -33,7 +33,9 @@ public final class LiveEventCoalescer {
         nextSequence += 1
         var session = pending[sessionID] ?? Pending()
         switch event {
-        case .stateDelta(let value): session.stateDelta = (nextSequence, value)
+        case .stateDelta(let value):
+            let merged = session.stateDelta?.event.merged(with: value) ?? value
+            session.stateDelta = (nextSequence, merged)
         case .usage(let value): session.usage = (nextSequence, value)
         case .subagents(let value): session.subagents = (nextSequence, value)
         }

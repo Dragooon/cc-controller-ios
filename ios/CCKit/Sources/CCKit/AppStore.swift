@@ -53,7 +53,6 @@ public final class AppStore {
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var latestBootstrap: Bootstrap?
-    @ObservationIgnored private var sessionSnapshots: [String: [String: JSONValue]] = [:]
     @ObservationIgnored private var serverEntryCounts: [String: Int] = [:]
     @ObservationIgnored private var openStores: [String: SessionStore] = [:]
     @ObservationIgnored private var cachedTranscripts: [String: [TranscriptEntry]] = [:]
@@ -413,7 +412,6 @@ public final class AppStore {
         debugAttachmentSessions.removeAll()
         openStores.removeAll()
         cachedTranscripts.removeAll()
-        sessionSnapshots.removeAll()
         serverEntryCounts.removeAll()
         latestBootstrap = nil
         daemon = nil
@@ -750,7 +748,6 @@ public final class AppStore {
             return (id, session)
         }
         sessions = Dictionary(uniqueKeysWithValues: liveSessions)
-        sessionSnapshots = Dictionary(uniqueKeysWithValues: liveSessions.map { ($0.0, jsonObject($0.1)) })
         serverEntryCounts = snapshot.entries ?? [:]
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         for store in openStores.values {
@@ -768,14 +765,23 @@ public final class AppStore {
     }
 
     private func applyStateDelta(_ delta: StateDelta) {
-        guard let id = delta.sessionId, let current = sessions[id] else { return }
-        var object = sessionSnapshots[id] ?? jsonObject(current)
-        let values = delta.rawObject.isEmpty ? jsonObject(delta) : delta.rawObject
-        for (key, value) in values where key != "sessionId" && key != "entries" { object[key] = value }
-        guard let session = decodeSession(object) else { return }
-        sessionSnapshots[id] = object
+        guard let id = delta.sessionId, var session = sessions[id] else { return }
+        if delta.rawObject["state"] != nil { session.state = delta.state }
+        if delta.rawObject["action"] != nil { session.action = delta.action }
+        if delta.rawObject["startedAt"] != nil { session.startedAt = delta.startedAt }
+        if delta.rawObject["idleSince"] != nil { session.idleSince = delta.idleSince }
+        if delta.rawObject["lastTool"] != nil { session.lastTool = delta.lastTool }
+        if delta.rawObject["lastToolInput"] != nil { session.lastToolInput = delta.lastToolInput }
+        if delta.rawObject["toolRunning"] != nil { session.toolRunning = delta.toolRunning }
+        if delta.rawObject["lastText"] != nil { session.lastText = delta.lastText }
+        if delta.rawObject["usage"] != nil { session.usage = delta.usage }
+        if delta.rawObject["subagents"] != nil { session.subagents = delta.subagents }
+        if delta.rawObject["shells"] != nil { session.shells = delta.shells }
+        if delta.rawObject["pending"] != nil { session.pending = delta.pending }
         sessions[id] = session
-        if let counts = delta.entries { serverEntryCounts.merge(counts) { _, new in new } }
+        if delta.rawObject["entries"] != nil, let counts = delta.entries {
+            serverEntryCounts.merge(counts) { _, new in new }
+        }
         updateOpenStores(for: session)
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         lastUpdated = clock.now
@@ -819,8 +825,9 @@ public final class AppStore {
     }
 
     private func applySubagents(_ event: SubagentsEvent) {
-        guard let sessionID = event.sessionId, var session = sessions[sessionID], let subagents = event.subagents else { return }
-        session.subagents = subagents
+        guard let sessionID = event.sessionId, var session = sessions[sessionID] else { return }
+        guard session.subagents != event.subagents else { return }
+        session.subagents = event.subagents
         sessions[sessionID] = session
         updateOpenStores(for: session)
         lastUpdated = clock.now
@@ -869,7 +876,6 @@ public final class AppStore {
 
     private func updateOpenStores(for session: Session) {
         guard let id = session.id else { return }
-        sessionSnapshots[id] = jsonObject(session)
         for store in openStores.values where store.sessionID == id {
             store.updateSession(session)
         }
@@ -992,22 +998,6 @@ public final class AppStore {
         let message = error.localizedDescription
         connection = .offline(lastUpdated: lastUpdated, error: message)
         started = false
-    }
-
-    private func jsonObject<T: Encodable>(_ value: T) -> [String: JSONValue] {
-        #if CC_PERF
-        PerfCounters.shared.hit(.jsonObject)
-        #endif
-        guard let data = try? JSONEncoder.ccKit().encode(value), let object = try? JSONDecoder.ccKit().decode([String: JSONValue].self, from: data) else { return [:] }
-        return object
-    }
-
-    private func decodeSession(_ object: [String: JSONValue]) -> Session? {
-        #if CC_PERF
-        PerfCounters.shared.hit(.decodeSession)
-        #endif
-        guard let data = try? JSONEncoder.ccKit().encode(JSONValue.object(object)) else { return nil }
-        return try? JSONDecoder.ccKit().decode(Session.self, from: data)
     }
 
     private func storeKey(sessionID: String, agentID: String?) -> String {

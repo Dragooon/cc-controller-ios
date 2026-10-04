@@ -79,7 +79,56 @@ public struct StateDelta: Codable, Sendable, Equatable {
     }
 
     public init(sessionId: String? = nil, state: SessionState? = nil, action: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, entries: [String: Int]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, pending: [Approval]? = nil) {
-        self.sessionId = sessionId; self.state = state; self.action = action; self.startedAt = startedAt; self.idleSince = idleSince; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.entries = entries; self.usage = usage; self.subagents = subagents; self.shells = shells; self.pending = pending; self.rawObject = [:]
+        self.sessionId = sessionId; self.state = state; self.action = action; self.startedAt = startedAt; self.idleSince = idleSince; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.entries = entries; self.usage = usage; self.subagents = subagents; self.shells = shells; self.pending = pending
+        self.rawObject = Self.presentKeys(sessionId: sessionId, state: state, action: action, startedAt: startedAt, idleSince: idleSince, lastTool: lastTool, lastToolInput: lastToolInput, toolRunning: toolRunning, lastText: lastText, entries: entries, usage: usage, subagents: subagents, shells: shells, pending: pending).reduce(into: [:]) { $0[$1] = .null }
+    }
+
+    func merged(with newer: StateDelta) -> StateDelta {
+        var result = self
+        let keys = newer.presentKeys
+        if keys.contains("sessionId") { result.sessionId = newer.sessionId }
+        if keys.contains("state") { result.state = newer.state }
+        if keys.contains("action") { result.action = newer.action }
+        if keys.contains("startedAt") { result.startedAt = newer.startedAt }
+        if keys.contains("idleSince") { result.idleSince = newer.idleSince }
+        if keys.contains("lastTool") { result.lastTool = newer.lastTool }
+        if keys.contains("lastToolInput") { result.lastToolInput = newer.lastToolInput }
+        if keys.contains("toolRunning") { result.toolRunning = newer.toolRunning }
+        if keys.contains("lastText") { result.lastText = newer.lastText }
+        if keys.contains("entries") { result.entries = newer.entries }
+        if keys.contains("usage") { result.usage = newer.usage }
+        if keys.contains("subagents") { result.subagents = newer.subagents }
+        if keys.contains("shells") { result.shells = newer.shells }
+        if keys.contains("pending") { result.pending = newer.pending }
+        result.rawObject = rawObject
+        for key in keys { result.rawObject[key] = newer.rawObject[key] ?? .null }
+        return result
+    }
+
+    private var presentKeys: Set<String> {
+        if !rawObject.isEmpty { return Set(rawObject.keys) }
+        return Self.presentKeys(sessionId: sessionId, state: state, action: action, startedAt: startedAt, idleSince: idleSince, lastTool: lastTool, lastToolInput: lastToolInput, toolRunning: toolRunning, lastText: lastText, entries: entries, usage: usage, subagents: subagents, shells: shells, pending: pending)
+    }
+
+    private static func presentKeys(sessionId: String?, state: SessionState?, action: String?, startedAt: Date?, idleSince: Date?, lastTool: String?, lastToolInput: JSONValue?, toolRunning: Bool?, lastText: String?, entries: [String: Int]?, usage: Usage?, subagents: [Subagent]?, shells: [Shell]?, pending: [Approval]?) -> Set<String> {
+        var keys = Set<String>()
+        if sessionId != nil { keys.insert("sessionId") }
+        if state != nil { keys.insert("state") }
+        if action != nil { keys.insert("action") }
+        if startedAt != nil { keys.insert("startedAt") }
+        if idleSince != nil { keys.insert("idleSince") }
+        if lastTool != nil { keys.insert("lastTool") }
+        if lastToolInput != nil { keys.insert("lastToolInput") }
+        if toolRunning != nil { keys.insert("toolRunning") }
+        if lastText != nil { keys.insert("lastText") }
+        if entries != nil { keys.insert("entries") }
+        if usage != nil { keys.insert("usage") }
+        if subagents != nil { keys.insert("subagents") }
+        if shells != nil { keys.insert("shells") }
+        if pending != nil { keys.insert("pending") }
+        return keys
+    }
+
     }
 
     public static func == (lhs: StateDelta, rhs: StateDelta) -> Bool {

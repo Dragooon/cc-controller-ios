@@ -83,6 +83,8 @@ final class AppStoreTests: XCTestCase {
         seeded.lastToolInput = .object(["command": .string("npm test")])
         seeded.toolRunning = true
         seeded.usage = Usage(model: "old", inputTokens: 10, outputTokens: 2)
+        seeded.subagents = [Subagent(agentId: "agent-old", state: .done)]
+        seeded.pending = [Approval(requestId: "request-old", sessionId: "session-1", toolName: "Bash")]
         app.apply(.state(StateSnapshot(sessions: [seeded], entries: ["session-1": 1])))
 
         let omitted = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"action\":\"still working\"}"))
@@ -90,8 +92,10 @@ final class AppStoreTests: XCTestCase {
         try await settleCoalescedEvents()
         XCTAssertEqual(app.sessions["session-1"]?.lastTool, "Bash")
         XCTAssertEqual(app.sessions["session-1"]?.toolRunning, true)
+        XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-old")
+        XCTAssertEqual(app.sessions["session-1"]?.pending?.first?.requestId, "request-old")
 
-        let cleared = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"toolRunning\":false,\"lastTool\":null,\"lastToolInput\":null,\"usage\":{\"model\":\"new\",\"outputTokens\":3}}"))
+        let cleared = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"toolRunning\":false,\"lastTool\":null,\"lastToolInput\":null,\"pending\":[],\"usage\":{\"model\":\"new\",\"outputTokens\":3}}"))
         app.apply(cleared)
         try await settleCoalescedEvents()
         XCTAssertNil(app.sessions["session-1"]?.lastTool)
@@ -100,6 +104,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.sessions["session-1"]?.usage?.model, "new")
         XCTAssertNil(app.sessions["session-1"]?.usage?.inputTokens)
         XCTAssertEqual(app.sessions["session-1"]?.usage?.outputTokens, 3)
+        XCTAssertEqual(app.sessions["session-1"]?.pending, [])
 
         let activity = try XCTUnwrap(LiveEvent.decode(name: "state", data: """
         {"sessionId":"session-1","shells":[{"toolUseId":"shell-1","description":"Run tests","command":"swift test","state":"running"}]}

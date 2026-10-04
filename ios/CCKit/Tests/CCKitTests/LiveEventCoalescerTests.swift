@@ -26,4 +26,26 @@ final class LiveEventCoalescerTests: XCTestCase {
 
         XCTAssertEqual(coalescer.drainAll(), [.stateDelta(first), .usage(second)])
     }
+
+    func testSuccessiveStateDeltasMergeKeysAndRetainExplicitNulls() throws {
+        let coalescer = LiveEventCoalescer()
+        let first = StateDelta(sessionId: "session-1", state: .working, lastTool: "Bash", toolRunning: true)
+        let rawSecond = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"action\":\"still working\",\"lastTool\":null}"))
+        guard case .stateDelta(let second) = rawSecond else {
+            XCTFail("Expected a state delta")
+            return
+        }
+        coalescer.enqueue(.stateDelta(first))
+        coalescer.enqueue(.stateDelta(second))
+
+        guard case .stateDelta(let merged) = try XCTUnwrap(coalescer.drain(sessionID: "session-1").first) else {
+            XCTFail("Expected a merged state delta")
+            return
+        }
+        XCTAssertEqual(merged.state, .working)
+        XCTAssertEqual(merged.action, "still working")
+        XCTAssertNil(merged.lastTool)
+        XCTAssertEqual(merged.toolRunning, true)
+        XCTAssertNotNil(merged.rawObject["lastTool"])
+    }
 }

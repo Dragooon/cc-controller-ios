@@ -15,8 +15,6 @@ public final class PerfCounters: @unchecked Sendable {
         case refreshTurns
         case scrollToBottom
         case scheduleCacheWrite
-        case decodeSession
-        case jsonObject
         case bootstrapAndReconcile
         case refetchTail
         case refetchGap
