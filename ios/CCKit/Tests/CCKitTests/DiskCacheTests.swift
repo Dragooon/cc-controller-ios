@@ -9,6 +9,66 @@ final class DiskCacheTests: XCTestCase {
         XCTAssertEqual(debounce, .seconds(5))
     }
 
+    func testOnlyChangedTranscriptsAreWrittenAndUnopenedTranscriptSurvives() async throws {
+        let directory = temporaryDirectory()
+        let cache = DiskCache(directory: directory)
+        let first = state(value: "first")
+        let firstEntries = [entry(id: "first", text: "before")]
+        let unopenedEntries = [entry(id: "unopened", text: "untouched")]
+
+        await cache.saveNow(
+            first,
+            changedTranscripts: ["first": firstEntries, "unopened": unopenedEntries],
+            retainedTranscriptKeys: ["first", "unopened"]
+        )
+        let unopenedURL = await cache.transcriptFileURL(for: "unopened")
+        let unopenedData = try Data(contentsOf: unopenedURL)
+
+        await cache.saveNow(
+            state(value: "latest"),
+            changedTranscripts: ["first": [entry(id: "first", text: "after")]],
+            retainedTranscriptKeys: ["first", "unopened"]
+        )
+
+        XCTAssertEqual(try Data(contentsOf: unopenedURL), unopenedData)
+        let loaded = try await cache.load()
+        XCTAssertEqual(loaded?.transcripts["unopened"], unopenedEntries)
+        XCTAssertEqual(loaded?.transcripts["first"], [entry(id: "first", text: "after")])
+    }
+
+    func testPruningRemovesTranscriptFilesMissingFromSnapshot() async throws {
+        let cache = DiskCache(directory: temporaryDirectory())
+        await cache.saveNow(
+            state(value: "initial"),
+            changedTranscripts: ["keep": [entry(id: "keep")], "remove": [entry(id: "remove")]],
+            retainedTranscriptKeys: ["keep", "remove"]
+        )
+
+        await cache.saveNow(
+            state(value: "pruned"),
+            changedTranscripts: [:],
+            retainedTranscriptKeys: ["keep"]
+        )
+
+        let loaded = try await cache.load()
+        XCTAssertEqual(Set(loaded?.transcripts.keys ?? Dictionary<String, [TranscriptEntry]>().keys), ["keep"])
+    }
+
+    func testOldFormatStateIsTolerated() async throws {
+        let directory = temporaryDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacy = LegacyState(
+            bootstrap: Bootstrap(state: StateSnapshot(sessions: [Session(id: "legacy")])),
+            transcripts: ["legacy": [entry(id: "legacy", text: "old")]],
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let data = try JSONEncoder.ccKit().encode(legacy)
+        try data.write(to: directory.appendingPathComponent("state.json"))
+
+        let loaded = try await DiskCache(directory: directory).load()
+        XCTAssertEqual(loaded?.transcripts["legacy"]?.first?.id, "legacy")
+    }
+
     func testDebouncedSaveKeepsTheLatestSnapshot() async throws {
         let directory = temporaryDirectory()
         let cache = DiskCache(directory: directory, debounce: .milliseconds(20))
@@ -24,6 +84,10 @@ final class DiskCacheTests: XCTestCase {
         XCTAssertEqual(loaded, latest)
     }
 
+    private func entry(id: String, text: String? = nil) -> TranscriptEntry {
+        .assistant(AssistantEntry(id: id, text: text))
+    }
+
     private func state(value: String) -> DiskCacheState {
         DiskCacheState(
             bootstrap: Bootstrap(state: StateSnapshot(sessions: [Session(id: value)])),
@@ -34,4 +98,10 @@ final class DiskCacheTests: XCTestCase {
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     }
+}
+
+private struct LegacyState: Codable {
+    let bootstrap: Bootstrap
+    let transcripts: [String: [TranscriptEntry]]
+    let updatedAt: Date
 }

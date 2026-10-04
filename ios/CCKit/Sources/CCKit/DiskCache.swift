@@ -4,11 +4,33 @@ public struct DiskCacheState: Codable, Sendable, Equatable {
     public var bootstrap: Bootstrap
     public var transcripts: [String: [TranscriptEntry]]
     public var updatedAt: Date
+    var loadedLegacyFormat: Bool
 
     public init(bootstrap: Bootstrap, transcripts: [String: [TranscriptEntry]] = [:], updatedAt: Date) {
         self.bootstrap = bootstrap
         self.transcripts = transcripts
         self.updatedAt = updatedAt
+        self.loadedLegacyFormat = false
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bootstrap
+        case transcripts
+        case updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bootstrap = try container.decode(Bootstrap.self, forKey: .bootstrap)
+        transcripts = try container.decodeIfPresent([String: [TranscriptEntry]].self, forKey: .transcripts) ?? [:]
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        loadedLegacyFormat = container.contains(.transcripts)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bootstrap, forKey: .bootstrap)
+        try container.encode(updatedAt, forKey: .updatedAt)
     }
 }
 
@@ -17,7 +39,9 @@ public actor DiskCache {
     private let clock: any CCKitClock
     let debounce: Duration
     private var pendingWrite: Task<Void, Never>?
-    private let fileName = "state.json"
+    private let stateFileName = "state.json"
+    private let transcriptPrefix = "transcript-"
+    private let transcriptSuffix = ".json"
 
     public init(directory: URL, clock: any CCKitClock = SystemCCKitClock(), debounce: Duration = .seconds(5)) {
         self.directory = directory
@@ -26,30 +50,57 @@ public actor DiskCache {
     }
 
     public func load() throws -> DiskCacheState? {
-        let url = directory.appendingPathComponent(fileName)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder.ccKit().decode(DiskCacheState.self, from: data)
+        let stateURL = directory.appendingPathComponent(stateFileName)
+        guard FileManager.default.fileExists(atPath: stateURL.path) else { return nil }
+        let stateData = try Data(contentsOf: stateURL)
+        var state = try JSONDecoder.ccKit().decode(DiskCacheState.self, from: stateData)
+        for url in transcriptURLs() {
+            guard let key = transcriptKey(for: url),
+                  let data = try? Data(contentsOf: url),
+                  let entries = try? JSONDecoder.ccKit().decode([TranscriptEntry].self, from: data) else { continue }
+            state.transcripts[key] = entries
+        }
+        return state
     }
 
-    public func save(_ state: DiskCacheState) {
+    public func save(
+        _ state: DiskCacheState,
+        changedTranscripts: [String: [TranscriptEntry]]? = nil,
+        retainedTranscriptKeys: Set<String>? = nil
+    ) {
+        let changedTranscripts = changedTranscripts ?? state.transcripts
+        let retainedTranscriptKeys = retainedTranscriptKeys ?? Set(state.transcripts.keys)
         pendingWrite?.cancel()
         pendingWrite = Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.clock.sleep(for: self.debounce)
-                try await self.write(state)
+                try await self.write(
+                    state,
+                    changedTranscripts: changedTranscripts,
+                    retainedTranscriptKeys: retainedTranscriptKeys
+                )
             } catch is CancellationError {
             } catch {
             }
         }
     }
 
-    public func saveNow(_ state: DiskCacheState) {
+    public func saveNow(
+        _ state: DiskCacheState,
+        changedTranscripts: [String: [TranscriptEntry]]? = nil,
+        retainedTranscriptKeys: Set<String>? = nil
+    ) {
+        let changedTranscripts = changedTranscripts ?? state.transcripts
+        let retainedTranscriptKeys = retainedTranscriptKeys ?? Set(state.transcripts.keys)
         pendingWrite?.cancel()
         pendingWrite = nil
         do {
-            try write(state)
+            try write(
+                state,
+                changedTranscripts: changedTranscripts,
+                retainedTranscriptKeys: retainedTranscriptKeys
+            )
         } catch {
         }
     }
@@ -62,17 +113,72 @@ public actor DiskCache {
     public func clear() throws {
         pendingWrite?.cancel()
         pendingWrite = nil
-        let url = directory.appendingPathComponent(fileName)
-        try FileManager.default.removeItem(at: url)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try FileManager.default.removeItem(at: directory)
     }
 
-    private func write(_ state: DiskCacheState) throws {
+    func transcriptFileURL(for key: String) -> URL {
+        directory.appendingPathComponent(transcriptFileName(for: key))
+    }
+
+    private func write(
+        _ state: DiskCacheState,
+        changedTranscripts: [String: [TranscriptEntry]],
+        retainedTranscriptKeys: Set<String>
+    ) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder.ccKit().encode(state)
-        let url = directory.appendingPathComponent(fileName)
-        try data.write(to: url, options: .atomic)
+        let stateData = try JSONEncoder.ccKit().encode(state)
+        let stateURL = directory.appendingPathComponent(stateFileName)
+        try stateData.write(to: stateURL, options: .atomic)
+        try protect(stateURL)
+
+        for (key, entries) in changedTranscripts {
+            let data = try JSONEncoder.ccKit().encode(Array(entries.suffix(400)))
+            let url = transcriptFileURL(for: key)
+            try data.write(to: url, options: .atomic)
+            try protect(url)
+        }
+
+        for url in transcriptURLs() {
+            guard let key = transcriptKey(for: url), !retainedTranscriptKeys.contains(key) else { continue }
+            try FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private func protect(_ url: URL) throws {
         #if os(iOS)
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: url.path)
         #endif
+    }
+
+    private func transcriptURLs() -> [URL] {
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return urls.filter { url in
+            let name = url.lastPathComponent
+            return name.hasPrefix(transcriptPrefix) && name.hasSuffix(transcriptSuffix)
+        }
+    }
+
+    private func transcriptFileName(for key: String) -> String {
+        let encoded = Data(key.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "\(transcriptPrefix)\(encoded)\(transcriptSuffix)"
+    }
+
+    private func transcriptKey(for url: URL) -> String? {
+        let name = url.deletingPathExtension().lastPathComponent
+        guard name.hasPrefix(transcriptPrefix) else { return nil }
+        var encoded = String(name.dropFirst(transcriptPrefix.count))
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }

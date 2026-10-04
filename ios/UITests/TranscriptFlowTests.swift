@@ -357,6 +357,66 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertFalse(paths.contains { $0.contains("before=") }, "Small upward scroll unexpectedly paged earlier: \(paths)")
     }
 
+    func testWarmOpenRendersCacheBeforeDelayedResponseAndKeepsPlace() async throws {
+        var app = launchFixture(resetCache: true)
+        let longSession = findLongSession(in: app)
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        let coldStart = Date()
+        longSession.tap()
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 15), "Cold transcript did not load")
+        print("INSTANT_OPEN_COLD_MS \(Int(Date().timeIntervalSince(coldStart) * 1000))")
+        let coldScroll = app.scrollViews.firstMatch
+        XCTAssertTrue(coldScroll.waitForExistence(timeout: 10), "Cold transcript scroll view did not load")
+        let cacheSeedRow = app.staticTexts["Long-session prompt 350: inspect the next checkpoint."]
+        for _ in 0..<80 where !cacheSeedRow.isHittable {
+            coldScroll.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(cacheSeedRow.waitForExistence(timeout: 20), "Paging did not fill the cache with a middle row")
+        try await Task.sleep(for: .seconds(6))
+
+        XCTAssertTrue(app.navigationBars.buttons["Sessions"].waitForExistence(timeout: 10), "Sessions back button did not load")
+        app.navigationBars.buttons["Sessions"].tap()
+        XCTAssertTrue(longSession.waitForExistence(timeout: 10), "Long session did not return to the list")
+        app.terminate()
+
+        app = launchFixture(resetCache: false)
+        let warmSession = findLongSession(in: app)
+        XCTAssertTrue(warmSession.waitForExistence(timeout: 75), "Long fixture session did not load after relaunch")
+        let warmStart = Date()
+        warmSession.tap()
+        let warmNewest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(warmNewest.waitForExistence(timeout: 0.5), "Cached transcript was not visible before delayed response")
+        print("INSTANT_OPEN_WARM_MS \(Int(Date().timeIntervalSince(warmStart) * 1000))")
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch.exists, "Warm open showed the loading view")
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertTrue(warmNewest.isHittable, "Bottom row was not visible after fresh transcript merge")
+        app.terminate()
+
+        app = launchFixture(resetCache: false)
+        let middleSession = findLongSession(in: app)
+        XCTAssertTrue(middleSession.waitForExistence(timeout: 75), "Long fixture session did not load for middle-scroll check")
+        middleSession.tap()
+        let cachedRow = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(cachedRow.waitForExistence(timeout: 1), "Cached transcript was not visible for middle-scroll check")
+        let scrollView = app.scrollViews.firstMatch
+        XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
+        let visibleRows = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
+        )
+        for _ in 0..<4 {
+            scrollView.swipeDown(velocity: .fast)
+        }
+        let rowBeforeMerge = try XCTUnwrap(
+            visibleRows.allElementsBoundByIndex.first(where: \.isHittable),
+            "No cached middle row was visible before merge"
+        )
+        let rowLabel = rowBeforeMerge.label
+        print("INSTANT_OPEN_MIDDLE_ROW \(rowLabel)")
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertTrue(app.staticTexts[rowLabel].isHittable, "Fresh merge moved the cached middle row")
+    }
+
     func testJumpHiddenOnShortSession() throws {
         let app = launchFixture()
         defer {
@@ -437,11 +497,22 @@ final class TranscriptFlowTests: XCTestCase {
         return payload?["paths"] as? [String] ?? []
     }
 
-    private func launchFixture() -> XCUIApplication {
+    private func findLongSession(in app: XCUIApplication) -> XCUIElement {
+        let searchButton = app.buttons["Search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
+        searchButton.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        search.typeText("Long session")
+        return app.buttons["session-long-session"]
+    }
+
+    private func launchFixture(resetCache: Bool = true) -> XCUIApplication {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", server, "-CCResetCache"]
+        app.launchArguments = ["-CCServer", server]
+        if resetCache { app.launchArguments.append("-CCResetCache") }
         app.launchEnvironment["CCBearer"] = bearer
         dismissLeftoverNotificationPrompt()
         app.launch()

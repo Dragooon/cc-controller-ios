@@ -58,6 +58,7 @@ public final class AppStore {
     @ObservationIgnored private var serverEntryCounts: [String: Int] = [:]
     @ObservationIgnored private var openStores: [String: SessionStore] = [:]
     @ObservationIgnored private var cachedTranscripts: [String: [TranscriptEntry]] = [:]
+    @ObservationIgnored private var cacheChangedStoreKeys: Set<String> = []
     @ObservationIgnored private var reconnectSince: Date?
     @ObservationIgnored private let eventCoalescer = LiveEventCoalescer()
     @ObservationIgnored private var eventCoalescingTask: Task<Void, Never>?
@@ -451,6 +452,7 @@ public final class AppStore {
         debugAttachmentSessions.removeAll()
         openStores.removeAll()
         cachedTranscripts.removeAll()
+        cacheChangedStoreKeys.removeAll()
         serverEntryCounts.removeAll()
         latestBootstrap = nil
         daemon = nil
@@ -798,6 +800,7 @@ public final class AppStore {
                 store.updateSession(closed)
             }
         }
+        pruneCachedTranscripts()
         lastUpdated = clock.now
         scheduleCacheWrite()
         refetchStoresForCounts(snapshot.entries ?? [:])
@@ -961,8 +964,10 @@ public final class AppStore {
             agentID: agentID,
             entries: entries,
             onTranscriptChange: { [weak self] changedEntries in
-                guard agentID == nil else { return }
-                self?.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
+                guard let self else { return }
+                self.transcriptDidChange(for: key)
+                guard agentID == nil, !changedEntries.isEmpty else { return }
+                self.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
             }
         )
         openStores[key] = store
@@ -986,24 +991,9 @@ public final class AppStore {
         latestBootstrap = state.bootstrap
         lastUpdated = state.updatedAt
         cachedTranscripts = state.transcripts
+        pruneCachedTranscripts()
+        if state.loadedLegacyFormat { cacheChangedStoreKeys.formUnion(cachedTranscripts.keys) }
         connection = .offline(lastUpdated: state.updatedAt, error: nil)
-        for (key, entries) in state.transcripts {
-            guard openStores[key] == nil else { continue }
-            let components = key.split(separator: "|", maxSplits: 1).map(String.init)
-            guard let sessionID = components.first, let session = sessions[sessionID] else { continue }
-            let agentID = components.count == 2 ? components[1] : nil
-            openStores[key] = SessionStore(
-                session: session,
-                client: client,
-                agentID: agentID,
-                entries: entries,
-                onTranscriptChange: { [weak self] changedEntries in
-                    guard agentID == nil else { return }
-                    self?.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
-                }
-            )
-            if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
-        }
     }
 
     private func scheduleCacheWrite() {
@@ -1033,13 +1023,29 @@ public final class AppStore {
 
     private func writeCacheSnapshot() {
         guard cacheWritePending, let state = cacheStateSnapshot() else { return }
+        let changedKeys = cacheChangedStoreKeys
+        let changedTranscripts = changedKeys.reduce(into: [String: [TranscriptEntry]]()) { result, key in
+            if let store = openStores[key] {
+                let entries = Array(store.entries.suffix(400))
+                cachedTranscripts[key] = entries
+                result[key] = entries
+            } else if let entries = cachedTranscripts[key] {
+                result[key] = entries
+            }
+        }
         cacheWritePending = false
-        Task { await cache.saveNow(state) }
+        cacheChangedStoreKeys.subtract(changedKeys)
+        Task {
+            await cache.saveNow(
+                state,
+                changedTranscripts: changedTranscripts,
+                retainedTranscriptKeys: validCacheKeys
+            )
+        }
     }
 
     private func cacheStateSnapshot() -> DiskCacheState? {
         guard let latestBootstrap else { return nil }
-        let transcripts = Dictionary(uniqueKeysWithValues: openStores.map { ($0.key, Array($0.value.entries.suffix(400))) })
         return DiskCacheState(
             bootstrap: Bootstrap(
                 apiVersion: latestBootstrap.apiVersion,
@@ -1048,9 +1054,28 @@ public final class AppStore {
                 limits: latestBootstrap.limits,
                 state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device)
             ),
-            transcripts: transcripts,
             updatedAt: lastUpdated ?? clock.now
         )
+    }
+
+    private func transcriptDidChange(for key: String) {
+        guard let store = openStores[key] else { return }
+        cachedTranscripts[key] = Array(store.entries.suffix(400))
+        cacheChangedStoreKeys.insert(key)
+        scheduleCacheWrite()
+    }
+
+    private var validCacheKeys: Set<String> {
+        Set(cachedTranscripts.keys.filter { key in
+            guard let sessionID = key.split(separator: "|", maxSplits: 1).first else { return false }
+            return sessions[String(sessionID)] != nil
+        })
+    }
+
+    private func pruneCachedTranscripts() {
+        let validKeys = validCacheKeys
+        cachedTranscripts = cachedTranscripts.filter { validKeys.contains($0.key) }
+        cacheChangedStoreKeys = cacheChangedStoreKeys.filter { validKeys.contains($0) }
     }
 
     private func handleConnectionError(_ error: Error) {

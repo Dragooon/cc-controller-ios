@@ -53,23 +53,30 @@ public enum TranscriptEntry: Codable, Sendable, Equatable {
         }
     }
     public func encode(to encoder: Encoder) throws {
+        let encoded: Data
         switch self {
-        case .prompt(let value): try value.encode(to: encoder)
-        case .assistant(let value): try value.encode(to: encoder)
-        case .tool(let value): try value.encode(to: encoder)
-        case .subagent(let value): try value.encode(to: encoder)
-        case .subagentResult(let value): try value.encode(to: encoder)
-        case .compaction(let value): try value.encode(to: encoder)
-        case .interrupt(let value): try value.encode(to: encoder)
-        case .turnEnd(let value): try value.encode(to: encoder)
-        case .decision(let value): try value.encode(to: encoder)
-        case .file(let value): try value.encode(to: encoder)
-        case .attention(let value): try value.encode(to: encoder)
+        case .prompt(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .assistant(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .tool(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .subagent(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .subagentResult(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .compaction(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .interrupt(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .turnEnd(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .decision(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .file(let value): encoded = try JSONEncoder.ccKit().encode(value)
+        case .attention(let value): encoded = try JSONEncoder.ccKit().encode(value)
         case .unknown(let kind, let raw):
             guard case .object(var object) = raw else { try raw.encode(to: encoder); return }
             object["kind"] = .string(kind)
             try JSONValue.object(object).encode(to: encoder)
+            return
         }
+        guard case .object(var object) = try JSONDecoder.ccKit().decode(JSONValue.self, from: encoded) else {
+            throw EncodingError.invalidValue(self, EncodingError.Context(codingPath: encoder.codingPath, debugDescription: "Transcript entry is not an object"))
+        }
+        object["kind"] = .string(kind)
+        try JSONValue.object(object).encode(to: encoder)
     }
 
     public var kind: String { switch self { case .prompt: "prompt"; case .assistant: "assistant"; case .tool: "tool"; case .subagent: "subagent"; case .subagentResult: "subagent_result"; case .compaction: "compaction"; case .interrupt: "interrupt"; case .turnEnd: "turn_end"; case .decision: "decision"; case .file: "file"; case .attention: "attention"; case .unknown(let kind, _): kind } }

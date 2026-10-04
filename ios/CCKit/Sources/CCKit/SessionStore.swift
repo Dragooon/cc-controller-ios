@@ -32,6 +32,7 @@ public final class SessionStore {
         self.onTranscriptChange = onTranscriptChange
         self.transcriptStore = TranscriptStore(entries: entries)
         self.totalEntries = entries.count
+        self.hasLoaded = !entries.isEmpty
         refreshTurns()
     }
 
@@ -51,15 +52,24 @@ public final class SessionStore {
         TranscriptPerformance.shared.markRequestSent()
         #endif
         let page = try await client.transcriptPage(sessionID: sessionID, tail: 100, agent: agentID)
-        let change = transcriptStore.replaceAll(with: page.entries)
+        let previousEntries = transcriptStore.entries
+        let change: TranscriptChangeSet
+        if !entries.isEmpty, page.entries.contains(where: { transcriptStore.containsIdentity(of: $0) }) {
+            change = transcriptStore.merge(page.entries)
+        } else {
+            change = transcriptStore.replaceAll(with: page.entries)
+        }
+        let entriesChanged = previousEntries != transcriptStore.entries
         #if DEBUG
         TranscriptPerformance.shared.markMergeDone()
         #endif
-        hasMoreEarlier = page.hasMore
+        hasMoreEarlier = transcriptStore.entries.count < page.total
         totalEntries = page.total
         hasLoaded = true
-        refreshTurns()
-        notify(change)
+        if entriesChanged {
+            refreshTurns()
+            notify(change)
+        }
         return change
     }
 
@@ -68,8 +78,10 @@ public final class SessionStore {
         let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: appendNewEntries)
         if let entryCount { totalEntries = max(totalEntries, entryCount) }
         else if !hasLoaded { totalEntries = max(totalEntries, transcriptStore.entries.count) }
-        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
-        notify(change)
+        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
+            refreshTurns()
+            notify(change)
+        }
         return change
     }
 
@@ -108,8 +120,10 @@ public final class SessionStore {
         }
         totalEntries = max(totalEntries, page.total)
         hasLoaded = true
-        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
-        notify(change)
+        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
+            refreshTurns()
+            notify(change)
+        }
         return change
     }
 
@@ -122,8 +136,10 @@ public final class SessionStore {
         let change = transcriptStore.merge(page.entries)
         hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
-        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }
-        notify(change)
+        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
+            refreshTurns()
+            notify(change)
+        }
         return change
     }
 
@@ -133,6 +149,7 @@ public final class SessionStore {
         hasMoreEarlier = false
         totalEntries = 0
         hasLoaded = false
+        onTranscriptChange?([])
     }
 
     public var isLoaded: Bool { hasLoaded }

@@ -114,7 +114,7 @@ struct SessionScreen: View {
                 name: sessionStore.session.name ?? "Session",
                 session: sessionStore.session
             ) {
-                if sessionStore.isLoaded {
+                if sessionStore.isLoaded || !sessionStore.entries.isEmpty {
                     SessionTranscriptView(
                         sessionID: sessionID,
                         turns: sessionStore.turns,

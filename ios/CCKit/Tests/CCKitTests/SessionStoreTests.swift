@@ -5,6 +5,81 @@ import XCTest
 
 @MainActor
 final class SessionStoreTests: XCTestCase {
+    func testCachedEntriesAreLoadedBeforeInitialFetch() {
+        let cached = TranscriptEntry.assistant(AssistantEntry(id: "cached", text: "cached"))
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: makeClient(),
+            entries: [cached]
+        )
+
+        XCTAssertTrue(store.isLoaded)
+        XCTAssertEqual(store.entries, [cached])
+        XCTAssertEqual(store.turns.flatMap(\.items).count, 1)
+    }
+
+    func testLoadInitialMergesOverlappingPageAndKeepsCachedEntries() async throws {
+        let cached = entries(from: 0, through: 1)
+        let fresh = entries(from: 1, through: 2)
+        let client = makeClient()
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: fresh, total: 4, hasMore: true),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: cached
+        )
+
+        try await store.loadInitial()
+
+        XCTAssertEqual(store.entries.map(\.id), ["entry-0", "entry-1", "entry-2"])
+        XCTAssertTrue(store.hasMoreEarlier)
+        XCTAssertEqual(store.totalEntries, 4)
+    }
+
+    func testLoadInitialReplacesStaleCacheWithoutOverlap() async throws {
+        let cached = entries(from: 0, through: 1)
+        let fresh = entries(from: 10, through: 11)
+        let client = makeClient()
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: fresh, total: 11, hasMore: true),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: cached
+        )
+
+        try await store.loadInitial()
+
+        XCTAssertEqual(store.entries.map(\.id), ["entry-10", "entry-11"])
+        XCTAssertTrue(store.hasMoreEarlier)
+    }
+
+    func testLoadInitialSetsNoEarlierWhenFetchedPageFillsTotal() async throws {
+        let fresh = entries(from: 10, through: 11)
+        let client = makeClient()
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: fresh, total: 2, hasMore: false),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: entries(from: 0, through: 1)
+        )
+
+        try await store.loadInitial()
+
+        XCTAssertFalse(store.hasMoreEarlier)
+    }
+
     func testLoadInitialPublishesIsLoaded() async throws {
         let entry = TranscriptEntry.assistant(AssistantEntry(id: "entry-1", text: "loaded"))
         SessionStoreURLProtocol.body = Data("[{\"kind\":\"assistant\",\"id\":\"entry-1\",\"text\":\"loaded\"}]".utf8)
