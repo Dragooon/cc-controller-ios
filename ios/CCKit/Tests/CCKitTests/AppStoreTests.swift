@@ -105,6 +105,7 @@ final class AppStoreTests: XCTestCase {
         {"sessionId":"session-1","shells":[{"toolUseId":"shell-1","description":"Run tests","command":"swift test","state":"running"}]}
         """))
         app.apply(activity)
+        try await settleCoalescedEvents()
         XCTAssertEqual(app.sessions["session-1"]?.shells?.first?.toolUseId, "shell-1")
     }
 
