@@ -157,7 +157,6 @@ public final class SessionStore {
     private var canFetch: Bool { session.live == true && !sessionID.isEmpty }
 
     private func notify(_ change: TranscriptChangeSet) {
-        guard !change.changed.isEmpty else { return }
         onTranscriptChange?(change.changed)
     }
 

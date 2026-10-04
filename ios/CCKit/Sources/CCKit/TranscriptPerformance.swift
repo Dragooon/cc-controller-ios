@@ -18,6 +18,14 @@ public final class TranscriptPerformance {
 
     public func begin(sessionID: String) {
         guard self.sessionID != sessionID else { return }
+        reset(sessionID: sessionID)
+    }
+
+    public func beginScreenAppearance(sessionID: String) {
+        reset(sessionID: sessionID)
+    }
+
+    private func reset(sessionID: String) {
         self.sessionID = sessionID
         startedAt = Date()
         phases = [:]

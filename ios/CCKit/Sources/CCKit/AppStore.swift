@@ -137,11 +137,11 @@ public final class AppStore {
     }
 
     public func closeSession(_ id: String) {
-        openStores.removeValue(forKey: id)
+        closeStore(forKey: id)
     }
 
     public func closeSubagent(sessionID: String, agentID: String) {
-        openStores.removeValue(forKey: "\(sessionID)|\(agentID)")
+        closeStore(forKey: "\(sessionID)|\(agentID)")
     }
 
     public func approvals(for sessionID: String) -> [Approval] {
@@ -1058,9 +1058,13 @@ public final class AppStore {
         )
     }
 
-    private func transcriptDidChange(for key: String) {
-        guard let store = openStores[key] else { return }
+    private func closeStore(forKey key: String) {
+        guard let store = openStores.removeValue(forKey: key) else { return }
         cachedTranscripts[key] = Array(store.entries.suffix(400))
+    }
+
+    private func transcriptDidChange(for key: String) {
+        guard openStores[key] != nil else { return }
         cacheChangedStoreKeys.insert(key)
         scheduleCacheWrite()
     }

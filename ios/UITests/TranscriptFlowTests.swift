@@ -365,7 +365,9 @@ final class TranscriptFlowTests: XCTestCase {
         longSession.tap()
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitForExistence(timeout: 15), "Cold transcript did not load")
+        let coldInApp = try await firstRowsMilliseconds(in: app)
         print("INSTANT_OPEN_COLD_MS \(Int(Date().timeIntervalSince(coldStart) * 1000))")
+        print("INSTANT_OPEN_COLD_IN_APP_MS \(String(format: "%.1f", coldInApp))")
         let coldScroll = app.scrollViews.firstMatch
         XCTAssertTrue(coldScroll.waitForExistence(timeout: 10), "Cold transcript scroll view did not load")
         let cacheSeedRow = app.staticTexts["Long-session prompt 350: inspect the next checkpoint."]
@@ -387,7 +389,9 @@ final class TranscriptFlowTests: XCTestCase {
         warmSession.tap()
         let warmNewest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(warmNewest.waitForExistence(timeout: 0.5), "Cached transcript was not visible before delayed response")
+        let warmInApp = try await firstRowsMilliseconds(in: app)
         print("INSTANT_OPEN_WARM_MS \(Int(Date().timeIntervalSince(warmStart) * 1000))")
+        print("INSTANT_OPEN_WARM_IN_APP_MS \(String(format: "%.1f", warmInApp))")
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch.exists, "Warm open showed the loading view")
         try await Task.sleep(for: .seconds(2))
         XCTAssertTrue(warmNewest.isHittable, "Bottom row was not visible after fresh transcript merge")
@@ -495,6 +499,23 @@ final class TranscriptFlowTests: XCTestCase {
         }
         let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         return payload?["paths"] as? [String] ?? []
+    }
+
+    private func firstRowsMilliseconds(in app: XCUIApplication) async throws -> Double {
+        let performance = app.staticTexts["transcript-performance"]
+        XCTAssertTrue(performance.waitForExistence(timeout: 10), "Transcript performance probe did not load")
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            let label = performance.label
+            if let value = label.split(separator: " ")
+                .first(where: { $0.hasPrefix("first_rows=") })
+                .flatMap({ Double($0.dropFirst("first_rows=".count)) }) {
+                return value
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("Transcript first_rows phase did not load: \(performance.label)")
+        throw NSError(domain: "TranscriptFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Transcript first_rows phase did not load"])
     }
 
     private func findLongSession(in app: XCUIApplication) -> XCUIElement {

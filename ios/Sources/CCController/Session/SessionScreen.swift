@@ -97,6 +97,7 @@ struct SessionScreen: View {
         }
         .onAppear {
             #if DEBUG
+            TranscriptPerformance.shared.beginScreenAppearance(sessionID: sessionID)
             model.store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
             #endif
         }
