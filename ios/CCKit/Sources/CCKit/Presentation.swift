@@ -671,23 +671,38 @@ public func groupTranscript(entries: [TranscriptEntry] = [], working: Bool = fal
     groupTurns(entries: entries, working: working, now: now)
 }
 
-public func groupTurns(entries: [TranscriptEntry] = [], working: Bool = false, now: Date = .now) -> [Turn] {
+struct GroupedTurns {
+    let turns: [Turn]
+    let startIndices: [Int]
+}
+
+func groupTurnsWithStarts(
+    entries: [TranscriptEntry] = [],
+    working: Bool = false,
+    now: Date = .now,
+    turnIndexOffset: Int = 0
+) -> GroupedTurns {
     var rawTurns: [RawTurn] = []
-    for entry in entries {
+    var startIndices: [Int] = []
+    for (entryIndex, entry) in entries.enumerated() {
         if entry.isMeta || entry.kind == "attention" { continue }
         if case .prompt(let prompt) = entry {
             if let index = rawTurns.indices.last, rawTurns[index].entries.isEmpty, rawTurns[index].end == nil, !rawTurns[index].prompts.isEmpty {
                 rawTurns[index].prompts.append(prompt)
             } else {
                 rawTurns.append(RawTurn(prompts: [prompt]))
+                startIndices.append(entryIndex)
             }
             continue
         }
-        if rawTurns.isEmpty { rawTurns.append(RawTurn()) }
+        if rawTurns.isEmpty {
+            rawTurns.append(RawTurn())
+            startIndices.append(entryIndex)
+        }
         if case .turnEnd(let end) = entry { rawTurns[rawTurns.count - 1].end = end }
         else { rawTurns[rawTurns.count - 1].entries.append(entry) }
     }
-    return rawTurns.enumerated().map { index, raw in
+    let turns = rawTurns.enumerated().map { index, raw in
         let first = raw.prompts.first?.ts ?? raw.entries.first?.ts
         let last = raw.entries.last?.ts ?? first ?? now
         let duration: Double
@@ -701,9 +716,14 @@ public func groupTurns(entries: [TranscriptEntry] = [], working: Bool = false, n
         }
         let hasBody = raw.end != nil || raw.entries.contains { ["assistant", "tool", "subagent", "subagent_result"].contains($0.kind) }
         let live = working && index == rawTurns.count - 1 && raw.end == nil
-        let id = raw.prompts.first?.stablePresentationID ?? raw.entries.first?.stablePresentationID ?? "turn-\(index)"
+        let id = raw.prompts.first?.stablePresentationID ?? raw.entries.first?.stablePresentationID ?? "turn-\(index + turnIndexOffset)"
         return Turn(id: id, prompts: raw.prompts, items: groupTurnItems(raw.entries), end: raw.end, durationMs: Int(duration.rounded()), hasBody: hasBody, live: live, hasWorkedFooter: !working && index == rawTurns.count - 1 && raw.entries.last?.kind == "assistant")
     }
+    return GroupedTurns(turns: turns, startIndices: startIndices)
+}
+
+public func groupTurns(entries: [TranscriptEntry] = [], working: Bool = false, now: Date = .now) -> [Turn] {
+    groupTurnsWithStarts(entries: entries, working: working, now: now).turns
 }
 
 public func groupToolEntries(_ entries: [TranscriptEntry]) -> [TurnItem] {

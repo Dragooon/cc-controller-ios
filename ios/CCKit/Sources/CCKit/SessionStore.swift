@@ -14,32 +14,47 @@ public final class SessionStore {
 
     @ObservationIgnored private let client: APIClient
     @ObservationIgnored private let onTranscriptChange: (([TranscriptEntry]) -> Void)?
+    @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private var loadingEarlier = false
     @ObservationIgnored private var loading = false
     private var hasLoaded = false
+    private var turnStartIndices: [Int] = []
+    private var earlierIdentityKeys: Set<String> = []
 
-    public init(
+    public convenience init(
         session: Session,
         client: APIClient,
         agentID: String? = nil,
         entries: [TranscriptEntry] = [],
         onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil
     ) {
+        self.init(session: session, client: client, agentID: agentID, entries: entries, onTranscriptChange: onTranscriptChange, clock: Date.init)
+    }
+
+    init(
+        session: Session,
+        client: APIClient,
+        agentID: String? = nil,
+        entries: [TranscriptEntry] = [],
+        onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
+        clock: @escaping () -> Date
+    ) {
         self.session = session
         self.sessionID = session.id ?? ""
         self.client = client
         self.agentID = agentID
         self.onTranscriptChange = onTranscriptChange
+        self.clock = clock
         self.transcriptStore = TranscriptStore(entries: entries)
         self.totalEntries = entries.count
         self.hasLoaded = !entries.isEmpty
-        refreshTurns()
+        refreshTurns(forceFull: true)
     }
 
     public func updateSession(_ session: Session) {
         let wasWorking = self.session.state == .working
         self.session = session
-        if wasWorking != (session.state == .working) { refreshTurns() }
+        if wasWorking != (session.state == .working) { refreshTurns(forceFull: true) }
     }
 
     @discardableResult
@@ -54,10 +69,13 @@ public final class SessionStore {
         let page = try await client.transcriptPage(sessionID: sessionID, tail: 100, agent: agentID)
         let previousEntries = transcriptStore.entries
         let change: TranscriptChangeSet
+        let replacedAll: Bool
         if !entries.isEmpty, page.entries.contains(where: { transcriptStore.containsIdentity(of: $0) }) {
             change = transcriptStore.merge(page.entries)
+            replacedAll = false
         } else {
             change = transcriptStore.replaceAll(with: page.entries)
+            replacedAll = true
         }
         let entriesChanged = previousEntries != transcriptStore.entries
         #if DEBUG
@@ -67,7 +85,7 @@ public final class SessionStore {
         totalEntries = page.total
         hasLoaded = true
         if entriesChanged {
-            refreshTurns()
+            refreshTurns(change: change, forceFull: replacedAll)
             notify(change)
         }
         return change
@@ -79,7 +97,7 @@ public final class SessionStore {
         if let entryCount { totalEntries = max(totalEntries, entryCount) }
         else if !hasLoaded { totalEntries = max(totalEntries, transcriptStore.entries.count) }
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
-            refreshTurns()
+            refreshTurns(change: change)
             notify(change)
         }
         return change
@@ -108,20 +126,24 @@ public final class SessionStore {
         defer { loading = false }
         let page = try await client.transcriptPage(sessionID: sessionID, tail: min(400, max(1, limit)), agent: agentID)
         let change: TranscriptChangeSet
+        let replacedAll: Bool
         if reset {
             change = transcriptStore.replaceAll(with: page.entries)
+            replacedAll = true
             hasMoreEarlier = page.hasMore
         } else if page.entries.contains(where: { transcriptStore.containsIdentity(of: $0) }) {
+            replacedAll = false
             let retained = page.entries.filter { !transcriptStore.isBeforeFirst($0) }
             change = transcriptStore.merge(retained)
         } else {
             change = transcriptStore.replaceAll(with: page.entries)
+            replacedAll = true
             hasMoreEarlier = page.hasMore
         }
         totalEntries = max(totalEntries, page.total)
         hasLoaded = true
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
-            refreshTurns()
+            refreshTurns(change: change, forceFull: replacedAll)
             notify(change)
         }
         return change
@@ -137,7 +159,7 @@ public final class SessionStore {
         hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
-            refreshTurns()
+            refreshTurns(change: change, forceFull: true)
             notify(change)
         }
         return change
@@ -146,6 +168,8 @@ public final class SessionStore {
     public func resetTranscript() {
         transcriptStore = TranscriptStore()
         turns = []
+        turnStartIndices = []
+        earlierIdentityKeys = []
         hasMoreEarlier = false
         totalEntries = 0
         hasLoaded = false
@@ -160,13 +184,51 @@ public final class SessionStore {
         onTranscriptChange?(change.changed)
     }
 
-    private func refreshTurns() {
+    private func refreshTurns(change: TranscriptChangeSet? = nil, forceFull: Bool = false) {
         #if CC_PERF
         PerfCounters.shared.hit(.refreshTurns)
         #endif
-        turns = groupTranscript(entries: transcriptStore.entries, working: session.state == .working)
+        let now = clock()
+        if !forceFull, let change, let startIndex = incrementalStartIndex(for: change) {
+            let prefixCount = max(0, turns.count - 2)
+            let suffix = Array(transcriptStore.entries[startIndex...])
+            let grouped = groupTurnsWithStarts(
+                entries: suffix,
+                working: session.state == .working,
+                now: now,
+                turnIndexOffset: prefixCount
+            )
+            turns = Array(turns.prefix(prefixCount)) + grouped.turns
+            turnStartIndices = Array(turnStartIndices.prefix(prefixCount)) + grouped.startIndices.map { startIndex + $0 }
+            let newPrefixCount = max(0, turns.count - 2)
+            let newStartIndex = turnStartIndices.indices.contains(newPrefixCount) ? turnStartIndices[newPrefixCount] : 0
+            if newStartIndex != startIndex { updateEarlierIdentityKeys() }
+        } else {
+            let grouped = groupTurnsWithStarts(entries: transcriptStore.entries, working: session.state == .working, now: now)
+            turns = grouped.turns
+            turnStartIndices = grouped.startIndices
+            updateEarlierIdentityKeys()
+        }
         #if DEBUG
         TranscriptPerformance.shared.markGroupingDone()
         #endif
+    }
+
+    private func incrementalStartIndex(for change: TranscriptChangeSet) -> Int? {
+        let prefixCount = max(0, turns.count - 2)
+        let startIndex = turnStartIndices.indices.contains(prefixCount) ? turnStartIndices[prefixCount] : 0
+        let changedEntries = change.inserted + change.updated
+        guard !changedEntries.isEmpty else { return nil }
+        let keys = changedEntries.map(transcriptStore.identityKey(for:))
+        guard !keys.contains(where: earlierIdentityKeys.contains) else { return nil }
+        let tailKeys = Set(transcriptStore.entries[startIndex...].map(transcriptStore.identityKey(for:)))
+        guard keys.allSatisfy(tailKeys.contains) else { return nil }
+        return startIndex
+    }
+
+    private func updateEarlierIdentityKeys() {
+        let prefixCount = max(0, turns.count - 2)
+        let startIndex = turnStartIndices.indices.contains(prefixCount) ? turnStartIndices[prefixCount] : 0
+        earlierIdentityKeys = Set(transcriptStore.entries[..<startIndex].map(transcriptStore.identityKey(for:)))
     }
 }
