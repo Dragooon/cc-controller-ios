@@ -136,13 +136,16 @@ struct SessionTranscriptView: View {
             } action: { _, metrics in
                 newestIsVisible = metrics.isAtBottom
                 contentFitsViewport = metrics.contentFitsViewport
-                if metrics.contentFitsViewport || (!metrics.isAtBottom && userHasScrolled) {
+                if metrics.contentFitsViewport {
                     loadEarlierIfNeeded()
                 }
             }
             .onScrollPhaseChange { _, phase in
                 guard phase == .interacting else { return }
                 userHasScrolled = true
+                if pagingRowIsVisible {
+                    loadEarlierIfNeeded()
+                }
                 cancelPagingRestore()
             }
             .onChange(of: sessionID) { _, _ in

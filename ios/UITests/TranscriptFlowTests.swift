@@ -312,7 +312,7 @@ final class TranscriptFlowTests: XCTestCase {
         attach(named: "transcript-jump-to-latest")
     }
 
-    func testSmallScrollUpKeepsPlace() throws {
+    func testSmallScrollUpKeepsPlace() async throws {
         let app = launchFixture()
         defer {
             audit(app: app, name: "small-scroll-up")
@@ -334,27 +334,27 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
         let scrollView = app.scrollViews.firstMatch
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
+        try await Task.sleep(for: .seconds(3))
+        let visibleRows = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
+        )
+        let rowBefore = try XCTUnwrap(
+            visibleRows.allElementsBoundByIndex.first(where: \.isHittable),
+            "No long-session transcript row was visible before the small scroll"
+        )
+        let rowLabel = rowBefore.label
 
         let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let end = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.1, thenDragTo: end.withOffset(CGVector(dx: 0, dy: -150)))
-        sleep(3)
+        start.press(forDuration: 0.1, thenDragTo: end.withOffset(CGVector(dx: 0, dy: 150)))
+        try await Task.sleep(for: .seconds(3))
         attach(named: "transcript-small-scroll-up")
 
-        let recentPrompt = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt 49'")
-        )
-        let oldPrompt = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt 30'")
-        )
-        XCTAssertTrue(
-            recentPrompt.allElementsBoundByIndex.contains(where: \.isHittable),
-            "Small upward scroll lost the newest prompts"
-        )
-        XCTAssertFalse(
-            oldPrompt.allElementsBoundByIndex.contains(where: \.isHittable),
-            "Small upward scroll jumped to the initial page"
-        )
+        let sameRow = app.staticTexts[rowLabel]
+        XCTAssertTrue(sameRow.waitForExistence(timeout: 5), "The row visible before the small scroll disappeared")
+        XCTAssertTrue(sameRow.isHittable, "The row visible before the small scroll is no longer visible")
+        let paths = try await fixtureRequestPaths()
+        XCTAssertFalse(paths.contains { $0.contains("before=") }, "Small upward scroll unexpectedly paged earlier: \(paths)")
     }
 
     func testJumpHiddenOnShortSession() throws {
