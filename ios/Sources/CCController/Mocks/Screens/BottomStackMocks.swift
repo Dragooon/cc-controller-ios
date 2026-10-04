@@ -27,7 +27,8 @@ private struct WorkingSessionMock: View {
                 turns: MockBottomStackData.workingTurns,
                 showsWorkedFooter: false,
                 bottomStackConfiguration: MockBottomStackData.workingBottomStack,
-                activityFooter: MockBottomStackData.activityFooter
+                activityFooter: MockBottomStackData.activityFooter,
+                subagents: MockBottomStackData.workingSession.subagents ?? []
             )
             .navigationTitle(MockBottomStackData.workingSession.name ?? "Session")
             .navigationSubtitle(sessionDetailSubtitle(MockBottomStackData.workingSession, now: MockFixtures.now))

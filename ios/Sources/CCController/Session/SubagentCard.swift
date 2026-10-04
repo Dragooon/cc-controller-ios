@@ -98,40 +98,85 @@ struct SubagentCard: View {
 
 struct SubagentResultView: View {
     let entry: SubagentResultEntry
-    @State private var isExpanded = false
+    let subagent: Subagent?
+    let onOpen: () -> Void
+
+    init(entry: SubagentResultEntry, subagent: Subagent? = nil, onOpen: @escaping () -> Void = {}) {
+        self.entry = entry
+        self.subagent = subagent
+        self.onOpen = onOpen
+    }
 
     private var result: String { entry.result ?? entry.text ?? "" }
-    private var durationText: String { displayDuration(entry.durationMs ?? 0) }
+    private var agent: String { entry.agent ?? subagent?.agent ?? "agent" }
+    private var durationText: String { displayDuration(durationMilliseconds) }
+    private var summary: String { firstMeaningfulLine(result) }
+    private var state: SubagentState { entry.state ?? subagent?.state ?? .done }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button { isExpanded.toggle() } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "arrowshape.turn.up.left")
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
-                    Text("\(entry.agent ?? "agent") replied · \(durationText)")
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.ccSecondary)
-                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                MarkdownView(markdown: result)
-                    .textSelection(.enabled)
-            } else {
-                Text(firstMeaningfulLine(result))
+        Button(action: onOpen) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "person.2")
                     .font(.footnote)
-                    .foregroundStyle(.ccLabel)
-                    .lineLimit(1)
+                    .foregroundStyle(.ccSecondary)
+                    .frame(width: 20, height: 20)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.bottom]
+                    }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(agent) \(stateVerb)")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(stateColor)
+                        .lineLimit(1)
+                    Text(summary.isEmpty ? "No result" : summary)
+                        .font(.caption)
+                        .foregroundStyle(.ccSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Spacer(minLength: 4)
+                Text(durationText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.ccSecondary)
+                    .fixedSize()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.ccSecondary)
+                    .frame(width: 20)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("subagent-result-row-\(entry.agentId ?? entry.toolUseId ?? "unknown")")
+        .accessibilityLabel("\(agent) \(stateVerb) after \(durationText). \(summary.isEmpty ? "No result" : summary).")
+        .accessibilityHint("Shows the result")
+        .accessibilityElement(children: .ignore)
+    }
+
+    private var durationMilliseconds: Int {
+        if let durationMs = entry.durationMs { return durationMs }
+        guard let startedAt = subagent?.startedAt, let finishedAt = subagent?.finishedAt else { return 0 }
+        return max(0, Int(startedAt.distance(to: finishedAt) * 1000))
+    }
+
+    private var stateVerb: String {
+        switch state {
+        case .done: "replied"
+        case .failed: "failed"
+        case .stopped, .unknown: "stopped"
+        case .running: "replied"
+        }
+    }
+
+    private var stateColor: Color {
+        switch state {
+        case .done: .ccGreen
+        case .failed: .ccRed
+        case .stopped, .unknown, .running: .ccSecondary
         }
     }
 }

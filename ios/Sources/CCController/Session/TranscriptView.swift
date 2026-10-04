@@ -15,6 +15,7 @@ struct SessionTranscriptView: View {
     let loadEarlier: (() async throws -> Void)?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let onSubagentResult: (SubagentResultEntry, Subagent?) -> Void
     let onCompaction: (CompactionEntry) -> Void
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
     let scrollAnchor: UnitPoint
@@ -41,6 +42,7 @@ struct SessionTranscriptView: View {
         loadEarlier: (() async throws -> Void)? = nil,
         onTool: @escaping (ToolEntry) -> Void = { _ in },
         onSubagent: @escaping (SubagentEntry) -> Void = { _ in },
+        onSubagentResult: @escaping (SubagentResultEntry, Subagent?) -> Void = { _, _ in },
         onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil,
         scrollAnchor: UnitPoint = .top
@@ -58,6 +60,7 @@ struct SessionTranscriptView: View {
         self.loadEarlier = loadEarlier
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.onSubagentResult = onSubagentResult
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
         self.scrollAnchor = scrollAnchor
@@ -257,6 +260,7 @@ struct SessionTranscriptView: View {
                 liveSession: liveSession,
                 onTool: onTool,
                 onSubagent: onSubagent,
+                onSubagentResult: onSubagentResult,
                 onCompaction: onCompaction,
                 downloadFile: downloadFile
             )
@@ -324,6 +328,7 @@ struct TranscriptTurnView: View {
     let liveSession: Session?
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let onSubagentResult: (SubagentResultEntry, Subagent?) -> Void
     let onCompaction: (CompactionEntry) -> Void
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
 
@@ -336,6 +341,7 @@ struct TranscriptTurnView: View {
         liveSession: Session? = nil,
         onTool: @escaping (ToolEntry) -> Void,
         onSubagent: @escaping (SubagentEntry) -> Void,
+        onSubagentResult: @escaping (SubagentResultEntry, Subagent?) -> Void = { _, _ in },
         onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
@@ -347,6 +353,7 @@ struct TranscriptTurnView: View {
         self.liveSession = liveSession
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.onSubagentResult = onSubagentResult
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
     }
@@ -375,6 +382,7 @@ struct TranscriptTurnView: View {
                     subagents: subagents,
                     onTool: onTool,
                     onSubagent: onSubagent,
+                    onSubagentResult: onSubagentResult,
                     onCompaction: onCompaction,
                     downloadFile: downloadFile
                 )
@@ -397,6 +405,7 @@ struct TurnItemView: View {
     let subagents: [Subagent]
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
+    let onSubagentResult: (SubagentResultEntry, Subagent?) -> Void
     let onCompaction: (CompactionEntry) -> Void
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
 
@@ -405,6 +414,7 @@ struct TurnItemView: View {
         subagents: [Subagent] = [],
         onTool: @escaping (ToolEntry) -> Void,
         onSubagent: @escaping (SubagentEntry) -> Void,
+        onSubagentResult: @escaping (SubagentResultEntry, Subagent?) -> Void = { _, _ in },
         onCompaction: @escaping (CompactionEntry) -> Void = { _ in },
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
@@ -412,8 +422,20 @@ struct TurnItemView: View {
         self.subagents = subagents
         self.onTool = onTool
         self.onSubagent = onSubagent
+        self.onSubagentResult = onSubagentResult
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
+    }
+
+    private func matchingSubagent(for entry: SubagentResultEntry) -> Subagent? {
+        if let toolUseId = entry.toolUseId, !toolUseId.isEmpty,
+           let match = subagents.first(where: { $0.toolUseId == toolUseId }) {
+            return match
+        }
+        if let agentId = entry.agentId, !agentId.isEmpty {
+            return subagents.first(where: { $0.agentId == agentId })
+        }
+        return nil
     }
 
     @ViewBuilder
@@ -426,7 +448,11 @@ struct TurnItemView: View {
         case .subagent(let entry):
             SubagentCard(entry: entry, onOpen: onSubagent)
         case .subagentResult(let entry):
-            SubagentResultView(entry: entry)
+            SubagentResultView(
+                entry: entry,
+                subagent: matchingSubagent(for: entry),
+                onOpen: { onSubagentResult(entry, matchingSubagent(for: entry)) }
+            )
         case .sendMessage(let entry):
             SendMessageView(entry: entry, subagents: subagents)
         case .decision(let entry):

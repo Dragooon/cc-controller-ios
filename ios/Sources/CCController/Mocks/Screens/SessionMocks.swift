@@ -8,6 +8,7 @@ enum SessionMocks {
         SessionMockScreen(
             session: MockSessionData.session,
             turns: MockSessionData.turns,
+            subagents: MockSessionData.subagents,
             now: MockFixtures.now
         )
     }
@@ -27,6 +28,10 @@ enum SessionMocks {
         )
     }
 
+    static var resultSheet: some View {
+        SubagentResultSheetMock()
+    }
+
     static var subagent: some View {
         SubagentMock(
             turns: MockSessionData.subagentTurns,
@@ -38,11 +43,12 @@ enum SessionMocks {
 private struct SessionMockScreen: View {
     let session: Session
     let turns: [Turn]
+    let subagents: [Subagent]
     let now: Date
 
     var body: some View {
         NavigationStack {
-            SessionTranscriptView(turns: turns)
+            SessionTranscriptView(turns: turns, subagents: subagents)
                 .navigationTitle(session.name ?? "Session")
                 .navigationSubtitle(sessionDetailSubtitle(session, now: now))
                 .navigationBarTitleDisplayMode(.inline)
@@ -66,7 +72,7 @@ private struct ToolDetailMock: View {
     let tool: ToolEntry
 
     var body: some View {
-        SessionMockScreen(session: session, turns: turns, now: MockFixtures.now)
+        SessionMockScreen(session: session, turns: turns, subagents: MockSessionData.subagents, now: MockFixtures.now)
             .sheet(isPresented: .constant(true)) {
                 ToolDetailSheet(tool: tool)
                     .presentationDetents([.large])
@@ -80,7 +86,7 @@ private struct ToolDetailEditMock: View {
     let turns: [Turn]
 
     var body: some View {
-        SessionMockScreen(session: session, turns: turns, now: MockFixtures.now)
+        SessionMockScreen(session: session, turns: turns, subagents: MockSessionData.subagents, now: MockFixtures.now)
             .sheet(isPresented: .constant(true)) {
                 ToolDetailSheet(tool: MockSessionData.editTool)
                     .presentationDetents([.large])
@@ -89,6 +95,26 @@ private struct ToolDetailEditMock: View {
     }
 }
 
+
+private struct SubagentResultSheetMock: View {
+    var body: some View {
+        SessionMockScreen(
+            session: MockSessionData.session,
+            turns: MockSessionData.turns,
+            subagents: MockSessionData.subagents,
+            now: MockFixtures.now
+        )
+        .sheet(isPresented: .constant(true)) {
+            SubagentResultSheet(
+                entry: MockSessionData.subagentResult,
+                subagent: MockSessionData.resultSubagent,
+                onViewTranscript: {}
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+}
 
 private struct SubagentMock: View {
     let turns: [Turn]
@@ -127,6 +153,34 @@ enum MockSessionData {
         state: .idle,
         usage: Usage(model: "claude-fable-5-1", contextPercent: 32),
         idleSince: Date(timeIntervalSince1970: 1790738400)
+    )
+
+    static let subagents: [Subagent] = [
+        resultSubagent
+    ]
+
+    static let resultSubagent = Subagent(
+        agentId: "researcher-1",
+        agent: "researcher",
+        text: "Check the rollout events and compare the desired agent image with the running pods.",
+        state: .done,
+        startedAt: Date(timeIntervalSince1970: 1790739060),
+        finishedAt: Date(timeIntervalSince1970: 1790739300),
+        linked: true,
+        toolUseId: "agent-call-1",
+        result: "The deployment is healthy; one pod is being replaced after the image digest changed."
+    )
+
+    static let subagentResult = SubagentResultEntry(
+        id: "researcher-result-1",
+        ts: Date(timeIntervalSince1970: 1790739300),
+        toolUseId: "agent-call-1",
+        agentId: "researcher-1",
+        agent: "researcher",
+        text: "Check the rollout events and compare the desired agent image with the running pods.",
+        state: .done,
+        result: "The deployment is healthy; one pod is being replaced after the image digest changed.\n\nThe new digest is registered and the final pod is progressing through readiness.",
+        durationMs: 240_000
     )
 
     static let turns: [Turn] = {

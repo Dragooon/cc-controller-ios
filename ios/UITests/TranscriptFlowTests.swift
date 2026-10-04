@@ -80,6 +80,38 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(toolGroup.waitForExistence(timeout: 10), "Transcript did not return after closing tool detail")
     }
 
+    func testSubagentResultSheetAndTranscript() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "subagent-result-sheet")
+            app.terminate()
+        }
+        let session = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(session.waitForExistence(timeout: 75), "Subagent fixture session did not load")
+        session.tap()
+
+        let resultRow = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH[c] 'subagent-result-row-'")
+        ).firstMatch
+        XCTAssertTrue(resultRow.waitForExistence(timeout: 20), "Subagent result row did not load")
+        resultRow.tap()
+
+        let sheetTitle = app.navigationBars["engineer result"]
+        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 15), "Subagent result sheet did not load")
+        let fullResult = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Audit evidence is complete and the rule is ready")
+        ).firstMatch
+        XCTAssertTrue(fullResult.waitForExistence(timeout: 15), "Subagent full result did not load")
+
+        let viewTranscript = app.buttons["View transcript"]
+        XCTAssertTrue(viewTranscript.waitForExistence(timeout: 10), "View transcript action did not load")
+        viewTranscript.tap()
+        XCTAssertTrue(
+            app.navigationBars["engineer"].waitForExistence(timeout: 15),
+            "Subagent transcript did not open"
+        )
+    }
+
     func testOpeningPerformance() async throws {
         let app = launchFixture()
         defer {

@@ -51,7 +51,8 @@ enum MockBottomStackData {
       {"kind":"prompt","id":"working-prompt","ts":"2026-09-30T04:00:00Z","text":"Finish the native composer mocks and check every screenshot."},
       {"kind":"assistant","id":"working-assistant","ts":"2026-09-30T04:00:12Z","text":"I am checking the bottom stack at both phone sizes and will keep the composer above the keyboard."},
       {"kind":"tool","id":"working-read","ts":"2026-09-30T04:00:18Z","toolUseId":"working-read","tool":"Read","args":{"file_path":"tasks/native-app.md"},"result":"Read the Bottom stack and Keyboard decisions.","state":"done"},
-      {"kind":"tool","id":"working-bash","ts":"2026-09-30T04:00:24Z","toolUseId":"working-bash","tool":"Bash","args":{"command":"npm test"},"result":"Running test suite…","state":"running"}
+      {"kind":"tool","id":"working-bash","ts":"2026-09-30T04:00:24Z","toolUseId":"working-bash","tool":"Bash","args":{"command":"npm test"},"result":"Running test suite…","state":"running"},
+      {"kind":"subagent_result","id":"working-agent-result","ts":"2026-09-30T04:00:30Z","toolUseId":"working-agent-call","agentId":"researcher-1","agent":"researcher","result":"The screenshot pass is complete; the composer stays above the keyboard.","state":"done","durationMs":18000}
     ]
     """#)
 

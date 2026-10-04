@@ -14,6 +14,15 @@ private struct SessionLoadKey: Hashable {
     let hasSession: Bool
 }
 
+struct SubagentResultSelection: Identifiable {
+    let entry: SubagentResultEntry
+    let subagent: Subagent?
+
+    var id: String {
+        entry.id ?? entry.toolUseId ?? entry.agentId ?? "subagent-result"
+    }
+}
+
 struct SessionScreen: View {
 
     let sessionID: String
@@ -21,10 +30,12 @@ struct SessionScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
+    @State private var selectedSubagentResult: SubagentResultSelection?
     @State private var inspectorPresented = false
     @State private var filePreviewURL: URL?
     @State private var destination: SessionDestination?
     @State private var pendingInspectorDestination: SessionDestination?
+    @State private var pendingSubagentDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
     @State private var knownApprovalIDs: Set<String> = []
@@ -117,6 +128,9 @@ struct SessionScreen: View {
                         loadEarlier: { try await sessionStore.loadEarlier() },
                         onTool: { selectedTool = $0 },
                         onSubagent: openSubagent,
+                        onSubagentResult: { entry, subagent in
+                            selectedSubagentResult = SubagentResultSelection(entry: entry, subagent: subagent)
+                        },
                         onCompaction: { selectedCompaction = $0 },
                         downloadFile: { entry in
                             try await downloadFile(entry, sessionID: sessionID)
@@ -143,6 +157,17 @@ struct SessionScreen: View {
                         .presentationDetents([.medium, .large])
                         .presentationDragIndicator(.visible)
                 }
+            }
+            .sheet(item: $selectedSubagentResult, onDismiss: presentPendingSubagentDestination) { selection in
+                SubagentResultSheet(
+                    entry: selection.entry,
+                    subagent: selection.subagent,
+                    onViewTranscript: {
+                        openSubagentTranscript(selection)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         } else {
             ProgressView()
@@ -305,6 +330,19 @@ struct SessionScreen: View {
     private func openSubagent(_ entry: SubagentEntry) {
         guard let agentID = entry.agentId, !agentID.isEmpty else { return }
         destination = SessionDestination(sessionID: sessionID, agentID: agentID)
+    }
+
+    private func openSubagentTranscript(_ selection: SubagentResultSelection) {
+        let agentID = selection.subagent?.agentId ?? selection.entry.agentId
+        guard let agentID, !agentID.isEmpty else { return }
+        pendingSubagentDestination = SessionDestination(sessionID: sessionID, agentID: agentID)
+        selectedSubagentResult = nil
+    }
+
+    private func presentPendingSubagentDestination() {
+        guard let pendingSubagentDestination else { return }
+        self.pendingSubagentDestination = nil
+        destination = pendingSubagentDestination
     }
 
     private func openSubagentFromInspector(_ subagent: Subagent) {
