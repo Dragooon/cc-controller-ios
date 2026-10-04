@@ -77,4 +77,14 @@ final class TranscriptStoreTests: XCTestCase {
         _ = store.merge([running])
         XCTAssertEqual(store.entries.first?.text, "done")
     }
+
+    func testRegroupedTurnRetainsEarlierEntryAsPagingRestoreTarget() {
+        let existing = TranscriptEntry.assistant(AssistantEntry(id: "existing", ts: t1, text: "existing"))
+        let earlier = TranscriptEntry.prompt(PromptEntry(id: "earlier", ts: t0, text: "earlier"))
+        let before = groupTranscript(entries: [existing])
+        let after = groupTranscript(entries: [earlier, existing])
+
+        XCTAssertNotEqual(before.first?.id, after.first?.id)
+        XCTAssertTrue(after.first?.entryIDs.contains("existing") == true)
+    }
 }

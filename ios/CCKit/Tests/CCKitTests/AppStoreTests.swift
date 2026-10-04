@@ -145,6 +145,57 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.openSession("session-1")?.entries.first?.id, "event-entry")
     }
 
+    func testLoadedStoreSurvivesSessionMissingFromState() throws {
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        store.merge([Self.entry(id: "loaded")])
+
+        app.apply(.state(StateSnapshot(sessions: [], entries: [:])))
+
+        XCTAssertTrue(app.openSession("session-1") === store)
+        XCTAssertFalse(store.session.live == true)
+        XCTAssertEqual(store.entries.map(\.id), ["loaded"])
+    }
+
+    func testRegistryReconcileDoesNotRefetchWhenCountsMatch() async throws {
+        var bootstrapCalls = 0
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.requestPaths = []
+        defer {
+            URLProtocolStub.keepEvents = false
+            URLProtocolStub.requestPaths = []
+        }
+        URLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/api/bootstrap":
+                bootstrapCalls += 1
+                return URLProtocolStub.json(Self.bootstrapJSON(entryCount: 1))
+            case "/api/events":
+                let body = "event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"idle\"}],\"entries\":{\"session-1\":1}}\n\n"
+                return URLProtocolStub.json(Data(body.utf8), contentType: "text/event-stream")
+            case "/api/sessions/session-1/transcript":
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "loaded")], total: 1, hasMore: false))
+            default:
+                return URLProtocolStub.json(Data("{}".utf8))
+            }
+        }
+        let app = makeApp()
+        app.start()
+        try await waitUntil { bootstrapCalls >= 1 && app.sessions["session-1"] != nil }
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil { store.isLoaded }
+        let initialTranscriptRequests = URLProtocolStub.requestPaths.filter { $0.contains("/transcript") }.count
+
+        app.apply(.registry(RegistryEvent(sessions: [])))
+        try await waitUntil { bootstrapCalls >= 2 }
+        try await Task.sleep(for: .milliseconds(50))
+
+        let finalTranscriptRequests = URLProtocolStub.requestPaths.filter { $0.contains("/transcript") }.count
+        XCTAssertEqual(finalTranscriptRequests, initialTranscriptRequests)
+        app.suspend()
+    }
+
     func testLiveAppendAfterTailBecomesNewestTurn() async throws {
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/sessions/session-1/message" {
@@ -461,6 +512,7 @@ private actor RecordingClock: CCKitClock {
 private final class URLProtocolStub: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (HTTPURLResponse, Data))?
     nonisolated(unsafe) static var keepEvents = false
+    nonisolated(unsafe) static var requestPaths: [String] = []
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -471,6 +523,7 @@ private final class URLProtocolStub: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let handler = Self.handler else { fatalError("No URLProtocol handler") }
+        Self.requestPaths.append(request.url?.path ?? "")
         let (response, data) = handler(request)
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         if request.url?.path == "/api/events" {

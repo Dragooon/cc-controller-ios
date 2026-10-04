@@ -652,7 +652,7 @@ public final class AppStore {
         }
     }
 
-    private func bootstrapAndReconcile(resetTranscripts: Bool) async throws {
+    private func bootstrapAndReconcile(resetTranscripts: Bool, refetchOpenTranscripts: Bool = true) async throws {
         #if CC_PERF
         PerfCounters.shared.hit(.bootstrapAndReconcile)
         #endif
@@ -664,9 +664,11 @@ public final class AppStore {
         apiVersion = bootstrap.apiVersion
         if let state = bootstrap.state { applyState(state) }
         lastUpdated = clock.now
-        for store in openStores.values {
-            if startedAtChanged { try await store.refetchTail(reset: true) }
-            else { try await store.refetchTail() }
+        if refetchOpenTranscripts {
+            for store in openStores.values {
+                if startedAtChanged { try await store.refetchTail(reset: true) }
+                else { try await store.refetchTail() }
+            }
         }
         scheduleCacheWrite()
     }
@@ -815,7 +817,7 @@ public final class AppStore {
         guard started else { return }
         Task { [weak self] in
             guard let self else { return }
-            do { try await self.bootstrapAndReconcile(resetTranscripts: false) }
+            do { try await self.bootstrapAndReconcile(resetTranscripts: false, refetchOpenTranscripts: false) }
             catch { self.handleConnectionError(error) }
         }
     }
@@ -837,9 +839,9 @@ public final class AppStore {
     }
 
     private func openStore(sessionID: String, agentID: String?) -> SessionStore? {
-        guard let session = sessions[sessionID], session.live == true else { return nil }
         let key = storeKey(sessionID: sessionID, agentID: agentID)
         if let store = openStores[key] { return store }
+        guard let session = sessions[sessionID], session.live == true else { return nil }
         let entries = cachedTranscripts[key] ?? []
         let store = SessionStore(session: session, client: client, agentID: agentID, entries: entries)
         openStores[key] = store

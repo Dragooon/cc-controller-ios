@@ -1,6 +1,11 @@
 import CCKit
 import SwiftUI
 
+private struct TranscriptScrollMetrics: Equatable {
+    let isAtBottom: Bool
+    let contentFitsViewport: Bool
+}
+
 struct SessionTranscriptView: View {
     let sessionID: String
     let turns: [Turn]
@@ -23,10 +28,12 @@ struct SessionTranscriptView: View {
     @State private var didTriggerPaging = false
     @State private var pagingRowIsVisible = false
     @State private var newestIsVisible = true
-    @State private var pagingAnchorID: Turn.ID?
+    @State private var pagingAnchorEntryID: String?
     @State private var pagingRestoreTask: Task<Void, Never>?
     @State private var pagingError: String?
     @State private var transcriptHeight: CGFloat = 0
+    @State private var userHasScrolled = false
+    @State private var contentFitsViewport = false
 
     init(
         sessionID: String = "",
@@ -91,10 +98,15 @@ struct SessionTranscriptView: View {
                 transcriptHeight = height
             }
             .onChange(of: turns.first?.id) { _, newID in
-                guard let anchorID = pagingAnchorID, newID != anchorID else { return }
+                guard let anchorEntryID = pagingAnchorEntryID else { return }
+                guard let anchorID = turns.first(where: { $0.entryIDs.contains(anchorEntryID) })?.id else {
+                    pagingAnchorEntryID = nil
+                    return
+                }
+                guard newID != anchorID else { return }
                 cancelPagingRestore()
                 scrollToPagingAnchor(anchorID, using: proxy)
-                pagingAnchorID = nil
+                pagingAnchorEntryID = nil
                 pagingRestoreTask = Task { @MainActor in
                     await Task.yield()
                     guard !Task.isCancelled else { return }
@@ -115,16 +127,28 @@ struct SessionTranscriptView: View {
                 scrollToNewest(using: proxy)
             }
             .background(.ccBackground)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
+            .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
                 let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
-                return visibleBottom >= geometry.contentSize.height - 36
-            } action: { _, isAtBottom in
-                newestIsVisible = isAtBottom
-                if !isAtBottom { loadEarlierIfNeeded() }
+                return TranscriptScrollMetrics(
+                    isAtBottom: visibleBottom >= geometry.contentSize.height - 36,
+                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height
+                )
+            } action: { _, metrics in
+                newestIsVisible = metrics.isAtBottom
+                contentFitsViewport = metrics.contentFitsViewport
+                if metrics.contentFitsViewport || (!metrics.isAtBottom && userHasScrolled) {
+                    loadEarlierIfNeeded()
+                }
             }
             .onScrollPhaseChange { _, phase in
                 guard phase == .interacting else { return }
+                userHasScrolled = true
                 cancelPagingRestore()
+            }
+            .onChange(of: sessionID) { _, _ in
+                userHasScrolled = false
+                contentFitsViewport = false
+                pagingAnchorEntryID = nil
             }
             .overlay(alignment: .bottomTrailing) {
                 if !newestIsVisible, let newestID = turns.last?.id {
@@ -202,9 +226,13 @@ struct SessionTranscriptView: View {
     }
 
     private func loadEarlierIfNeeded() {
-        guard hasMoreEarlier, !isLoadingEarlier, !didTriggerPaging, let loadEarlier else { return }
+        guard hasMoreEarlier,
+              !isLoadingEarlier,
+              !didTriggerPaging,
+              userHasScrolled || contentFitsViewport,
+              let loadEarlier else { return }
         cancelPagingRestore()
-        pagingAnchorID = turns.first?.id
+        pagingAnchorEntryID = turns.first?.entryIDs.first
         didTriggerPaging = true
         isLoadingEarlier = true
         Task { @MainActor in

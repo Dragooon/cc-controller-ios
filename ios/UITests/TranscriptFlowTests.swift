@@ -153,6 +153,104 @@ final class TranscriptFlowTests: XCTestCase {
         print("TRANSCRIPT_PERF_AFTER_USAGE \(after)")
     }
 
+    func testOpeningLongSessionStaysAtBottomAfterReconcile() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "opening-bottom-after-reconnect")
+            app.terminate()
+        }
+        let searchButton = app.buttons["Search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
+        searchButton.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        search.typeText("Long session")
+
+        let longSession = app.buttons["session-long-session"]
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        longSession.tap()
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        try await postFixture("/fixture/registry-event")
+        try await Task.sleep(for: .seconds(3))
+
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.exists, "Transcript composer disappeared after reconnect")
+        XCTAssertTrue(newest.isHittable, "Newest long-session entry is not visible after reconnect")
+        XCTAssertLessThanOrEqual(newest.frame.maxY, composer.frame.minY, "transcript-bottom is not visible after reconnect")
+        XCTAssertFalse(app.buttons["Jump to latest"].exists, "Reconnect moved the transcript away from the bottom")
+        let paths = try await fixtureRequestPaths()
+        XCTAssertFalse(paths.contains { $0.contains("before=") }, "Opening/reconcile unexpectedly paged before the loaded window: \(paths)")
+        XCTAssertFalse(paths.contains { $0.contains("tail=400") }, "Registry reconcile fetched an oversized tail: \(paths)")
+    }
+
+    func testSendingLongSessionKeepsBottomAfterReconnect() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "send-bottom-after-reconnect")
+            app.terminate()
+        }
+        let searchButton = app.buttons["Search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
+        searchButton.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        search.typeText("Long session")
+
+        let longSession = app.buttons["session-long-session"]
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        longSession.tap()
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "Transcript composer did not load")
+        composer.tap()
+        composer.typeText("scroll-stability-send")
+        app.buttons["composer-send"].tap()
+        try await Task.sleep(for: .seconds(3))
+
+        XCTAssertTrue(newest.isHittable, "Newest long-session entry is not visible after sending")
+        XCTAssertFalse(app.buttons["Jump to latest"].exists, "Sending moved the transcript away from the bottom")
+        let paths = try await fixtureRequestPaths()
+        XCTAssertFalse(paths.contains { $0.contains("before=") }, "Sending unexpectedly paged before the loaded window: \(paths)")
+    }
+
+    func testRegistryBlipDoesNotShowSpinnerOrMoveMiddle() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "registry-blip-middle")
+            app.terminate()
+        }
+        let searchButton = app.buttons["Search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
+        searchButton.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        search.typeText("Long session")
+
+        let longSession = app.buttons["session-long-session"]
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        longSession.tap()
+        let initialRow = app.staticTexts["Long-session prompt 499: inspect the next checkpoint."]
+        XCTAssertTrue(initialRow.waitForExistence(timeout: 30), "Newest long-session row did not load")
+        let visibleRow = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
+        let scrollView = app.scrollViews.firstMatch
+        for _ in 0..<80 {
+            scrollView.swipeDown(velocity: .fast)
+            if visibleRow.exists && visibleRow.isHittable { break }
+        }
+        XCTAssertTrue(visibleRow.waitForExistence(timeout: 20), "Middle transcript row did not load after user paging")
+        XCTAssertTrue(visibleRow.isHittable, "Middle transcript row was not visible before registry blip")
+
+        let blip = Task { try? await postFixture("/fixture/registry-blip") }
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch.exists, "Registry blip replaced the loaded transcript with a spinner")
+        XCTAssertTrue(visibleRow.isHittable, "Registry blip moved the visible transcript row")
+        _ = await blip.value
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertTrue(visibleRow.isHittable, "Transcript did not return to the same row after registry reconcile")
+    }
+
     func testPagingAndJumpToLatest() throws {
         let app = launchFixture()
         defer {
@@ -309,8 +407,12 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     private func postFixtureUsageUpdate() async throws {
+        try await postFixture("/fixture/usage-update")
+    }
+
+    private func postFixture(_ path: String) async throws {
         let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
-        guard let url = URL(string: "\(value)/fixture/usage-update") else {
+        guard let url = URL(string: "\(value)\(path)") else {
             throw XCTSkip("Fixture control URL was invalid")
         }
         var request = URLRequest(url: url)
@@ -318,8 +420,21 @@ final class TranscriptFlowTests: XCTestCase {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "no response body"
-            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture usage update failed: \(body)"])
+            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture request failed for \(path): \(body)"])
         }
+    }
+
+    private func fixtureRequestPaths() async throws -> [String] {
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)/fixture/requests") else {
+            throw XCTSkip("Fixture control URL was invalid")
+        }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture request log failed"])
+        }
+        let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return payload?["paths"] as? [String] ?? []
     }
 
     private func launchFixture() -> XCUIApplication {

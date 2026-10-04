@@ -67,7 +67,7 @@ public final class SessionStore {
     }
 
     public func refetchTail(reset: Bool = false) async throws {
-        try await refetchTail(limit: 400, reset: reset)
+        try await refetchTail(limit: reset ? 100 : 400, reset: reset)
     }
 
     public func refetchGap(limit: Int) async throws {
@@ -88,10 +88,14 @@ public final class SessionStore {
         let change: TranscriptChangeSet
         if reset {
             change = transcriptStore.replaceAll(with: page.entries)
+            hasMoreEarlier = page.hasMore
+        } else if page.entries.contains(where: { transcriptStore.containsIdentity(of: $0) }) {
+            let retained = page.entries.filter { !transcriptStore.isBeforeFirst($0) }
+            change = transcriptStore.merge(retained)
         } else {
-            change = transcriptStore.merge(page.entries)
+            change = transcriptStore.replaceAll(with: page.entries)
+            hasMoreEarlier = page.hasMore
         }
-        hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
         hasLoaded = true
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty { refreshTurns() }

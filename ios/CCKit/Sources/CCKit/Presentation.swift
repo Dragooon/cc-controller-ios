@@ -166,6 +166,21 @@ public enum TurnItem: Sendable, Equatable, Identifiable {
         case .other(let entry): return entry.kind
         }
     }
+
+    public var entryIDs: [String] {
+        switch self {
+        case .assistant(let entry): return [entry.stablePresentationID]
+        case .tools(let run): return run.entries.map(\.stablePresentationID)
+        case .subagent(let entry): return [entry.stablePresentationID]
+        case .subagentResult(let entry): return [entry.stablePresentationID]
+        case .sendMessage(let entry): return [entry.stablePresentationID]
+        case .decision(let entry): return [entry.stablePresentationID]
+        case .interrupt(let entry): return [entry.stablePresentationID]
+        case .compaction(let entry): return [entry.stablePresentationID]
+        case .file(let entry): return [entry.stablePresentationID]
+        case .other(let entry): return [entry.stablePresentationID]
+        }
+    }
 }
 
 public struct Turn: Identifiable, Sendable, Equatable {
@@ -187,6 +202,10 @@ public struct Turn: Identifiable, Sendable, Equatable {
         self.hasBody = hasBody
         self.live = live
         self.hasWorkedFooter = hasWorkedFooter
+    }
+
+    public var entryIDs: [String] {
+        prompts.map(\.stablePresentationID) + items.flatMap(\.entryIDs)
     }
 }
 

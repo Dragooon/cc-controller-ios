@@ -140,6 +140,7 @@ struct SessionScreen: View {
                     .environment(\.openFilePreview, { filePreviewURL = $0 })
                 } else {
                     ProgressView()
+                        .accessibilityIdentifier("session-loading")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(.ccBackground)
                 }
@@ -171,6 +172,7 @@ struct SessionScreen: View {
             }
         } else {
             ProgressView()
+                .accessibilityIdentifier("session-loading")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.ccBackground)
                 .navigationTitle("Session")

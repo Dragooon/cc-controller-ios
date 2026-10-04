@@ -57,6 +57,14 @@ public struct TranscriptStore: Sendable, Equatable {
         Self.identityKey(for: entry)
     }
 
+    public func containsIdentity(of entry: TranscriptEntry) -> Bool {
+        identityIndex[Self.identityKey(for: entry)] != nil
+    }
+
+    public func isBeforeFirst(_ entry: TranscriptEntry) -> Bool {
+        !entries.isEmpty && insertionIndex(for: entry) == 0
+    }
+
     private static func identityKey(for entry: TranscriptEntry) -> String {
         if let id = entry.id { return "id|\(id)" }
         if (entry.kind == "tool" || entry.kind == "subagent" || entry.kind == "subagent_result"), let toolUseId = entry.toolUseId {
