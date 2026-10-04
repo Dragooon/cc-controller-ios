@@ -20,7 +20,15 @@ public func faceIDFailureMessage(for error: AuthError) -> String {
     switch error {
     case .biometric(let message):
         return message
+    case .network:
+        return "Can't reach your Mac. Check that Termius is forwarding localhost:47832 and the Mac is awake."
+    case .rateLimited:
+        return "Too many unlock attempts. Wait a minute, then try again."
+    case .server(let status, _):
+        return "Your Mac could not sign this iPhone in (HTTP \(status)). Try again."
+    case .decoding:
+        return "Your Mac sent an unexpected reply. Try again."
     default:
-        return "Face ID did not work. Try again."
+        return "Unlock did not finish. Try again."
     }
 }

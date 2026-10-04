@@ -27,7 +27,18 @@ final class AuthRoutingTests: XCTestCase {
     func testNetworkFailureStaysLockedWithMappedMessage() {
         XCTAssertEqual(
             unlockRoute(for: .network("offline")),
-            .locked(message: "Face ID did not work. Try again.")
+            .locked(message: "Can't reach your Mac. Check that Termius is forwarding localhost:47832 and the Mac is awake.")
+        )
+    }
+
+    func testServerAndRateLimitFailuresNameTheMac() {
+        XCTAssertEqual(
+            unlockRoute(for: .server(status: 500, message: "boom")),
+            .locked(message: "Your Mac could not sign this iPhone in (HTTP 500). Try again.")
+        )
+        XCTAssertEqual(
+            unlockRoute(for: .rateLimited),
+            .locked(message: "Too many unlock attempts. Wait a minute, then try again.")
         )
     }
 }
