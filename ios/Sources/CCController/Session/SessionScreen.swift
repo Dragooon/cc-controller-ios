@@ -83,7 +83,7 @@ struct SessionScreen: View {
             let key = sessionLoadKey
             guard key.hasSession,
                   let sessionStore = model.store.openSession(key.sessionID) else { return }
-            #if DEBUG
+            #if DEBUG || CC_PERF
             model.store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
             #endif
             guard !sessionStore.isLoaded else { return }
@@ -96,7 +96,7 @@ struct SessionScreen: View {
             }
         }
         .onAppear {
-            #if DEBUG
+            #if DEBUG || CC_PERF
             TranscriptPerformance.shared.beginScreenAppearance(sessionID: sessionID)
             model.store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
             #endif

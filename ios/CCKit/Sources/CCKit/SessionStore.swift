@@ -64,7 +64,7 @@ public final class SessionStore {
         guard canFetch, !loading else { return TranscriptChangeSet() }
         loading = true
         defer { loading = false }
-        #if DEBUG
+        #if DEBUG || CC_PERF
         TranscriptPerformance.shared.begin(sessionID: sessionID)
         TranscriptPerformance.shared.markRequestSent()
         #endif
@@ -80,7 +80,7 @@ public final class SessionStore {
             replacedAll = true
         }
         let entriesChanged = previousEntries != transcriptStore.entries
-        #if DEBUG
+        #if DEBUG || CC_PERF
         TranscriptPerformance.shared.markMergeDone()
         #endif
         hasMoreEarlier = transcriptStore.entries.count < page.total
@@ -217,7 +217,7 @@ public final class SessionStore {
             turnStartIndices = grouped.startIndices
             updateEarlierIdentityKeys()
         }
-        #if DEBUG
+        #if DEBUG || CC_PERF
         TranscriptPerformance.shared.markGroupingDone()
         #endif
     }
