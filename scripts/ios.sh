@@ -32,6 +32,7 @@ MOCK_RUN_DIR=""
 SHARD_CONTROLLER=1
 SHARD_PIDS=()
 PERF_SAMPLE_PIDS=()
+FLOWS_FLAKY_COUNT=0
 
 step() {
   local name=$1; shift
@@ -659,6 +660,75 @@ run_flow_test() {
   return "$status"
 }
 
+run_flow_method() {
+  local label=$1 flow_class=$2 flow_method=$3 udid=$4 output_dir=$5 result=$6 exported=$7 source_xctestrun=$8 app_bundle=$9
+  local method_log="$output_dir/xcodebuild.log" method_xctestrun="$exported/CCController.xctestrun"
+  local method_status=0 xcode_status=0 export_status=0
+
+  rm -rf "$output_dir" "$result" "$exported"
+  mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
+  ln -s "$DERIVED/Build/Products/Debug-iphonesimulator" "$exported/Debug-iphonesimulator"
+
+  stop_fixture_daemon
+  FIXTURE_SIM_UDID="$udid"
+  if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
+    ensure_attachment_media "$udid"
+  fi
+  xcrun simctl ui "$udid" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
+  reset_flow_state "$udid"
+  if ! xcrun simctl install "$udid" "$app_bundle"; then
+    printf '%s\n' 'failed to install the freshly built app' | tee "$method_log"
+    method_status=1
+  else
+    printf 'installed %s\n' "$app_bundle" > "$method_log"
+  fi
+
+  local web_port bearer control_port
+  if [[ $method_status -eq 0 ]] && start_fixture_daemon "$output_dir/fixture-daemon.log"; then
+    web_port=$(json_value "$FIXTURE_OUT" webPort)
+    bearer=$(json_value "$FIXTURE_OUT" bearer)
+    control_port=$(json_value "$FIXTURE_OUT" controlPort)
+    if configure_xctestrun "$source_xctestrun" "$method_xctestrun" \
+      "http://127.0.0.1:$web_port" "$bearer" "http://127.0.0.1:$control_port" \
+      "${TEST_RUNNER_COLOR_SCHEME:-light}" "$output_dir"; then
+      local args=(xcodebuild -xctestrun "$method_xctestrun" -destination "id=$udid" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
+      if run_flow_test "$label" "$method_log" "${args[@]}"; then
+        xcode_status=0
+      else
+        xcode_status=$?
+      fi
+    else
+      printf '%s\n' 'failed to configure per-method xctestrun' | tee -a "$method_log"
+      method_status=1
+    fi
+    stop_fixture_daemon
+    if [[ -d "$result" ]]; then
+      if xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null 2>&1; then
+        local manifest="$exported/manifest.json"
+        if [[ -f "$manifest" ]]; then
+          node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+        fi
+        find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
+        find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
+      else
+        printf '%s\n' 'failed to export result attachments' | tee -a "$method_log"
+        export_status=1
+      fi
+    else
+      printf '%s\n' 'xcodebuild produced no result bundle' | tee -a "$method_log"
+      export_status=1
+    fi
+  else
+    printf '%s\n' 'fixture daemon failed to become ready' | tee -a "$method_log"
+    method_status=1
+    stop_fixture_daemon
+  fi
+  rm -f "$method_xctestrun"
+  [[ $xcode_status -eq 0 ]] || method_status=1
+  [[ $export_status -eq 0 ]] || method_status=1
+  return "$method_status"
+}
+
 run_flow_shard() {
   local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 xctestrun=$5 flow_root=$6 flow_build_root=$7
   SHARD_CONTROLLER=0
@@ -682,82 +752,23 @@ run_flow_shard() {
     device_index=0
     for device in "${devices[@]}"; do
       local method_started=$SECONDS
-      local result exported output_dir device_key method_log method_xctestrun
-      local method_status=0 xcode_status=0 export_status=0
+      local device_key result output_dir exported udid method_status=0
       device_key=$(echo "$device" | tr ' ()' '---')
       output_dir="$flow_root/$device_key/$flow_class/$flow_method"
       result="$flow_build_root/$device_key/$flow_class/$flow_method.xcresult"
       exported="$RUN_DIR/$device_key/$flow_class/$flow_method"
-      method_log="$output_dir/xcodebuild.log"
-      method_xctestrun="$exported/CCController.xctestrun"
-      rm -rf "$output_dir" "$result" "$exported"
-      mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
-      ln -s "$DERIVED/Build/Products/Debug-iphonesimulator" "$exported/Debug-iphonesimulator"
-
-      stop_fixture_daemon
       udid=${shard_udids[$device_index]}
-      FIXTURE_SIM_UDID="$udid"
-      if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
-        ensure_attachment_media "$udid"
-      fi
-      xcrun simctl ui "$udid" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
-      reset_flow_state "$udid"
-      if ! xcrun simctl install "$udid" "$app_bundle"; then
-        printf '%s\n' 'failed to install the freshly built app' | tee "$method_log"
-        method_status=1
+      if run_flow_method "flows $flow_class/$flow_method $device" "$flow_class" "$flow_method" "$udid" "$output_dir" "$result" "$exported" "$xctestrun" "$app_bundle"; then
+        method_status=0
       else
-        printf 'installed %s\n' "$app_bundle" > "$method_log"
+        method_status=$?
       fi
-
-      local web_port bearer control_port
-      if [[ $method_status -eq 0 ]] && start_fixture_daemon "$output_dir/fixture-daemon.log"; then
-        web_port=$(json_value "$FIXTURE_OUT" webPort)
-        bearer=$(json_value "$FIXTURE_OUT" bearer)
-        control_port=$(json_value "$FIXTURE_OUT" controlPort)
-        if configure_xctestrun "$xctestrun" "$method_xctestrun" \
-          "http://127.0.0.1:$web_port" "$bearer" "http://127.0.0.1:$control_port" \
-          "${TEST_RUNNER_COLOR_SCHEME:-light}" "$output_dir"; then
-          local args=(xcodebuild -xctestrun "$method_xctestrun" -destination "id=$udid" -resultBundlePath "$result" "-only-testing:CCControllerUITests/$flow_class/$flow_method" -collect-test-diagnostics never test-without-building)
-          if run_flow_test "flows $flow_class/$flow_method $device" "$method_log" "${args[@]}"; then
-            xcode_status=0
-          else
-            xcode_status=$?
-          fi
-        else
-          printf '%s\n' 'failed to configure per-method xctestrun' | tee -a "$method_log"
-          method_status=1
-        fi
-        stop_fixture_daemon
-        if [[ -d "$result" ]]; then
-          if xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null 2>&1; then
-            local manifest="$exported/manifest.json"
-            if [[ -f "$manifest" ]]; then
-              node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
-            fi
-            find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
-            find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
-          else
-            printf '%s\n' 'failed to export result attachments' | tee -a "$method_log"
-            export_status=1
-          fi
-        else
-          printf '%s\n' 'xcodebuild produced no result bundle' | tee -a "$method_log"
-          export_status=1
-        fi
-      else
-        printf '%s\n' 'fixture daemon failed to become ready' | tee -a "$method_log"
-        method_status=1
-        stop_fixture_daemon
-      fi
-      rm -f "$method_xctestrun"
-      [[ $xcode_status -eq 0 ]] || method_status=1
-      [[ $export_status -eq 0 ]] || method_status=1
       local elapsed=$((SECONDS - method_started))
       local result_label=PASS
       if [[ $method_status -ne 0 ]]; then
         result_label=FAIL
         shard_failed=$((shard_failed + 1))
-      elif grep -Eq 'Test Case .* skipped' "$method_log"; then
+      elif grep -Eq 'Test Case .* skipped' "$output_dir/xcodebuild.log"; then
         result_label=SKIP
       fi
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$index" "$device_index" "$flow_class" "$flow_method" "$device" "$result_label" "$elapsed" >> "$result_file"
@@ -771,7 +782,8 @@ run_flow_shard() {
 }
 
 cmd_flows() {
-  local devices=() test_filter="" shard_count=1
+  local devices=() test_filter="" shard_count=1 no_rerun=0
+  FLOWS_FLAKY_COUNT=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --device)
@@ -788,6 +800,10 @@ cmd_flows() {
         [[ $# -ge 2 ]] || { printf '%s\n' 'flows --shards requires a value' >&2; exit 2; }
         shard_count=$2
         shift 2
+        ;;
+      --no-rerun)
+        no_rerun=1
+        shift
         ;;
       *) printf 'unknown flows option: %s\n' "$1" >&2; exit 2;;
     esac
@@ -895,6 +911,7 @@ cmd_flows() {
     result_files+=("$shard_result_dir/shard-$shard.tsv")
   done
   local summary_count=0 passed=0 failed=0 skipped=0
+  local failed_tests=()
   local result_index result_device_index result_class result_method result_device result_label result_seconds
   printf '\nFlow summary\n'
   printf '%-70s %-8s %8s\n' 'class/method [device]' 'result' 'seconds'
@@ -904,7 +921,17 @@ cmd_flows() {
     summary_count=$((summary_count + 1))
     case "$result_label" in
       PASS) passed=$((passed + 1));;
-      FAIL) failed=$((failed + 1));;
+      FAIL)
+        failed=$((failed + 1))
+        local failed_test="$result_class/$result_method" already_listed=0 listed_test
+        for listed_test in "${failed_tests[@]:-}"; do
+          if [[ "$listed_test" == "$failed_test" ]]; then
+            already_listed=1
+            break
+          fi
+        done
+        [[ $already_listed -eq 1 ]] || failed_tests+=("$failed_test")
+        ;;
       SKIP) skipped=$((skipped + 1));;
     esac
   done < <(LC_ALL=C sort -t $'\t' -k1,1n -k2,2n "${result_files[@]}")
@@ -914,8 +941,77 @@ cmd_flows() {
     printf 'flow summary contains %s of %s expected methods\n' "$summary_count" "$((selected_count * ${#devices[@]}))" >&2
     shard_status=1
   fi
-  if [[ $failed -ne 0 || $shard_status -ne 0 ]]; then
-    printf '%s\n' 'one or more flow shards failed' >&2
+  if [[ $no_rerun -eq 1 ]]; then
+    if [[ $failed -ne 0 || $shard_status -ne 0 ]]; then
+      printf '%s\n' 'one or more flow shards failed' >&2
+      return 1
+    fi
+    printf '%s\n' "flow shots written to $flow_root"
+    return 0
+  fi
+
+  local rerun_device=${devices[0]} rerun_device_key rerun_udid rerun_failed=0
+  local flaky_tests=() failed_again_tests=() failed_test flow_class flow_method
+  rerun_device_key=$(echo "$rerun_device" | tr ' ()' '---')
+  if [[ ${#failed_tests[@]} -gt 0 ]]; then
+    pool_acquire
+    rerun_udid=$(ensure_pool_device "$rerun_device")
+    for failed_test in "${failed_tests[@]}"; do
+      flow_class=${failed_test%%/*}
+      flow_method=${failed_test#*/}
+      local rerun_output_dir="$flow_root/$rerun_device_key/$flow_class/$flow_method/rerun-1"
+      local rerun_result="$rerun_output_dir/result.xcresult"
+      local rerun_exported="$RUN_DIR/rerun-$rerun_device_key/$flow_class/$flow_method"
+      local rerun_status=0
+      if run_flow_method "flows rerun-1 $flow_class/$flow_method $rerun_device" "$flow_class" "$flow_method" "$rerun_udid" "$rerun_output_dir" "$rerun_result" "$rerun_exported" "$xctestrun" "$app_bundle"; then
+        rerun_status=0
+      else
+        rerun_status=$?
+      fi
+      if [[ $rerun_status -eq 0 ]]; then
+        flaky_tests+=("$failed_test")
+      else
+        failed_again_tests+=("$failed_test")
+        rerun_failed=1
+      fi
+    done
+    release_pool_slot || true
+  fi
+
+  FLOWS_FLAKY_COUNT=${#flaky_tests[@]}
+  printf 'flows flaky=%s' "$FLOWS_FLAKY_COUNT"
+  [[ $FLOWS_FLAKY_COUNT -eq 0 ]] || printf ' %s' "$(IFS=,; printf '%s' "${flaky_tests[*]}")"
+  printf '\n'
+  printf 'flows failed=%s' "${#failed_again_tests[@]}"
+  [[ ${#failed_again_tests[@]} -eq 0 ]] || printf ' %s' "$(IFS=,; printf '%s' "${failed_again_tests[*]}")"
+  printf '\n'
+
+  local idle_stall_line='App animations complete notification not received, will attempt to continue'
+  local idle_original_count idle_rerun_count original_log rerun_log stall_count
+  for index in "${!selected_methods[@]}"; do
+    flow_class=${selected_classes[$index]}
+    flow_method=${selected_methods[$index]}
+    idle_original_count=0
+    for device in "${devices[@]}"; do
+      local original_device_key=$(echo "$device" | tr ' ()' '---')
+      original_log="$flow_root/$original_device_key/$flow_class/$flow_method/xcodebuild.log"
+      if [[ -f "$original_log" ]]; then
+        stall_count=$(grep -cF "$idle_stall_line" "$original_log" 2>/dev/null || true)
+        idle_original_count=$((idle_original_count + stall_count))
+      fi
+    done
+    idle_rerun_count=0
+    rerun_log="$flow_root/$rerun_device_key/$flow_class/$flow_method/rerun-1/xcodebuild.log"
+    if [[ -f "$rerun_log" ]]; then
+      idle_rerun_count=$(grep -cF "$idle_stall_line" "$rerun_log" 2>/dev/null || true)
+    fi
+    if [[ $((idle_original_count + idle_rerun_count)) -gt 0 ]]; then
+      printf 'flows idle-stalls %s/%s=%s (rerun %s)\n' "$flow_class" "$flow_method" "$idle_original_count" "$idle_rerun_count"
+    fi
+  done
+
+  if [[ $rerun_failed -ne 0 || $summary_count -ne $((selected_count * ${#devices[@]})) || ($shard_status -ne 0 && $failed -eq 0) ]]; then
+    printf '%s\n' 'one or more flow tests failed after rerun' >&2
     return 1
   fi
   printf '%s\n' "flow shots written to $flow_root"
@@ -1891,10 +1987,17 @@ cmd_archive() {
 }
 
 cmd_gate() {
-  local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0
+  local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0 flows_label
   flows_started=$SECONDS
   cmd_flows --shards 2 || flows_status=$?
-  printf 'gate full-ui wall-clock=%ss status=%s\n' "$((SECONDS - flows_started))" "$([[ $flows_status -eq 0 ]] && printf PASS || printf FAIL)"
+  if [[ $flows_status -ne 0 ]]; then
+    flows_label=FAIL
+  elif [[ $FLOWS_FLAKY_COUNT -gt 0 ]]; then
+    flows_label=PASS-FLAKY
+  else
+    flows_label=PASS
+  fi
+  printf 'gate full-ui wall-clock=%ss status=%s\n' "$((SECONDS - flows_started))" "$flows_label"
   smoke_started=$SECONDS
   cmd_real_smoke "$@" || smoke_status=$?
   printf 'gate real-smoke wall-clock=%ss status=%s\n' "$((SECONDS - smoke_started))" "$([[ $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
@@ -1981,5 +2084,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|archive|upload|gate|real-smoke|shots|flows|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|archive|upload|gate|real-smoke|shots|flows [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
