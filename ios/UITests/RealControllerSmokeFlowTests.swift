@@ -111,7 +111,7 @@ final class RealControllerSmokeTests: XCTestCase {
                     firstRowMilliseconds = Int(Date().timeIntervalSince(tapStarted) * 1000)
                 }
                 nonEmpty = nonEmpty || hasNonEmptyPromptOrAssistant(in: scroll)
-                if let lowest = visibleRows.last, bottomStack.exists {
+                if let lowest = visibleRows.max(by: { $0.frame.maxY < $1.frame.maxY }), bottomStack.exists {
                     pinned = abs(lowest.frame.maxY - bottomStack.frame.minY) <= 160
                 }
             }
