@@ -16,6 +16,13 @@ POOL_SLOT=""
 POOL_OWNER_PID=""
 STARTED_DAEMON=""
 FIXTURE_OUT=""
+NODE_MODULES_LINKED=0
+NODE_MODULES_SOURCE=""
+REAL_SMOKE_RUN=0
+REAL_DEVICE_NAME=""
+REAL_SECRET_DIR=""
+REAL_BEARER_FILE=""
+REAL_OUTPUT_DIR=""
 FIXTURE_LOG=""
 FIXTURE_SIM_UDID=""
 CURRENT_XCODEBUILD_PID=""
@@ -38,6 +45,24 @@ step() {
 
 json_value() {
   node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(value[process.argv[2]]);' "$1" "$2"
+}
+
+main_checkout() {
+  local common_dir
+  common_dir=$(git -C "$ROOT" rev-parse --git-common-dir)
+  [[ "$common_dir" = /* ]] || common_dir="$ROOT/$common_dir"
+  dirname "$common_dir"
+}
+
+ensure_node_modules() {
+  [[ -e "$ROOT/node_modules" ]] && return 0
+  NODE_MODULES_SOURCE="$(main_checkout)/node_modules"
+  [[ -d "$NODE_MODULES_SOURCE" ]] || {
+    printf 'main checkout node_modules is missing: %s\\n' "$NODE_MODULES_SOURCE" >&2
+    return 1
+  }
+  ln -s "$NODE_MODULES_SOURCE" "$ROOT/node_modules"
+  NODE_MODULES_LINKED=1
 }
 
 validate_mock_screens() {
@@ -369,11 +394,14 @@ ensure_attachment_media() {
 
 configure_xctestrun() {
   local source=$1 destination=$2 server=$3 bearer=$4 control=$5 color=$6 output_dir=$7
-  local mocks="" set_mocks=0
+  local mocks="" set_mocks=0 real_smoke=0 real_sessions="" real_output=""
   if [[ $# -ge 8 ]]; then
     mocks=$8
     set_mocks=1
   fi
+  [[ $# -lt 9 ]] || real_smoke=$9
+  [[ $# -lt 10 ]] || real_sessions=${10}
+  [[ $# -lt 11 ]] || real_output=${11}
   cp "$source" "$destination"
   if plutil -extract TestConfigurations xml1 -o - "$destination" >/dev/null 2>&1; then
     printf '%s\n' 'format-2 .xctestrun files with TestConfigurations are unsupported' >&2
@@ -389,6 +417,9 @@ configure_xctestrun() {
     TEST_RUNNER_FIXTURE_CONTROL_URL "$control"
     TEST_RUNNER_COLOR_SCHEME "$color"
     CC_FLOW_OUTPUT_DIR "$output_dir"
+    TEST_RUNNER_REAL_SMOKE "$real_smoke"
+    TEST_RUNNER_REAL_SESSIONS "$real_sessions"
+    TEST_RUNNER_REAL_SMOKE_OUTPUT_DIR "$real_output"
   )
   if [[ $set_mocks -eq 1 ]]; then
     entries+=(TEST_RUNNER_MOCKS "$mocks")
@@ -442,6 +473,42 @@ cleanup_run() {
   return "$status"
 }
 
+remove_node_modules_link() {
+  if [[ "$NODE_MODULES_LINKED" -eq 1 && -L "$ROOT/node_modules" ]]; then
+    rm "$ROOT/node_modules"
+    NODE_MODULES_LINKED=0
+  fi
+}
+
+revoke_real_device() {
+  [[ "$REAL_SMOKE_RUN" -eq 1 ]] || return 0
+  local main_root devices_file revoke_status=0 devices_status=0
+  main_root=$(main_checkout)
+  if ! node "$main_root/src/cli.js" revoke "$REAL_DEVICE_NAME" >"$REAL_OUTPUT_DIR/revoke.txt" 2>&1; then
+    revoke_status=1
+  fi
+  devices_file="$REAL_OUTPUT_DIR/devices-after.txt"
+  if ! node "$main_root/src/cli.js" devices >"$devices_file" 2>&1; then
+    devices_status=1
+  fi
+  printf '%s\\n' 'devices after real-smoke:'
+  if [[ -f "$devices_file" ]]; then
+    cat "$devices_file"
+  fi
+  if [[ "$devices_status" -eq 0 ]] && ! node - "$devices_file" "$REAL_DEVICE_NAME" <<'NODE'
+const fs = require('node:fs');
+const [file, prefix] = process.argv.slice(2);
+const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
+const devices = Array.isArray(payload?.devices) ? payload.devices : [];
+if (devices.some((device) => String(device?.name ?? '').startsWith(prefix))) process.exit(1);
+NODE
+  then
+    printf 'device revocation verification failed for %s\\n' "$REAL_DEVICE_NAME" >&2
+    revoke_status=1
+  fi
+  [[ "$revoke_status" -eq 0 && "$devices_status" -eq 0 ]]
+}
+
 cleanup_on_exit() {
   local status=$?
   trap - EXIT INT TERM
@@ -449,6 +516,9 @@ cleanup_on_exit() {
     stop_shards
   fi
   cleanup_run "$status" || true
+  revoke_real_device || status=1
+  [[ -z "$REAL_SECRET_DIR" ]] || rm -rf "$REAL_SECRET_DIR"
+  remove_node_modules_link
   exit "$status"
 }
 
@@ -849,6 +919,232 @@ cmd_flows() {
     return 1
   fi
   printf '%s\n' "flow shots written to $flow_root"
+}
+
+real_api_request() {
+  local method=$1 path=$2 body_file=$3 output_file=$4
+  node - "$method" "$path" "$body_file" "$output_file" <<'NODE'
+const fs = require('node:fs');
+const http = require('node:http');
+const [method, path, bodyFile, outputFile] = process.argv.slice(2);
+const body = bodyFile === '-' ? '' : fs.readFileSync(bodyFile, 'utf8');
+const request = http.request({
+  host: '127.0.0.1',
+  port: 47832,
+  method,
+  path,
+  headers: body ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } : {},
+}, (response) => {
+  let text = '';
+  response.setEncoding('utf8');
+  response.on('data', (chunk) => { text += chunk; });
+  response.on('end', () => {
+    fs.writeFileSync(outputFile, text, { mode: 0o600 });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      console.error(`real-smoke auth request failed at ${method} ${path} (HTTP ${response.statusCode})`);
+      process.exitCode = 1;
+    }
+  });
+});
+request.on('error', (error) => {
+  console.error(`real-smoke auth request failed at ${method} ${path}: ${error.message}`);
+  process.exitCode = 1;
+});
+request.end(body);
+NODE
+}
+
+real_json_value() {
+  node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const path=process.argv.slice(2); let current=value; for (const key of path) current=current?.[key]; if (current !== undefined && current !== null) process.stdout.write(String(current));' "$@"
+}
+
+real_write_json() {
+  local file=$1 value=$2
+  printf '%s' "$value" > "$file"
+  chmod 600 "$file"
+}
+
+wait_for_simulator_permission() {
+  local marker=/Users/owner/Documents/dev/cc-controller-evidence/real-smoke-dev-2026-10-05/sim-free
+  local waited=0
+  while [[ ! -e "$marker" ]]; do
+    if (( waited >= 40 * 60 )); then
+      printf 'timed out after 40 minutes waiting for %s\\n' "$marker" >&2
+      return 1
+    fi
+    if (( waited == 0 || waited % 60 == 0 )); then
+      printf 'waiting for simulator permission marker %s (%ss elapsed)\\n' "$marker" "$waited" >&2
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+real_authenticate() {
+  local main_root=$1 device_name=$2
+  local pair_body="$REAL_SECRET_DIR/pair-start.json"
+  local pair_response="$REAL_SECRET_DIR/pair-start-response.json"
+  local poll_response="$REAL_SECRET_DIR/pair-poll-response.json"
+  local enroll_body="$REAL_SECRET_DIR/native-enroll.json"
+  local enroll_response="$REAL_SECRET_DIR/native-enroll-response.json"
+  local login_body="$REAL_SECRET_DIR/native-login.json"
+  local login_response="$REAL_SECRET_DIR/native-login-response.json"
+  real_write_json "$pair_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceName: process.argv[1]}))' "$device_name")"
+  if ! real_api_request POST /api/pair/start "$pair_body" "$pair_response"; then
+    printf '%s\\n' 'real-smoke auth failed at POST /api/pair/start; app pairing path: AuthClient.startPairing -> WebApi.pairStart' >&2
+    return 1
+  fi
+  local code
+  code=$(real_json_value "$pair_response" code)
+  if [[ ! "$code" =~ ^[0-9]{6}$ ]]; then
+    printf '%s\\n' 'real-smoke auth failed: POST /api/pair/start returned no six-digit code' >&2
+    return 1
+  fi
+  if ! node "$main_root/src/cli.js" pair "$code" >/dev/null; then
+    printf '%s\\n' 'real-smoke auth failed at cc-gateway pair; app pairing path: AuthClient.pollPairing -> WebApi.pairPoll' >&2
+    return 1
+  fi
+  local device_token="" state
+  for _ in {1..60}; do
+    if ! real_api_request GET "/api/pair/poll?code=$code" - "$poll_response"; then
+      printf '%s\\n' 'real-smoke auth failed at GET /api/pair/poll; app pairing path: AuthClient.pollPairing' >&2
+      return 1
+    fi
+    state=$(real_json_value "$poll_response" state)
+    if [[ "$state" == confirmed ]]; then
+      device_token=$(real_json_value "$poll_response" deviceToken)
+      break
+    fi
+    [[ "$state" == pending ]] || break
+    sleep 1
+  done
+  if [[ -z "$device_token" ]]; then
+    printf 'real-smoke auth failed: pairing did not confirm (state=%s)\\n' "${state:-missing}" >&2
+    return 1
+  fi
+  real_write_json "$enroll_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceToken: process.argv[1],deviceName: process.argv[2]}))' "$device_token" "$device_name")"
+  if ! real_api_request POST /api/auth/native/enroll "$enroll_body" "$enroll_response"; then
+    printf '%s\\n' 'real-smoke auth failed at POST /api/auth/native/enroll; app pairing path: AuthClient.enroll' >&2
+    return 1
+  fi
+  local secret
+  secret=$(real_json_value "$enroll_response" secret)
+  if [[ -z "$secret" ]]; then
+    printf '%s\\n' 'real-smoke auth failed: native enrollment returned no secret' >&2
+    return 1
+  fi
+  real_write_json "$login_body" "$(node -e 'process.stdout.write(JSON.stringify({secret: process.argv[1]}))' "$secret")"
+  if ! real_api_request POST /api/auth/native/login "$login_body" "$login_response"; then
+    printf '%s\\n' 'real-smoke auth failed at POST /api/auth/native/login; app unlock path: AuthClient.login' >&2
+    return 1
+  fi
+  local authenticated token
+  authenticated=$(real_json_value "$login_response" authenticated)
+  token=$(real_json_value "$login_response" token)
+  if [[ "$authenticated" != true || -z "$token" ]]; then
+    printf '%s\\n' 'real-smoke auth failed: native login returned no authenticated bearer' >&2
+    return 1
+  fi
+  printf '%s' "$token" > "$REAL_BEARER_FILE"
+  chmod 600 "$REAL_BEARER_FILE"
+}
+
+real_select_sessions() {
+  local status_file=$1 output_file=$2 sessions_count=$3
+  node - "$status_file" "$output_file" "$sessions_count" <<'NODE'
+const fs = require('node:fs');
+const [statusFile, outputFile, countText] = process.argv.slice(2);
+const payload = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+const entries = payload.entries ?? {};
+const sessions = (payload.sessions ?? [])
+  .filter((session) => typeof session?.id === 'string' && session.id.length > 0)
+  .sort((left, right) => (Number(entries[right.id] ?? 0) - Number(entries[left.id] ?? 0)) || left.id.localeCompare(right.id))
+  .slice(0, Number(countText))
+  .map((session) => ({
+    id: session.id,
+    name: session.name ?? 'Untitled session',
+    state: session.state ?? 'unknown',
+    entryCount: Number(entries[session.id] ?? 0),
+  }));
+if (sessions.length === 0) {
+  console.error('real-smoke found no live sessions in cc-gateway status');
+  process.exit(1);
+}
+fs.writeFileSync(outputFile, JSON.stringify(sessions), { mode: 0o600 });
+NODE
+}
+
+cmd_real_smoke() {
+  local sessions_count=6
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sessions)
+        [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { printf '%s\\n' 'real-smoke --sessions requires a positive integer' >&2; return 2; }
+        sessions_count=$2
+        shift 2
+        ;;
+      *) printf 'unknown real-smoke option: %s\\n' "$1" >&2; return 2;;
+    esac
+  done
+  REAL_SMOKE_RUN=1
+  REAL_DEVICE_NAME="cc-real-smoke-$(date '+%Y%m%dT%H%M%S')-$$"
+  local timestamp output_base status_file session_file started=$SECONDS
+  timestamp=$(date '+%Y%m%dT%H%M%S')
+  output_base="$HOME/Documents/dev/cc-controller-evidence/real-smoke/$timestamp"
+  [[ ! -e "$output_base" ]] || output_base="${output_base}-$$"
+  REAL_OUTPUT_DIR="$output_base"
+  mkdir -p "$REAL_OUTPUT_DIR"
+  REAL_SECRET_DIR=$(mktemp -d)
+  chmod 700 "$REAL_SECRET_DIR"
+  REAL_BEARER_FILE="$REAL_SECRET_DIR/bearer"
+  status_file="$REAL_SECRET_DIR/status.json"
+  session_file="$REAL_SECRET_DIR/sessions.json"
+
+  step 'real-smoke build-for-testing' cmd_generate
+  xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator \
+    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$DERIVED/real-smoke" \
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing
+  local app_bundle="$DERIVED/real-smoke/Build/Products/Debug-iphonesimulator/cc-controller.app"
+  local xctestrun
+  xctestrun=$(find "$DERIVED/real-smoke/Build/Products" -type f -name '*.xctestrun' -print -quit)
+  [[ -d "$app_bundle" && -n "$xctestrun" ]] || { printf '%s\\n' 'real-smoke build did not produce app and xctestrun' >&2; return 1; }
+
+  wait_for_simulator_permission
+  local main_root
+  main_root=$(main_checkout)
+  if ! real_authenticate "$main_root" "$REAL_DEVICE_NAME"; then return 1; fi
+  if ! node "$main_root/src/cli.js" status > "$status_file"; then
+    printf '%s\\n' 'real-smoke failed to read cc-gateway status' >&2
+    return 1
+  fi
+  if ! real_select_sessions "$status_file" "$session_file" "$sessions_count"; then return 1; fi
+
+  local bearer
+  bearer=$(<"$REAL_BEARER_FILE")
+  local udid
+  pool_acquire
+  udid=$(ensure_pool_device 'iPhone 16 Plus')
+  xcrun simctl install "$udid" "$app_bundle"
+  local result="$REAL_OUTPUT_DIR/real-smoke.xcresult"
+  rm -rf "$result"
+  local run_xctestrun="$REAL_SECRET_DIR/CCController.xctestrun"
+  configure_xctestrun "$xctestrun" "$run_xctestrun" 'http://127.0.0.1:47832' "$bearer" '' light "$REAL_OUTPUT_DIR" '' 1 "$(<"$session_file")" "$REAL_OUTPUT_DIR"
+  local test_log="$REAL_OUTPUT_DIR/xcodebuild.log" test_status=0
+  run_flow_test 'real-smoke UI test' "$test_log" xcodebuild -xctestrun "$run_xctestrun" \
+    -destination "id=$udid" -resultBundlePath "$result" \
+    '-only-testing:CCControllerUITests/RealControllerSmokeTests/testRealSessions' \
+    -collect-test-diagnostics never test-without-building || test_status=$?
+  mkdir -p "$REAL_OUTPUT_DIR/attachments"
+  if [[ -d "$result" ]]; then
+    xcrun xcresulttool export attachments --path "$result" --output-path "$REAL_OUTPUT_DIR/attachments" --filter '*.png' >/dev/null 2>&1 || test_status=1
+    find "$REAL_OUTPUT_DIR/attachments" -type f -name '*.png' -exec cp {} "$REAL_OUTPUT_DIR" \
+      \\; 2>/dev/null || true
+  else
+    printf '%s\\n' 'real-smoke produced no xcresult bundle' >&2
+    test_status=1
+  fi
+  printf 'real-smoke wall-clock=%ss output=%s\\n' "$((SECONDS - started))" "$REAL_OUTPUT_DIR"
+  return "$test_status"
 }
 
 run_mock_lane() {
@@ -1605,6 +1901,18 @@ cmd_archive() {
   printf 'archive created: %s\n' "$archive_path"
 }
 
+cmd_gate() {
+  local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0
+  flows_started=$SECONDS
+  cmd_flows --shards 2 || flows_status=$?
+  printf 'gate full-ui wall-clock=%ss status=%s\\n' "$((SECONDS - flows_started))" "$([[ $flows_status -eq 0 ]] && printf PASS || printf FAIL)"
+  smoke_started=$SECONDS
+  cmd_real_smoke "$@" || smoke_status=$?
+  printf 'gate real-smoke wall-clock=%ss status=%s\\n' "$((SECONDS - smoke_started))" "$([[ $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
+  printf 'gate total wall-clock=%ss status=%s\\n' "$((SECONDS - gate_started))" "$([[ $flows_status -eq 0 && $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
+  [[ $flows_status -eq 0 && $smoke_status -eq 0 ]]
+}
+
 cmd_upload() {
   local team
   team=$(signing_team)
@@ -1666,6 +1974,8 @@ cmd_upload() {
   printf 'upload export completed: %s\n' "$export_dir"
 }
 
+ensure_node_modules
+
 case "${1:-}" in
   generate) shift; step generate cmd_generate "$@";;
   build) shift; step build cmd_build "$@";;
@@ -1674,11 +1984,13 @@ case "${1:-}" in
   perf) shift; cmd_perf "$@";;
   archive) shift; cmd_archive "$@";;
   upload) shift; cmd_upload "$@";;
+  gate) shift; cmd_gate "$@";;
+  real-smoke) shift; cmd_real_smoke "$@";;
   shots) shift; cmd_shots "$@";;
   flows) shift; cmd_flows "$@";;
   mocks) shift; cmd_mocks "$@";;
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|archive|upload|shots|flows|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|archive|upload|gate|real-smoke|shots|flows|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
