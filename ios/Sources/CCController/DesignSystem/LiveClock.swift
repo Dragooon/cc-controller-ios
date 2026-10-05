@@ -94,7 +94,10 @@ struct SessionStateSegmentView: View {
     }
 
     private var isLive: Bool {
-        session.state == .working || session.state == .needsYou || activityCounts(for: session).agents > 0 || activityCounts(for: session).shells > 0
+        switch sessionActivity(session) {
+        case .working, .background: true
+        case .needsYou, .idle: false
+        }
     }
 
     private func value(now: Date) -> String {

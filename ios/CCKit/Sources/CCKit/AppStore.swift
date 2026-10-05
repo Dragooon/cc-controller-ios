@@ -26,10 +26,10 @@ public final class AppStore {
 
     public var sortedSessions: [Session] {
         let priority: (Session) -> Int = { session in
-            switch session.state {
+            switch sessionActivity(session) {
             case .needsYou: 0
-            case .working: 1
-            default: 2
+            case .working, .background: 1
+            case .idle: 2
             }
         }
         return sessions.values.sorted { left, right in
@@ -40,9 +40,16 @@ public final class AppStore {
         }
     }
 
-    public var needsYouSessions: [Session] { sortedSessions.filter { $0.state == .needsYou } }
-    public var workingSessions: [Session] { sortedSessions.filter { $0.state == .working } }
-    public var idleSessions: [Session] { sortedSessions.filter { $0.state != .needsYou && $0.state != .working } }
+    public var needsYouSessions: [Session] { sortedSessions.filter { sessionActivity($0) == .needsYou } }
+    public var workingSessions: [Session] {
+        sortedSessions.filter {
+            switch sessionActivity($0) {
+            case .working, .background: true
+            case .needsYou, .idle: false
+            }
+        }
+    }
+    public var idleSessions: [Session] { sortedSessions.filter { sessionActivity($0) == .idle } }
 
     @ObservationIgnored private let client: APIClient
     @ObservationIgnored private let session: URLSession

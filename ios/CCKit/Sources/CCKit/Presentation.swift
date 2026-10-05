@@ -492,6 +492,23 @@ public enum ActivityItem: Sendable, Equatable, Identifiable {
     }
 }
 
+public enum SessionActivity: Equatable {
+    case needsYou
+    case working
+    case background(agents: Int, shells: Int)
+    case idle
+}
+
+public func sessionActivity(_ session: Session) -> SessionActivity {
+    if session.state == .needsYou || !(session.pending ?? []).isEmpty { return .needsYou }
+    if session.state == .working { return .working }
+    let counts = activityCounts(for: session)
+    if counts.agents > 0 || counts.shells > 0 {
+        return .background(agents: counts.agents, shells: counts.shells)
+    }
+    return .idle
+}
+
 public func activityCounts(for session: Session) -> (agents: Int, shells: Int) {
     let agents = session.subagents?.filter { $0.state == .running }.count ?? 0
     let shells = session.shells?.filter { $0.state == .running }.count ?? 0
@@ -580,16 +597,22 @@ public func sessionStateSegment(_ session: Session, now: Date = .now) -> String 
 }
 
 public func sessionListStateSegment(_ session: Session, now: Date = .now) -> String {
-    if session.state == .working {
+    switch sessionActivity(session) {
+    case .working:
         return "working \(formatListDuration(elapsedMilliseconds(from: session.startedAt, to: now)))"
+    case .background:
+        return "background"
+    case .idle:
+        if let idleSince = session.idleSince {
+            return "idle \(formatListDuration(elapsedMilliseconds(from: idleSince, to: now)))"
+        }
+        return "idle"
+    case .needsYou:
+        if let receivedAt = session.pending?.first?.receivedAt {
+            return "needs you \(formatListDuration(elapsedMilliseconds(from: receivedAt, to: now)))"
+        }
+        return "needs you"
     }
-    if session.state == .idle, let idleSince = session.idleSince {
-        return "idle \(formatListDuration(elapsedMilliseconds(from: idleSince, to: now)))"
-    }
-    if session.state == .needsYou, let receivedAt = session.pending?.first?.receivedAt {
-        return "needs you \(formatListDuration(elapsedMilliseconds(from: receivedAt, to: now)))"
-    }
-    return stateLabel(state: session.state?.rawValue)
 }
 
 public func buildStatusSegments(_ session: Session, now: Date = .now, contextExpanded: Bool = false) -> [String] {
@@ -614,14 +637,32 @@ public func buildStatusSegments(_ session: Session, now: Date = .now, contextExp
 }
 
 public func sessionNavSubtitle(_ session: Session, now: Date = .now, timeZone: TimeZone = .current, locale: Locale = .current) -> String {
-    let state = session.state == .needsYou ? "needs you" : session.state?.rawValue ?? "idle"
-    let started = session.state == .working ? session.startedAt : session.idleSince
-    let elapsed = started.map { " · \(formatDuration(elapsedMilliseconds(from: $0, to: now)))" } ?? ""
+    let state = sessionActivity(session)
+    let stateText: String
+    switch state {
+    case .needsYou: stateText = "needs you"
+    case .working: stateText = "working"
+    case .background: stateText = "background"
+    case .idle: stateText = "idle"
+    }
+    let started: Date?
+    switch state {
+    case .working: started = session.startedAt
+    case .needsYou: started = session.pending?.first?.receivedAt ?? session.idleSince
+    case .background, .idle: started = session.idleSince
+    }
+    let isBackground: Bool
+    switch state {
+    case .background: isBackground = true
+    case .needsYou, .working, .idle: isBackground = false
+    }
+    let elapsed = isBackground ? "" : started.map { " · \(formatDuration(elapsedMilliseconds(from: $0, to: now)))" } ?? ""
     let count = session.subagents?.count ?? 0
-    let agents = count == 0 ? "" : " · \(count) agent\(count == 1 ? "" : "s")"
+    let agents = isBackground || count == 0 ? "" : " · \(count) agent\(count == 1 ? "" : "s")"
+    let summary = isBackground ? activitySummaryText(for: session).map { " · \($0)" } ?? "" : ""
     let context = formatContextUsage(session.usage)
     let contextSegment = context.isEmpty ? "" : " · \(context.replacingOccurrences(of: "%", with: " %"))"
-    return "\(state)\(elapsed)\(agents)\(contextSegment)"
+    return "\(stateText)\(elapsed)\(agents)\(summary)\(contextSegment)"
 }
 
 public func resolveSendMessageTarget(_ to: String?, subagents: [Subagent] = []) -> String {

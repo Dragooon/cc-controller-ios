@@ -76,9 +76,16 @@ struct SessionsListView: View {
         }
     }
 
-    private var needsYou: [Session] { filteredSessions.filter { $0.state == .needsYou } }
-    private var working: [Session] { filteredSessions.filter { $0.state == .working } }
-    private var idle: [Session] { filteredSessions.filter { $0.state == .idle } }
+    private var needsYou: [Session] { filteredSessions.filter { sessionActivity($0) == .needsYou } }
+    private var working: [Session] {
+        filteredSessions.filter {
+            switch sessionActivity($0) {
+            case .working, .background: true
+            case .needsYou, .idle: false
+            }
+        }
+    }
+    private var idle: [Session] { filteredSessions.filter { sessionActivity($0) == .idle } }
 
     var body: some View {
         NavigationStack {
@@ -256,7 +263,7 @@ private struct SessionRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
-            .accessibilityValue(session.state?.rawValue ?? "unknown")
+            .accessibilityValue(activityStateLabel)
 
             if let approval {
                 ApprovalCard(
@@ -285,6 +292,15 @@ private struct SessionRow: View {
         }
     }
 
+    private var activityStateLabel: String {
+        switch sessionActivity(session) {
+        case .needsYou: "needs_you"
+        case .working: "working"
+        case .background: "background"
+        case .idle: "idle"
+        }
+    }
+
     private func isDeciding(_ approval: Approval) -> Bool {
         guard let key = approvalDecisionKey(approval) else { return false }
         return deciding.contains(key)
@@ -297,8 +313,8 @@ private struct SessionGlyph: View {
     let dimmed: Bool
 
     var body: some View {
-        switch session.state {
-        case .working:
+        switch sessionActivity(session) {
+        case .working, .background:
             SpinnerGlyph(active: true, frozen: frozen, dimmed: dimmed)
                 .font(.title3.weight(.medium))
                 .accessibilityHidden(true)
@@ -306,7 +322,7 @@ private struct SessionGlyph: View {
             Text("●")
                 .font(.title3.weight(.medium))
                 .foregroundStyle(.ccAccent)
-        default:
+        case .idle:
             Text("○")
                 .font(.title3.weight(.medium))
                 .foregroundStyle(.ccTertiary)

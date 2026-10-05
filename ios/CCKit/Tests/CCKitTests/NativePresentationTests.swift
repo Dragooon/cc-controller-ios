@@ -131,6 +131,72 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertNil(activitySummaryText(for: Session(subagents: [Subagent(state: .done)])))
     }
 
+    func testSessionActivityNeedsYouStateWinsOverBackgroundActivity() {
+        let session = Session(
+            state: .needsYou,
+            subagents: [Subagent(state: .running)],
+            shells: [Shell(state: .running)]
+        )
+
+        XCTAssertEqual(sessionActivity(session), .needsYou)
+    }
+
+    func testSessionActivityPendingApprovalWinsOverBackgroundActivity() {
+        let session = Session(
+            state: .idle,
+            pending: [Approval(requestId: "approval")],
+            subagents: [Subagent(state: .running)],
+            shells: [Shell(state: .running)]
+        )
+
+        XCTAssertEqual(sessionActivity(session), .needsYou)
+    }
+
+    func testSessionActivityWorkingWinsOverBackgroundActivity() {
+        let session = Session(
+            state: .working,
+            subagents: [Subagent(state: .running)],
+            shells: [Shell(state: .running)]
+        )
+
+        XCTAssertEqual(sessionActivity(session), .working)
+    }
+
+    func testSessionActivityReportsRunningBackgroundCounts() {
+        let session = Session(
+            state: .idle,
+            subagents: [Subagent(state: .running), Subagent(state: .running), Subagent(state: .done)],
+            shells: [Shell(state: .running), Shell(state: .stopped)]
+        )
+
+        XCTAssertEqual(sessionActivity(session), .background(agents: 2, shells: 1))
+    }
+
+    func testSessionActivityIsIdleWithoutRunningBackgroundItems() {
+        let session = Session(
+            state: .idle,
+            subagents: [Subagent(state: .done)],
+            shells: [Shell(state: .stopped)]
+        )
+
+        XCTAssertEqual(sessionActivity(session), .idle)
+    }
+
+    func testSessionDetailSubtitleShowsBackgroundActivityAndContext() {
+        let session = Session(
+            state: .idle,
+            usage: Usage(contextPercent: 67),
+            subagents: [Subagent(state: .running), Subagent(state: .running)],
+            shells: [Shell(state: .running)],
+            idleSince: Date(timeIntervalSince1970: 1_000)
+        )
+
+        XCTAssertEqual(
+            sessionDetailSubtitle(session, now: Date(timeIntervalSince1970: 1_000 + 42 * 60)),
+            "background · 2 agents · 1 shell · ctx 67%"
+        )
+    }
+
     func testFinishedRecentlyReturnsOnlyTenMinuteWindowNewestFirst() {
         let now = Date(timeIntervalSince1970: 10_000)
         let recentAgent = Subagent(agentId: "agent", state: .done, finishedAt: now.addingTimeInterval(-4 * 60), result: "agent result")

@@ -2,10 +2,15 @@ import Foundation
 
 public func sessionsSubtitle(_ sessions: [Session]) -> String? {
     guard !sessions.isEmpty else { return nil }
-    if sessions.allSatisfy({ $0.state == .idle }) { return "All idle" }
+    if sessions.allSatisfy({ sessionActivity($0) == .idle }) { return "All idle" }
 
-    let needsYou = sessions.filter { $0.state == .needsYou }.count
-    let working = sessions.filter { $0.state == .working }.count
+    let needsYou = sessions.filter { sessionActivity($0) == .needsYou }.count
+    let working = sessions.filter {
+        switch sessionActivity($0) {
+        case .working, .background: true
+        case .needsYou, .idle: false
+        }
+    }.count
     var parts: [String] = []
     if needsYou > 0 { parts.append("\(needsYou) needs you") }
     if working > 0 { parts.append("\(working) working") }
@@ -44,17 +49,34 @@ public func displayDuration(_ milliseconds: Int) -> String {
 
 /// Builds the compact native session detail subtitle without web-only spacing.
 public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> String {
-    let state = session.state == .needsYou ? "needs you" : session.state?.rawValue ?? "idle"
+    let activity = sessionActivity(session)
+    let state: String
+    switch activity {
+    case .needsYou: state = "needs you"
+    case .working: state = "working"
+    case .background: state = "background"
+    case .idle: state = "idle"
+    }
     var parts = [state]
 
-    let started = session.state == .working
-        ? session.startedAt
-        : session.state == .needsYou
-            ? session.pending?.first?.receivedAt ?? session.idleSince
-            : session.idleSince
-    if let started {
-        let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
-        parts.append(displayDuration(milliseconds))
+    switch activity {
+    case .background:
+        if let summary = activitySummaryText(for: session) { parts.append(summary) }
+    case .working:
+        if let started = session.startedAt {
+            let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
+            parts.append(displayDuration(milliseconds))
+        }
+    case .needsYou:
+        if let started = session.pending?.first?.receivedAt ?? session.idleSince {
+            let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
+            parts.append(displayDuration(milliseconds))
+        }
+    case .idle:
+        if let started = session.idleSince {
+            let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
+            parts.append(displayDuration(milliseconds))
+        }
     }
 
     let context = formatContextUsage(session.usage)
