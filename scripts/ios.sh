@@ -1112,6 +1112,7 @@ cmd_real_smoke() {
   # so both stay in the secret directory and only screenshots and a bearer-free log are kept.
   local result="$REAL_SECRET_DIR/real-smoke.xcresult"
   local run_xctestrun="$REAL_SECRET_DIR/CCController.xctestrun"
+  ln -s "$DERIVED/real-smoke/Build/Products/Debug-iphonesimulator" "$REAL_SECRET_DIR/Debug-iphonesimulator"
   configure_xctestrun "$xctestrun" "$run_xctestrun" 'http://127.0.0.1:47832' "$bearer" '' light "$REAL_OUTPUT_DIR" '' 1 "$(<"$session_file")" "$REAL_OUTPUT_DIR"
   local test_log="$REAL_SECRET_DIR/xcodebuild.log" test_status=0
   run_flow_test 'real-smoke UI test' "$test_log" xcodebuild -xctestrun "$run_xctestrun" \
