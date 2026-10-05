@@ -806,7 +806,7 @@ cmd_flows() {
       flow_method_classes+=("$flow_class")
       flow_methods+=("$flow_method")
     done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
-  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' \) -print | sort)
+  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' -o -name 'RealControllerSmokeTests.swift' \) -print | sort)
   if [[ ${#flow_files[@]} -eq 0 ]]; then
     printf '%s\n' 'no flow tests found'
     return 0
