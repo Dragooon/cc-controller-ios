@@ -100,23 +100,27 @@ final class RealControllerSmokeTests: XCTestCase {
         let bottomStack = app.descendants(matching: .any).matching(identifier: "bottom-stack").firstMatch
         let deadline = tapStarted.addingTimeInterval(10)
         var firstRowMilliseconds: Int?
-        var visibleRows: [XCUIElement] = []
+        var visibleRows = 0
         var nonEmpty = false
         var pinned = false
 
         while Date() < deadline {
-            if scroll.exists {
-                visibleRows = transcriptRows(in: scroll)
-                if firstRowMilliseconds == nil, !visibleRows.isEmpty {
-                    firstRowMilliseconds = Int(Date().timeIntervalSince(tapStarted) * 1000)
+            if let probe = probeRows(in: scroll) {
+                let probedAt = Int(Date().timeIntervalSince(tapStarted) * 1000)
+                visibleRows = probe.rows
+                if firstRowMilliseconds == nil, probe.rows > 0 {
+                    firstRowMilliseconds = probedAt
                 }
-                nonEmpty = nonEmpty || hasNonEmptyPromptOrAssistant(in: scroll)
-                if let lowest = visibleRows.max(by: { $0.frame.maxY < $1.frame.maxY }), bottomStack.exists {
-                    pinned = abs(lowest.frame.maxY - bottomStack.frame.minY) <= 160
+                nonEmpty = nonEmpty || probe.nonEmpty
+                if let lowest = probe.lowestMaxY, bottomStack.exists {
+                    pinned = abs(lowest - bottomStack.frame.minY) <= 160
                 }
             }
             if firstRowMilliseconds != nil && nonEmpty && pinned { break }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        if let firstRow = firstRowMilliseconds, firstRow > 10_000 {
+            firstRowMilliseconds = nil
         }
 
         let bar = app.descendants(matching: .any).matching(identifier: "working-bar").firstMatch
@@ -133,7 +137,7 @@ final class RealControllerSmokeTests: XCTestCase {
             session: session,
             result: passed ? "PASS" : "FAIL",
             firstRowMilliseconds: firstRowMilliseconds,
-            visibleRows: visibleRows.count,
+            visibleRows: visibleRows,
             barState: barState,
             pinned: pinned,
             nonEmpty: nonEmpty,
@@ -141,30 +145,45 @@ final class RealControllerSmokeTests: XCTestCase {
         )
     }
 
-    private func transcriptRows(in scroll: XCUIElement) -> [XCUIElement] {
-        scroll.descendants(matching: .any).allElementsBoundByIndex.filter { element in
-            guard element.exists && element.isHittable else { return false }
-            let frame = element.frame
-            guard frame.intersects(scroll.frame), scroll.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) else { return false }
-            let identifier = element.identifier
-            if identifier == "prompt-bubble" || identifier == "pending-prompt-bubble" { return true }
-            if identifier.hasPrefix("subagent-card-") || identifier.hasPrefix("subagent-result-row-") { return true }
-            if element.elementType == .button && !element.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-            return element.elementType == .staticText && !element.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+    private struct RowProbe {
+        let rows: Int
+        let lowestMaxY: CGFloat?
+        let nonEmpty: Bool
     }
 
-    private func hasNonEmptyPromptOrAssistant(in scroll: XCUIElement) -> Bool {
-        let promptIdentifiers = ["prompt-bubble", "pending-prompt-bubble"]
-        if promptIdentifiers.contains(where: { identifier in
-            let element = scroll.descendants(matching: .any).matching(identifier: identifier).firstMatch
-            return element.exists && element.isHittable && !element.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }) {
-            return true
+    // One snapshot is a single round trip; per-element exists/isHittable queries cost seconds on a full transcript and hid the app's real first-row time.
+    private func probeRows(in scroll: XCUIElement) -> RowProbe? {
+        guard scroll.exists, let tree = try? scroll.snapshot() else { return nil }
+        let viewport = tree.frame
+        var rows = 0
+        var lowestMaxY: CGFloat?
+        var nonEmpty = false
+        var pending = tree.children
+        while let node = pending.popLast() {
+            pending.append(contentsOf: node.children)
+            guard viewport.contains(CGPoint(x: node.frame.midX, y: node.frame.midY)), isTranscriptRow(node) else { continue }
+            rows += 1
+            lowestMaxY = max(lowestMaxY ?? node.frame.maxY, node.frame.maxY)
+            nonEmpty = nonEmpty || isNonEmptyPromptOrText(node)
         }
-        return scroll.staticTexts.allElementsBoundByIndex.contains {
-            $0.exists && $0.isHittable && !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        return RowProbe(rows: rows, lowestMaxY: lowestMaxY, nonEmpty: nonEmpty)
+    }
+
+    private func isTranscriptRow(_ node: XCUIElementSnapshot) -> Bool {
+        let identifier = node.identifier
+        if identifier == "prompt-bubble" || identifier == "pending-prompt-bubble" { return true }
+        if identifier.hasPrefix("subagent-card-") || identifier.hasPrefix("subagent-result-row-") { return true }
+        guard node.elementType == .button || node.elementType == .staticText else { return false }
+        return hasLabel(node)
+    }
+
+    private func isNonEmptyPromptOrText(_ node: XCUIElementSnapshot) -> Bool {
+        let isPrompt = node.identifier == "prompt-bubble" || node.identifier == "pending-prompt-bubble"
+        return (isPrompt || node.elementType == .staticText) && hasLabel(node)
+    }
+
+    private func hasLabel(_ node: XCUIElementSnapshot) -> Bool {
+        !node.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func navigateBackIfNeeded(in app: XCUIApplication) {
