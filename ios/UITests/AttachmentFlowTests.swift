@@ -247,22 +247,87 @@ final class AttachmentFlowTests: XCTestCase {
         let photos = app.buttons["Photos"]
         XCTAssertTrue(photos.waitForExistence(timeout: 5), "Photos menu item did not appear")
         photos.tap()
+        addDebugDescription(app, named: "photos-picker-app-hierarchy")
 
-        let picker = XCUIApplication(bundleIdentifier: "com.apple.mobileslideshow")
-        guard picker.wait(for: .runningForeground, timeout: 10) else {
-            throw XCTSkip("PhotosPicker did not become foreground after tapping the real Photos menu item")
+        let pickerPresented = waitForPresentedPicker(in: app, timeout: 10)
+        XCTAssertTrue(pickerPresented, "Photos picker did not present in the app accessibility hierarchy within 10 seconds")
+        guard pickerPresented else { return }
+
+        let photoCell = app.collectionViews.firstMatch.cells.firstMatch
+        guard photoCell.waitForExistence(timeout: 10) else {
+            throw XCTSkip("Photos picker presented, but no photo cell was accessible through the app accessibility hierarchy")
         }
-        let image = picker.images.firstMatch
-        guard image.waitForExistence(timeout: 10) else {
-            throw XCTSkip("Could not reach a PhotosPicker image element through XCUITest")
-        }
-        image.tap()
-        let add = picker.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Add' OR label CONTAINS[c] 'Done'" )).firstMatch
+        photoCell.tap()
+        let add = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Add' OR label CONTAINS[c] 'Done'" )).firstMatch
         guard add.waitForExistence(timeout: 5) else {
-            throw XCTSkip("PhotosPicker opened, but its out-of-process confirmation control was not accessible")
+            throw XCTSkip("Photos picker presented and a photo cell was accessible, but its Add/Done control was not accessible")
         }
         add.tap()
         XCTAssertTrue(app.otherElements["attachment-tray"].waitForExistence(timeout: 10), "Photos attachment was not added")
+    }
+
+    func testCameraPickerUsesSimulatorCamera() throws {
+        let app = launchFixture()
+        defer {
+            audit(app, name: "attachment-camera")
+            addScreenshot(named: "attachment-camera")
+            app.terminate()
+        }
+        openLongSession(in: app)
+        app.buttons["Add attachment"].tap()
+        let camera = app.buttons["Camera"]
+        XCTAssertTrue(camera.waitForExistence(timeout: 5), "Camera menu item did not appear")
+        camera.tap()
+
+        let takePicture = app.buttons["Take Picture"]
+        XCTAssertTrue(takePicture.waitForExistence(timeout: 10), "Simulator camera UI did not appear")
+        let dismiss = app.buttons["Dismiss"]
+        XCTAssertTrue(dismiss.isHittable, "Simulator camera dismiss control was not hittable")
+        dismiss.tap()
+        XCTAssertTrue(waitForNonExistence(of: takePicture, timeout: 5), "Simulator camera UI did not dismiss")
+    }
+
+    func testFilesPickerUsesRealPicker() throws {
+        let app = launchFixture()
+        defer {
+            audit(app, name: "attachment-files")
+            addScreenshot(named: "attachment-files")
+            app.terminate()
+        }
+        openLongSession(in: app)
+        app.buttons["Add attachment"].tap()
+        let files = app.buttons["Files"]
+        XCTAssertTrue(files.waitForExistence(timeout: 5), "Files menu item did not appear")
+        files.tap()
+        addDebugDescription(app, named: "files-picker-app-hierarchy")
+
+        let pickerPresented = waitForPresentedPicker(in: app, timeout: 10)
+        XCTAssertTrue(pickerPresented, "Files picker did not present in the app accessibility hierarchy within 10 seconds")
+        guard pickerPresented else { return }
+
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.isHittable, "Files picker Cancel control was not hittable")
+        cancel.tap()
+        XCTAssertTrue(waitForNonExistence(of: cancel, timeout: 5), "Files picker did not dismiss after tapping Cancel")
+    }
+
+    private func waitForPresentedPicker(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let cancel = app.buttons["Cancel"]
+        while Date() < deadline {
+            if app.navigationBars.count > 1 && cancel.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return app.navigationBars.count > 1 && cancel.exists
+    }
+
+    private func addDebugDescription(_ app: XCUIApplication, named name: String) {
+        let attachment = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func launchFixture(with path: String? = nil) -> XCUIApplication {
