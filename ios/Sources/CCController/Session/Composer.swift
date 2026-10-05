@@ -220,7 +220,7 @@ struct ComposerView: View, Equatable {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .glassEffect(.regular, in: .rect(cornerRadius: 26))
         .onChange(of: resetGeneration) { _, generation in
             restoreFocus = isFocused
             fieldGeneration = generation
