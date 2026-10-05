@@ -964,22 +964,6 @@ real_write_json() {
   chmod 600 "$file"
 }
 
-wait_for_simulator_permission() {
-  local marker=/Users/owner/Documents/dev/cc-controller-evidence/real-smoke-dev-2026-10-05/sim-free
-  local waited=0
-  while [[ ! -e "$marker" ]]; do
-    if (( waited >= 40 * 60 )); then
-      printf 'timed out after 40 minutes waiting for %s\n' "$marker" >&2
-      return 1
-    fi
-    if (( waited == 0 || waited % 60 == 0 )); then
-      printf 'waiting for simulator permission marker %s (%ss elapsed)\n' "$marker" "$waited" >&2
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
-}
-
 real_authenticate() {
   local main_root=$1 device_name=$2
   local pair_body="$REAL_SECRET_DIR/pair-start.json"
@@ -1109,7 +1093,6 @@ cmd_real_smoke() {
   xctestrun=$(find "$DERIVED/real-smoke/Build/Products" -type f -name '*.xctestrun' -print -quit)
   [[ -d "$app_bundle" && -n "$xctestrun" ]] || { printf '%s\n' 'real-smoke build did not produce app and xctestrun' >&2; return 1; }
 
-  wait_for_simulator_permission
   local main_root
   main_root=$(main_checkout)
   if ! real_authenticate "$main_root" "$REAL_DEVICE_NAME"; then return 1; fi
@@ -1125,23 +1108,28 @@ cmd_real_smoke() {
   pool_acquire
   udid=$(ensure_pool_device 'iPhone 16 Plus')
   xcrun simctl install "$udid" "$app_bundle"
-  local result="$REAL_OUTPUT_DIR/real-smoke.xcresult"
-  rm -rf "$result"
+  # The result bundle and xcodebuild log can record the runner environment, which holds the bearer,
+  # so both stay in the secret directory and only screenshots and a bearer-free log are kept.
+  local result="$REAL_SECRET_DIR/real-smoke.xcresult"
   local run_xctestrun="$REAL_SECRET_DIR/CCController.xctestrun"
   configure_xctestrun "$xctestrun" "$run_xctestrun" 'http://127.0.0.1:47832' "$bearer" '' light "$REAL_OUTPUT_DIR" '' 1 "$(<"$session_file")" "$REAL_OUTPUT_DIR"
-  local test_log="$REAL_OUTPUT_DIR/xcodebuild.log" test_status=0
+  local test_log="$REAL_SECRET_DIR/xcodebuild.log" test_status=0
   run_flow_test 'real-smoke UI test' "$test_log" xcodebuild -xctestrun "$run_xctestrun" \
     -destination "id=$udid" -resultBundlePath "$result" \
     '-only-testing:CCControllerUITests/RealControllerSmokeTests/testRealSessions' \
     -collect-test-diagnostics never test-without-building || test_status=$?
-  mkdir -p "$REAL_OUTPUT_DIR/attachments"
   if [[ -d "$result" ]]; then
-    xcrun xcresulttool export attachments --path "$result" --output-path "$REAL_OUTPUT_DIR/attachments" --filter '*.png' >/dev/null 2>&1 || test_status=1
-    find "$REAL_OUTPUT_DIR/attachments" -type f -name '*.png' -exec cp {} "$REAL_OUTPUT_DIR" \
-      \; 2>/dev/null || true
+    xcrun xcresulttool export attachments --path "$result" --output-path "$REAL_SECRET_DIR/attachments" >/dev/null 2>&1 || test_status=1
+    find "$REAL_SECRET_DIR/attachments" -type f -name '*.png' -exec cp {} "$REAL_OUTPUT_DIR" \; 2>/dev/null || true
   else
     printf '%s\n' 'real-smoke produced no xcresult bundle' >&2
     test_status=1
+  fi
+  if grep -qF -f "$REAL_BEARER_FILE" "$test_log" 2>/dev/null; then
+    printf '%s\n' 'real-smoke bearer appeared in the xcodebuild log; the log was not kept' >&2
+    test_status=1
+  else
+    cp "$test_log" "$REAL_OUTPUT_DIR/xcodebuild.log" 2>/dev/null || true
   fi
   printf 'real-smoke wall-clock=%ss output=%s\n' "$((SECONDS - started))" "$REAL_OUTPUT_DIR"
   return "$test_status"
