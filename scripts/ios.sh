@@ -58,7 +58,7 @@ ensure_node_modules() {
   [[ -e "$ROOT/node_modules" ]] && return 0
   NODE_MODULES_SOURCE="$(main_checkout)/node_modules"
   [[ -d "$NODE_MODULES_SOURCE" ]] || {
-    printf 'main checkout node_modules is missing: %s\\n' "$NODE_MODULES_SOURCE" >&2
+    printf 'main checkout node_modules is missing: %s\n' "$NODE_MODULES_SOURCE" >&2
     return 1
   }
   ln -s "$NODE_MODULES_SOURCE" "$ROOT/node_modules"
@@ -491,7 +491,7 @@ revoke_real_device() {
   if ! node "$main_root/src/cli.js" devices >"$devices_file" 2>&1; then
     devices_status=1
   fi
-  printf '%s\\n' 'devices after real-smoke:'
+  printf '%s\n' 'devices after real-smoke:'
   if [[ -f "$devices_file" ]]; then
     cat "$devices_file"
   fi
@@ -503,7 +503,7 @@ const devices = Array.isArray(payload?.devices) ? payload.devices : [];
 if (devices.some((device) => String(device?.name ?? '').startsWith('cc-real-smoke-'))) process.exit(1);
 NODE
   then
-    printf 'device revocation verification failed for %s\\n' "$REAL_DEVICE_NAME" >&2
+    printf 'device revocation verification failed for %s\n' "$REAL_DEVICE_NAME" >&2
     revoke_status=1
   fi
   [[ "$revoke_status" -eq 0 && "$devices_status" -eq 0 ]]
@@ -969,11 +969,11 @@ wait_for_simulator_permission() {
   local waited=0
   while [[ ! -e "$marker" ]]; do
     if (( waited >= 40 * 60 )); then
-      printf 'timed out after 40 minutes waiting for %s\\n' "$marker" >&2
+      printf 'timed out after 40 minutes waiting for %s\n' "$marker" >&2
       return 1
     fi
     if (( waited == 0 || waited % 60 == 0 )); then
-      printf 'waiting for simulator permission marker %s (%ss elapsed)\\n' "$marker" "$waited" >&2
+      printf 'waiting for simulator permission marker %s (%ss elapsed)\n' "$marker" "$waited" >&2
     fi
     sleep 1
     waited=$((waited + 1))
@@ -991,23 +991,23 @@ real_authenticate() {
   local login_response="$REAL_SECRET_DIR/native-login-response.json"
   real_write_json "$pair_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceName: process.argv[1]}))' "$device_name")"
   if ! real_api_request POST /api/pair/start "$pair_body" "$pair_response"; then
-    printf '%s\\n' 'real-smoke auth failed at POST /api/pair/start; app pairing path: AuthClient.startPairing -> WebApi.pairStart' >&2
+    printf '%s\n' 'real-smoke auth failed at POST /api/pair/start; app pairing path: AuthClient.startPairing -> WebApi.pairStart' >&2
     return 1
   fi
   local code
   code=$(real_json_value "$pair_response" code)
   if [[ ! "$code" =~ ^[0-9]{6}$ ]]; then
-    printf '%s\\n' 'real-smoke auth failed: POST /api/pair/start returned no six-digit code' >&2
+    printf '%s\n' 'real-smoke auth failed: POST /api/pair/start returned no six-digit code' >&2
     return 1
   fi
   if ! node "$main_root/src/cli.js" pair "$code" >/dev/null; then
-    printf '%s\\n' 'real-smoke auth failed at cc-gateway pair; app pairing path: AuthClient.pollPairing -> WebApi.pairPoll' >&2
+    printf '%s\n' 'real-smoke auth failed at cc-gateway pair; app pairing path: AuthClient.pollPairing -> WebApi.pairPoll' >&2
     return 1
   fi
   local device_token="" state
   for _ in {1..60}; do
     if ! real_api_request GET "/api/pair/poll?code=$code" - "$poll_response"; then
-      printf '%s\\n' 'real-smoke auth failed at GET /api/pair/poll; app pairing path: AuthClient.pollPairing' >&2
+      printf '%s\n' 'real-smoke auth failed at GET /api/pair/poll; app pairing path: AuthClient.pollPairing' >&2
       return 1
     fi
     state=$(real_json_value "$poll_response" state)
@@ -1019,30 +1019,30 @@ real_authenticate() {
     sleep 1
   done
   if [[ -z "$device_token" ]]; then
-    printf 'real-smoke auth failed: pairing did not confirm (state=%s)\\n' "${state:-missing}" >&2
+    printf 'real-smoke auth failed: pairing did not confirm (state=%s)\n' "${state:-missing}" >&2
     return 1
   fi
   real_write_json "$enroll_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceToken: process.argv[1],deviceName: process.argv[2]}))' "$device_token" "$device_name")"
   if ! real_api_request POST /api/auth/native/enroll "$enroll_body" "$enroll_response"; then
-    printf '%s\\n' 'real-smoke auth failed at POST /api/auth/native/enroll; app pairing path: AuthClient.enroll' >&2
+    printf '%s\n' 'real-smoke auth failed at POST /api/auth/native/enroll; app pairing path: AuthClient.enroll' >&2
     return 1
   fi
   local secret
   secret=$(real_json_value "$enroll_response" secret)
   if [[ -z "$secret" ]]; then
-    printf '%s\\n' 'real-smoke auth failed: native enrollment returned no secret' >&2
+    printf '%s\n' 'real-smoke auth failed: native enrollment returned no secret' >&2
     return 1
   fi
   real_write_json "$login_body" "$(node -e 'process.stdout.write(JSON.stringify({secret: process.argv[1]}))' "$secret")"
   if ! real_api_request POST /api/auth/native/login "$login_body" "$login_response"; then
-    printf '%s\\n' 'real-smoke auth failed at POST /api/auth/native/login; app unlock path: AuthClient.login' >&2
+    printf '%s\n' 'real-smoke auth failed at POST /api/auth/native/login; app unlock path: AuthClient.login' >&2
     return 1
   fi
   local authenticated token
   authenticated=$(real_json_value "$login_response" authenticated)
   token=$(real_json_value "$login_response" token)
   if [[ "$authenticated" != true || -z "$token" ]]; then
-    printf '%s\\n' 'real-smoke auth failed: native login returned no authenticated bearer' >&2
+    printf '%s\n' 'real-smoke auth failed: native login returned no authenticated bearer' >&2
     return 1
   fi
   printf '%s' "$token" > "$REAL_BEARER_FILE"
@@ -1079,11 +1079,11 @@ cmd_real_smoke() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --sessions)
-        [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { printf '%s\\n' 'real-smoke --sessions requires a positive integer' >&2; return 2; }
+        [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { printf '%s\n' 'real-smoke --sessions requires a positive integer' >&2; return 2; }
         sessions_count=$2
         shift 2
         ;;
-      *) printf 'unknown real-smoke option: %s\\n' "$1" >&2; return 2;;
+      *) printf 'unknown real-smoke option: %s\n' "$1" >&2; return 2;;
     esac
   done
   REAL_SMOKE_RUN=1
@@ -1107,14 +1107,14 @@ cmd_real_smoke() {
   local app_bundle="$DERIVED/real-smoke/Build/Products/Debug-iphonesimulator/cc-controller.app"
   local xctestrun
   xctestrun=$(find "$DERIVED/real-smoke/Build/Products" -type f -name '*.xctestrun' -print -quit)
-  [[ -d "$app_bundle" && -n "$xctestrun" ]] || { printf '%s\\n' 'real-smoke build did not produce app and xctestrun' >&2; return 1; }
+  [[ -d "$app_bundle" && -n "$xctestrun" ]] || { printf '%s\n' 'real-smoke build did not produce app and xctestrun' >&2; return 1; }
 
   wait_for_simulator_permission
   local main_root
   main_root=$(main_checkout)
   if ! real_authenticate "$main_root" "$REAL_DEVICE_NAME"; then return 1; fi
   if ! node "$main_root/src/cli.js" status > "$status_file"; then
-    printf '%s\\n' 'real-smoke failed to read cc-gateway status' >&2
+    printf '%s\n' 'real-smoke failed to read cc-gateway status' >&2
     return 1
   fi
   if ! real_select_sessions "$status_file" "$session_file" "$sessions_count"; then return 1; fi
@@ -1140,10 +1140,10 @@ cmd_real_smoke() {
     find "$REAL_OUTPUT_DIR/attachments" -type f -name '*.png' -exec cp {} "$REAL_OUTPUT_DIR" \
       \\; 2>/dev/null || true
   else
-    printf '%s\\n' 'real-smoke produced no xcresult bundle' >&2
+    printf '%s\n' 'real-smoke produced no xcresult bundle' >&2
     test_status=1
   fi
-  printf 'real-smoke wall-clock=%ss output=%s\\n' "$((SECONDS - started))" "$REAL_OUTPUT_DIR"
+  printf 'real-smoke wall-clock=%ss output=%s\n' "$((SECONDS - started))" "$REAL_OUTPUT_DIR"
   return "$test_status"
 }
 
@@ -1905,11 +1905,11 @@ cmd_gate() {
   local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0
   flows_started=$SECONDS
   cmd_flows --shards 2 || flows_status=$?
-  printf 'gate full-ui wall-clock=%ss status=%s\\n' "$((SECONDS - flows_started))" "$([[ $flows_status -eq 0 ]] && printf PASS || printf FAIL)"
+  printf 'gate full-ui wall-clock=%ss status=%s\n' "$((SECONDS - flows_started))" "$([[ $flows_status -eq 0 ]] && printf PASS || printf FAIL)"
   smoke_started=$SECONDS
   cmd_real_smoke "$@" || smoke_status=$?
-  printf 'gate real-smoke wall-clock=%ss status=%s\\n' "$((SECONDS - smoke_started))" "$([[ $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
-  printf 'gate total wall-clock=%ss status=%s\\n' "$((SECONDS - gate_started))" "$([[ $flows_status -eq 0 && $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
+  printf 'gate real-smoke wall-clock=%ss status=%s\n' "$((SECONDS - smoke_started))" "$([[ $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
+  printf 'gate total wall-clock=%ss status=%s\n' "$((SECONDS - gate_started))" "$([[ $flows_status -eq 0 && $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"
   [[ $flows_status -eq 0 && $smoke_status -eq 0 ]]
 }
 
