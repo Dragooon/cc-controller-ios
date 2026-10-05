@@ -16,6 +16,7 @@ public final class SessionStore {
     @ObservationIgnored private let client: APIClient
     @ObservationIgnored private let onTranscriptChange: (([TranscriptEntry]) -> Void)?
     @ObservationIgnored private let clock: () -> Date
+    @ObservationIgnored private let initialTranscriptTail: Int
     @ObservationIgnored private var loadingEarlier = false
     @ObservationIgnored private var loading = false
     private var hasLoaded = false
@@ -28,9 +29,18 @@ public final class SessionStore {
         client: APIClient,
         agentID: String? = nil,
         entries: [TranscriptEntry] = [],
-        onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil
+        onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
+        initialTranscriptTail: Int = 100
     ) {
-        self.init(session: session, client: client, agentID: agentID, entries: entries, onTranscriptChange: onTranscriptChange, clock: Date.init)
+        self.init(
+            session: session,
+            client: client,
+            agentID: agentID,
+            entries: entries,
+            onTranscriptChange: onTranscriptChange,
+            initialTranscriptTail: initialTranscriptTail,
+            clock: Date.init
+        )
     }
 
     init(
@@ -39,6 +49,7 @@ public final class SessionStore {
         agentID: String? = nil,
         entries: [TranscriptEntry] = [],
         onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
+        initialTranscriptTail: Int = 100,
         clock: @escaping () -> Date
     ) {
         self.session = session
@@ -47,6 +58,7 @@ public final class SessionStore {
         self.agentID = agentID
         self.onTranscriptChange = onTranscriptChange
         self.clock = clock
+        self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.transcriptStore = TranscriptStore(entries: entries)
         self.totalEntries = entries.count
         self.hasLoaded = !entries.isEmpty
@@ -68,7 +80,7 @@ public final class SessionStore {
         TranscriptPerformance.shared.begin(sessionID: sessionID)
         TranscriptPerformance.shared.markRequestSent()
         #endif
-        let page = try await client.transcriptPage(sessionID: sessionID, tail: 100, agent: agentID)
+        let page = try await client.transcriptPage(sessionID: sessionID, tail: initialTranscriptTail, agent: agentID)
         let previousEntries = transcriptStore.entries
         let change: TranscriptChangeSet
         let replacedAll: Bool

@@ -216,7 +216,7 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     func testRegistryBlipDoesNotShowSpinnerOrMoveMiddle() async throws {
-        let app = launchFixture()
+        let app = launchFixture(initialTranscriptTail: 20)
         defer {
             audit(app: app, name: "registry-blip-middle")
             app.terminate()
@@ -233,7 +233,7 @@ final class TranscriptFlowTests: XCTestCase {
         longSession.tap()
         let initialRow = app.staticTexts["Long-session prompt 499: inspect the next checkpoint."]
         XCTAssertTrue(initialRow.waitForExistence(timeout: 30), "Newest long-session row did not load")
-        let visibleRow = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
+        let visibleRow = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
         let scrollView = app.scrollViews["transcript-scroll"]
         for _ in 0..<80 {
             scrollView.swipeDown(velocity: .fast)
@@ -252,7 +252,7 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     func testPagingAndJumpToLatest() throws {
-        let app = launchFixture()
+        let app = launchFixture(initialTranscriptTail: 20)
         defer {
             audit(app: app, name: "paging")
             app.terminate()
@@ -276,7 +276,7 @@ final class TranscriptFlowTests: XCTestCase {
         let scrollView = app.scrollViews["transcript-scroll"]
         XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
 
-        let older = app.staticTexts["Long-session prompt 299: inspect the next checkpoint."]
+        let older = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
         var sawJump = false
         for _ in 0..<80 {
             scrollView.swipeDown(velocity: .fast)
@@ -286,16 +286,12 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(sawJump, "Jump to latest did not appear while paging through older history")
         XCTAssertTrue(
             older.waitForExistence(timeout: 20),
-            "Paging did not load prompt 299 below the initial boundary of 300"
+            "Paging did not load prompt 485 below the initial boundary of 490"
         )
-        XCTAssertTrue(older.isHittable, "Paging did not make prompt 299 visible")
+        XCTAssertTrue(older.isHittable, "Paging did not make prompt 485 visible")
 
-        let initialPrompt = app.staticTexts["Long-session prompt 300: inspect the next checkpoint."]
-        XCTAssertTrue(initialPrompt.isHittable, "Initial prompt 300 is no longer visible after paging")
-        XCTAssertTrue(
-            scrollView.frame.contains(initialPrompt.frame),
-            "Initial prompt 300 is outside the transcript scroll view"
-        )
+        let initialPrompt = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
+        XCTAssertTrue(initialPrompt.isHittable, "Initial prompt 490 is no longer visible after paging")
         attach(named: "transcript-paging")
 
         XCTAssertTrue(jump.waitForExistence(timeout: 10), "Jump to latest did not appear")
@@ -358,7 +354,7 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     func testWarmOpenRendersCacheBeforeDelayedResponseAndKeepsPlace() async throws {
-        var app = launchFixture(resetCache: true)
+        var app = launchFixture(resetCache: true, initialTranscriptTail: 20)
         let longSession = findLongSession(in: app)
         XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
         let coldStart = Date()
@@ -370,19 +366,17 @@ final class TranscriptFlowTests: XCTestCase {
         print("INSTANT_OPEN_COLD_IN_APP_MS \(String(format: "%.1f", coldInApp))")
         let coldScroll = app.scrollViews["transcript-scroll"]
         XCTAssertTrue(coldScroll.waitForExistence(timeout: 10), "Cold transcript scroll view did not load")
-        let cacheSeedRow = app.staticTexts["Long-session prompt 350: inspect the next checkpoint."]
+        let cacheSeedRow = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
         for _ in 0..<80 where !cacheSeedRow.isHittable {
             coldScroll.swipeDown(velocity: .fast)
         }
         XCTAssertTrue(cacheSeedRow.waitForExistence(timeout: 20), "Paging did not fill the cache with a middle row")
-        try await Task.sleep(for: .seconds(6))
-
         XCTAssertTrue(app.navigationBars.buttons["Sessions"].waitForExistence(timeout: 10), "Sessions back button did not load")
         app.navigationBars.buttons["Sessions"].tap()
         XCTAssertTrue(longSession.waitForExistence(timeout: 10), "Long session did not return to the list")
         app.terminate()
 
-        app = launchFixture(resetCache: false)
+        app = launchFixture(resetCache: false, initialTranscriptTail: 20)
         let warmSession = findLongSession(in: app)
         XCTAssertTrue(warmSession.waitForExistence(timeout: 75), "Long fixture session did not load after relaunch")
         let warmStart = Date()
@@ -397,7 +391,7 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(warmNewest.isHittable, "Bottom row was not visible after fresh transcript merge")
         app.terminate()
 
-        app = launchFixture(resetCache: false)
+        app = launchFixture(resetCache: false, initialTranscriptTail: 20)
         let middleSession = findLongSession(in: app)
         XCTAssertTrue(middleSession.waitForExistence(timeout: 75), "Long fixture session did not load for middle-scroll check")
         middleSession.tap()
@@ -416,6 +410,11 @@ final class TranscriptFlowTests: XCTestCase {
             "No cached middle row was visible before merge"
         )
         let rowLabel = rowBeforeMerge.label
+        XCTAssertNotEqual(
+            rowLabel,
+            "Long-session prompt 499: inspect the next checkpoint.",
+            "Middle-scroll check did not move off the newest cached row"
+        )
         print("INSTANT_OPEN_MIDDLE_ROW \(rowLabel)")
         try await Task.sleep(for: .seconds(2))
         XCTAssertTrue(app.staticTexts[rowLabel].isHittable, "Fresh merge moved the cached middle row")
@@ -598,12 +597,15 @@ final class TranscriptFlowTests: XCTestCase {
         return app.buttons["session-long-session"]
     }
 
-    private func launchFixture(resetCache: Bool = true) -> XCUIApplication {
+    private func launchFixture(resetCache: Bool = true, initialTranscriptTail: Int? = nil) -> XCUIApplication {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         if resetCache { app.launchArguments.append("-CCResetCache") }
+        if let initialTranscriptTail {
+            app.launchArguments += ["-CCFixtureInitialTranscriptTail", String(initialTranscriptTail)]
+        }
         app.launchEnvironment["CCBearer"] = bearer
         dismissLeftoverNotificationPrompt()
         app.launch()

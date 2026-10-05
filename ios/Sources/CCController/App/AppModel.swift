@@ -88,6 +88,13 @@ final class AppModel {
         let isDebugOnboarding = false
         let isFixture = false
         #endif
+        #if DEBUG
+        let initialTranscriptTail = isFixture
+            ? Self.argumentValue("-CCFixtureInitialTranscriptTail", in: arguments).flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
+            : nil
+        #else
+        let initialTranscriptTail: Int? = nil
+        #endif
         self.serverURL = serverURL
         let lockIntervalStore = LockIntervalStore()
         self.lockIntervalStore = lockIntervalStore
@@ -153,7 +160,8 @@ final class AppModel {
             cacheDirectory: cacheDirectory,
             authenticationFailureHandler: {
                 _ = await auth.handleUnauthorized()
-            }
+            },
+            initialTranscriptTail: initialTranscriptTail ?? 100
         )
         self.store = store
         self.settings = SettingsStore(

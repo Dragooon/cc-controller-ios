@@ -144,6 +144,26 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(query?.first(where: { $0.name == "tail" })?.value, "100")
     }
 
+    func testLoadInitialUsesConfiguredTail() async throws {
+        let client = makeClient()
+        SessionStoreURLProtocol.requests = []
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: entries(from: 100, through: 119), total: 500, hasMore: true),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            initialTranscriptTail: 20
+        )
+
+        try await store.loadInitial()
+
+        let query = URLComponents(url: try XCTUnwrap(SessionStoreURLProtocol.requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first(where: { $0.name == "tail" })?.value, "20")
+    }
+
     func testTailRefetchGapReplacesLoadedWindow() async throws {
         let initialEntries = entries(from: 100, through: 199)
         let refetchedEntries = entries(from: 400, through: 499)

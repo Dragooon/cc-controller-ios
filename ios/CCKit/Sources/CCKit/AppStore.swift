@@ -58,6 +58,7 @@ public final class AppStore {
     @ObservationIgnored private let cache: DiskCache
     @ObservationIgnored private let draftCache: DraftCache
     @ObservationIgnored private let uploadTimeout: TimeInterval
+    @ObservationIgnored private let initialTranscriptTail: Int
     @ObservationIgnored private let authenticationFailureHandler: (@Sendable () async -> Void)?
     @ObservationIgnored private var eventStream: EventStream?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
@@ -84,7 +85,8 @@ public final class AppStore {
         clock: any CCKitClock = SystemCCKitClock(),
         cacheDirectory: URL,
         uploadTimeout: TimeInterval = 30,
-        authenticationFailureHandler: (@Sendable () async -> Void)? = nil
+        authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
+        initialTranscriptTail: Int = 100
     ) {
         self.client = APIClient(baseURL: serverURL, session: session)
         self.session = session
@@ -94,6 +96,7 @@ public final class AppStore {
         self.draftCache = DraftCache(directory: cacheDirectory, clock: clock)
         self.drafts = (try? DraftCache.loadSync(directory: cacheDirectory)) ?? [:]
         self.uploadTimeout = uploadTimeout
+        self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.authenticationFailureHandler = authenticationFailureHandler
     }
 
@@ -1016,7 +1019,8 @@ public final class AppStore {
                 self.transcriptDidChange(for: key)
                 guard agentID == nil, !changedEntries.isEmpty else { return }
                 self.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
-            }
+            },
+            initialTranscriptTail: initialTranscriptTail
         )
         openStores[key] = store
         if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
