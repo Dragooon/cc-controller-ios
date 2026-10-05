@@ -95,8 +95,8 @@ struct SessionStateSegmentView: View {
 
     private var isLive: Bool {
         switch sessionActivity(session) {
-        case .working, .background: true
-        case .needsYou, .idle: false
+        case .working, .background, .needsYou: true
+        case .idle: false
         }
     }
 
