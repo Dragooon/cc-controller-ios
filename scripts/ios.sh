@@ -495,12 +495,12 @@ revoke_real_device() {
   if [[ -f "$devices_file" ]]; then
     cat "$devices_file"
   fi
-  if [[ "$devices_status" -eq 0 ]] && ! node - "$devices_file" "$REAL_DEVICE_NAME" <<'NODE'
+  if [[ "$devices_status" -eq 0 ]] && ! node - "$devices_file" <<'NODE'
 const fs = require('node:fs');
-const [file, prefix] = process.argv.slice(2);
+const [file] = process.argv.slice(2);
 const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
 const devices = Array.isArray(payload?.devices) ? payload.devices : [];
-if (devices.some((device) => String(device?.name ?? '').startsWith(prefix))) process.exit(1);
+if (devices.some((device) => String(device?.name ?? '').startsWith('cc-real-smoke-'))) process.exit(1);
 NODE
   then
     printf 'device revocation verification failed for %s\\n' "$REAL_DEVICE_NAME" >&2
