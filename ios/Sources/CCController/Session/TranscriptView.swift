@@ -135,6 +135,10 @@ struct SessionTranscriptView: View {
             .onChange(of: turns.last) { _, _ in
                 scrollToNewest(using: proxy)
             }
+            // Rows present at creation do not trigger the change handlers, so estimated heights can leave the viewport past every built row.
+            .onAppear {
+                scrollToNewest(using: proxy)
+            }
             .onChange(of: queuedNotes) { _, _ in
                 isPinnedToBottom = true
                 scrollToNewest(using: proxy)
