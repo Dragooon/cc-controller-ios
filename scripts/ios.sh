@@ -1138,7 +1138,7 @@ cmd_real_smoke() {
   if [[ -d "$result" ]]; then
     xcrun xcresulttool export attachments --path "$result" --output-path "$REAL_OUTPUT_DIR/attachments" --filter '*.png' >/dev/null 2>&1 || test_status=1
     find "$REAL_OUTPUT_DIR/attachments" -type f -name '*.png' -exec cp {} "$REAL_OUTPUT_DIR" \
-      \\; 2>/dev/null || true
+      \; 2>/dev/null || true
   else
     printf '%s\n' 'real-smoke produced no xcresult bundle' >&2
     test_status=1
