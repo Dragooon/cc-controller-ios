@@ -165,7 +165,6 @@ struct MainSplitView: View {
             }
         }
     }
-    }
 
     private var connection: SessionsListView.Connection {
         switch model.store.connection {
