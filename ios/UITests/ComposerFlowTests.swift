@@ -13,6 +13,87 @@ final class ComposerFlowTests: XCTestCase {
         super.tearDown()
     }
 
+    func testSendTargetsNewlySelectedSession() async throws {
+        let app = launchFixture()
+        try await postFixture("/fixture/disable-live-event")
+        defer {
+            audit(app: app, name: "composer-session-target")
+            attach(named: "composer-session-target")
+            app.terminate()
+        }
+
+        openSession(id: "session-dune-part-three-imax-tickets", in: app)
+        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Warm session B model chip did not load")
+        let sessionsBackButton = app.navigationBars.buttons["Sessions"]
+        XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not load after warming B")
+        sessionsBackButton.tap()
+
+        openSession(id: "session-long-session", in: app)
+        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Session A model chip did not load")
+
+        XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not load")
+        sessionsBackButton.tap()
+        let clearSearchField = app.searchFields.firstMatch
+        if !clearSearchField.exists { app.buttons["Search"].tap() }
+        XCTAssertTrue(clearSearchField.waitForExistence(timeout: 15), "Session search field did not return")
+        clearSearchField.tap()
+        if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
+        clearSearchField.typeText("Dune Part Three")
+
+        let sessionB = app.buttons["session-dune-part-three-imax-tickets"]
+        XCTAssertTrue(sessionB.waitForExistence(timeout: 15), "Session B row did not load")
+        let idleExpectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "idle"),
+            object: sessionB
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [idleExpectation], timeout: 10),
+            .completed,
+            "Session B did not remain idle with the same model as session A"
+        )
+        sessionB.tap()
+
+        let field = composerField(in: app)
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "Session B composer did not load")
+        print("COMPOSER_DRAFT_CARRY_OVER sessionB=\(field.value ?? "<nil>")")
+        XCTAssertEqual(field.value as? String, "", "Session A draft carried into session B")
+
+        let marker1 = "composer-session-target-1-\(UUID().uuidString)"
+        let marker2 = "composer-session-target-2-\(UUID().uuidString)"
+        print("COMPOSER_MARKERS marker1=\(marker1) marker2=\(marker2)")
+        field.tap()
+        field.typeText(marker1)
+        app.buttons["composer-send"].tap()
+
+        let sentInB = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker1)).firstMatch
+        XCTAssertTrue(sentInB.waitForExistence(timeout: 10), "Marker 1 did not appear in session B")
+        let resetField = composerField(in: app)
+        XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer did not reset after marker 1")
+        resetField.tap()
+        resetField.typeText(marker2)
+        app.buttons["composer-send"].tap()
+        try await Task.sleep(for: .seconds(1))
+
+        XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not return after sending")
+        sessionsBackButton.tap()
+        let resultSearchButton = app.buttons["Search"]
+        XCTAssertTrue(resultSearchButton.waitForExistence(timeout: 15), "Session search did not return after sending")
+        resultSearchButton.tap()
+        let resultSearch = app.searchFields.firstMatch
+        XCTAssertTrue(resultSearch.waitForExistence(timeout: 15), "Session search field did not return after sending")
+        resultSearch.tap()
+        if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
+        resultSearch.typeText("Long session")
+        let sessionARow = app.buttons["session-long-session"]
+        XCTAssertTrue(sessionARow.waitForExistence(timeout: 15), "Session A row did not return after sending")
+        sessionARow.tap()
+        XCTAssertTrue(composerField(in: app).waitForExistence(timeout: 20), "Session A did not reopen after sending")
+        let sessionAResult = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", marker1, marker2)
+        ).firstMatch
+        XCTAssertFalse(sessionAResult.waitForExistence(timeout: 7), "A marker was delivered to session A")
+    }
+
     func testSendFromIdleSession() throws {
         let app = launchFixture()
         defer {
@@ -273,14 +354,15 @@ final class ComposerFlowTests: XCTestCase {
     }
 
     private func openSession(id: String, in app: XCUIApplication) {
-        if id == "session-long-session" {
+        if id == "session-long-session" || id == "session-dune-part-three-imax-tickets" {
             let searchButton = app.buttons["Search"]
             XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search did not load")
             searchButton.tap()
             let search = app.searchFields.firstMatch
             XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search field did not load")
             search.tap()
-            search.typeText("Long session")
+            if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
+            search.typeText(id == "session-long-session" ? "Long session" : "Dune Part Three")
         }
         let row = app.buttons[id]
         XCTAssertTrue(row.waitForExistence(timeout: 75), "Fixture session \(id) did not load")
