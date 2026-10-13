@@ -7,6 +7,26 @@
       "output": "Fable 5.1"
     },
     {
+      "name": "provider-fable",
+      "input": "global.anthropic.claude-fable-5-1",
+      "output": "Fable 5.1"
+    },
+    {
+      "name": "provider-sonnet",
+      "input": "claude-sonnet-5[1m]",
+      "output": "Sonnet 5"
+    },
+    {
+      "name": "provider-opus",
+      "input": "us.anthropic.claude-opus-4-8-v1:0",
+      "output": "Opus 4.8"
+    },
+    {
+      "name": "dated-sonnet",
+      "input": "claude-sonnet-5-20260101",
+      "output": "Sonnet 5"
+    },
+    {
       "name": "empty",
       "input": "",
       "output": ""
