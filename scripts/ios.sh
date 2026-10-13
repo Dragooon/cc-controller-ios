@@ -23,6 +23,9 @@ REAL_DEVICE_NAME=""
 REAL_SECRET_DIR=""
 REAL_BEARER_FILE=""
 REAL_OUTPUT_DIR=""
+REAL_PERF_UDID=""
+REAL_PERF_EVENT_PID=""
+REAL_PERF_SAMPLER_PID=""
 FIXTURE_LOG=""
 FIXTURE_SIM_UDID=""
 CURRENT_XCODEBUILD_PID=""
@@ -448,6 +451,19 @@ stop_shards() {
 
 cleanup_run() {
   local status=$1 sample_pid
+  if [[ -n "$REAL_PERF_EVENT_PID" ]]; then
+    kill -TERM "$REAL_PERF_EVENT_PID" 2>/dev/null || true
+    wait "$REAL_PERF_EVENT_PID" 2>/dev/null || true
+    REAL_PERF_EVENT_PID=""
+  fi
+  if [[ -n "$REAL_PERF_SAMPLER_PID" ]]; then
+    kill -TERM "$REAL_PERF_SAMPLER_PID" 2>/dev/null || true
+    wait "$REAL_PERF_SAMPLER_PID" 2>/dev/null || true
+    REAL_PERF_SAMPLER_PID=""
+  fi
+  if [[ -n "$REAL_PERF_UDID" ]]; then
+    xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  fi
   for sample_pid in "${PERF_SAMPLE_PIDS[@]:-}"; do
     [[ -z "$sample_pid" ]] || { kill "$sample_pid" 2>/dev/null || true; wait "$sample_pid" 2>/dev/null || true; }
   done
@@ -1416,6 +1432,8 @@ perf_process_sample() {
   local udid=$1 target=$2 pid row cpu rss
   if [[ "$target" == 'cc-controller' ]]; then
     pid=${PERF_HOST_APP_PID:-}
+  elif [[ "$target" == 'daemon' ]]; then
+    pid=$(perf_host_pid 'daemon')
   else
     pid=$(perf_host_pid 'backboardd' "$udid")
   fi
@@ -1466,6 +1484,10 @@ perf_host_pid() {
     parent_pid=$(ps -axo pid=,command= | awk -v udid="$udid" '$0 ~ udid && $0 ~ /launchd_sim/ { print $1; exit }' || true)
     [[ "$parent_pid" =~ ^[0-9]+$ ]] || return 0
     ps -axo pid=,ppid=,command= | awk -v parent="$parent_pid" '$2 == parent && $0 ~ /backboardd$/ { print $1; exit }' || true
+    return 0
+  fi
+  if [[ "$target" == 'daemon' ]]; then
+    launchctl list 2>/dev/null | awk '$3 == "com.example.cc-controller" && $1 ~ /^[0-9]+$/ { print $1; exit }' || true
     return 0
   fi
   ps -axo pid=,command= | awk -v target="$target" '$0 ~ target { print $1; exit }' || true
@@ -1614,6 +1636,415 @@ import sys
 raise SystemExit(0 if float(sys.argv[1]) <= float(sys.argv[2]) else 1)
 PY
   then :; else PERF_BUDGET_FAILED=1; fi
+}
+
+real_status_summary() {
+  local status_file=$1 output_file=$2
+  node - "$status_file" "$output_file" <<'NODE'
+const fs = require('node:fs');
+const [statusFile, outputFile] = process.argv.slice(2);
+const payload = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+const entries = payload.entries ?? {};
+const sessions = (payload.sessions ?? [])
+  .filter((session) => typeof session?.id === 'string' && session.id.length > 0)
+  .map((session) => ({
+    id: session.id,
+    name: session.name ?? 'Untitled session',
+    state: session.state ?? 'unknown',
+    entryCount: Number(entries[session.id] ?? 0),
+  }));
+fs.writeFileSync(outputFile, JSON.stringify(sessions, null, 2), { mode: 0o600 });
+NODE
+}
+
+real_event_query() {
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node <<'NODE'
+const fs = require('node:fs');
+const http = require('node:http');
+const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
+const request = http.request({
+  host: '127.0.0.1',
+  port: 47832,
+  path: '/api/bootstrap',
+  headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
+}, (response) => {
+  let text = '';
+  response.setEncoding('utf8');
+  response.on('data', (chunk) => { text += chunk; });
+  response.on('end', () => {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      console.error(`event query bootstrap failed (HTTP ${response.statusCode})`);
+      process.exitCode = 1;
+      return;
+    }
+    let value;
+    try { value = JSON.parse(text); } catch {
+      console.error('event query bootstrap returned invalid JSON');
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(value.capabilities?.subagentUpsert === true ? '?subagentUpsert=true' : '');
+  });
+});
+request.on('error', (error) => {
+  console.error(`event query bootstrap failed: ${error.message}`);
+  process.exitCode = 1;
+});
+request.end();
+NODE
+}
+
+real_start_event_capture() {
+  local query=$1 raw_file=$2 log_file=$3
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - "$query" "$raw_file" <<'NODE' >"$log_file" 2>&1 &
+const fs = require('node:fs');
+const http = require('node:http');
+const zlib = require('node:zlib');
+const query = process.argv[2];
+const rawFile = process.argv[3];
+const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
+const fd = fs.openSync(rawFile, 'w', 0o600);
+let response;
+let request;
+let stopping = false;
+let finished = false;
+function finish(status) {
+  if (finished) return;
+  finished = true;
+  fs.closeSync(fd);
+  process.exit(status);
+}
+request = http.request({
+  host: '127.0.0.1',
+  port: 47832,
+  path: `/api/events${query}`,
+  headers: {
+    Authorization: `Bearer ${bearer}`,
+    Accept: 'text/event-stream',
+    'Accept-Encoding': 'gzip',
+  },
+}, (candidate) => {
+  response = candidate;
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    console.error(`event stream failed (HTTP ${response.statusCode})`);
+    response.resume();
+    response.on('end', () => finish(1));
+    return;
+  }
+  const body = response.headers['content-encoding'] === 'gzip'
+    ? response.pipe(zlib.createGunzip())
+    : response;
+  body.on('data', (chunk) => fs.writeSync(fd, chunk));
+  body.on('end', () => finish(stopping ? 0 : 1));
+  body.on('error', (error) => {
+    if (!stopping) console.error(`event stream failed: ${error.message}`);
+    finish(stopping ? 0 : 1);
+  });
+});
+request.on('error', (error) => {
+  if (!stopping) console.error(`event stream failed: ${error.message}`);
+  finish(stopping ? 0 : 1);
+});
+process.on('SIGTERM', () => {
+  stopping = true;
+  request.destroy();
+  response?.destroy();
+  setTimeout(() => finish(0), 100);
+});
+request.end();
+NODE
+  REAL_PERF_EVENT_PID=$!
+}
+
+real_summarize_events() {
+  local raw_file=$1 summary_file=$2 wall=$3
+  node - "$raw_file" "$summary_file" "$wall" <<'NODE'
+const fs = require('node:fs');
+const [rawFile, summaryFile, wallText] = process.argv.slice(2);
+const buffer = fs.readFileSync(rawFile);
+const text = buffer.toString('utf8');
+const byType = {};
+let totalEvents = 0;
+let start = 0;
+const separator = /\r?\n\r?\n/g;
+let match;
+function consume(block) {
+  const lines = block.split(/\r?\n/);
+  let type = 'message';
+  let hasData = false;
+  for (const line of lines) {
+    if (line.startsWith('event:')) type = line.slice(6).trimStart();
+    if (line.startsWith('data:')) hasData = true;
+  }
+  if (!hasData) return;
+  totalEvents += 1;
+  const bytes = Buffer.byteLength(block, 'utf8');
+  const item = byType[type] ?? { count: 0, total_bytes: 0 };
+  item.count += 1;
+  item.total_bytes += bytes;
+  byType[type] = item;
+}
+while ((match = separator.exec(text)) !== null) {
+  consume(text.slice(start, match.index + match[0].length));
+  start = match.index + match[0].length;
+}
+if (start < text.length) consume(text.slice(start));
+const wall = Number(wallText);
+const payload = {
+  total_events: totalEvents,
+  total_bytes: buffer.length,
+  events_per_second: wall > 0 ? totalEvents / wall : 0,
+  by_type: byType,
+};
+fs.writeFileSync(summaryFile, JSON.stringify(payload, null, 2), { mode: 0o600 });
+NODE
+}
+
+real_cpu_or_null() {
+  local before=$1 after=$2 wall=$3
+  if [[ "$before" =~ ^[0-9]+([.][0-9]+)?$ && "$after" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    perf_cpu_delta "$before" "$after" "$wall"
+  else
+    printf '%s' 'null'
+  fi
+}
+
+real_write_perf_result() {
+  local json_file=$1 counter_file=$2 phase=$3 selected_id=$4 selected_count=$5
+  PERF_REAL_JSON_FILE="$json_file" PERF_REAL_COUNTER_FILE="$counter_file" \
+  PERF_REAL_PHASE="$phase" PERF_REAL_SELECTED_ID="$selected_id" PERF_REAL_SELECTED_COUNT="$selected_count" \
+  PERF_REAL_DURATION="$CC_PERF_REAL_DURATION" PERF_REAL_WARMUP="$CC_PERF_REAL_WARMUP" \
+  PERF_REAL_WALL="$REAL_PERF_WALL" PERF_REAL_APP_CPU="$REAL_PERF_APP_CPU" \
+  PERF_REAL_RENDER_CPU="$REAL_PERF_RENDER_CPU" PERF_REAL_DAEMON_CPU="$REAL_PERF_DAEMON_CPU" \
+  PERF_REAL_PEAK_RSS="$REAL_PERF_PEAK_RSS" python3 - <<'PY'
+import json, os
+payload = {
+  'phase': os.environ['PERF_REAL_PHASE'],
+  'warmup_seconds': float(os.environ['PERF_REAL_WARMUP']),
+  'duration_seconds': float(os.environ['PERF_REAL_DURATION']),
+  'wall_seconds': float(os.environ['PERF_REAL_WALL']),
+  'app_cpu_percent_one_core': None if os.environ['PERF_REAL_APP_CPU'] == 'null' else float(os.environ['PERF_REAL_APP_CPU']),
+  'render_server_cpu_percent_one_core': None if os.environ['PERF_REAL_RENDER_CPU'] == 'null' else float(os.environ['PERF_REAL_RENDER_CPU']),
+  'daemon_cpu_percent_one_core': None if os.environ['PERF_REAL_DAEMON_CPU'] == 'null' else float(os.environ['PERF_REAL_DAEMON_CPU']),
+  'peak_app_rss_kb': int(os.environ['PERF_REAL_PEAK_RSS']),
+  'selected_session_id': os.environ['PERF_REAL_SELECTED_ID'] or None,
+  'selected_session_entry_count': int(os.environ['PERF_REAL_SELECTED_COUNT']) if os.environ['PERF_REAL_SELECTED_COUNT'] else None,
+}
+try:
+    with open(os.environ['PERF_REAL_COUNTER_FILE']) as handle:
+        payload['counters'] = json.load(handle)
+except (FileNotFoundError, json.JSONDecodeError):
+    payload['counters'] = None
+with open(os.environ['PERF_REAL_JSON_FILE'], 'w') as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+PY
+  chmod 600 "$json_file"
+}
+
+real_perf_run_phase() {
+  local phase=$1
+  local phase_dir="$REAL_OUTPUT_DIR/$phase"
+  local status_source="$REAL_SECRET_DIR/status-before-$phase.json"
+  local selected_source="$REAL_SECRET_DIR/selected-$phase.json"
+  local raw_events="$REAL_SECRET_DIR/events-$phase.raw"
+  local event_log="$REAL_SECRET_DIR/events-$phase.log"
+  local app_bundle="$IOS/build/perf-release/Build/Products/Release-iphonesimulator/cc-controller.app"
+  local selected_id='' selected_count='' phase_status=0
+  local launch_output host_app_pid app_sample app_pid render_pid daemon_pid
+  local query before_app before_render before_daemon start end after_app after_render after_daemon
+  local before_app_cpu after_app_cpu before_render_cpu after_render_cpu before_daemon_cpu after_daemon_cpu
+  local wall samples sampler app_sample_pid render_sample_pid container counter_file
+  mkdir -p "$phase_dir"
+
+  if ! node "$(main_checkout)/src/cli.js" status >"$status_source"; then
+    printf 'real perf %s failed to read status before phase\n' "$phase" >&2
+    return 1
+  fi
+  real_status_summary "$status_source" "$phase_dir/status-before.json"
+  if [[ "$phase" == busy ]]; then
+    if ! real_select_sessions "$status_source" "$selected_source" 1; then return 1; fi
+    selected_id=$(real_json_value "$selected_source" 0 id)
+    selected_count=$(real_json_value "$selected_source" 0 entryCount)
+  fi
+
+  xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl install "$REAL_PERF_UDID" "$app_bundle"
+  host_app_pid=''
+  local launch_args=(
+    -CCServer http://127.0.0.1:47832
+  )
+  if [[ "$phase" == busy ]]; then launch_args+=( -CCSession "$selected_id" ); fi
+  launch_args+=( -CCColorScheme light )
+  local bearer
+  bearer=$(<"$REAL_BEARER_FILE")
+  launch_output=$(SIMCTL_CHILD_CCBearer="$bearer" SIMCTL_CHILD_CC_PERF_SCENARIO="real-$phase" \
+    xcrun simctl launch "$REAL_PERF_UDID" com.example.cc-controller "${launch_args[@]}")
+  host_app_pid=$(printf '%s\n' "$launch_output" | awk -F': ' 'NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }')
+  [[ "$host_app_pid" =~ ^[0-9]+$ ]] || { printf 'real perf %s app did not launch\n' "$phase" >&2; return 1; }
+  PERF_HOST_APP_PID="$host_app_pid"
+  app_pid=''
+  for _ in {1..60}; do
+    app_sample=$(perf_process_sample "$REAL_PERF_UDID" cc-controller)
+    app_pid=${app_sample%%|*}
+    [[ "$app_pid" =~ ^[0-9]+$ ]] && break
+    sleep 0.25
+  done
+  [[ "$app_pid" =~ ^[0-9]+$ ]] || { printf 'real perf %s app process did not appear\n' "$phase" >&2; return 1; }
+  sleep "$CC_PERF_REAL_WARMUP"
+
+  query=$(real_event_query)
+  render_pid=$(perf_host_pid backboardd "$REAL_PERF_UDID")
+  daemon_pid=$(perf_host_pid daemon)
+  [[ "$render_pid" =~ ^[0-9]+$ ]] || { printf 'real perf %s render server process did not appear\n' "$phase" >&2; return 1; }
+  [[ "$daemon_pid" =~ ^[0-9]+$ ]] || { printf 'real perf %s daemon process did not appear\n' "$phase" >&2; return 1; }
+  before_app=$(perf_process_sample "$REAL_PERF_UDID" cc-controller)
+  before_render=$(perf_process_sample "$REAL_PERF_UDID" backboardd)
+  before_daemon=$(perf_process_sample "$REAL_PERF_UDID" daemon)
+  before_app_cpu=$(printf '%s' "$before_app" | cut -d'|' -f2)
+  before_render_cpu=$(printf '%s' "$before_render" | cut -d'|' -f2)
+  before_daemon_cpu=$(printf '%s' "$before_daemon" | cut -d'|' -f2)
+  start=$(perf_wall_seconds)
+  samples="$phase_dir/process-samples.txt"
+  : > "$samples"
+  sample "$app_pid" 20 -file "$phase_dir/sample-app.txt" >/dev/null 2>&1 &
+  app_sample_pid=$!
+  PERF_SAMPLE_PIDS+=("$app_sample_pid")
+  sample "$render_pid" 20 -file "$phase_dir/sample-render.txt" >/dev/null 2>&1 &
+  render_sample_pid=$!
+  PERF_SAMPLE_PIDS+=("$render_sample_pid")
+  real_start_event_capture "$query" "$raw_events" "$event_log"
+  perf_sample_loop "$REAL_PERF_UDID" "$samples" &
+  sampler=$!
+  REAL_PERF_SAMPLER_PID="$sampler"
+  sleep "$CC_PERF_REAL_DURATION"
+  end=$(perf_wall_seconds)
+  kill "$sampler" 2>/dev/null || true
+  wait "$sampler" 2>/dev/null || true
+  REAL_PERF_SAMPLER_PID=''
+  local event_status=0
+  kill -TERM "$REAL_PERF_EVENT_PID" 2>/dev/null || true
+  if wait "$REAL_PERF_EVENT_PID" 2>/dev/null; then :; else event_status=$?; fi
+  REAL_PERF_EVENT_PID=''
+  local sample_pid
+  for sample_pid in "${PERF_SAMPLE_PIDS[@]:-}"; do
+    [[ -z "$sample_pid" ]] || wait "$sample_pid" 2>/dev/null || true
+  done
+  PERF_SAMPLE_PIDS=()
+  if [[ ! -s "$phase_dir/sample-app.txt" || ! -s "$phase_dir/sample-render.txt" ]]; then
+    printf 'real perf %s sample command did not produce both stack files\n' "$phase" >&2
+    phase_status=1
+  fi
+  after_app=$(perf_process_sample "$REAL_PERF_UDID" cc-controller)
+  after_render=$(perf_process_sample "$REAL_PERF_UDID" backboardd)
+  after_daemon=$(perf_process_sample "$REAL_PERF_UDID" daemon)
+  after_app_cpu=$(printf '%s' "$after_app" | cut -d'|' -f2)
+  after_render_cpu=$(printf '%s' "$after_render" | cut -d'|' -f2)
+  after_daemon_cpu=$(printf '%s' "$after_daemon" | cut -d'|' -f2)
+  wall=$(python3 - "$start" "$end" <<'PY'
+import sys
+print(float(sys.argv[2]) - float(sys.argv[1]))
+PY
+)
+  REAL_PERF_WALL="$wall"
+  REAL_PERF_APP_CPU=$(real_cpu_or_null "$before_app_cpu" "$after_app_cpu" "$wall")
+  REAL_PERF_RENDER_CPU=$(real_cpu_or_null "$before_render_cpu" "$after_render_cpu" "$wall")
+  REAL_PERF_DAEMON_CPU=$(real_cpu_or_null "$before_daemon_cpu" "$after_daemon_cpu" "$wall")
+  REAL_PERF_PEAK_RSS=$(perf_peak_rss "$samples")
+  container=$(xcrun simctl get_app_container "$REAL_PERF_UDID" com.example.cc-controller data)
+  counter_file="$container/Library/cc-perf.json"
+  real_summarize_events "$raw_events" "$phase_dir/events-summary.json" "$wall"
+  if [[ "$event_status" -ne 0 ]]; then
+    printf 'real perf %s SSE capture exited with status %s\n' "$phase" "$event_status" >&2
+    phase_status=1
+  fi
+  if LC_ALL=C grep -a -qF -- "$bearer" "$raw_events" || LC_ALL=C grep -a -qF -- "$bearer" "$event_log" 2>/dev/null; then
+    printf 'real perf %s bearer appeared in SSE capture or log; evidence was not copied\n' "$phase" >&2
+    phase_status=1
+  else
+    cp "$raw_events" "$phase_dir/events.raw"
+    chmod 600 "$phase_dir/events.raw"
+    [[ ! -s "$event_log" ]] || cp "$event_log" "$phase_dir/events.log"
+    [[ ! -s "$event_log" ]] || chmod 600 "$phase_dir/events.log"
+  fi
+  real_write_perf_result "$phase_dir/result.json" "$counter_file" "$phase" "$selected_id" "$selected_count"
+  xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  if ! node "$(main_checkout)/src/cli.js" status >"$REAL_SECRET_DIR/status-after-$phase.json"; then
+    printf 'real perf %s failed to read status after phase\n' "$phase" >&2
+    phase_status=1
+  else
+    real_status_summary "$REAL_SECRET_DIR/status-after-$phase.json" "$phase_dir/status-after.json"
+  fi
+  if find "$phase_dir" -type f -name '*.log' -print0 | while IFS= read -r -d '' log; do
+    LC_ALL=C grep -a -qF -- "$bearer" "$log" && exit 1
+  done; then :; else
+    printf 'real perf %s bearer appeared in a kept log\n' "$phase" >&2
+    phase_status=1
+  fi
+  local counter_summary
+  counter_summary=$(node - "$phase_dir/result.json" <<'NODE'
+const fs = require('node:fs');
+const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const rates = value.counters?.per_second ?? {};
+process.stdout.write(Object.entries(rates).sort(([a], [b]) => a.localeCompare(b)).map(([key, rate]) => `${key}=${Number(rate).toFixed(2)}/s`).join(' '));
+NODE
+)
+  printf 'PERF real-%s app_cpu=%s%% render_cpu=%s%% daemon_cpu=%s%% peak_rss=%skB wall=%.1fs events=%s selected=%s entries=%s %s\n' \
+    "$phase" "$REAL_PERF_APP_CPU" "$REAL_PERF_RENDER_CPU" "$REAL_PERF_DAEMON_CPU" "$REAL_PERF_PEAK_RSS" "$wall" \
+    "$(node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1]));process.stdout.write(String(p.total_events??0))' "$phase_dir/events-summary.json")" \
+    "${selected_id:-none}" "${selected_count:-none}" "$counter_summary"
+  [[ "$phase_status" -eq 0 ]]
+}
+
+cmd_perf_real() {
+  local only_phase='' no_build=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --phase)
+        [[ $# -ge 2 && "$2" =~ ^(list|busy)$ ]] || { printf '%s\n' 'perf-real --phase requires list or busy' >&2; return 2; }
+        only_phase=$2
+        shift 2
+        ;;
+      --no-build)
+        no_build=1
+        shift
+        ;;
+      *) printf 'unknown perf-real option: %s\n' "$1" >&2; return 2;;
+    esac
+  done
+  CC_PERF_REAL_WARMUP=${CC_PERF_REAL_WARMUP:-10}
+  CC_PERF_REAL_DURATION=${CC_PERF_REAL_DURATION:-60}
+  [[ "$CC_PERF_REAL_WARMUP" =~ ^[0-9]+([.][0-9]+)?$ ]] || { printf '%s\n' 'CC_PERF_REAL_WARMUP must be a number of seconds' >&2; return 2; }
+  [[ "$CC_PERF_REAL_DURATION" =~ ^[0-9]+([.][0-9]+)?$ ]] || { printf '%s\n' 'CC_PERF_REAL_DURATION must be a number of seconds' >&2; return 2; }
+  REAL_SMOKE_RUN=1
+  REAL_DEVICE_NAME="cc-real-smoke-perf-$(date '+%Y%m%dT%H%M%S')-$$"
+  local timestamp main_root app_bundle
+  timestamp=$(date '+%Y%m%dT%H%M%S')
+  REAL_OUTPUT_DIR="$HOME/Documents/dev/cc-controller-evidence/perf-real-2026-10-13/$timestamp"
+  [[ ! -e "$REAL_OUTPUT_DIR" ]] || { printf 'perf-real evidence directory already exists: %s\n' "$REAL_OUTPUT_DIR" >&2; return 1; }
+  mkdir -p "$REAL_OUTPUT_DIR"
+  REAL_SECRET_DIR=$(mktemp -d)
+  chmod 700 "$REAL_SECRET_DIR"
+  REAL_BEARER_FILE="$REAL_SECRET_DIR/bearer"
+  PERF_DERIVED="$IOS/build/perf-release"
+  app_bundle="$PERF_DERIVED/Build/Products/Release-iphonesimulator/cc-controller.app"
+  if [[ "$no_build" -eq 0 ]]; then
+    cmd_generate
+    step 'perf-real Release build' xcodebuild -project "$PROJECT" -scheme CCController -configuration Release -sdk iphonesimulator \
+      -destination 'generic/platform=iOS Simulator' -derivedDataPath "$PERF_DERIVED" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS=CC_PERF build
+  fi
+  [[ -d "$app_bundle" ]] || { printf 'perf-real requires Release+CC_PERF app at %s; omit --no-build\n' "$app_bundle" >&2; return 1; }
+  main_root=$(main_checkout)
+  real_authenticate "$main_root" "$REAL_DEVICE_NAME"
+  pool_acquire
+  REAL_PERF_UDID=$(ensure_pool_device 'iPhone 18 Pro')
+  PERF_UDID="$REAL_PERF_UDID"
+  local phase
+  for phase in list busy; do
+    [[ -z "$only_phase" || "$only_phase" == "$phase" ]] || continue
+    real_perf_run_phase "$phase"
+  done
 }
 
 cmd_perf() {
@@ -2074,6 +2505,7 @@ case "${1:-}" in
   test) shift; step test cmd_test "$@";;
   release-check) shift; cmd_release_check "$@";;
   perf) shift; cmd_perf "$@";;
+  perf-real) shift; cmd_perf_real "$@";;
   archive) shift; cmd_archive "$@";;
   upload) shift; cmd_upload "$@";;
   gate) shift; cmd_gate "$@";;
@@ -2084,5 +2516,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|archive|upload|gate|real-smoke|shots|flows [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|gate|real-smoke|shots|flows [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
