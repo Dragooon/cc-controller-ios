@@ -12,6 +12,7 @@ struct SessionDestination: Hashable {
 private struct SessionLoadKey: Hashable {
     let sessionID: String
     let hasSession: Bool
+    let isLive: Bool
 }
 
 struct SubagentResultSelection: Identifiable {
@@ -89,9 +90,8 @@ struct SessionScreen: View {
             guard !sessionStore.isLoaded else { return }
             do {
                 try await sessionStore.loadInitial()
-            } catch is CancellationError {
-                return
             } catch {
+                guard !isTranscriptCancellation(error) else { return }
                 model.actionError = .network(error.localizedDescription)
             }
         }
@@ -333,7 +333,11 @@ struct SessionScreen: View {
     }
 
     private var sessionLoadKey: SessionLoadKey {
-        SessionLoadKey(sessionID: sessionID, hasSession: model.store.sessions[sessionID] != nil)
+        SessionLoadKey(
+            sessionID: sessionID,
+            hasSession: model.store.sessions[sessionID] != nil,
+            isLive: model.store.sessions[sessionID]?.live == true
+        )
     }
 
     private var destinationBinding: Binding<Bool> {
@@ -481,6 +485,16 @@ struct SessionScreen: View {
                 model.actionError = error
             }
         }
+    }
+
+    private func isTranscriptCancellation(_ error: Error) -> Bool {
+        if Task.isCancelled || error is CancellationError { return true }
+        if let urlError = error as? URLError { return urlError.code == .cancelled }
+        if let apiError = error as? APIError,
+           case .transport(let urlError) = apiError {
+            return urlError.code == .cancelled
+        }
+        return false
     }
 
     private func interrupt() {

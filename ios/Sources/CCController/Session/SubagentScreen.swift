@@ -16,9 +16,8 @@ struct SubagentScreen: View {
                     try await Task.sleep(for: .seconds(2))
                     try await store.refetchTail()
                 }
-            } catch is CancellationError {
-                return
             } catch {
+                guard !isTranscriptCancellation(error) else { return }
                 model.actionError = .network(error.localizedDescription)
             }
         }
@@ -71,5 +70,15 @@ struct SubagentScreen: View {
 
     private func subagentIsRunning(in store: SessionStore) -> Bool {
         store.session.subagents?.first { $0.agentId == agentID }?.state == .running
+    }
+
+    private func isTranscriptCancellation(_ error: Error) -> Bool {
+        if Task.isCancelled || error is CancellationError { return true }
+        if let urlError = error as? URLError { return urlError.code == .cancelled }
+        if let apiError = error as? APIError,
+           case .transport(let urlError) = apiError {
+            return urlError.code == .cancelled
+        }
+        return false
     }
 }
