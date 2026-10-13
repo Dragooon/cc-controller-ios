@@ -26,6 +26,10 @@ REAL_OUTPUT_DIR=""
 REAL_PERF_UDID=""
 REAL_PERF_EVENT_PID=""
 REAL_PERF_SAMPLER_PID=""
+REAL_PERF_COMMAND_PID=""
+REAL_SCRATCH_STARTED=0
+REAL_SCRATCH_SESSION_ID=""
+REAL_SCRATCH_STATE_FILE=""
 FIXTURE_LOG=""
 FIXTURE_SIM_UDID=""
 CURRENT_XCODEBUILD_PID=""
@@ -461,6 +465,11 @@ cleanup_run() {
     wait "$REAL_PERF_SAMPLER_PID" 2>/dev/null || true
     REAL_PERF_SAMPLER_PID=""
   fi
+  if [[ -n "$REAL_PERF_COMMAND_PID" ]]; then
+    terminate_process_tree "$REAL_PERF_COMMAND_PID"
+    wait "$REAL_PERF_COMMAND_PID" 2>/dev/null || true
+    REAL_PERF_COMMAND_PID=""
+  fi
   if [[ -n "$REAL_PERF_UDID" ]]; then
     xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
   fi
@@ -533,6 +542,13 @@ cleanup_on_exit() {
     stop_shards
   fi
   cleanup_run "$status" || true
+  if (( REAL_SCRATCH_STARTED )); then
+    if ! "$ROOT/scripts/perf-scratch-session.sh" stop; then
+      printf '%s\n' 'perf-real scratch session cleanup failed' >&2
+      status=1
+    fi
+    REAL_SCRATCH_STARTED=0
+  fi
   revoke_real_device || status=1
   [[ -z "$REAL_SECRET_DIR" ]] || rm -rf "$REAL_SECRET_DIR"
   remove_node_modules_link
@@ -1800,6 +1816,195 @@ fs.writeFileSync(summaryFile, JSON.stringify(payload, null, 2), { mode: 0o600 })
 NODE
 }
 
+real_write_cpu_timeline() {
+  local samples=$1 timeline=$2
+  python3 -I - "$samples" "$timeline" <<'PY'
+import json
+import statistics
+import sys
+
+samples_path, timeline_path = sys.argv[1:]
+by_time = {}
+for line in open(samples_path, encoding='utf-8', errors='replace'):
+    fields = line.rstrip().split('|')
+    if len(fields) != 5:
+        continue
+    try:
+        timestamp = float(fields[0])
+        cpu = float(fields[3])
+    except ValueError:
+        continue
+    if fields[1] not in ('app', 'render'):
+        continue
+    by_time.setdefault(timestamp, {})[fields[1]] = cpu
+
+times = sorted(by_time)
+timeline = []
+previous = {}
+first_time = times[0] if times else 0.0
+for timestamp in times:
+    values = {}
+    for target in ('app', 'render'):
+        current = by_time[timestamp].get(target)
+        prior = previous.get(target)
+        if current is not None and prior is not None:
+            prior_time, prior_cpu = prior
+            elapsed = timestamp - prior_time
+            values[target] = max(0.0, (current - prior_cpu) * 100.0 / elapsed) if elapsed > 0 else None
+        else:
+            values[target] = None
+        if current is not None:
+            previous[target] = (timestamp, current)
+    if any(value is not None for value in values.values()):
+        timeline.append({'t': int(round(timestamp - first_time)), **values})
+
+with open(timeline_path, 'w', encoding='utf-8') as handle:
+    json.dump(timeline, handle, indent=2)
+    handle.write('\n')
+
+def values_for(target):
+    return [item[target] for item in timeline if item[target] is not None]
+
+def summary(target):
+    values = values_for(target)
+    if not values:
+        return 'null/null'
+    return f'{max(values):.2f}/{statistics.median(values):.2f}'
+
+print(f'PERF cpu-timeline peak/median app={summary("app")} render={summary("render")}')
+PY
+}
+
+real_state_request() {
+  local output_file=$1
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - "$output_file" <<'NODE'
+const fs = require('node:fs');
+const http = require('node:http');
+const output = process.argv[2];
+const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
+const request = http.request({
+  host: '127.0.0.1',
+  port: 47832,
+  path: '/api/state',
+  headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
+}, (response) => {
+  let text = '';
+  response.setEncoding('utf8');
+  response.on('data', (chunk) => { text += chunk; });
+  response.on('end', () => {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      console.error(`state request failed (HTTP ${response.statusCode})`);
+      process.exitCode = 1;
+      return;
+    }
+    try { JSON.parse(text); } catch {
+      console.error('state request returned invalid JSON');
+      process.exitCode = 1;
+      return;
+    }
+    fs.writeFileSync(output, text, { mode: 0o600 });
+  });
+});
+request.on('error', (error) => {
+  console.error(`state request failed: ${error.message}`);
+  process.exitCode = 1;
+});
+request.end();
+NODE
+}
+
+real_state_has_session() {
+  local state_file=$1 session_id=$2
+  node - "$state_file" "$session_id" <<'NODE'
+const fs = require('node:fs');
+const [stateFile, target] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+const found = Array.isArray(state.sessions) && state.sessions.some((session) => session?.id === target);
+process.stdout.write(found ? 'FOUND' : 'MISSING');
+NODE
+}
+
+real_state_entry_count() {
+  local state_file=$1 session_id=$2
+  node - "$state_file" "$session_id" <<'NODE'
+const fs = require('node:fs');
+const [stateFile, target] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+const value = Number(state.entries?.[target] ?? 0);
+if (!Number.isFinite(value)) process.exit(1);
+process.stdout.write(String(value));
+NODE
+}
+
+real_wait_for_scratch_state() {
+  local state_file=$1
+  local deadline=$((SECONDS + 60))
+  while (( SECONDS <= deadline )); do
+    if real_state_request "$state_file" && [[ "$(real_state_has_session "$state_file" "$REAL_SCRATCH_SESSION_ID")" == FOUND ]]; then
+      return 0
+    fi
+    (( SECONDS < deadline )) || break
+    sleep 1
+  done
+  printf 'real perf turn: session %s was not listed by GET /api/state within 60 seconds\n' "$REAL_SCRATCH_SESSION_ID" >&2
+  return 1
+}
+
+real_start_scratch() {
+  local output directory state_id existing=()
+  shopt -s nullglob
+  existing=("$HOME/Documents/dev"/cc-perf-scratch-*.state.json)
+  shopt -u nullglob
+  if (( ${#existing[@]} != 0 )); then
+    printf 'real perf turn: refusing to use pre-existing scratch state: %s\n' "${existing[*]}" >&2
+    return 1
+  fi
+  REAL_SCRATCH_STARTED=1
+  if ! output=$("$ROOT/scripts/perf-scratch-session.sh" start); then
+    REAL_SCRATCH_STARTED=0
+    printf '%s\n' 'real perf turn: scratch session start failed' >&2
+    return 1
+  fi
+  REAL_SCRATCH_SESSION_ID=$(printf '%s\n' "$output" | awk -F= '$1 == "session_id" { print $2; exit }')
+  directory=$(printf '%s\n' "$output" | awk -F= '$1 == "directory" { print $2; exit }')
+  REAL_SCRATCH_STATE_FILE="${directory}.state.json"
+  [[ "$REAL_SCRATCH_SESSION_ID" =~ ^[A-Za-z0-9_-]+$ && -f "$REAL_SCRATCH_STATE_FILE" ]] || {
+    printf '%s\n' 'real perf turn: scratch start returned invalid state' >&2
+    return 1
+  }
+  state_id=$(node - "$REAL_SCRATCH_STATE_FILE" <<'NODE'
+const fs = require('node:fs');
+const state = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(String(state.session_id ?? ''));
+NODE
+  )
+  [[ "$state_id" == "$REAL_SCRATCH_SESSION_ID" ]] || {
+    printf 'real perf turn: scratch state id mismatch (%s vs %s)\n' "$state_id" "$REAL_SCRATCH_SESSION_ID" >&2
+    return 1
+  }
+  printf 'real perf scratch session=%s\n' "$REAL_SCRATCH_SESSION_ID"
+}
+
+real_assert_cli_session_missing() {
+  local output_file=$1
+  if ! node "$(main_checkout)/src/cli.js" status > "$output_file"; then
+    printf '%s\n' 'real perf turn: failed to read cli status after scratch stop' >&2
+    return 1
+  fi
+  if node - "$output_file" "$REAL_SCRATCH_SESSION_ID" <<'NODE'
+const fs = require('node:fs');
+const [statusFile, target] = process.argv.slice(2);
+const status = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
+process.exit((status.sessions ?? []).some((session) => session?.id === target) ? 1 : 0);
+NODE
+  then
+    printf 'real perf scratch session %s absent from cli status\n' "$REAL_SCRATCH_SESSION_ID"
+    return 0
+  fi
+  printf 'real perf turn: scratch session %s remains in cli status\n' "$REAL_SCRATCH_SESSION_ID" >&2
+  return 1
+}
+
 real_cpu_or_null() {
   local before=$1 after=$2 wall=$3
   if [[ "$before" =~ ^[0-9]+([.][0-9]+)?$ && "$after" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
@@ -1810,10 +2015,10 @@ real_cpu_or_null() {
 }
 
 real_write_perf_result() {
-  local json_file=$1 counter_file=$2 phase=$3 selected_id=$4 selected_count=$5
+  local json_file=$1 counter_file=$2 phase=$3 selected_id=$4 selected_count=$5 duration=$6 warmup=$7
   PERF_REAL_JSON_FILE="$json_file" PERF_REAL_COUNTER_FILE="$counter_file" \
   PERF_REAL_PHASE="$phase" PERF_REAL_SELECTED_ID="$selected_id" PERF_REAL_SELECTED_COUNT="$selected_count" \
-  PERF_REAL_DURATION="$CC_PERF_REAL_DURATION" PERF_REAL_WARMUP="$CC_PERF_REAL_WARMUP" \
+  PERF_REAL_DURATION="$duration" PERF_REAL_WARMUP="$warmup" \
   PERF_REAL_WALL="$REAL_PERF_WALL" PERF_REAL_APP_CPU="$REAL_PERF_APP_CPU" \
   PERF_REAL_RENDER_CPU="$REAL_PERF_RENDER_CPU" PERF_REAL_DAEMON_CPU="$REAL_PERF_DAEMON_CPU" \
   PERF_REAL_PEAK_RSS="$REAL_PERF_PEAK_RSS" python3 - <<'PY'
@@ -1841,48 +2046,21 @@ PY
   chmod 600 "$json_file"
 }
 
-real_perf_run_phase() {
-  local phase=$1
-  local phase_dir="$REAL_OUTPUT_DIR/$phase"
-  local status_source="$REAL_SECRET_DIR/status-before-$phase.json"
-  local selected_source="$REAL_SECRET_DIR/selected-$phase.json"
-  local raw_events="$REAL_SECRET_DIR/events-$phase.raw"
-  local event_log="$REAL_SECRET_DIR/events-$phase.log"
+real_perf_launch_app() {
+  local phase=$1 selected_id=$2
   local app_bundle="$IOS/build/perf-release/Build/Products/Release-iphonesimulator/cc-controller.app"
-  local selected_id='' selected_count='' phase_status=0
-  local launch_output host_app_pid app_sample app_pid render_pid daemon_pid
-  local query before_app before_render before_daemon start end after_app after_render after_daemon
-  local before_app_cpu after_app_cpu before_render_cpu after_render_cpu before_daemon_cpu after_daemon_cpu
-  local wall samples sampler app_sample_pid render_sample_pid container counter_file
-  mkdir -p "$phase_dir"
-
-  if ! node "$(main_checkout)/src/cli.js" status >"$status_source"; then
-    printf 'real perf %s failed to read status before phase\n' "$phase" >&2
-    return 1
-  fi
-  real_status_summary "$status_source" "$phase_dir/status-before.json"
-  if [[ "$phase" == busy ]]; then
-    if ! real_select_sessions "$status_source" "$selected_source" 1; then return 1; fi
-    selected_id=$(real_json_value "$selected_source" 0 id)
-    selected_count=$(real_json_value "$selected_source" 0 entryCount)
-  fi
-
+  local bearer launch_output app_pid app_sample
+  local launch_args=(-CCServer http://127.0.0.1:47832)
+  [[ -z "$selected_id" ]] || launch_args+=( -CCSession "$selected_id" )
+  launch_args+=( -CCColorScheme light )
+  bearer=$(<"$REAL_BEARER_FILE")
   xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
   xcrun simctl uninstall "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
   xcrun simctl install "$REAL_PERF_UDID" "$app_bundle"
-  host_app_pid=''
-  local launch_args=(
-    -CCServer http://127.0.0.1:47832
-  )
-  if [[ "$phase" == busy ]]; then launch_args+=( -CCSession "$selected_id" ); fi
-  launch_args+=( -CCColorScheme light )
-  local bearer
-  bearer=$(<"$REAL_BEARER_FILE")
   launch_output=$(SIMCTL_CHILD_CCBearer="$bearer" SIMCTL_CHILD_CC_PERF_SCENARIO="real-$phase" \
     xcrun simctl launch "$REAL_PERF_UDID" com.example.cc-controller "${launch_args[@]}")
-  host_app_pid=$(printf '%s\n' "$launch_output" | awk -F': ' 'NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }')
-  [[ "$host_app_pid" =~ ^[0-9]+$ ]] || { printf 'real perf %s app did not launch\n' "$phase" >&2; return 1; }
-  PERF_HOST_APP_PID="$host_app_pid"
+  PERF_HOST_APP_PID=$(printf '%s\n' "$launch_output" | awk -F': ' 'NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }')
+  [[ "$PERF_HOST_APP_PID" =~ ^[0-9]+$ ]] || { printf 'real perf %s app did not launch\n' "$phase" >&2; return 1; }
   app_pid=''
   for _ in {1..60}; do
     app_sample=$(perf_process_sample "$REAL_PERF_UDID" cc-controller)
@@ -1892,6 +2070,21 @@ real_perf_run_phase() {
   done
   [[ "$app_pid" =~ ^[0-9]+$ ]] || { printf 'real perf %s app process did not appear\n' "$phase" >&2; return 1; }
   sleep "$CC_PERF_REAL_WARMUP"
+}
+
+real_perf_measure_window() {
+  local phase=$1 sample_duration=$2 mode=$3 value=$4 selected_id=$5 selected_count=$6
+  shift 6
+  local phase_dir="$REAL_OUTPUT_DIR/$phase"
+  local raw_events="$REAL_SECRET_DIR/events-$phase.raw"
+  local event_log="$REAL_SECRET_DIR/events-$phase.log"
+  local query render_pid daemon_pid before_app before_render before_daemon
+  local before_app_cpu before_render_cpu before_daemon_cpu start end wall
+  local after_app after_render after_daemon after_app_cpu after_render_cpu after_daemon_cpu
+  local samples sampler app_sample_pid render_sample_pid container counter_file
+  local event_status=0 phase_status=0 command_status=0 window_duration
+  local bearer sample_pid
+  mkdir -p "$phase_dir"
 
   query=$(real_event_query)
   render_pid=$(perf_host_pid backboardd "$REAL_PERF_UDID")
@@ -1907,26 +2100,34 @@ real_perf_run_phase() {
   start=$(perf_wall_seconds)
   samples="$phase_dir/process-samples.txt"
   : > "$samples"
-  sample "$app_pid" 20 -file "$phase_dir/sample-app.txt" >/dev/null 2>&1 &
+  sample "$PERF_HOST_APP_PID" "$sample_duration" -file "$phase_dir/sample-app.txt" >/dev/null 2>&1 &
   app_sample_pid=$!
   PERF_SAMPLE_PIDS+=("$app_sample_pid")
-  sample "$render_pid" 20 -file "$phase_dir/sample-render.txt" >/dev/null 2>&1 &
+  sample "$render_pid" "$sample_duration" -file "$phase_dir/sample-render.txt" >/dev/null 2>&1 &
   render_sample_pid=$!
   PERF_SAMPLE_PIDS+=("$render_sample_pid")
   real_start_event_capture "$query" "$raw_events" "$event_log"
   perf_sample_loop "$REAL_PERF_UDID" "$samples" &
   sampler=$!
   REAL_PERF_SAMPLER_PID="$sampler"
-  sleep "$CC_PERF_REAL_DURATION"
+  if [[ "$mode" == fixed ]]; then
+    window_duration="$value"
+    sleep "$value"
+  else
+    "$@" &
+    REAL_PERF_COMMAND_PID=$!
+    if wait "$REAL_PERF_COMMAND_PID"; then :; else command_status=$?; fi
+    REAL_PERF_COMMAND_PID=''
+    sleep "$value"
+    window_duration=''
+  fi
   end=$(perf_wall_seconds)
   kill "$sampler" 2>/dev/null || true
   wait "$sampler" 2>/dev/null || true
   REAL_PERF_SAMPLER_PID=''
-  local event_status=0
   kill -TERM "$REAL_PERF_EVENT_PID" 2>/dev/null || true
   if wait "$REAL_PERF_EVENT_PID" 2>/dev/null; then :; else event_status=$?; fi
   REAL_PERF_EVENT_PID=''
-  local sample_pid
   for sample_pid in "${PERF_SAMPLE_PIDS[@]:-}"; do
     [[ -z "$sample_pid" ]] || wait "$sample_pid" 2>/dev/null || true
   done
@@ -1946,6 +2147,7 @@ import sys
 print(float(sys.argv[2]) - float(sys.argv[1]))
 PY
 )
+  [[ -n "$window_duration" ]] || window_duration="$wall"
   REAL_PERF_WALL="$wall"
   REAL_PERF_APP_CPU=$(real_cpu_or_null "$before_app_cpu" "$after_app_cpu" "$wall")
   REAL_PERF_RENDER_CPU=$(real_cpu_or_null "$before_render_cpu" "$after_render_cpu" "$wall")
@@ -1954,10 +2156,14 @@ PY
   container=$(xcrun simctl get_app_container "$REAL_PERF_UDID" com.example.cc-controller data)
   counter_file="$container/Library/cc-perf.json"
   real_summarize_events "$raw_events" "$phase_dir/events-summary.json" "$wall"
+  if ! real_write_cpu_timeline "$samples" "$phase_dir/cpu-timeline.json"; then
+    phase_status=1
+  fi
   if [[ "$event_status" -ne 0 ]]; then
     printf 'real perf %s SSE capture exited with status %s\n' "$phase" "$event_status" >&2
     phase_status=1
   fi
+  bearer=$(<"$REAL_BEARER_FILE")
   if LC_ALL=C grep -a -qF -- "$bearer" "$raw_events" || LC_ALL=C grep -a -qF -- "$bearer" "$event_log" 2>/dev/null; then
     printf 'real perf %s bearer appeared in SSE capture or log; evidence was not copied\n' "$phase" >&2
     phase_status=1
@@ -1967,20 +2173,7 @@ PY
     [[ ! -s "$event_log" ]] || cp "$event_log" "$phase_dir/events.log"
     [[ ! -s "$event_log" ]] || chmod 600 "$phase_dir/events.log"
   fi
-  real_write_perf_result "$phase_dir/result.json" "$counter_file" "$phase" "$selected_id" "$selected_count"
-  xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
-  if ! node "$(main_checkout)/src/cli.js" status >"$REAL_SECRET_DIR/status-after-$phase.json"; then
-    printf 'real perf %s failed to read status after phase\n' "$phase" >&2
-    phase_status=1
-  else
-    real_status_summary "$REAL_SECRET_DIR/status-after-$phase.json" "$phase_dir/status-after.json"
-  fi
-  if find "$phase_dir" -type f -name '*.log' -print0 | while IFS= read -r -d '' log; do
-    LC_ALL=C grep -a -qF -- "$bearer" "$log" && exit 1
-  done; then :; else
-    printf 'real perf %s bearer appeared in a kept log\n' "$phase" >&2
-    phase_status=1
-  fi
+  real_write_perf_result "$phase_dir/result.json" "$counter_file" "$phase" "$selected_id" "$selected_count" "$window_duration" "$CC_PERF_REAL_WARMUP"
   local counter_summary
   counter_summary=$(node - "$phase_dir/result.json" <<'NODE'
 const fs = require('node:fs');
@@ -1993,6 +2186,176 @@ NODE
     "$phase" "$REAL_PERF_APP_CPU" "$REAL_PERF_RENDER_CPU" "$REAL_PERF_DAEMON_CPU" "$REAL_PERF_PEAK_RSS" "$wall" \
     "$(node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1]));process.stdout.write(String(p.total_events??0))' "$phase_dir/events-summary.json")" \
     "${selected_id:-none}" "${selected_count:-none}" "$counter_summary"
+  if [[ "$command_status" -ne 0 ]]; then phase_status=1; fi
+  [[ "$phase_status" -eq 0 ]]
+}
+
+real_perf_finish_phase() {
+  local phase=$1 terminate=${2:-1}
+  local phase_dir="$REAL_OUTPUT_DIR/$phase" bearer
+  bearer=$(<"$REAL_BEARER_FILE")
+  if [[ "$terminate" == 1 ]]; then
+    xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  fi
+  if ! node "$(main_checkout)/src/cli.js" status >"$REAL_SECRET_DIR/status-after-$phase.json"; then
+    printf 'real perf %s failed to read status after phase\n' "$phase" >&2
+    return 1
+  fi
+  real_status_summary "$REAL_SECRET_DIR/status-after-$phase.json" "$phase_dir/status-after.json"
+  if find "$phase_dir" -type f \( -name '*.log' -o -name 'send.json' \) -print0 | while IFS= read -r -d '' file; do
+    if LC_ALL=C grep -a -qF -- "$bearer" "$file"; then
+      exit 1
+    fi
+  done; then :; else
+    printf 'real perf %s bearer appeared in kept evidence\n' "$phase" >&2
+    return 1
+  fi
+}
+
+real_post_scratch_message() {
+  local session_id=$1 body_file=$2 output_file=$3
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - "$session_id" "$body_file" "$output_file" <<'NODE'
+const fs = require('node:fs');
+const http = require('node:http');
+const [sessionId, bodyFile, outputFile] = process.argv.slice(2);
+const body = fs.readFileSync(bodyFile, 'utf8');
+const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
+const request = http.request({
+  host: '127.0.0.1',
+  port: 47832,
+  method: 'POST',
+  path: `/api/sessions/${encodeURIComponent(sessionId)}/message`,
+  headers: {
+    Authorization: `Bearer ${bearer}`,
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(body),
+  },
+}, (response) => {
+  let text = '';
+  response.setEncoding('utf8');
+  response.on('data', (chunk) => { text += chunk; });
+  response.on('end', () => {
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { parsed = text; }
+    fs.writeFileSync(outputFile, JSON.stringify({ status: response.statusCode, body: parsed }, null, 2) + '\n', { mode: 0o600 });
+    if (response.statusCode < 200 || response.statusCode >= 300) process.exitCode = 1;
+  });
+});
+request.on('error', (error) => {
+  console.error(`message request failed: ${error.message}`);
+  process.exitCode = 1;
+});
+request.end(body);
+NODE
+}
+
+real_turn_driver() {
+  local phase_dir=$1 before_state="$REAL_SECRET_DIR/turn-state-before.json" after_state="$REAL_SECRET_DIR/turn-state-after.json"
+  local state_id prompt body_file send_file before_count after_count wait_status=0
+  body_file="$REAL_SECRET_DIR/turn-prompt.json"
+  sleep 2
+  real_state_request "$before_state" || return 1
+  state_id=$(node - "$REAL_SCRATCH_STATE_FILE" <<'NODE'
+const fs = require('node:fs');
+const state = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+process.stdout.write(String(state.session_id ?? ''));
+NODE
+  )
+  [[ "$state_id" == "$REAL_SCRATCH_SESSION_ID" ]] || {
+    printf 'real perf turn: scratch state id changed before POST (%s vs %s)\n' "$state_id" "$REAL_SCRATCH_SESSION_ID" >&2
+    return 1
+  }
+  before_count=$(real_state_entry_count "$before_state" "$REAL_SCRATCH_SESSION_ID") || return 1
+  printf '%s\n' "$before_count" > "$phase_dir/entry-count-before.txt"
+  prompt=$("$ROOT/scripts/perf-scratch-session.sh" prompt)
+  printf '%s' "$prompt" > "$REAL_SECRET_DIR/turn-prompt.txt"
+  node - "$REAL_SECRET_DIR/turn-prompt.txt" "$body_file" <<'NODE'
+const fs = require('node:fs');
+const [promptFile, bodyFile] = process.argv.slice(2);
+fs.writeFileSync(bodyFile, JSON.stringify({ text: fs.readFileSync(promptFile, 'utf8') }), { mode: 0o600 });
+NODE
+  send_file="$REAL_SECRET_DIR/turn-send.json"
+  if ! real_post_scratch_message "$REAL_SCRATCH_SESSION_ID" "$REAL_SECRET_DIR/turn-prompt.json" "$send_file"; then
+    printf '%s\n' 'real perf turn: POST /message failed' >&2
+    return 1
+  fi
+  if LC_ALL=C grep -a -qF -- "$(<"$REAL_BEARER_FILE")" "$send_file"; then
+    printf '%s\n' 'real perf turn bearer appeared in POST response; send evidence was not copied' >&2
+    return 1
+  fi
+  cp "$send_file" "$phase_dir/send.json"
+  chmod 600 "$phase_dir/send.json"
+  "$ROOT/scripts/perf-scratch-session.sh" wait-idle 300 > "$phase_dir/wait-idle.log" 2>&1 || wait_status=$?
+  real_state_request "$after_state" || return 1
+  after_count=$(real_state_entry_count "$after_state" "$REAL_SCRATCH_SESSION_ID") || return 1
+  printf '%s\n' "$after_count" > "$phase_dir/entry-count-after.txt"
+  return "$wait_status"
+}
+
+real_patch_turn_result() {
+  local result_file="$REAL_OUTPUT_DIR/turn/result.json"
+  node - "$result_file" "$REAL_OUTPUT_DIR/turn/entry-count-before.txt" "$REAL_OUTPUT_DIR/turn/entry-count-after.txt" "$REAL_SCRATCH_SESSION_ID" <<'NODE'
+const fs = require('node:fs');
+const [resultFile, beforeFile, afterFile, sessionId] = process.argv.slice(2);
+const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+const readCount = (file) => {
+  try { return Number(fs.readFileSync(file, 'utf8').trim()); } catch { return null; }
+};
+result.scratch_session_id = sessionId;
+result.entry_count_before = readCount(beforeFile);
+result.entry_count_after = readCount(afterFile);
+result.turn_wall_seconds = result.wall_seconds;
+fs.writeFileSync(resultFile, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
+NODE
+}
+
+real_perf_run_phase() {
+  local phase=$1
+  local phase_dir="$REAL_OUTPUT_DIR/$phase"
+  local status_source="$REAL_SECRET_DIR/status-before-$phase.json"
+  local selected_source="$REAL_SECRET_DIR/selected-$phase.json"
+  local selected_id='' selected_count='' phase_status=0
+  mkdir -p "$phase_dir"
+  if ! node "$(main_checkout)/src/cli.js" status > "$status_source"; then
+    printf 'real perf %s failed to read status before phase\n' "$phase" >&2
+    return 1
+  fi
+  real_status_summary "$status_source" "$phase_dir/status-before.json"
+  if [[ "$phase" == busy ]]; then
+    real_select_sessions "$status_source" "$selected_source" 1 || return 1
+    selected_id=$(real_json_value "$selected_source" 0 id)
+    selected_count=$(real_json_value "$selected_source" 0 entryCount)
+  fi
+  real_perf_launch_app "$phase" "$selected_id" || return 1
+  if ! real_perf_measure_window "$phase" 20 fixed "$CC_PERF_REAL_DURATION" "$selected_id" "$selected_count"; then
+    phase_status=1
+  fi
+  real_perf_finish_phase "$phase" 1 || phase_status=1
+  [[ "$phase_status" -eq 0 ]]
+}
+
+real_perf_run_turn() {
+  local phase_dir="$REAL_OUTPUT_DIR/turn" status_source="$REAL_SECRET_DIR/status-before-turn.json"
+  local selected_id="$REAL_SCRATCH_SESSION_ID" selected_count phase_status=0
+  mkdir -p "$phase_dir"
+  node "$(main_checkout)/src/cli.js" status > "$status_source" || return 1
+  real_status_summary "$status_source" "$phase_dir/status-before.json"
+  selected_count=$(real_json_value "$status_source" entries "$selected_id")
+  real_perf_launch_app turn "$selected_id" || return 1
+  if ! real_perf_measure_window turn 90 until 5 "$selected_id" "$selected_count" real_turn_driver "$phase_dir"; then
+    phase_status=1
+  fi
+  real_patch_turn_result
+  real_perf_finish_phase turn 0 || phase_status=1
+  if ! real_perf_measure_window turn-after 20 fixed "$CC_PERF_REAL_AFTER" "$selected_id" "$selected_count"; then
+    phase_status=1
+  fi
+  real_perf_finish_phase turn-after 1 || phase_status=1
+  if ! "$ROOT/scripts/perf-scratch-session.sh" stop; then
+    printf '%s\n' 'real perf turn: scratch session stop failed' >&2
+    phase_status=1
+  fi
+  real_assert_cli_session_missing "$REAL_OUTPUT_DIR/turn/status-after-scratch.json" || phase_status=1
   [[ "$phase_status" -eq 0 ]]
 }
 
@@ -2001,7 +2364,7 @@ cmd_perf_real() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --phase)
-        [[ $# -ge 2 && "$2" =~ ^(list|busy)$ ]] || { printf '%s\n' 'perf-real --phase requires list or busy' >&2; return 2; }
+        [[ $# -ge 2 && "$2" =~ ^(list|busy|turn)$ ]] || { printf '%s\n' 'perf-real --phase requires list, busy, or turn' >&2; return 2; }
         only_phase=$2
         shift 2
         ;;
@@ -2014,8 +2377,10 @@ cmd_perf_real() {
   done
   CC_PERF_REAL_WARMUP=${CC_PERF_REAL_WARMUP:-10}
   CC_PERF_REAL_DURATION=${CC_PERF_REAL_DURATION:-60}
+  CC_PERF_REAL_AFTER=${CC_PERF_REAL_AFTER:-30}
   [[ "$CC_PERF_REAL_WARMUP" =~ ^[0-9]+([.][0-9]+)?$ ]] || { printf '%s\n' 'CC_PERF_REAL_WARMUP must be a number of seconds' >&2; return 2; }
   [[ "$CC_PERF_REAL_DURATION" =~ ^[0-9]+([.][0-9]+)?$ ]] || { printf '%s\n' 'CC_PERF_REAL_DURATION must be a number of seconds' >&2; return 2; }
+  [[ "$CC_PERF_REAL_AFTER" =~ ^[0-9]+([.][0-9]+)?$ ]] || { printf '%s\n' 'CC_PERF_REAL_AFTER must be a number of seconds' >&2; return 2; }
   REAL_SMOKE_RUN=1
   REAL_DEVICE_NAME="cc-real-smoke-perf-$(date '+%Y%m%dT%H%M%S')-$$"
   local timestamp main_root app_bundle
@@ -2041,9 +2406,15 @@ cmd_perf_real() {
   REAL_PERF_UDID=$(ensure_pool_device 'iPhone 18 Pro')
   PERF_UDID="$REAL_PERF_UDID"
   local phase
-  for phase in list busy; do
+  for phase in list busy turn; do
     [[ -z "$only_phase" || "$only_phase" == "$phase" ]] || continue
-    real_perf_run_phase "$phase"
+    if [[ "$phase" == turn ]]; then
+      real_start_scratch
+      real_wait_for_scratch_state "$REAL_SECRET_DIR/turn-state-listed.json"
+      real_perf_run_turn
+    else
+      real_perf_run_phase "$phase"
+    fi
   done
 }
 
