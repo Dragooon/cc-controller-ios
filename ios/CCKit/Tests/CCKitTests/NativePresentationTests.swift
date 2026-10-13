@@ -100,8 +100,8 @@ final class NativePresentationTests: XCTestCase {
 
     func testCommandModelMatchingNormalizesRealProviderIDs() {
         let options = [
-            CommandModelOption(id: "claude-fable-5-1[1m]", label: "Fable 5.1"),
-            CommandModelOption(id: "claude-sonnet-5[1m]", label: "Sonnet 5"),
+            ModelOption(id: "claude-fable-5-1[1m]", label: "Fable 5.1"),
+            ModelOption(id: "claude-sonnet-5[1m]", label: "Sonnet 5"),
         ]
         XCTAssertEqual(matchingCommandModelID(options: options, usageModel: "global.anthropic.claude-sonnet-5"), "claude-sonnet-5[1m]")
         XCTAssertTrue(commandModelMatches(optionID: "claude-fable-5-1[1m]", usageModel: "global.anthropic.claude-fable-5-1"))
@@ -111,8 +111,8 @@ final class NativePresentationTests: XCTestCase {
 
     func testCommandModelMatchingMarksOnlyFirstNormalizedDuplicate() {
         let options = [
-            CommandModelOption(id: "claude-fable-5-1[1m]", label: "First"),
-            CommandModelOption(id: "global.anthropic.claude-fable-5-1", label: "Second"),
+            ModelOption(id: "claude-fable-5-1[1m]", label: "First"),
+            ModelOption(id: "global.anthropic.claude-fable-5-1", label: "Second"),
         ]
         XCTAssertEqual(matchingCommandModelID(options: options, usageModel: "claude-fable-5-1"), "claude-fable-5-1[1m]")
     }

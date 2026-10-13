@@ -314,21 +314,24 @@ struct InspectorView: View {
                         attachCommandCopied = false
                     }
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label(attachCommandCopied ? "Copied" : "Open on Mac", systemImage: attachCommandCopied ? "checkmark" : "arrow.up.forward.app")
-                            .foregroundStyle(.ccLabel)
+                    HStack(spacing: 10) {
                         Text("claude attach \(shortId)")
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.ccSecondary)
+                            .font(.body.monospaced())
+                            .foregroundStyle(.ccLabel)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Image(systemName: attachCommandCopied ? "checkmark" : "doc.on.doc")
+                            .foregroundStyle(.ccSecondary)
                     }
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("inspector-open-on-mac")
-                .accessibilityLabel(attachCommandCopied ? "Attach command copied" : "Open on Mac")
+                .accessibilityLabel(attachCommandCopied ? "Attach command copied" : "Copy attach command")
             } header: {
                 sectionHeader("Open on Mac")
+            } footer: {
+                Text("Run this in a terminal on your Mac to open the session there.")
             }
         }
     }

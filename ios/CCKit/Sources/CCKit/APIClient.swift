@@ -90,10 +90,6 @@ public actor APIClient {
         return try await post("/api/sessions/\(pathComponent(sessionID))/message", body: body)
     }
 
-    public func commandModelOptions() async throws -> CommandModelOptionsResponse {
-        try await get("/api/sessions/new-options")
-    }
-
     public func escape(sessionID: String) async throws -> KeyResult { try await post("/api/sessions/\(pathComponent(sessionID))/keys", body: KeyRequest(key: "escape", text: nil)) }
     public func slash(sessionID: String, text: String) async throws -> KeyResult { try await post("/api/sessions/\(pathComponent(sessionID))/keys", body: KeyRequest(key: "slash", text: text)) }
     public func mode(sessionID: String, mode: ApprovalMode) async throws -> ModeResult { try await post("/api/sessions/\(pathComponent(sessionID))/mode", body: ModeRequest(mode: mode.rawValue)) }

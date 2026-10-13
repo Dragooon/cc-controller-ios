@@ -156,11 +156,14 @@ struct SessionsListView: View {
     @ViewBuilder
     private var list: some View {
         if sessions.isEmpty && sleeping.isEmpty {
-            ContentUnavailableView(
-                "No sessions",
-                systemImage: "terminal",
-                description: Text("No Claude Code sessions are running on this Mac.")
-            )
+            ContentUnavailableView {
+                Label("No sessions", systemImage: "terminal")
+            } description: {
+                Text("No Claude Code sessions are running on this Mac.")
+            } actions: {
+                Button("New session", action: onNewSession)
+                    .accessibilityIdentifier("empty-new-session")
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.ccBackground)
         } else {
@@ -389,14 +392,11 @@ private struct SleepingSessionRow: View {
                     Text(displayName)
                         .font(.headline)
                         .lineLimit(2)
-                    Text(session.project)
+                    Text(meta)
                         .font(.subheadline)
                         .foregroundStyle(.ccSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(isWaking ? "Waking…" : "asleep · \(session.lastActiveAt, style: .relative)")
-                        .font(.footnote)
-                        .foregroundStyle(.ccSecondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -416,6 +416,13 @@ private struct SleepingSessionRow: View {
     private var displayName: String {
         let name = session.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return name.isEmpty ? session.project : name
+    }
+
+    private var meta: String {
+        let status = isWaking ? "waking…" : "asleep \(formatListDuration(max(0, Date().timeIntervalSince(session.lastActiveAt) * 1000)))"
+        return session.project.localizedCaseInsensitiveCompare(displayName) == .orderedSame
+            ? status
+            : "\(session.project) · \(status)"
     }
 }
 

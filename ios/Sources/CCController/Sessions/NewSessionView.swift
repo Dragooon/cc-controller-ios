@@ -13,7 +13,6 @@ struct NewSessionView: View {
     @State private var selectedFolderPath: String?
     @State private var isOtherFolder = false
     @State private var otherPath = ""
-    @State private var folderSearch = ""
     @State private var name = ""
     @State private var selectedModel = ""
     @State private var firstMessage = ""
@@ -49,14 +48,14 @@ struct NewSessionView: View {
                             .accessibilityIdentifier("new-session-retry")
                     }
                 } else if let options {
-                    folderSection(options)
+                    folderRow(options)
                     nameSection
                     modelSection(options)
                     messageSection
                     Section {
                         EmptyView()
                     } footer: {
-                        Text("Runs on your Mac as a background session. Open it there with `claude attach <name>`." )
+                        Text("Runs on your Mac as a background session. Open it there with `claude attach <name>`.")
                     }
                 }
             }
@@ -93,67 +92,32 @@ struct NewSessionView: View {
         .interactiveDismissDisabled(isCreating)
     }
 
-    private func folderSection(_ options: NewSessionOptions) -> some View {
+    @ViewBuilder
+    private func folderRow(_ options: NewSessionOptions) -> some View {
         Section("Folder") {
-            if options.folders.count > 8 {
-                TextField("Search folders", text: $folderSearch)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("new-session-folder-search")
-            }
-            ForEach(filteredFolders(options.folders)) { folder in
-                Button {
-                    selectedFolderPath = folder.path
-                    isOtherFolder = false
-                    otherPath = ""
-                } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(folder.name)
-                                .font(.body)
-                                .foregroundStyle(.ccLabel)
-                            Text(displayPath(folder.path))
-                                .font(.footnote)
-                                .foregroundStyle(.ccSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Spacer(minLength: 8)
-                        if selectedFolderPath == folder.path {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(.ccAccent)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("new-session-folder-\(folder.name)")
-                .accessibilityValue(selectedFolderPath == folder.path ? "Selected" : "")
-            }
-            Button {
-                selectedFolderPath = nil
-                isOtherFolder = true
+            NavigationLink {
+                FolderPickerView(
+                    options: options,
+                    selectedFolderPath: $selectedFolderPath,
+                    isOtherFolder: $isOtherFolder,
+                    otherPath: $otherPath
+                )
             } label: {
-                HStack {
-                    Text("Other folder…")
-                        .foregroundStyle(.ccLabel)
-                    Spacer()
-                    if isOtherFolder {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(.ccAccent)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(folderDisplayName(options))
+                            .font(.body)
+                            .foregroundStyle(.ccLabel)
+                        Text(folderDisplayPath(options))
+                            .font(.footnote)
+                            .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
+                    Spacer(minLength: 8)
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("new-session-other-folder")
-
-            if isOtherFolder {
-                TextField("/absolute/path", text: $otherPath)
-                    .font(.body.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("new-session-other-path")
-            }
+            .accessibilityIdentifier("new-session-folder-row")
         }
     }
 
@@ -166,7 +130,7 @@ struct NewSessionView: View {
     }
 
     private func modelSection(_ options: NewSessionOptions) -> some View {
-        Section("Model") {
+        Section {
             Picker("Model", selection: $selectedModel) {
                 ForEach(options.models) { model in
                     Text(model.label).tag(model.id)
@@ -205,13 +169,15 @@ struct NewSessionView: View {
         return folder.name
     }
 
-    private func filteredFolders(_ folders: [NewSessionFolder]) -> [NewSessionFolder] {
-        let query = folderSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return folders }
-        return folders.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-                || $0.path.localizedCaseInsensitiveContains(query)
-        }
+    private func folderDisplayName(_ options: NewSessionOptions) -> String {
+        if isOtherFolder { return "Other folder" }
+        return options.folders.first(where: { $0.path == selectedFolderPath })?.name ?? "Choose a folder"
+    }
+
+    private func folderDisplayPath(_ options: NewSessionOptions) -> String {
+        if isOtherFolder { return displayPath(otherPath) }
+        guard let path = selectedFolderPath else { return "" }
+        return displayPath(path)
     }
 
     private func displayPath(_ path: String) -> String {
@@ -270,5 +236,87 @@ struct NewSessionView: View {
             return apiError.daemonMessage ?? apiError.localizedDescription
         }
         return error.localizedDescription
+    }
+}
+
+private struct FolderPickerView: View {
+    let options: NewSessionOptions
+    @Binding var selectedFolderPath: String?
+    @Binding var isOtherFolder: Bool
+    @Binding var otherPath: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    private var filteredFolders: [NewSessionFolder] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return options.folders }
+        return options.folders.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.path.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        List {
+            Section("Recent") {
+                ForEach(filteredFolders) { folder in
+                    Button {
+                        selectedFolderPath = folder.path
+                        isOtherFolder = false
+                        otherPath = ""
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(folder.name)
+                                    .foregroundStyle(.ccLabel)
+                                Text(displayPath(folder.path))
+                                    .font(.footnote)
+                                    .foregroundStyle(.ccSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer(minLength: 8)
+                            if !isOtherFolder && selectedFolderPath == folder.path {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.ccAccent)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("new-session-folder-\(folder.name)")
+                }
+            }
+            Section("Other folder") {
+                TextField("/absolute/path", text: $otherPath)
+                    .font(.body.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("new-session-other-path")
+                    .onSubmit { selectOtherIfValid() }
+                if !otherPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Use this folder") { selectOtherIfValid() }
+                        .accessibilityIdentifier("new-session-use-other-folder")
+                }
+            }
+        }
+        .navigationTitle("Folder")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, prompt: "Search folders")
+        .tint(.ccAccent)
+    }
+
+    private func selectOtherIfValid() {
+        guard !otherPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        selectedFolderPath = nil
+        isOtherFolder = true
+        dismiss()
+    }
+
+    private func displayPath(_ path: String) -> String {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count >= 2, components[0] == "Users" else { return path }
+        return "~" + (components.dropFirst(2).isEmpty ? "" : "/" + components.dropFirst(2).joined(separator: "/"))
     }
 }

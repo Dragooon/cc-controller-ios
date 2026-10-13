@@ -92,7 +92,7 @@ public func isSlashCommand(_ text: String) -> Bool {
     text.range(of: "^/[A-Za-z][\\w:-]*(?:\\s+[\\s\\S]*)?$", options: .regularExpression) != nil
 }
 
-public func matchingCommandModelID(options: [CommandModelOption], usageModel: String?) -> String? {
+public func matchingCommandModelID(options: [ModelOption], usageModel: String?) -> String? {
     guard let usageModel, let normalizedUsage = normalizedCommandModelID(usageModel), !isCommandModelAlias(normalizedUsage) else { return nil }
     if let exact = options.first(where: { $0.id.caseInsensitiveCompare(usageModel) == .orderedSame }) {
         return exact.id
@@ -101,7 +101,7 @@ public func matchingCommandModelID(options: [CommandModelOption], usageModel: St
 }
 
 public func commandModelMatches(optionID: String, usageModel: String?) -> Bool {
-    guard let match = matchingCommandModelID(options: [CommandModelOption(id: optionID, label: "")], usageModel: usageModel) else { return false }
+    guard let match = matchingCommandModelID(options: [ModelOption(id: optionID, label: "")], usageModel: usageModel) else { return false }
     return match == optionID
 }
 

@@ -188,10 +188,15 @@ public final class AppStore {
         let components = timeout.components
         let timeoutSeconds = max(0, Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000)
         let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var nextStateFetch = Date.distantPast
         while Date() < deadline {
-            if let snapshot = try? await client.state() {
-                applyState(snapshot)
-                if sessions[id] != nil { return true }
+            if sessions[id] != nil { return true }
+            if Date() >= nextStateFetch {
+                if let snapshot = try? await client.state() {
+                    applyState(snapshot)
+                    if sessions[id] != nil { return true }
+                }
+                nextStateFetch = Date().addingTimeInterval(1)
             }
             if sessions[id] != nil { return true }
             let remaining = deadline.timeIntervalSinceNow
@@ -498,8 +503,8 @@ public final class AppStore {
         try await client.downloadFile(sessionID: sessionID, name: name)
     }
 
-    public func commandModelOptions() async throws -> [CommandModelOption] {
-        try await client.commandModelOptions().models ?? []
+    public func commandModelOptions() async throws -> [ModelOption] {
+        try await newSessionOptions().models
     }
 
     public func whoAmI() async throws -> WhoAmI {

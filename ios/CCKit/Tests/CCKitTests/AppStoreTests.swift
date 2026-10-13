@@ -169,9 +169,21 @@ final class AppStoreTests: XCTestCase {
             return URLProtocolStub.json(Data("{}".utf8))
         }
         let app = makeApp()
-        let appeared = await app.waitForSession("session-2", timeout: .seconds(1))
+        let appeared = await app.waitForSession("session-2", timeout: .milliseconds(1_200))
         XCTAssertTrue(appeared)
         XCTAssertNotNil(app.sessions["session-2"])
+    }
+
+    func testWaitForSessionFetchesStateAtMostOncePerSecond() async throws {
+        var stateRequests = 0
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/state" { stateRequests += 1 }
+            return URLProtocolStub.json(Data("{\"sessions\":[],\"entries\":{}}".utf8))
+        }
+        let app = makeApp()
+        let appeared = await app.waitForSession("never", timeout: .milliseconds(2_100))
+        XCTAssertFalse(appeared)
+        XCTAssertLessThanOrEqual(stateRequests, 3)
     }
 
     func testWakeFlowMovesSessionIntoLiveState() async throws {

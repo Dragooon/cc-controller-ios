@@ -38,10 +38,10 @@ struct CommandOutputSheet: View {
 
 struct CommandModelSheet: View {
     let session: Session
-    let loadModels: @MainActor () async throws -> [CommandModelOption]
+    let loadModels: @MainActor () async throws -> [ModelOption]
     let onSelect: @MainActor (String) async -> Result<MessageResult, ActionError>
     @Environment(\.dismiss) private var dismiss
-    @State private var models: [CommandModelOption] = []
+    @State private var models: [ModelOption] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var selectionError: String?
@@ -138,7 +138,7 @@ struct CommandModelSheet: View {
     }
 
     @MainActor
-    private func select(_ model: CommandModelOption) {
+    private func select(_ model: ModelOption) {
         selectingID = model.id
         selectionError = nil
         Task {

@@ -7,6 +7,8 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         openNewSession(app)
         addScreenshot(named: "new-session-default")
 
+        app.buttons["new-session-folder-row"].tap()
+        XCTAssertTrue(app.navigationBars["Folder"].waitForExistence(timeout: 10), "Folder picker did not load")
         let folder = app.buttons["new-session-folder-new-project-0"]
         XCTAssertTrue(folder.waitForExistence(timeout: 10), "New session folder did not load")
         folder.tap()
@@ -15,6 +17,17 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Created session did not open")
         XCTAssertEqual(title.label, "new-project-0")
+    }
+
+    func testNewSessionFolderPickerSelectsRecentFolder() throws {
+        let app = launch()
+        openNewSession(app)
+        app.buttons["new-session-folder-row"].tap()
+        XCTAssertTrue(app.navigationBars["Folder"].waitForExistence(timeout: 10), "Folder picker did not load")
+        addScreenshot(named: "new-session-folder-picker")
+        app.buttons["new-session-folder-new-project-1"].tap()
+        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 10), "Folder picker did not pop")
+        XCTAssertTrue(app.buttons["new-session-folder-row"].label.contains("new-project-1"))
     }
 
     func testNewSessionUntrustedFolderError() async throws {
@@ -32,20 +45,21 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
     func testNewSessionOtherFolderPathEntry() throws {
         let app = launch()
         openNewSession(app)
-        for _ in 0..<8 { app.collectionViews.firstMatch.swipeUp() }
-        XCTAssertTrue(app.buttons["new-session-other-folder"].waitForExistence(timeout: 10), "Other folder option did not load")
-        app.buttons["new-session-other-folder"].tap()
-        for _ in 0..<2 { app.collectionViews.firstMatch.swipeUp() }
+        app.buttons["new-session-folder-row"].tap()
+        XCTAssertTrue(app.navigationBars["Folder"].waitForExistence(timeout: 10), "Folder picker did not load")
         let path = app.textFields["new-session-other-path"]
         XCTAssertTrue(path.waitForExistence(timeout: 10), "Other folder path field did not appear")
         path.tap()
         path.typeText("/tmp")
         XCTAssertEqual(path.value as? String, "/tmp")
         addScreenshot(named: "new-session-other-folder")
+        app.buttons["new-session-use-other-folder"].tap()
+        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 10), "Other folder picker did not pop")
     }
 
-    func testAsleepRowWakesAndOpensSession() throws {
+    func testAsleepRowWakesAndOpensSession() async throws {
         let app = launch()
+        try await postFixture("/fixture/sleeping-seed")
         revealAsleep(in: app)
         let asleep = app.staticTexts["Asleep"]
         XCTAssertTrue(asleep.waitForExistence(timeout: 30), "Asleep section did not load")
@@ -59,8 +73,9 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertEqual(title.label, "Sleeping Dune")
     }
 
-    func testAsleepRowCopiesAttachCommand() throws {
+    func testAsleepRowCopiesAttachCommand() async throws {
         let app = launch()
+        try await postFixture("/fixture/sleeping-seed")
         revealAsleep(in: app)
         let row = app.buttons["sleeping-session-sleeping-dune"]
         XCTAssertTrue(row.waitForExistence(timeout: 30), "Sleeping session row did not load")
@@ -68,6 +83,15 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let copy = app.buttons["Copy attach command"]
         XCTAssertTrue(copy.waitForExistence(timeout: 10), "Attach command context menu item did not appear")
         copy.tap()
+    }
+
+    func testEmptySessionsNewSessionButton() async throws {
+        try await postFixture("/fixture/clear-sessions")
+        let app = launch()
+        let emptyButton = app.buttons["empty-new-session"]
+        XCTAssertTrue(emptyButton.waitForExistence(timeout: 30), "Empty sessions action did not load")
+        emptyButton.tap()
+        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 15), "Empty-state New session button did not open the form")
     }
 
     func testBackgroundSessionInspectorShowsOpenOnMac() throws {
@@ -81,7 +105,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
 
         let row = app.buttons["inspector-open-on-mac"]
         XCTAssertTrue(row.waitForExistence(timeout: 15), "Open on Mac inspector row did not load")
-        XCTAssertTrue(row.label.contains("Open on Mac"))
+        XCTAssertTrue(row.label.contains("Copy attach command"))
         addScreenshot(named: "inspector-open-on-mac")
         row.tap()
     }
@@ -112,7 +136,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         button.tap()
         XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 15), "New session sheet did not open")
         XCTAssertTrue(app.buttons["new-session-create"].waitForExistence(timeout: 15), "New session create button did not load")
-        XCTAssertTrue(app.buttons["new-session-folder-new-project-0"].waitForExistence(timeout: 15), "New session folders did not load")
+        XCTAssertTrue(app.buttons["new-session-folder-row"].waitForExistence(timeout: 15), "New session folder row did not load")
     }
 
 }
