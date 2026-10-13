@@ -199,7 +199,7 @@ struct SessionScreen: View {
                         session: session,
                         loadModels: { try await model.store.commandModelOptions() },
                         onSelect: { id in
-                            await model.store.sendComposer(text: "/model \(id)", to: sessionID)
+                            await model.store.sendResult(text: "/model \(id)", attachments: [], to: sessionID)
                         }
                     )
                 }

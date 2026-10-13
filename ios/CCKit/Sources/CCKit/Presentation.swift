@@ -430,7 +430,8 @@ public func subagentStateLabel(state: String?) -> String {
 }
 
 public func formatModelName(_ model: String?) -> String {
-    let value = (model ?? "").trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "claude-", with: "", options: [.caseInsensitive, .anchored])
+    var value = normalizedCommandModelID(model ?? "") ?? ""
+    value = value.replacingOccurrences(of: "claude-", with: "", options: [.caseInsensitive, .anchored])
     guard !value.isEmpty else { return "" }
     let parts = value.split(separator: "-").map(String.init)
     var words: [String] = []

@@ -4,7 +4,7 @@
     {
       "name": "model",
       "input": "claude-fable-5-1[1m]",
-      "output": "Fable 1[1m] 5"
+      "output": "Fable 5.1"
     },
     {
       "name": "empty",

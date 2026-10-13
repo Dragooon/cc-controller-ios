@@ -117,11 +117,20 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(matchingCommandModelID(options: options, usageModel: "claude-fable-5-1"), "claude-fable-5-1[1m]")
     }
 
+    func testFormatModelNameNormalizesProviderIDs() {
+        XCTAssertEqual(formatModelName("global.anthropic.claude-fable-5-1"), "Fable 5.1")
+        XCTAssertEqual(formatModelName("claude-sonnet-5[1m]"), "Sonnet 5")
+        XCTAssertEqual(formatModelName("us.anthropic.claude-opus-4-8-v1:0"), "Opus 4.8")
+        XCTAssertEqual(formatModelName("claude-sonnet-5-20260101"), "Sonnet 5")
+    }
+
     func testComposerModelNameFormatsKnownModelsAndHidesUnknownValues() {
         XCTAssertEqual(composerModelName("claude-fable-5-1"), "Fable 5.1")
         XCTAssertNil(composerModelName(nil))
         XCTAssertNil(composerModelName(""))
         XCTAssertNil(composerModelName("unknown"))
+        XCTAssertNil(composerModelName("placeholder"))
+        XCTAssertNil(composerModelName("model"))
     }
 
     func testSessionDetailSubtitleOmitsAgentCount() {
