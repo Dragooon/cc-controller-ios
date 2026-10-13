@@ -52,7 +52,7 @@ step() {
 }
 
 json_value() {
-  node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(value[process.argv[2]]);' "$1" "$2"
+  node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(value[process.argv[2]]);' -- "$1" "$2"
 }
 
 main_checkout() {
@@ -92,7 +92,7 @@ simulator_udids() {
   local mode=$1
   local state=$2
   shift 2
-  xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const mode=process.argv[1],state=process.argv[2],values=new Set(process.argv.slice(3));for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){const matchesState=state==="all"||x.state===state;const matchesName=mode==="exact"?values.has(x.name):x.name.startsWith(process.argv[3]);if(matchesState&&matchesName) console.log(x.udid)}}})' "$mode" "$state" "$@"
+  xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const mode=process.argv[1],state=process.argv[2],values=new Set(process.argv.slice(3));for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){const matchesState=state==="all"||x.state===state;const matchesName=mode==="exact"?values.has(x.name):x.name.startsWith(process.argv[3]);if(matchesState&&matchesName) console.log(x.udid)}}})' -- "$mode" "$state" "$@"
 }
 
 simulator_udid() {
@@ -104,7 +104,7 @@ simulator_udid() {
 
 simulator_state() {
   local udid=$1
-  xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.udid===process.argv[1]){console.log(x.state);process.exit(0)}}}})' "$udid"
+  xcrun simctl list devices -j | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const devices of Object.values(JSON.parse(d).devices)){for(const x of devices){if(x.udid===process.argv[1]){console.log(x.state);process.exit(0)}}}})' -- "$udid"
 }
 
 configure_keyboard() {
@@ -521,9 +521,9 @@ revoke_real_device() {
   if [[ -f "$devices_file" ]]; then
     cat "$devices_file"
   fi
-  if [[ "$devices_status" -eq 0 ]] && ! node - "$devices_file" <<'NODE'
+  if [[ "$devices_status" -eq 0 ]] && ! node - -- "$devices_file" <<'NODE'
 const fs = require('node:fs');
-const [file] = process.argv.slice(2);
+const [file] = process.argv.slice(3);
 const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
 const devices = Array.isArray(payload?.devices) ? payload.devices : [];
 if (devices.some((device) => String(device?.name ?? '').startsWith('cc-real-smoke-'))) process.exit(1);
@@ -663,7 +663,7 @@ cmd_shots() {
     xcrun xcresulttool export attachments --path "$result" --output-path "$exported" --filter '*.png'
     local manifest="$exported/manifest.json"
     if [[ -f "$manifest" ]]; then
-      node -e 'const fs=require("node:fs");const path=require("node:path");const p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";if(!suggested.toLowerCase().endsWith(".png"))continue;const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.png$/i,".png");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old);const dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+      node -e 'const fs=require("node:fs");const path=require("node:path");const p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";if(!suggested.toLowerCase().endsWith(".png"))continue;const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.png$/i,".png");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old);const dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' -- "$manifest"
     fi
     find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
     find "$output_dir" -maxdepth 1 -type f -name '*.png' -print | while read -r png; do
@@ -738,7 +738,7 @@ run_flow_method() {
       if xcrun xcresulttool export attachments --path "$result" --output-path "$exported" >/dev/null 2>&1; then
         local manifest="$exported/manifest.json"
         if [[ -f "$manifest" ]]; then
-          node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+          node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' -- "$manifest"
         fi
         find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
         find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
@@ -1051,10 +1051,10 @@ cmd_flows() {
 
 real_api_request() {
   local method=$1 path=$2 body_file=$3 output_file=$4
-  node - "$method" "$path" "$body_file" "$output_file" <<'NODE'
+  node - -- "$method" "$path" "$body_file" "$output_file" <<'NODE'
 const fs = require('node:fs');
 const http = require('node:http');
-const [method, path, bodyFile, outputFile] = process.argv.slice(2);
+const [method, path, bodyFile, outputFile] = process.argv.slice(3);
 const body = bodyFile === '-' ? '' : fs.readFileSync(bodyFile, 'utf8');
 const request = http.request({
   host: '127.0.0.1',
@@ -1083,7 +1083,7 @@ NODE
 }
 
 real_json_value() {
-  node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const path=process.argv.slice(2); let current=value; for (const key of path) current=current?.[key]; if (current !== undefined && current !== null) process.stdout.write(String(current));' "$@"
+  node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const path=process.argv.slice(2); let current=value; for (const key of path) current=current?.[key]; if (current !== undefined && current !== null) process.stdout.write(String(current));' -- "$@"
 }
 
 real_write_json() {
@@ -1101,7 +1101,7 @@ real_authenticate() {
   local enroll_response="$REAL_SECRET_DIR/native-enroll-response.json"
   local login_body="$REAL_SECRET_DIR/native-login.json"
   local login_response="$REAL_SECRET_DIR/native-login-response.json"
-  real_write_json "$pair_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceName: process.argv[1]}))' "$device_name")"
+  real_write_json "$pair_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceName: process.argv[1]}))' -- "$device_name")"
   if ! real_api_request POST /api/pair/start "$pair_body" "$pair_response"; then
     printf '%s\n' 'real-smoke auth failed at POST /api/pair/start; app pairing path: AuthClient.startPairing -> WebApi.pairStart' >&2
     return 1
@@ -1134,7 +1134,7 @@ real_authenticate() {
     printf 'real-smoke auth failed: pairing did not confirm (state=%s)\n' "${state:-missing}" >&2
     return 1
   fi
-  real_write_json "$enroll_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceToken: process.argv[1],deviceName: process.argv[2]}))' "$device_token" "$device_name")"
+  real_write_json "$enroll_body" "$(node -e 'process.stdout.write(JSON.stringify({deviceToken: process.argv[1],deviceName: process.argv[2]}))' -- "$device_token" "$device_name")"
   if ! real_api_request POST /api/auth/native/enroll "$enroll_body" "$enroll_response"; then
     printf '%s\n' 'real-smoke auth failed at POST /api/auth/native/enroll; app pairing path: AuthClient.enroll' >&2
     return 1
@@ -1145,7 +1145,7 @@ real_authenticate() {
     printf '%s\n' 'real-smoke auth failed: native enrollment returned no secret' >&2
     return 1
   fi
-  real_write_json "$login_body" "$(node -e 'process.stdout.write(JSON.stringify({secret: process.argv[1]}))' "$secret")"
+  real_write_json "$login_body" "$(node -e 'process.stdout.write(JSON.stringify({secret: process.argv[1]}))' -- "$secret")"
   if ! real_api_request POST /api/auth/native/login "$login_body" "$login_response"; then
     printf '%s\n' 'real-smoke auth failed at POST /api/auth/native/login; app unlock path: AuthClient.login' >&2
     return 1
@@ -1163,9 +1163,9 @@ real_authenticate() {
 
 real_select_sessions() {
   local status_file=$1 output_file=$2 sessions_count=$3
-  node - "$status_file" "$output_file" "$sessions_count" <<'NODE'
+  node - -- "$status_file" "$output_file" "$sessions_count" <<'NODE'
 const fs = require('node:fs');
-const [statusFile, outputFile, countText] = process.argv.slice(2);
+const [statusFile, outputFile, countText] = process.argv.slice(3);
 const payload = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
 const entries = payload.entries ?? {};
 const sessions = (payload.sessions ?? [])
@@ -1389,7 +1389,7 @@ cmd_mocks() {
     fi
     manifest="$exported/manifest.json"
     if [[ -f "$manifest" ]]; then
-      node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' "$manifest"
+      node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");const old=a.exportedFileName||a.exportedFilePath||a.filename;const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' -- "$manifest"
     fi
     find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
     if [[ -f "$exported/audit.txt" ]]; then
@@ -1656,9 +1656,9 @@ PY
 
 real_status_summary() {
   local status_file=$1 output_file=$2
-  node - "$status_file" "$output_file" <<'NODE'
+  node - -- "$status_file" "$output_file" <<'NODE'
 const fs = require('node:fs');
-const [statusFile, outputFile] = process.argv.slice(2);
+const [statusFile, outputFile] = process.argv.slice(3);
 const payload = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
 const entries = payload.entries ?? {};
 const sessions = (payload.sessions ?? [])
@@ -1712,12 +1712,12 @@ NODE
 
 real_start_event_capture() {
   local query=$1 raw_file=$2 log_file=$3
-  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - "$query" "$raw_file" <<'NODE' >"$log_file" 2>&1 &
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - -- "$query" "$raw_file" <<'NODE' >"$log_file" 2>&1 &
 const fs = require('node:fs');
 const http = require('node:http');
 const zlib = require('node:zlib');
-const query = process.argv[2];
-const rawFile = process.argv[3];
+const query = process.argv[3];
+const rawFile = process.argv[4];
 const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
 const fd = fs.openSync(rawFile, 'w', 0o600);
 let response;
@@ -1774,9 +1774,9 @@ NODE
 
 real_summarize_events() {
   local raw_file=$1 summary_file=$2 wall=$3
-  node - "$raw_file" "$summary_file" "$wall" <<'NODE'
+  node - -- "$raw_file" "$summary_file" "$wall" <<'NODE'
 const fs = require('node:fs');
-const [rawFile, summaryFile, wallText] = process.argv.slice(2);
+const [rawFile, summaryFile, wallText] = process.argv.slice(3);
 const buffer = fs.readFileSync(rawFile);
 const text = buffer.toString('utf8');
 const byType = {};
@@ -1877,10 +1877,10 @@ PY
 
 real_state_request() {
   local output_file=$1
-  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - "$output_file" <<'NODE'
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - -- "$output_file" <<'NODE'
 const fs = require('node:fs');
 const http = require('node:http');
-const output = process.argv[2];
+const output = process.argv[3];
 const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
 const request = http.request({
   host: '127.0.0.1',
@@ -1915,9 +1915,9 @@ NODE
 
 real_state_has_session() {
   local state_file=$1 session_id=$2
-  node - "$state_file" "$session_id" <<'NODE'
+  node - -- "$state_file" "$session_id" <<'NODE'
 const fs = require('node:fs');
-const [stateFile, target] = process.argv.slice(2);
+const [stateFile, target] = process.argv.slice(3);
 const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
 const found = Array.isArray(state.sessions) && state.sessions.some((session) => session?.id === target);
 process.stdout.write(found ? 'FOUND' : 'MISSING');
@@ -1926,9 +1926,9 @@ NODE
 
 real_state_entry_count() {
   local state_file=$1 session_id=$2
-  node - "$state_file" "$session_id" <<'NODE'
+  node - -- "$state_file" "$session_id" <<'NODE'
 const fs = require('node:fs');
-const [stateFile, target] = process.argv.slice(2);
+const [stateFile, target] = process.argv.slice(3);
 const state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
 const value = Number(state.entries?.[target] ?? 0);
 if (!Number.isFinite(value)) process.exit(1);
@@ -1972,9 +1972,9 @@ real_start_scratch() {
     printf '%s\n' 'real perf turn: scratch start returned invalid state' >&2
     return 1
   }
-  state_id=$(node - "$REAL_SCRATCH_STATE_FILE" <<'NODE'
+  state_id=$(node - -- "$REAL_SCRATCH_STATE_FILE" <<'NODE'
 const fs = require('node:fs');
-const state = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 process.stdout.write(String(state.session_id ?? ''));
 NODE
   )
@@ -1991,9 +1991,9 @@ real_assert_cli_session_missing() {
     printf '%s\n' 'real perf turn: failed to read cli status after scratch stop' >&2
     return 1
   fi
-  if node - "$output_file" "$REAL_SCRATCH_SESSION_ID" <<'NODE'
+  if node - -- "$output_file" "$REAL_SCRATCH_SESSION_ID" <<'NODE'
 const fs = require('node:fs');
-const [statusFile, target] = process.argv.slice(2);
+const [statusFile, target] = process.argv.slice(3);
 const status = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
 process.exit((status.sessions ?? []).some((session) => session?.id === target) ? 1 : 0);
 NODE
@@ -2175,16 +2175,16 @@ PY
   fi
   real_write_perf_result "$phase_dir/result.json" "$counter_file" "$phase" "$selected_id" "$selected_count" "$window_duration" "$CC_PERF_REAL_WARMUP"
   local counter_summary
-  counter_summary=$(node - "$phase_dir/result.json" <<'NODE'
+  counter_summary=$(node - -- "$phase_dir/result.json" <<'NODE'
 const fs = require('node:fs');
-const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const value = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 const rates = value.counters?.per_second ?? {};
 process.stdout.write(Object.entries(rates).sort(([a], [b]) => a.localeCompare(b)).map(([key, rate]) => `${key}=${Number(rate).toFixed(2)}/s`).join(' '));
 NODE
 )
   printf 'PERF real-%s app_cpu=%s%% render_cpu=%s%% daemon_cpu=%s%% peak_rss=%skB wall=%.1fs events=%s selected=%s entries=%s %s\n' \
     "$phase" "$REAL_PERF_APP_CPU" "$REAL_PERF_RENDER_CPU" "$REAL_PERF_DAEMON_CPU" "$REAL_PERF_PEAK_RSS" "$wall" \
-    "$(node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1]));process.stdout.write(String(p.total_events??0))' "$phase_dir/events-summary.json")" \
+    "$(node -e 'const fs=require("node:fs");const p=JSON.parse(fs.readFileSync(process.argv[1]));process.stdout.write(String(p.total_events??0))' -- "$phase_dir/events-summary.json")" \
     "${selected_id:-none}" "${selected_count:-none}" "$counter_summary"
   if [[ "$command_status" -ne 0 ]]; then phase_status=1; fi
   [[ "$phase_status" -eq 0 ]]
@@ -2214,10 +2214,10 @@ real_perf_finish_phase() {
 
 real_post_scratch_message() {
   local session_id=$1 body_file=$2 output_file=$3
-  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - "$session_id" "$body_file" "$output_file" <<'NODE'
+  REAL_BEARER_FILE="$REAL_BEARER_FILE" node - -- "$session_id" "$body_file" "$output_file" <<'NODE'
 const fs = require('node:fs');
 const http = require('node:http');
-const [sessionId, bodyFile, outputFile] = process.argv.slice(2);
+const [sessionId, bodyFile, outputFile] = process.argv.slice(3);
 const body = fs.readFileSync(bodyFile, 'utf8');
 const bearer = fs.readFileSync(process.env.REAL_BEARER_FILE, 'utf8');
 const request = http.request({
@@ -2255,9 +2255,9 @@ real_turn_driver() {
   body_file="$REAL_SECRET_DIR/turn-prompt.json"
   sleep 2
   real_state_request "$before_state" || return 1
-  state_id=$(node - "$REAL_SCRATCH_STATE_FILE" <<'NODE'
+  state_id=$(node - -- "$REAL_SCRATCH_STATE_FILE" <<'NODE'
 const fs = require('node:fs');
-const state = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const state = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 process.stdout.write(String(state.session_id ?? ''));
 NODE
   )
@@ -2269,9 +2269,9 @@ NODE
   printf '%s\n' "$before_count" > "$phase_dir/entry-count-before.txt"
   prompt=$("$ROOT/scripts/perf-scratch-session.sh" prompt)
   printf '%s' "$prompt" > "$REAL_SECRET_DIR/turn-prompt.txt"
-  node - "$REAL_SECRET_DIR/turn-prompt.txt" "$body_file" <<'NODE'
+  node - -- "$REAL_SECRET_DIR/turn-prompt.txt" "$body_file" <<'NODE'
 const fs = require('node:fs');
-const [promptFile, bodyFile] = process.argv.slice(2);
+const [promptFile, bodyFile] = process.argv.slice(3);
 fs.writeFileSync(bodyFile, JSON.stringify({ text: fs.readFileSync(promptFile, 'utf8') }), { mode: 0o600 });
 NODE
   send_file="$REAL_SECRET_DIR/turn-send.json"
@@ -2294,9 +2294,9 @@ NODE
 
 real_patch_turn_result() {
   local result_file="$REAL_OUTPUT_DIR/turn/result.json"
-  node - "$result_file" "$REAL_OUTPUT_DIR/turn/entry-count-before.txt" "$REAL_OUTPUT_DIR/turn/entry-count-after.txt" "$REAL_SCRATCH_SESSION_ID" <<'NODE'
+  node - -- "$result_file" "$REAL_OUTPUT_DIR/turn/entry-count-before.txt" "$REAL_OUTPUT_DIR/turn/entry-count-after.txt" "$REAL_SCRATCH_SESSION_ID" <<'NODE'
 const fs = require('node:fs');
-const [resultFile, beforeFile, afterFile, sessionId] = process.argv.slice(2);
+const [resultFile, beforeFile, afterFile, sessionId] = process.argv.slice(3);
 const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
 const readCount = (file) => {
   try { return Number(fs.readFileSync(file, 'utf8').trim()); } catch { return null; }
@@ -2595,11 +2595,11 @@ resolve_install_device() {
   fi
 
   local resolved
-  if ! resolved=$(node - "$devices_json" "$selector" <<'NODE'
+  if ! resolved=$(node - -- "$devices_json" "$selector" <<'NODE'
 const fs = require('node:fs');
 
-const jsonPath = process.argv[2];
-const selector = process.argv[3] || '';
+const jsonPath = process.argv[3];
+const selector = process.argv[4] || '';
 const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 const allDevices = data.result?.devices ?? [];
 const physicalDevices = allDevices.map((device) => {
