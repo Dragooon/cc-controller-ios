@@ -12,6 +12,13 @@ public enum APIError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self { case .unauthorized: "Unauthorized"; case .rateLimited: "Rate limited"; case .stale: "Stale request"; case .staleResponse(_, let message, _): message; case .http(let status, let message, _): "HTTP \(status): \(message)"; case .transport(let error): error.localizedDescription; case .decoding(let message): message }
     }
+
+    public var daemonMessage: String? {
+        switch self {
+        case .staleResponse(_, let message, _), .http(_, let message, _): message
+        default: nil
+        }
+    }
 }
 
 public actor APIClient {
@@ -41,6 +48,18 @@ public actor APIClient {
     }
 
     public func state() async throws -> StateSnapshot { try await get("/api/state") }
+
+    public func newSessionOptions() async throws -> NewSessionOptions {
+        try await get("/api/sessions/new-options")
+    }
+
+    public func createSession(cwd: String, name: String? = nil, model: String? = nil, prompt: String? = nil) async throws -> CreatedSession {
+        try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt))
+    }
+
+    public func wakeSession(id: String) async throws -> WokenSession {
+        try await post("/api/sessions/\(pathComponent(id))/wake", body: EmptyBody())
+    }
 
     public func transcript(sessionID: String, after: Int? = nil, agent: String? = nil) async throws -> [TranscriptEntry] {
         var query: [URLQueryItem] = []
@@ -265,6 +284,22 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
 }
 
 private struct EmptyBody: Encodable { }
+private struct CreateSessionRequest: Encodable {
+    let cwd: String
+    let name: String?
+    let model: String?
+    let prompt: String?
+
+    enum CodingKeys: String, CodingKey { case cwd, name, model, prompt }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(cwd, forKey: .cwd)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(prompt, forKey: .prompt)
+    }
+}
 private struct MessageRequest: Encodable { let text: String; let files: [String]; let now: Bool }
 private struct KeyRequest: Encodable { let key: String; let text: String? }
 private struct ModeRequest: Encodable { let mode: String }

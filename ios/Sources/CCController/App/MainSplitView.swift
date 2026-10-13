@@ -7,13 +7,31 @@ struct MainSplitView: View {
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
+    @State private var isNewSessionPresented = false
+    @State private var wakingSessionIDs: Set<String> = []
+    @State private var wakeError: String?
+    @State private var sessionNotice: String?
 
     var body: some View {
         splitView()
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .alert(
+            "Couldn't wake session",
+            isPresented: Binding(
+                get: { wakeError != nil },
+                set: { isPresented in
+                    if !isPresented { wakeError = nil }
+                }
+            )
+        ) {
+            Button("OK") { wakeError = nil }
+        } message: {
+            Text(wakeError ?? "The session could not be woken.")
+        }
+        .alert(
             actionErrorTitle,
+
             isPresented: Binding(
                 get: { model.actionError != nil },
                 set: { isPresented in
@@ -47,16 +65,32 @@ struct MainSplitView: View {
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }
         }
+        .sheet(isPresented: $isNewSessionPresented) {
+            NewSessionView(store: model.store) { id, appeared in
+                model.selectedSessionID = id
+                preferredCompactColumn = .detail
+                if !appeared {
+                    sessionNotice = "Session started; it will appear shortly."
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(5))
+                        sessionNotice = nil
+                    }
+                }
+            }
+        }
     }
 
     private func splitView() -> some View {
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             SessionsListView(
                 sessions: model.store.sortedSessions,
+                sleeping: model.store.sleeping,
+                waking: wakingSessionIDs,
                 approvals: model.store.approvals,
                 deciding: model.store.deciding,
                 connection: connection,
                 subtitleOverride: model.selectedSessionID == nil ? nil : "",
+                notice: sessionNotice,
                 onSessionsLoaded: {
                     await model.requestNotificationAuthorizationAfterSessionsLoaded()
                 },
@@ -84,6 +118,11 @@ struct MainSplitView: View {
                 onCopySessionID: { session in
                     guard let id = session.id else { return }
                     UIPasteboard.general.string = id
+                },
+                onNewSession: { isNewSessionPresented = true },
+                onWake: wakeSession,
+                onCopyAttachCommand: { sleeping in
+                    UIPasteboard.general.string = "claude attach \(sleeping.shortId)"
                 }
             )
         } detail: {
@@ -107,6 +146,25 @@ struct MainSplitView: View {
     private var actionErrorTitle: String {
         if case .commandsUnavailable = model.actionError { return "Commands unavailable" }
         return "Action failed"
+    }
+
+    private func wakeSession(_ sleeping: SleepingSession) {
+        guard wakingSessionIDs.insert(sleeping.id).inserted else { return }
+        Task { @MainActor in
+            defer { wakingSessionIDs.remove(sleeping.id) }
+            do {
+                let appeared = try await model.store.wakeSession(id: sleeping.id)
+                guard appeared else {
+                    wakeError = "The session did not appear after waking."
+                    return
+                }
+                model.selectedSessionID = sleeping.id
+                preferredCompactColumn = .detail
+            } catch {
+                wakeError = (error as? APIError)?.daemonMessage ?? error.localizedDescription
+            }
+        }
+    }
     }
 
     private var connection: SessionsListView.Connection {

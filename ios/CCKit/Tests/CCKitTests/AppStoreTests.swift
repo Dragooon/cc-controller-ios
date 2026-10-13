@@ -143,6 +143,56 @@ final class AppStoreTests: XCTestCase {
         app.suspend()
     }
 
+    func testCreateOmitsModelWhenItMatchesDefault() async throws {
+        var requestBody = Data()
+        URLProtocolStub.handler = { request in
+            requestBody = Self.bodyData(for: request)
+            return URLProtocolStub.json(Data("{\"id\":\"new\",\"shortId\":\"new-short\",\"name\":\"New\"}".utf8))
+        }
+        let app = makeApp()
+        _ = try await app.createSession(cwd: "/Users/test/project", model: "opus", defaultModel: "opus")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        XCTAssertEqual(object["cwd"] as? String, "/Users/test/project")
+        XCTAssertNil(object["model"])
+    }
+
+    func testWaitForSessionObservesStateUntilTheIDAppears() async throws {
+        var stateRequests = 0
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/state" {
+                stateRequests += 1
+                let body = stateRequests < 2
+                    ? "{\"sessions\":[],\"entries\":{}}"
+                    : "{\"sessions\":[{\"id\":\"session-2\",\"live\":true}],\"entries\":{}}"
+                return URLProtocolStub.json(Data(body.utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        let appeared = await app.waitForSession("session-2", timeout: .seconds(1))
+        XCTAssertTrue(appeared)
+        XCTAssertNotNil(app.sessions["session-2"])
+    }
+
+    func testWakeFlowMovesSessionIntoLiveState() async throws {
+        var wakeCalled = false
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/sessions/sleep-1/wake" {
+                wakeCalled = true
+                return URLProtocolStub.json(Data("{\"id\":\"sleep-1\"}".utf8))
+            }
+            if request.url?.path == "/api/state" {
+                return URLProtocolStub.json(Data("{\"sessions\":[{\"id\":\"sleep-1\",\"live\":true,\"state\":\"idle\"}],\"sleeping\":[]}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        let appeared = try await app.wakeSession(id: "sleep-1")
+        XCTAssertTrue(appeared)
+        XCTAssertTrue(wakeCalled)
+        XCTAssertNotNil(app.sessions["sleep-1"])
+    }
+
     func testStateEventAppliesSnapshot() {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 4])))
@@ -717,6 +767,21 @@ final class AppStoreTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(app.connection, .unauthorized)
         app.suspend()
+    }
+
+    private static func bodyData(for request: URLRequest) -> Data {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 
     private func settleCoalescedEvents() async throws {

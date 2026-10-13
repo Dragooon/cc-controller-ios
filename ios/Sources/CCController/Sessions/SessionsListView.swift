@@ -16,10 +16,13 @@ struct SessionsListView: View {
     }
 
     let sessions: [Session]
+    let sleeping: [SleepingSession]
+    let waking: Set<String>
     let approvals: [Approval]
     let deciding: Set<String>
     let connection: Connection
     let subtitleOverride: String?
+    let notice: String?
     let onSessionsLoaded: () async -> Void
     let onOpen: (Session) -> Void
     let onAllow: (Approval) -> Void
@@ -30,15 +33,21 @@ struct SessionsListView: View {
     let onInterrupt: (Session) -> Void
     let onSetApprovalMode: (Session, ApprovalMode) -> Void
     let onCopySessionID: (Session) -> Void
+    let onNewSession: () -> Void
+    let onWake: (SleepingSession) -> Void
+    let onCopyAttachCommand: (SleepingSession) -> Void
 
     @State private var searchText = ""
 
     init(
         sessions: [Session],
+        sleeping: [SleepingSession] = [],
+        waking: Set<String> = [],
         approvals: [Approval] = [],
         deciding: Set<String> = [],
         connection: Connection = .live,
         subtitleOverride: String? = nil,
+        notice: String? = nil,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (Session) -> Void = { _ in },
         onAllow: @escaping (Approval) -> Void = { _ in },
@@ -48,13 +57,19 @@ struct SessionsListView: View {
         onRefresh: @escaping () async -> Void = {},
         onInterrupt: @escaping (Session) -> Void = { _ in },
         onSetApprovalMode: @escaping (Session, ApprovalMode) -> Void = { _, _ in },
-        onCopySessionID: @escaping (Session) -> Void = { _ in }
+        onCopySessionID: @escaping (Session) -> Void = { _ in },
+        onNewSession: @escaping () -> Void = {},
+        onWake: @escaping (SleepingSession) -> Void = { _ in },
+        onCopyAttachCommand: @escaping (SleepingSession) -> Void = { _ in }
     ) {
         self.sessions = sessions
+        self.sleeping = sleeping
+        self.waking = waking
         self.approvals = approvals
         self.deciding = deciding
         self.connection = connection
         self.subtitleOverride = subtitleOverride
+        self.notice = notice
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
         self.onAllow = onAllow
@@ -65,6 +80,9 @@ struct SessionsListView: View {
         self.onInterrupt = onInterrupt
         self.onSetApprovalMode = onSetApprovalMode
         self.onCopySessionID = onCopySessionID
+        self.onNewSession = onNewSession
+        self.onWake = onWake
+        self.onCopyAttachCommand = onCopyAttachCommand
     }
 
     private var filteredSessions: [Session] {
@@ -73,6 +91,15 @@ struct SessionsListView: View {
         return sessions.filter {
             ($0.name ?? "").localizedCaseInsensitiveContains(query)
                 || ($0.project ?? "").localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private var filteredSleeping: [SleepingSession] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return sleeping }
+        return sleeping.filter {
+            ($0.name ?? "").localizedCaseInsensitiveContains(query)
+                || $0.project.localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -93,6 +120,13 @@ struct SessionsListView: View {
                 .navigationTitle("Sessions")
                 .navigationSubtitle(subtitle ?? "")
                 .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(action: onNewSession) {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("New session")
+                        .accessibilityIdentifier("new-session")
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(action: onSettings) {
                             Image(systemName: "gearshape")
@@ -121,7 +155,7 @@ struct SessionsListView: View {
 
     @ViewBuilder
     private var list: some View {
-        if sessions.isEmpty {
+        if sessions.isEmpty && sleeping.isEmpty {
             ContentUnavailableView(
                 "No sessions",
                 systemImage: "terminal",
@@ -131,14 +165,40 @@ struct SessionsListView: View {
             .background(.ccBackground)
         } else {
             List {
+                if let notice {
+                    Section {
+                        Text(notice)
+                            .font(.footnote)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
                 sessionSection("Needs you", sessions: needsYou)
                 sessionSection("Working", sessions: working)
                 sessionSection("Idle", sessions: idle)
+                sleepingSection
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(.ccBackground)
             .animation(.smooth, value: listAnimationKey)
+        }
+    }
+
+    @ViewBuilder
+    private var sleepingSection: some View {
+        if !filteredSleeping.isEmpty {
+            Section("Asleep") {
+                ForEach(filteredSleeping) { session in
+                    SleepingSessionRow(
+                        session: session,
+                        isWaking: waking.contains(session.id),
+                        onWake: { onWake(session) },
+                        onCopyAttachCommand: { onCopyAttachCommand(session) }
+                    )
+                    .listRowBackground(Color.ccCard)
+                    .listRowSeparatorTint(.ccSeparator)
+                }
+            }
         }
     }
 
@@ -176,7 +236,7 @@ struct SessionsListView: View {
                 session.state?.rawValue ?? "",
                 approval(for: session)?.requestId ?? "",
             ].joined(separator: ":")
-        }
+        } + filteredSleeping.map { "sleeping:\($0.id):\(waking.contains($0.id))" }
     }
 
     private func approval(for session: Session) -> Approval? {
@@ -304,6 +364,58 @@ private struct SessionRow: View {
     private func isDeciding(_ approval: Approval) -> Bool {
         guard let key = approvalDecisionKey(approval) else { return false }
         return deciding.contains(key)
+    }
+}
+
+private struct SleepingSessionRow: View {
+    let session: SleepingSession
+    let isWaking: Bool
+    let onWake: () -> Void
+    let onCopyAttachCommand: () -> Void
+
+    var body: some View {
+        Button(action: onWake) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                if isWaking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 28)
+                } else {
+                    Image(systemName: "moon.zzz")
+                        .font(.title3)
+                        .frame(width: 28)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayName)
+                        .font(.headline)
+                        .lineLimit(2)
+                    Text(session.project)
+                        .font(.subheadline)
+                        .foregroundStyle(.ccSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(isWaking ? "Waking…" : "asleep · \(session.lastActiveAt, style: .relative)")
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.ccLabel)
+            .opacity(0.58)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("sleeping-session-\(session.id)")
+        .accessibilityValue(isWaking ? "Waking" : "asleep")
+        .contextMenu {
+            Button("Copy attach command", action: onCopyAttachCommand)
+        }
+        .padding(.vertical, 7)
+    }
+
+    private var displayName: String {
+        let name = session.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? session.project : name
     }
 }
 

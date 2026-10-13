@@ -17,6 +17,7 @@ public final class AppStore {
     public private(set) var sessions: [String: Session] = [:]
     public private(set) var previousSessionsForReplacement: [String: Session] = [:]
     public private(set) var previousSessionsForReplacementAt: Date?
+    public private(set) var sleeping: [SleepingSession] = []
     public private(set) var approvals: [Approval] = []
     public private(set) var daemon: DaemonInfo?
     public private(set) var apiVersion: Int?
@@ -160,6 +161,50 @@ public final class AppStore {
 
     public func closeSession(_ id: String) {
         closeStore(forKey: id)
+    }
+
+    public func newSessionOptions() async throws -> NewSessionOptions {
+        try await client.newSessionOptions()
+    }
+
+    public func createSession(
+        cwd: String,
+        name: String? = nil,
+        model: String? = nil,
+        defaultModel: String = "default",
+        prompt: String? = nil
+    ) async throws -> CreatedSession {
+        try await client.createSession(
+            cwd: cwd,
+            name: name,
+            model: model == defaultModel ? nil : model,
+            prompt: prompt
+        )
+    }
+
+    public func waitForSession(_ id: String, timeout: Duration = .seconds(10)) async -> Bool {
+        guard !id.isEmpty else { return false }
+        if sessions[id] != nil { return true }
+        let components = timeout.components
+        let timeoutSeconds = max(0, Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000)
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if let snapshot = try? await client.state() {
+                applyState(snapshot)
+                if sessions[id] != nil { return true }
+            }
+            if sessions[id] != nil { return true }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { break }
+            do { try await Task.sleep(for: .milliseconds(min(100, max(1, Int(remaining * 1000))))) }
+            catch { return false }
+        }
+        return sessions[id] != nil
+    }
+
+    public func wakeSession(id: String) async throws -> Bool {
+        let response = try await client.wakeSession(id: id)
+        return await waitForSession(response.id)
     }
 
     public func closeSubagent(sessionID: String, agentID: String) {
@@ -487,6 +532,7 @@ public final class AppStore {
         sessions.removeAll()
         previousSessionsForReplacement.removeAll()
         previousSessionsForReplacementAt = nil
+        sleeping.removeAll()
         approvals.removeAll()
         deciding.removeAll()
         queuedNotes.removeAll()
@@ -555,6 +601,10 @@ public final class AppStore {
             #endif
             flushPendingEvents()
             refreshAfterRegistryEvent()
+        case .sleeping(let event):
+            sleeping = event.sleeping
+            lastUpdated = clock.now
+            scheduleCacheWrite()
         }
     }
 
@@ -834,8 +884,13 @@ public final class AppStore {
         let liveSessions = (snapshot.sessions ?? []).compactMap { session -> (String, Session)? in
             guard let id = session.id else { return nil }
             var session = session
-            if let previous = sessions[id], isPlaceholderUsage(session.usage), let usage = previous.usage {
-                session.usage = usage
+            if let previous = sessions[id] {
+                if isPlaceholderUsage(session.usage), let usage = previous.usage {
+                    session.usage = usage
+                }
+                if session.background == nil {
+                    session.background = previous.background
+                }
             }
             return (id, session)
         }
@@ -845,6 +900,7 @@ public final class AppStore {
             previousSessionsForReplacementAt = clock.now
         }
         sessions = nextSessions
+        sleeping = snapshot.sleeping ?? sleeping
         serverEntryCounts = snapshot.entries ?? [:]
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         for store in openStores.values {
@@ -1160,7 +1216,7 @@ public final class AppStore {
                 daemon: daemon,
                 capabilities: latestBootstrap.capabilities,
                 limits: latestBootstrap.limits,
-                state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device)
+                state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device, sleeping: sleeping)
             ),
             updatedAt: lastUpdated ?? clock.now
         )

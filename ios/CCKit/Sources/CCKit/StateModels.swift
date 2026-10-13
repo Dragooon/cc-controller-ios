@@ -53,9 +53,81 @@ public struct StateSnapshot: Codable, Sendable, Equatable {
     public var sessions: [Session]?
     public var entries: [String: Int]?
     public var device: Device?
-    public init(sessions: [Session]? = nil, entries: [String: Int]? = nil, device: Device? = nil) {
-        self.sessions = sessions; self.entries = entries; self.device = device
+    public var sleeping: [SleepingSession]?
+    public init(sessions: [Session]? = nil, entries: [String: Int]? = nil, device: Device? = nil, sleeping: [SleepingSession]? = nil) {
+        self.sessions = sessions; self.entries = entries; self.device = device; self.sleeping = sleeping
     }
+}
+
+public struct NewSessionFolder: Codable, Sendable, Equatable, Identifiable {
+    public var path: String
+    public var name: String
+    public var lastUsedAt: Date?
+    public var id: String { path }
+
+    public init(path: String, name: String, lastUsedAt: Date? = nil) {
+        self.path = path; self.name = name; self.lastUsedAt = lastUsedAt
+    }
+}
+
+public struct NewSessionModel: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var label: String
+
+    public init(id: String, label: String) {
+        self.id = id; self.label = label
+    }
+}
+
+public struct NewSessionOptions: Codable, Sendable, Equatable {
+    public var folders: [NewSessionFolder]
+    public var models: [NewSessionModel]
+    public var defaultModel: String
+
+    public init(folders: [NewSessionFolder] = [], models: [NewSessionModel] = [], defaultModel: String = "default") {
+        self.folders = folders; self.models = models; self.defaultModel = defaultModel
+    }
+}
+
+public struct CreatedSession: Codable, Sendable, Equatable {
+    public var id: String
+    public var shortId: String
+    public var name: String?
+
+    public init(id: String, shortId: String, name: String? = nil) {
+        self.id = id; self.shortId = shortId; self.name = name
+    }
+}
+
+public struct WokenSession: Codable, Sendable, Equatable {
+    public var id: String
+
+    public init(id: String) { self.id = id }
+}
+
+public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var shortId: String
+    public var name: String?
+    public var cwd: String
+    public var project: String
+    public var lastActiveAt: Date
+
+    public init(id: String, shortId: String, name: String? = nil, cwd: String, project: String, lastActiveAt: Date) {
+        self.id = id; self.shortId = shortId; self.name = name; self.cwd = cwd; self.project = project; self.lastActiveAt = lastActiveAt
+    }
+}
+
+public struct SleepingEvent: Codable, Sendable, Equatable {
+    public var sleeping: [SleepingSession]
+
+    public init(sleeping: [SleepingSession] = []) { self.sleeping = sleeping }
+}
+
+public struct BackgroundSession: Codable, Sendable, Equatable {
+    public var shortId: String
+
+    public init(shortId: String) { self.shortId = shortId }
 }
 
 public struct StateDelta: Codable, Sendable, Equatable {
@@ -169,7 +241,8 @@ public struct Session: Codable, Sendable, Equatable {
     public var commandRoute: String?
     public var startedAt: Date?
     public var idleSince: Date?
-    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.startedAt = startedAt; self.idleSince = idleSince }
+    public var background: BackgroundSession?
+    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background }
 }
 
 public struct CommandModelOption: Codable, Sendable, Equatable, Identifiable {

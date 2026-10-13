@@ -48,6 +48,44 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(result, MessageResult(delivered: true, queued: true, route: "mod", output: "Context: 42%"))
     }
 
+    func testNewSessionOptionsAndBackgroundStateDecode() async throws {
+        StubURLProtocol.handler = { request in
+            if request.url?.path == "/api/sessions/new-options" {
+                return StubURLProtocol.response(status: 200, body: Data("""
+                {"folders":[{"path":"/Users/test/project","name":"project","lastUsedAt":"2026-10-13T12:00:00Z"}],"models":[{"id":"opus","label":"Opus"}],"defaultModel":"opus"}
+                """.utf8))
+            }
+            return StubURLProtocol.response(status: 200, body: Data("""
+            {"sessions":[{"id":"live","live":true,"background":{"shortId":"bg-123"}}],"sleeping":[{"id":"sleep","shortId":"sleep-123","name":"Sleeping project","cwd":"/Users/test/project","project":"project","lastActiveAt":"2026-10-13T11:00:00Z"}]}
+            """.utf8))
+        }
+        let client = makeClient()
+        let options = try await client.newSessionOptions()
+        XCTAssertEqual(options.folders.first?.path, "/Users/test/project")
+        XCTAssertEqual(options.models.first?.id, "opus")
+        XCTAssertEqual(options.defaultModel, "opus")
+        let state = try await client.state()
+        XCTAssertEqual(state.sessions?.first?.background?.shortId, "bg-123")
+        XCTAssertEqual(state.sleeping?.first?.shortId, "sleep-123")
+    }
+
+    func testCreateAndWakeSessionRoutes() async throws {
+        var paths: [String] = []
+        StubURLProtocol.handler = { request in
+            paths.append(request.url?.path ?? "")
+            if request.url?.path == "/api/sessions" {
+                return StubURLProtocol.response(status: 200, body: Data("{\"id\":\"session-new\",\"shortId\":\"new-123\",\"name\":\"New\"}".utf8))
+            }
+            return StubURLProtocol.response(status: 200, body: Data("{\"id\":\"session-new\"}".utf8))
+        }
+        let client = makeClient()
+        let created = try await client.createSession(cwd: "/Users/test/project", model: nil)
+        let woken = try await client.wakeSession(id: "sleep-123")
+        XCTAssertEqual(created.id, "session-new")
+        XCTAssertEqual(woken.id, "session-new")
+        XCTAssertEqual(paths, ["/api/sessions", "/api/sessions/sleep-123/wake"])
+    }
+
     func testMessageNowAndMultipartUpload() async throws {
         var bodies: [Data] = []
         var contentTypes: [String?] = []

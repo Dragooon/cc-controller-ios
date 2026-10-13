@@ -1,5 +1,6 @@
 import CCKit
 import SwiftUI
+import UIKit
 
 struct InspectorView: View {
     let session: Session
@@ -11,6 +12,7 @@ struct InspectorView: View {
     let onSubagent: (Subagent) -> Void
 
     @State private var isInterruptConfirmationPresented = false
+    @State private var attachCommandCopied = false
 
     private let approvalModes: [(mode: String, title: String, description: String)] = [
         ("auto", "Auto", "Ask in the terminal when it's open on the Mac, otherwise on this iPhone."),
@@ -56,6 +58,7 @@ struct InspectorView: View {
                 subagentsSection
                 approvalsSection
                 locationSection
+                openOnMacSection
                 actionsSection
             }
             .formStyle(.grouped)
@@ -295,6 +298,37 @@ struct InspectorView: View {
                 }
             } header: {
                 sectionHeader("Location")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var openOnMacSection: some View {
+        if let shortId = session.background?.shortId, !shortId.isEmpty {
+            Section {
+                Button {
+                    UIPasteboard.general.string = "claude attach \(shortId)"
+                    attachCommandCopied = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        attachCommandCopied = false
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(attachCommandCopied ? "Copied" : "Open on Mac", systemImage: attachCommandCopied ? "checkmark" : "arrow.up.forward.app")
+                            .foregroundStyle(.ccLabel)
+                        Text("claude attach \(shortId)")
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("inspector-open-on-mac")
+                .accessibilityLabel(attachCommandCopied ? "Attach command copied" : "Open on Mac")
+            } header: {
+                sectionHeader("Open on Mac")
             }
         }
     }

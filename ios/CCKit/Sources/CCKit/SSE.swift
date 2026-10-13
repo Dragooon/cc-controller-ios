@@ -70,6 +70,7 @@ public enum LiveEvent: Sendable, Equatable {
     case decision(DecisionEvent)
     case file(FileEvent)
     case registry(RegistryEvent)
+    case sleeping(SleepingEvent)
 
     public static func decode(name: String, data: String) -> LiveEvent? {
         guard name != "hook" else { return nil }
@@ -92,6 +93,7 @@ public enum LiveEvent: Sendable, Equatable {
         case "decision": return try? .decision(decoder.decode(DecisionEvent.self, from: bytes))
         case "file": return try? .file(decoder.decode(FileEvent.self, from: bytes))
         case "registry": return try? .registry(decoder.decode(RegistryEvent.self, from: bytes))
+        case "sleeping": return try? .sleeping(decoder.decode(SleepingEvent.self, from: bytes))
         default: return nil
         }
     }

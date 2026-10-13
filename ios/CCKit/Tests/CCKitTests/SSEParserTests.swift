@@ -25,6 +25,16 @@ final class SSEParserTests: XCTestCase {
         } else { XCTFail("Expected state delta") }
     }
 
+    func testSleepingEventDecodes() {
+        guard case .sleeping(let event) = LiveEvent.decode(name: "sleeping", data: """
+        {"sleeping":[{"id":"sleep-1","shortId":"sleep-one","name":"Dune","cwd":"/Users/test/dune","project":"dune","lastActiveAt":"2026-10-13T11:00:00Z"}]}
+        """) else {
+            return XCTFail("Expected sleeping event")
+        }
+        XCTAssertEqual(event.sleeping.first?.id, "sleep-1")
+        XCTAssertEqual(event.sleeping.first?.project, "dune")
+    }
+
     func testSubagentUpsertEventDecodes() {
         guard case .subagent(let event) = LiveEvent.decode(name: "subagent", data: "{\"sessionId\":\"s\",\"subagents\":[{\"toolUseId\":\"task-1\",\"state\":\"done\"}]}") else {
             return XCTFail("Expected subagent upsert")
