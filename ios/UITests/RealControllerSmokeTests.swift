@@ -196,25 +196,38 @@ final class RealControllerSmokeTests: XCTestCase {
     private func revealSessionRow(_ row: XCUIElement, in app: XCUIApplication) -> Bool {
         let list = app.collectionViews.firstMatch
         guard list.waitForExistence(timeout: 30) else { return false }
+        let firstRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH[c] 'session-'")).firstMatch
 
-        var hittable = false
-        var previousFrame: CGRect?
-        for _ in 0..<8 {
-            list.swipeDown()
-            hittable = row.exists && row.isHittable
-            if row.exists {
-                let currentFrame = row.frame
-                if let previousFrame, abs(currentFrame.minY - previousFrame.minY) < 0.5 {
-                    break
-                }
-                previousFrame = currentFrame
-            }
+        func probeRow() -> (hittable: Bool, frame: CGRect) {
+            let exists = row.exists
+            let frame = exists ? row.frame : firstRow.frame
+            return (exists && row.isHittable, frame)
         }
-        if hittable { return true }
+
+        func frameMoved(from previous: CGRect, to current: CGRect) -> Bool {
+            abs(current.minY - previous.minY) >= 0.5
+        }
+
+        var probe = probeRow()
+        if probe.hittable { return true }
+
+        var movedUp = false
+        for _ in 0..<8 {
+            let previousFrame = probe.frame
+            list.swipeUp()
+            probe = probeRow()
+            if probe.hittable { return true }
+            guard frameMoved(from: previousFrame, to: probe.frame) else { break }
+            movedUp = true
+        }
+        guard movedUp else { return false }
 
         for _ in 0..<8 {
-            list.swipeUp()
-            if row.exists && row.isHittable { return true }
+            let previousFrame = probe.frame
+            list.swipeDown()
+            probe = probeRow()
+            if probe.hittable { return true }
+            guard frameMoved(from: previousFrame, to: probe.frame) else { break }
         }
         return false
     }
