@@ -18,8 +18,26 @@ public final class SessionStore {
     @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private let initialTranscriptTail: Int
     @ObservationIgnored private var loadingEarlier = false
-    @ObservationIgnored private var loading = false
+    @ObservationIgnored private var inFlightTranscriptFetch: TranscriptFetch?
+    @ObservationIgnored private var pendingRefetch: PendingRefetch?
     private var hasLoaded = false
+
+    private struct TranscriptFetch {
+        enum Kind {
+            case initial
+            case refetch(origin: UUID?)
+        }
+
+        let id: UUID
+        let kind: Kind
+        let task: Task<TranscriptChangeSet, Error>
+    }
+
+    private struct PendingRefetch {
+        var limit: Int
+        var reset: Bool
+        let origin: UUID
+    }
     private var turnStartIndices: [Int] = []
     private var turnRows: [[TranscriptRow]] = []
     private var earlierIdentityKeys: Set<String> = []
@@ -73,36 +91,21 @@ public final class SessionStore {
 
     @discardableResult
     public func loadInitial() async throws -> TranscriptChangeSet {
-        guard canFetch, !loading else { return TranscriptChangeSet() }
-        loading = true
-        defer { loading = false }
-        #if DEBUG || CC_PERF
-        TranscriptPerformance.shared.begin(sessionID: sessionID)
-        TranscriptPerformance.shared.markRequestSent()
-        #endif
-        let page = try await client.transcriptPage(sessionID: sessionID, tail: initialTranscriptTail, agent: agentID)
-        let previousEntries = transcriptStore.entries
-        let change: TranscriptChangeSet
-        let replacedAll: Bool
-        if !entries.isEmpty, page.entries.contains(where: { transcriptStore.containsIdentity(of: $0) }) {
-            change = transcriptStore.merge(page.entries)
-            replacedAll = false
-        } else {
-            change = transcriptStore.replaceAll(with: page.entries)
-            replacedAll = true
+        guard canFetch else { return TranscriptChangeSet() }
+        if let current = inFlightTranscriptFetch {
+            do {
+                _ = try await awaitFetch(current, cancelUnderlying: false)
+            } catch {
+                finishFetch(current.id)
+                guard !Task.isCancelled else { throw error }
+                guard !hasLoaded else { return TranscriptChangeSet() }
+                return try await runInitialFetch()
+            }
+            finishFetch(current.id)
+            if hasLoaded { return TranscriptChangeSet() }
+            return try await runInitialFetch()
         }
-        let entriesChanged = previousEntries != transcriptStore.entries
-        #if DEBUG || CC_PERF
-        TranscriptPerformance.shared.markMergeDone()
-        #endif
-        hasMoreEarlier = transcriptStore.entries.count < page.total
-        totalEntries = page.total
-        hasLoaded = true
-        if entriesChanged {
-            refreshTurns(change: change, forceFull: replacedAll)
-            notify(change)
-        }
-        return change
+        return try await runInitialFetch()
     }
 
     @discardableResult
@@ -135,9 +138,155 @@ public final class SessionStore {
         #if CC_PERF
         PerfCounters.shared.record(.refetchTail, value: limit)
         #endif
-        guard canFetch, !loading else { return TranscriptChangeSet() }
-        loading = true
-        defer { loading = false }
+        guard canFetch else { return TranscriptChangeSet() }
+        let request = PendingRefetch(limit: min(400, max(1, limit)), reset: reset, origin: UUID())
+        guard let current = inFlightTranscriptFetch else {
+            return try await runRefetch(limit: request.limit, reset: request.reset, origin: nil)
+        }
+
+        mergePendingRefetch(limit: request.limit, reset: request.reset, origin: current.id)
+        do {
+            _ = try await awaitFetch(current, cancelUnderlying: false)
+        } catch {
+            finishFetch(current.id)
+            guard !Task.isCancelled else { throw error }
+        }
+
+        if let newer = inFlightTranscriptFetch, newer.id != current.id {
+            if case .refetch(let origin) = newer.kind, origin == current.id {
+                return try await awaitFetch(newer, cancelUnderlying: false)
+            }
+            do {
+                _ = try await awaitFetch(newer, cancelUnderlying: false)
+            } catch {
+                finishFetch(newer.id)
+                guard !Task.isCancelled else { throw error }
+            }
+        }
+        finishFetch(current.id)
+        guard let followUp = pendingRefetch else { return try await runRefetch(limit: request.limit, reset: request.reset, origin: nil) }
+        pendingRefetch = nil
+        return try await runRefetch(limit: followUp.limit, reset: followUp.reset, origin: followUp.origin)
+    }
+
+    @discardableResult
+    public func loadEarlier() async throws -> TranscriptChangeSet {
+        guard canFetch, hasMoreEarlier, !loadingEarlier, inFlightTranscriptFetch == nil, let oldestID = entries.first?.id else { return TranscriptChangeSet() }
+        loadingEarlier = true
+        defer { loadingEarlier = false }
+        let page = try await client.transcriptPage(sessionID: sessionID, before: oldestID, limit: 200, agent: agentID)
+        let change = transcriptStore.merge(page.entries)
+        hasMoreEarlier = page.hasMore
+        totalEntries = max(totalEntries, page.total)
+        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
+            refreshTurns(change: change, forceFull: true)
+            notify(change)
+        }
+        return change
+    }
+
+    private func runInitialFetch() async throws -> TranscriptChangeSet {
+        let ownsFetch = inFlightTranscriptFetch == nil
+        let fetch = inFlightTranscriptFetch ?? startInitialFetch()
+        do {
+            let change = try await awaitFetch(fetch, cancelUnderlying: ownsFetch)
+            finishFetch(fetch.id)
+            return change
+        } catch {
+            finishFetch(fetch.id)
+            throw error
+        }
+    }
+
+    private func runRefetch(limit: Int, reset: Bool, origin: UUID?) async throws -> TranscriptChangeSet {
+        let ownsFetch = inFlightTranscriptFetch == nil
+        let fetch = inFlightTranscriptFetch ?? startRefetch(limit: limit, reset: reset, origin: origin)
+        do {
+            let change = try await awaitFetch(fetch, cancelUnderlying: ownsFetch)
+            finishFetch(fetch.id)
+            return change
+        } catch {
+            finishFetch(fetch.id)
+            throw error
+        }
+    }
+
+    private func startInitialFetch() -> TranscriptFetch {
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.performInitialFetch()
+        }
+        let fetch = TranscriptFetch(id: id, kind: .initial, task: task)
+        inFlightTranscriptFetch = fetch
+        return fetch
+    }
+
+    private func startRefetch(limit: Int, reset: Bool, origin: UUID?) -> TranscriptFetch {
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { throw CancellationError() }
+            return try await self.performRefetch(limit: limit, reset: reset)
+        }
+        let fetch = TranscriptFetch(id: id, kind: .refetch(origin: origin), task: task)
+        inFlightTranscriptFetch = fetch
+        return fetch
+    }
+
+    private func awaitFetch(_ fetch: TranscriptFetch, cancelUnderlying: Bool) async throws -> TranscriptChangeSet {
+        try await withTaskCancellationHandler {
+            try await fetch.task.value
+        } onCancel: {
+            if cancelUnderlying { fetch.task.cancel() }
+        }
+    }
+
+    private func finishFetch(_ id: UUID) {
+        guard inFlightTranscriptFetch?.id == id else { return }
+        inFlightTranscriptFetch = nil
+    }
+
+    private func mergePendingRefetch(limit: Int, reset: Bool, origin: UUID) {
+        guard var pending = pendingRefetch else {
+            pendingRefetch = PendingRefetch(limit: limit, reset: reset, origin: origin)
+            return
+        }
+        pending.limit = max(pending.limit, limit)
+        pending.reset = pending.reset || reset
+        pendingRefetch = pending
+    }
+
+    private func performInitialFetch() async throws -> TranscriptChangeSet {
+        #if DEBUG || CC_PERF
+        TranscriptPerformance.shared.begin(sessionID: sessionID)
+        TranscriptPerformance.shared.markRequestSent()
+        #endif
+        let page = try await client.transcriptPage(sessionID: sessionID, tail: initialTranscriptTail, agent: agentID)
+        let previousEntries = transcriptStore.entries
+        let change: TranscriptChangeSet
+        let replacedAll: Bool
+        if !entries.isEmpty, page.entries.contains(where: { transcriptStore.containsIdentity(of: $0) }) {
+            change = transcriptStore.merge(page.entries)
+            replacedAll = false
+        } else {
+            change = transcriptStore.replaceAll(with: page.entries)
+            replacedAll = true
+        }
+        let entriesChanged = previousEntries != transcriptStore.entries
+        #if DEBUG || CC_PERF
+        TranscriptPerformance.shared.markMergeDone()
+        #endif
+        hasMoreEarlier = transcriptStore.entries.count < page.total
+        totalEntries = page.total
+        hasLoaded = true
+        if entriesChanged {
+            refreshTurns(change: change, forceFull: replacedAll)
+            notify(change)
+        }
+        return change
+    }
+
+    private func performRefetch(limit: Int, reset: Bool) async throws -> TranscriptChangeSet {
         let page = try await client.transcriptPage(sessionID: sessionID, tail: min(400, max(1, limit)), agent: agentID)
         let change: TranscriptChangeSet
         let replacedAll: Bool
@@ -158,22 +307,6 @@ public final class SessionStore {
         hasLoaded = true
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
             refreshTurns(change: change, forceFull: replacedAll)
-            notify(change)
-        }
-        return change
-    }
-
-    @discardableResult
-    public func loadEarlier() async throws -> TranscriptChangeSet {
-        guard canFetch, hasMoreEarlier, !loadingEarlier, !loading, let oldestID = entries.first?.id else { return TranscriptChangeSet() }
-        loadingEarlier = true
-        defer { loadingEarlier = false }
-        let page = try await client.transcriptPage(sessionID: sessionID, before: oldestID, limit: 200, agent: agentID)
-        let change = transcriptStore.merge(page.entries)
-        hasMoreEarlier = page.hasMore
-        totalEntries = max(totalEntries, page.total)
-        if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
-            refreshTurns(change: change, forceFull: true)
             notify(change)
         }
         return change

@@ -5,6 +5,11 @@ import XCTest
 
 @MainActor
 final class SessionStoreTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SessionStoreURLProtocol.reset()
+    }
+
     func testCachedEntriesAreLoadedBeforeInitialFetch() {
         let cached = TranscriptEntry.assistant(AssistantEntry(id: "cached", text: "cached"))
         let store = SessionStore(
@@ -183,6 +188,133 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertFalse(store.hasMoreEarlier)
     }
 
+    func testLoadInitialRetriesAfterInFlightRefetchFails() async throws {
+        let client = makeClient()
+        let page = pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false)
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .suspend,
+            .fail(TestTranscriptError.failed),
+            .succeed(page),
+        ]
+        _ = try await client.bootstrap()
+        let store = makeStore(client: client)
+
+        let refetch = Task { try await store.refetchTail(limit: 50) }
+        await waitForRequest(count: 2)
+        let initial = Task { try await store.loadInitial() }
+        SessionStoreURLProtocol.completeNext()
+
+        _ = try? await refetch.value
+        _ = try await initial.value
+
+        XCTAssertTrue(store.isLoaded)
+        XCTAssertEqual(SessionStoreURLProtocol.requests.count, 3)
+    }
+
+    func testOverlappingLoadInitialCallsShareSuccessfulRequest() async throws {
+        let client = makeClient()
+        let page = pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false)
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .suspend,
+        ]
+        _ = try await client.bootstrap()
+        let store = makeStore(client: client)
+
+        let first = Task { try await store.loadInitial() }
+        await waitForRequest(count: 2)
+        let second = Task { try await store.loadInitial() }
+        SessionStoreURLProtocol.completeNext(.succeed(page))
+
+        _ = try await first.value
+        _ = try await second.value
+
+        XCTAssertTrue(store.isLoaded)
+        XCTAssertEqual(SessionStoreURLProtocol.requests.count, 2)
+    }
+
+    func testOverlappingRefetchesCoalesceFollowUpToLargestLimit() async throws {
+        let client = makeClient()
+        let initialPage = pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false)
+        let refetchedPage = pageData(entries: entries(from: 2, through: 2), total: 2, hasMore: false)
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .suspend,
+            .suspend,
+        ]
+        _ = try await client.bootstrap()
+        let store = makeStore(client: client)
+        let initial = Task { try await store.loadInitial() }
+        await waitForRequest(count: 2)
+
+        let first = Task { try await store.refetchTail(limit: 20) }
+        let second = Task { try await store.refetchTail(limit: 300) }
+        let third = Task { try await store.refetchTail(limit: 100, reset: true) }
+        SessionStoreURLProtocol.completeNext(.succeed(initialPage))
+        await waitForRequest(count: 3)
+
+        let query = URLComponents(url: try XCTUnwrap(SessionStoreURLProtocol.requests.last?.url), resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first(where: { $0.name == "tail" })?.value, "300")
+        SessionStoreURLProtocol.completeNext(.succeed(refetchedPage))
+
+        _ = try await initial.value
+        _ = try await first.value
+        _ = try await second.value
+        _ = try await third.value
+        XCTAssertEqual(SessionStoreURLProtocol.requests.count, 3)
+    }
+
+    func testCancelledOwningFetchCanBeRecoveredByWaitingLoadInitial() async throws {
+        let client = makeClient()
+        let page = pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false)
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .suspend,
+            .succeed(page),
+        ]
+        _ = try await client.bootstrap()
+        let store = makeStore(client: client)
+        let owner = Task { try await store.loadInitial() }
+        await waitForRequest(count: 2)
+        let waiter = Task { try await store.loadInitial() }
+
+        owner.cancel()
+        _ = try? await owner.value
+        _ = try await waiter.value
+
+        XCTAssertTrue(store.isLoaded)
+        XCTAssertEqual(SessionStoreURLProtocol.requests.count, 3)
+    }
+
+    func testLoadEarlierDoesNotRunDuringTranscriptFetch() async throws {
+        let client = makeClient()
+        let initialPage = pageData(entries: entries(from: 1, through: 1), total: 2, hasMore: true)
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .succeed(initialPage),
+            .suspend,
+        ]
+        _ = try await client.bootstrap()
+        let store = makeStore(client: client)
+        try await store.loadInitial()
+        let refetch = Task { try await store.refetchTail() }
+        await waitForRequest(count: 3)
+
+        _ = try await store.loadEarlier()
+
+        XCTAssertEqual(SessionStoreURLProtocol.requests.count, 3)
+        SessionStoreURLProtocol.completeNext(.succeed(initialPage))
+        _ = try? await refetch.value
+    }
+
+    private func waitForRequest(count: Int) async {
+        for _ in 0..<100 where SessionStoreURLProtocol.requests.count < count {
+            await Task.yield()
+        }
+        XCTAssertGreaterThanOrEqual(SessionStoreURLProtocol.requests.count, count)
+    }
+
     private func makeClient() -> APIClient {
         APIClient(
             baseURL: URL(string: "http://localhost:47832")!,
@@ -209,32 +341,78 @@ final class SessionStoreTests: XCTestCase {
     }
 }
 
+private enum TestTranscriptError: Error {
+    case failed
+}
+
 private final class SessionStoreURLProtocol: URLProtocol {
+    enum Completion {
+        case suspend
+        case succeed(Data)
+        case fail(Error)
+        case cancel
+    }
+
     nonisolated(unsafe) static var body = Data()
     nonisolated(unsafe) static var bodies: [Data] = []
     nonisolated(unsafe) static var requests: [URLRequest] = []
+    nonisolated(unsafe) static var completions: [Completion] = []
+    nonisolated(unsafe) static var suspended: [SessionStoreURLProtocol] = []
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SessionStoreURLProtocol.self]
         return URLSession(configuration: configuration)
     }()
 
+    static func reset() {
+        body = Data()
+        bodies = []
+        requests = []
+        completions = []
+        suspended = []
+    }
+
+    static func completeNext(_ completion: Completion? = nil) {
+        guard !suspended.isEmpty else { return }
+        let request = suspended.removeFirst()
+        let next = completion ?? (completions.isEmpty ? .succeed(body) : completions.removeFirst())
+        request.complete(next)
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         Self.requests.append(request)
-        let response = HTTPURLResponse(
-            url: request.url!,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        let body = Self.bodies.isEmpty ? Self.body : Self.bodies.removeFirst()
-        client?.urlProtocol(self, didLoad: body)
-        client?.urlProtocolDidFinishLoading(self)
+        let completion = Self.completions.isEmpty
+            ? .succeed(Self.bodies.isEmpty ? Self.body : Self.bodies.removeFirst())
+            : Self.completions.removeFirst()
+        complete(completion)
     }
 
-    override func stopLoading() {}
+    override func stopLoading() {
+        Self.suspended.removeAll { $0 === self }
+    }
+
+    private func complete(_ completion: Completion) {
+        guard let client else { return }
+        switch completion {
+        case .suspend:
+            Self.suspended.append(self)
+        case .succeed(let body):
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client.urlProtocol(self, didLoad: body)
+            client.urlProtocolDidFinishLoading(self)
+        case .fail(let error):
+            client.urlProtocol(self, didFailWithError: error)
+        case .cancel:
+            client.urlProtocol(self, didFailWithError: URLError(.cancelled))
+        }
+    }
 }

@@ -1,5 +1,10 @@
 import Foundation
 import Observation
+import OSLog
+
+#if DEBUG
+private let appLogger = Logger(subsystem: "com.example.cc-controller", category: "app")
+#endif
 
 private func subagentIdentity(_ value: Subagent) -> String? {
     value.toolUseId ?? value.agentId
@@ -1026,7 +1031,11 @@ public final class AppStore {
         if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
         Task {
             do { _ = try await store.loadInitial() }
-            catch { }
+            catch {
+                #if DEBUG
+                appLogger.debug("initial transcript load failed session=\(sessionID, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+                #endif
+            }
         }
         return store
     }
