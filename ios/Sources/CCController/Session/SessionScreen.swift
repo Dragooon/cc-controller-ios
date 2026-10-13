@@ -51,7 +51,6 @@ struct SessionScreen: View {
 
     var body: some View {
         screen()
-            .accessibilityIdentifier("session-screen-\(sessionID)")
             .quickLookPreview($filePreviewURL)
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
