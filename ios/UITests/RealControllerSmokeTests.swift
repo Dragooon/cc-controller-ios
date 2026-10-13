@@ -79,7 +79,7 @@ final class RealControllerSmokeTests: XCTestCase {
 
     private func checkSession(_ session: SelectedSession, pass: String, app: XCUIApplication) -> PassResult {
         let sessionRow = app.buttons["session-\(session.id)"]
-        guard waitForHittable(sessionRow, timeout: 30) else {
+        guard revealSessionRow(sessionRow, in: app) else {
             return PassResult(
                 pass: pass,
                 session: session,
@@ -193,12 +193,29 @@ final class RealControllerSmokeTests: XCTestCase {
         _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH[c] 'session-'")).firstMatch.waitForExistence(timeout: 10)
     }
 
-    private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if element.exists && element.isHittable { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        } while Date() < deadline
+    private func revealSessionRow(_ row: XCUIElement, in app: XCUIApplication) -> Bool {
+        let list = app.collectionViews.firstMatch
+        guard list.waitForExistence(timeout: 30) else { return false }
+
+        var hittable = false
+        var previousFrame: CGRect?
+        for _ in 0..<8 {
+            list.swipeDown()
+            hittable = row.exists && row.isHittable
+            if row.exists {
+                let currentFrame = row.frame
+                if let previousFrame, abs(currentFrame.minY - previousFrame.minY) < 0.5 {
+                    break
+                }
+                previousFrame = currentFrame
+            }
+        }
+        if hittable { return true }
+
+        for _ in 0..<8 {
+            list.swipeUp()
+            if row.exists && row.isHittable { return true }
+        }
         return false
     }
 
