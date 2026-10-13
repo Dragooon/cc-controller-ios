@@ -30,14 +30,43 @@ final class AppCommandsFlowTests: XCTestCase {
         modelSuggestion.tap()
 
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not open")
+        let firstOption = app.buttons["model-option-claude-fable-5-1[1m]"]
+        let secondOption = app.buttons["model-option-claude-fable-5-2[1m]"]
+        XCTAssertTrue(firstOption.waitForExistence(timeout: 10), "First model option did not load")
+        XCTAssertTrue(app.images["current-model-claude-fable-5-1[1m]"].exists, "Current model checkmark was not on Fable 5.1")
+        XCTAssertFalse(app.images["current-model-claude-fable-5-2[1m]"].exists, "Fable 5.2 was incorrectly checked")
         addScreenshot(named: "model-sheet")
-        let option = app.buttons["model-option-claude-fable-5-2"]
-        XCTAssertTrue(option.waitForExistence(timeout: 10), "Model option did not load")
-        option.tap()
+        secondOption.tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForNonExistence(timeout: 10), "Model sheet did not dismiss")
 
         let requests = try await commandRequests()
-        XCTAssertTrue(requests.contains { $0.text == "/model claude-fable-5-2" }, "Selected model was not sent: \(requests)")
+        XCTAssertTrue(requests.contains { $0.text == "/model claude-fable-5-2[1m]" }, "Selected model was not sent: \(requests)")
+
+        field.tap()
+        field.typeText("/mo")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not reopen")
+        XCTAssertTrue(app.images["current-model-claude-fable-5-2[1m]"].waitForExistence(timeout: 10), "Current model checkmark did not move to Fable 5.2")
+        addScreenshot(named: "model-sheet-after-select")
+    }
+
+    func testModelSelectionFailureShowsInlineError() async throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+        try await postFixture("/fixture/command-no-route")
+        openSession(id: "session-pull-up-agentic-uw", in: app)
+
+        let field = composerField(in: app)
+        field.tap()
+        field.typeText("/mo")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not open")
+        app.buttons["model-option-claude-fable-5-2[1m]"].tap()
+
+        let error = app.staticTexts["Commands need the cc-controller plugin in this session. Run /reload-plugins in its terminal, or restart it."]
+        XCTAssertTrue(error.waitForExistence(timeout: 10), "Model selection error did not render inline")
+        XCTAssertTrue(app.navigationBars["Model"].exists, "Model sheet dismissed after selection failure")
+        addScreenshot(named: "model-sheet-error")
     }
 
     func testCommandOutputShowsOutputSheet() throws {
@@ -51,6 +80,7 @@ final class AppCommandsFlowTests: XCTestCase {
         tapSend(in: app)
 
         XCTAssertTrue(app.navigationBars["/context"].waitForExistence(timeout: 10), "Output sheet did not open")
+        XCTAssertEqual(app.keyboards.count, 0, "Keyboard remained visible over the output sheet")
         XCTAssertTrue(app.staticTexts["Context use: 42%"].waitForExistence(timeout: 10), "Command output did not render")
         addScreenshot(named: "command-output-sheet")
         app.buttons["Done"].tap()
@@ -86,7 +116,7 @@ final class AppCommandsFlowTests: XCTestCase {
 
         let alert = app.alerts["Commands unavailable"]
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "No-route alert did not appear")
-        XCTAssertTrue(alert.staticTexts["Commands need the cc-controller plugin. Restart this session in its terminal to load it."].exists)
+        XCTAssertTrue(alert.staticTexts["Commands need the cc-controller plugin in this session. Run /reload-plugins in its terminal, or restart it."].exists)
         addScreenshot(named: "commands-unavailable-alert")
         alert.buttons["OK"].tap()
     }

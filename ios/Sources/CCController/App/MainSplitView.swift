@@ -102,9 +102,6 @@ struct MainSplitView: View {
         .navigationSplitViewStyle(.balanced)
         .tint(.ccAccent)
         .background(.ccBackground)
-        .onChange(of: model.store.sessions) { _, _ in
-            model.reconcileSessionReplacement()
-        }
     }
 
     private var actionErrorTitle: String {

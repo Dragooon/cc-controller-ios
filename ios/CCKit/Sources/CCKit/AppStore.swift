@@ -233,7 +233,7 @@ public final class AppStore {
         let createdAt = clock.now
         do {
             let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
-            let isCommand = attachments.isEmpty && trimmed.hasPrefix("/")
+            let isCommand = attachments.isEmpty && isSlashCommand(trimmed)
             if !isCommand {
                 queuedNotes[sessionID, default: []].append(
                     QueuedNote(

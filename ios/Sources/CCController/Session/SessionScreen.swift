@@ -70,9 +70,10 @@ struct SessionScreen: View {
         .inspector(isPresented: regularInspectorBinding) {
             inspectorContent()
         }
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .top) {
             if let commandToast {
                 CommandToastView(message: commandToast)
+                    .padding(.top, 8)
             }
         }
         .onDisappear {
@@ -198,7 +199,7 @@ struct SessionScreen: View {
                         session: session,
                         loadModels: { try await model.store.commandModelOptions() },
                         onSelect: { id in
-                            await send(text: "/model \(id)", to: sessionID, now: false, using: model)
+                            await model.store.sendComposer(text: "/model \(id)", to: sessionID)
                         }
                     )
                 }
@@ -264,7 +265,10 @@ struct SessionScreen: View {
             onStop: { [model] in
                 await interrupt(sessionID: session.id ?? sessionID, using: model)
             },
-            onModel: { modelSheetPresented = true },
+            onModel: {
+                dismissKeyboard()
+                modelSheetPresented = true
+            },
             onAllow: { approval in
                 performApprovalDecision(approval, scope: .once)
             },
@@ -283,10 +287,13 @@ struct SessionScreen: View {
         switch result {
         case .success(let message):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.hasPrefix("/"), let output = message.output, !output.isEmpty {
+            if isSlashCommand(trimmed) {
+                dismissKeyboard()
+            }
+            if isSlashCommand(trimmed), let output = message.output, !output.isEmpty {
                 commandOutput = CommandOutput(command: trimmed.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? trimmed, output: output)
             }
-            if trimmed.hasPrefix("/"), message.queued == true {
+            if isSlashCommand(trimmed), message.queued == true {
                 showCommandToast()
             }
         case .failure(let error):
@@ -295,6 +302,11 @@ struct SessionScreen: View {
             }
         }
         return result
+    }
+
+    @MainActor
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     @MainActor

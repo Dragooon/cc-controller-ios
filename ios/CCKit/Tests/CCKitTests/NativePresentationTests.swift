@@ -89,6 +89,34 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(defaultSlashCommands.map(\.description), ["Clear conversation", "Summarize context", "Rename session", "Switch model", "Show context use", "Show cost", "Review changes", "Initialize project"])
     }
 
+    func testSlashCommandValidationMatchesDaemonSyntax() {
+        XCTAssertTrue(isSlashCommand("/clear"))
+        XCTAssertTrue(isSlashCommand("/rename new name"))
+        XCTAssertTrue(isSlashCommand("/plugin:cmd arg"))
+        XCTAssertFalse(isSlashCommand("/Users/me/file.txt please read"))
+        XCTAssertFalse(isSlashCommand("/ space"))
+        XCTAssertFalse(isSlashCommand("//x"))
+    }
+
+    func testCommandModelMatchingNormalizesRealProviderIDs() {
+        let options = [
+            CommandModelOption(id: "claude-fable-5-1[1m]", label: "Fable 5.1"),
+            CommandModelOption(id: "claude-sonnet-5[1m]", label: "Sonnet 5"),
+        ]
+        XCTAssertEqual(matchingCommandModelID(options: options, usageModel: "global.anthropic.claude-sonnet-5"), "claude-sonnet-5[1m]")
+        XCTAssertTrue(commandModelMatches(optionID: "claude-fable-5-1[1m]", usageModel: "global.anthropic.claude-fable-5-1"))
+        XCTAssertTrue(commandModelMatches(optionID: "claude-sonnet-5-v1:0-20250101[1m]", usageModel: "global.anthropic.claude-sonnet-5"))
+        XCTAssertNil(matchingCommandModelID(options: options, usageModel: "opus"))
+    }
+
+    func testCommandModelMatchingMarksOnlyFirstNormalizedDuplicate() {
+        let options = [
+            CommandModelOption(id: "claude-fable-5-1[1m]", label: "First"),
+            CommandModelOption(id: "global.anthropic.claude-fable-5-1", label: "Second"),
+        ]
+        XCTAssertEqual(matchingCommandModelID(options: options, usageModel: "claude-fable-5-1"), "claude-fable-5-1[1m]")
+    }
+
     func testComposerModelNameFormatsKnownModelsAndHidesUnknownValues() {
         XCTAssertEqual(composerModelName("claude-fable-5-1"), "Fable 5.1")
         XCTAssertNil(composerModelName(nil))

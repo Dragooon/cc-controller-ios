@@ -88,6 +88,38 @@ public let defaultSlashCommands: [SlashCommandDefinition] = [
     SlashCommandDefinition(command: "/init", description: "Initialize project")
 ]
 
+public func isSlashCommand(_ text: String) -> Bool {
+    text.range(of: "^/[A-Za-z][\\w:-]*(?:\\s+[\\s\\S]*)?$", options: .regularExpression) != nil
+}
+
+public func matchingCommandModelID(options: [CommandModelOption], usageModel: String?) -> String? {
+    guard let usageModel, let normalizedUsage = normalizedCommandModelID(usageModel), !isCommandModelAlias(normalizedUsage) else { return nil }
+    if let exact = options.first(where: { $0.id.caseInsensitiveCompare(usageModel) == .orderedSame }) {
+        return exact.id
+    }
+    return options.first { normalizedCommandModelID($0.id) == normalizedUsage }?.id
+}
+
+public func commandModelMatches(optionID: String, usageModel: String?) -> Bool {
+    guard let match = matchingCommandModelID(options: [CommandModelOption(id: optionID, label: "")], usageModel: usageModel) else { return false }
+    return match == optionID
+}
+
+private func normalizedCommandModelID(_ value: String) -> String? {
+    var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    normalized = normalized.replacingOccurrences(of: "\\[[^]]+\\]$", with: "", options: .regularExpression)
+    if let range = normalized.range(of: "anthropic.") {
+        normalized = String(normalized[range.upperBound...])
+    }
+    normalized = normalized.replacingOccurrences(of: "-\\d{8}$", with: "", options: .regularExpression)
+    normalized = normalized.replacingOccurrences(of: "-v\\d+:\\d+$", with: "", options: .regularExpression)
+    return normalized.isEmpty ? nil : normalized
+}
+
+private func isCommandModelAlias(_ value: String) -> Bool {
+    value == "opus" || value == "default"
+}
+
 public struct ToolTally: Codable, Sendable, Equatable {
     public let tool: String
     public let count: Int

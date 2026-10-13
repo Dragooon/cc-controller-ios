@@ -242,12 +242,18 @@ struct BottomStackView: View {
             configuration.onModel()
             return
         }
+        if isSlashCommand(submittedText) {
+            composerFocused = false
+        }
         isSending = true
         Task { @MainActor in
             let result = await configuration.onSend(submittedText, now)
             isSending = false
             switch result {
             case .success:
+                if isSlashCommand(submittedText) {
+                    composerFocused = false
+                }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) {

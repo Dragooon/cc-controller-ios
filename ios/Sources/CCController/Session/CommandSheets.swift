@@ -44,7 +44,12 @@ struct CommandModelSheet: View {
     @State private var models: [CommandModelOption] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
+    @State private var selectionError: String?
     @State private var selectingID: String?
+
+    private var currentModelID: String? {
+        matchingCommandModelID(options: models, usageModel: session.usage?.model)
+    }
 
     var body: some View {
         NavigationStack {
@@ -76,15 +81,22 @@ struct CommandModelSheet: View {
                                         Text(model.label)
                                             .foregroundStyle(.ccLabel)
                                         Spacer()
-                                        if model.id == session.usage?.model {
+                                        if model.id == currentModelID {
                                             Image(systemName: "checkmark")
                                                 .foregroundStyle(.ccAccent)
                                                 .accessibilityLabel("Current model")
+                                                .accessibilityIdentifier("current-model-\(model.id)")
                                         }
                                     }
                                 }
                                 .disabled(selectingID != nil)
                                 .accessibilityIdentifier("model-option-\(model.id)")
+                            }
+                            if let selectionError {
+                                Text(selectionError)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                                    .accessibilityIdentifier("model-selection-error")
                             }
                         } footer: {
                             Text("Also becomes your default for new sessions, as /model does in the terminal.")
@@ -113,6 +125,7 @@ struct CommandModelSheet: View {
     private func load() {
         isLoading = true
         errorMessage = nil
+        selectionError = nil
         Task {
             do {
                 models = try await loadModels()
@@ -127,12 +140,14 @@ struct CommandModelSheet: View {
     @MainActor
     private func select(_ model: CommandModelOption) {
         selectingID = model.id
+        selectionError = nil
         Task {
             switch await onSelect(model.id) {
             case .success:
                 dismiss()
-            case .failure:
+            case .failure(let error):
                 selectingID = nil
+                selectionError = error.userMessage
             }
         }
     }
@@ -150,6 +165,5 @@ struct CommandToastView: View {
             .background(.thinMaterial, in: .capsule)
             .shadow(radius: 8, y: 3)
             .accessibilityIdentifier("command-toast")
-            .padding(.bottom, 12)
     }
 }
