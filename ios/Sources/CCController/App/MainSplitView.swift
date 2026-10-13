@@ -89,6 +89,7 @@ struct MainSplitView: View {
         } detail: {
             if let selectedSessionID = model.selectedSessionID {
                 SessionScreen(sessionID: selectedSessionID, model: model)
+                    .id(selectedSessionID)
             } else {
                 ContentUnavailableView(
                     "No session selected",
