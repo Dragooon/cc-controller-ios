@@ -40,6 +40,14 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems, [URLQueryItem(name: "subagentUpsert", value: "true")])
     }
 
+    func testMessageResultDecodesCommandOutputAndRoute() async throws {
+        StubURLProtocol.handler = { _ in
+            StubURLProtocol.response(status: 200, body: Data("{\"delivered\":true,\"route\":\"mod\",\"queued\":true,\"output\":\"Context: 42%\"}".utf8))
+        }
+        let result = try await makeClient().message(sessionID: "s", text: "/context")
+        XCTAssertEqual(result, MessageResult(delivered: true, queued: true, route: "mod", output: "Context: 42%"))
+    }
+
     func testMessageNowAndMultipartUpload() async throws {
         var bodies: [Data] = []
         var contentTypes: [String?] = []

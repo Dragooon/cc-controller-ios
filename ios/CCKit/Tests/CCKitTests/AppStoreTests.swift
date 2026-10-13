@@ -552,6 +552,61 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(AppStore.gapFetchLimit(missing: 600), 400)
     }
 
+    func testClearFollowSwitchesToLiveSessionWithSamePidWithinWindow() {
+        let missingAt = Date(timeIntervalSince1970: 100)
+        let previous = ["old": Session(id: "old", pid: 42, live: true)]
+        let current = ["new": Session(id: "new", pid: 42, live: true)]
+
+        XCTAssertEqual(
+            AppStore.replacementSessionID(
+                missingSessionID: "old",
+                previousSessions: previous,
+                currentSessions: current,
+                missingAt: missingAt,
+                now: missingAt.addingTimeInterval(3)
+            ),
+            "new"
+        )
+    }
+
+    func testClearFollowDoesNotSwitchToDifferentPid() {
+        let missingAt = Date(timeIntervalSince1970: 100)
+        let previous = ["old": Session(id: "old", pid: 42, live: true)]
+        let current = ["other": Session(id: "other", pid: 99, live: true)]
+
+        XCTAssertNil(
+            AppStore.replacementSessionID(
+                missingSessionID: "old",
+                previousSessions: previous,
+                currentSessions: current,
+                missingAt: missingAt,
+                now: missingAt.addingTimeInterval(3)
+            )
+        )
+    }
+
+    func testClearFollowDoesNotSwitchAfterTimeout() {
+        let missingAt = Date(timeIntervalSince1970: 100)
+        let previous = ["old": Session(id: "old", pid: 42, live: true)]
+        let current = ["new": Session(id: "new", pid: 42, live: true)]
+
+        XCTAssertNil(
+            AppStore.replacementSessionID(
+                missingSessionID: "old",
+                previousSessions: previous,
+                currentSessions: current,
+                missingAt: missingAt,
+                now: missingAt.addingTimeInterval(10.1)
+            )
+        )
+    }
+
+    func testCommandRouteDecodesOnSession() throws {
+        let data = Data("{\"id\":\"session-1\",\"pid\":42,\"live\":true,\"commandRoute\":\"mod\"}".utf8)
+        let session = try JSONDecoder.ccKit().decode(Session.self, from: data)
+        XCTAssertEqual(session.commandRoute, "mod")
+    }
+
     func testEveryContractEventUpdatesTheRightState() async throws {
         let app = makeApp()
         let session = Self.session(state: .working)

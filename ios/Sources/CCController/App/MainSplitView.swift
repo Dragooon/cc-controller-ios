@@ -13,7 +13,7 @@ struct MainSplitView: View {
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .alert(
-            "Action failed",
+            actionErrorTitle,
             isPresented: Binding(
                 get: { model.actionError != nil },
                 set: { isPresented in
@@ -102,6 +102,14 @@ struct MainSplitView: View {
         .navigationSplitViewStyle(.balanced)
         .tint(.ccAccent)
         .background(.ccBackground)
+        .onChange(of: model.store.sessions) { _, _ in
+            model.reconcileSessionReplacement()
+        }
+    }
+
+    private var actionErrorTitle: String {
+        if case .commandsUnavailable = model.actionError { return "Commands unavailable" }
+        return "Action failed"
     }
 
     private var connection: SessionsListView.Connection {

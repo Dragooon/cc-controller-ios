@@ -15,6 +15,8 @@ public final class AppStore {
     static let cacheWriteDebounce: Duration = .seconds(30)
     public private(set) var connection: ConnectionState = .offline(lastUpdated: nil, error: nil)
     public private(set) var sessions: [String: Session] = [:]
+    public private(set) var previousSessionsForReplacement: [String: Session] = [:]
+    public private(set) var previousSessionsForReplacementAt: Date?
     public private(set) var approvals: [Approval] = []
     public private(set) var daemon: DaemonInfo?
     public private(set) var apiVersion: Int?
@@ -213,24 +215,40 @@ public final class AppStore {
         to sessionID: String,
         now: Bool = false
     ) async -> Result<Void, ActionError> {
+        switch await sendResult(text: text, attachments: attachments, attachmentThumbnails: attachmentThumbnails, to: sessionID, now: now) {
+        case .success: return .success(())
+        case .failure(let error): return .failure(error)
+        }
+    }
+
+    public func sendResult(
+        text: String,
+        attachments: [String] = [],
+        attachmentThumbnails: [String: Data] = [:],
+        to sessionID: String,
+        now: Bool = false
+    ) async -> Result<MessageResult, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .failure(.invalid("Message text is required.")) }
         let createdAt = clock.now
         do {
             let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
-            queuedNotes[sessionID, default: []].append(
-                QueuedNote(
-                    text: trimmed,
-                    queued: result.queued == true,
-                    createdAt: createdAt,
-                    attachments: attachments,
-                    attachmentThumbnails: attachmentThumbnails
+            let isCommand = attachments.isEmpty && trimmed.hasPrefix("/")
+            if !isCommand {
+                queuedNotes[sessionID, default: []].append(
+                    QueuedNote(
+                        text: trimmed,
+                        queued: result.queued == true,
+                        createdAt: createdAt,
+                        attachments: attachments,
+                        attachmentThumbnails: attachmentThumbnails
+                    )
                 )
-            )
-            if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
-                reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
+                if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
+                    reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
+                }
             }
-            return .success(())
+            return .success(result)
         } catch {
             return .failure(actionError(for: error))
         }
@@ -283,7 +301,7 @@ public final class AppStore {
         startAttachmentUpload(item, sessionID: sessionID)
     }
 
-    public func sendComposer(text: String, to sessionID: String, now: Bool = false) async -> Result<Void, ActionError> {
+    public func sendComposer(text: String, to sessionID: String, now: Bool = false) async -> Result<MessageResult, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let pending = attachments(for: sessionID)
         guard !trimmed.isEmpty || !pending.isEmpty else { return .failure(.invalid("Message text is required.")) }
@@ -313,7 +331,7 @@ public final class AppStore {
                   let data = item.thumbnailData else { return }
             result[name] = data
         }
-        let result = await send(
+        let result = await sendResult(
             text: trimmed.isEmpty ? "See attached." : trimmed,
             attachments: names,
             attachmentThumbnails: thumbnails,
@@ -435,6 +453,10 @@ public final class AppStore {
         try await client.downloadFile(sessionID: sessionID, name: name)
     }
 
+    public func commandModelOptions() async throws -> [CommandModelOption] {
+        try await client.commandModelOptions().models ?? []
+    }
+
     public func whoAmI() async throws -> WhoAmI {
         try await authenticate()
         return try await client.whoAmI()
@@ -463,6 +485,8 @@ public final class AppStore {
         draftCache.clear()
         drafts.removeAll()
         sessions.removeAll()
+        previousSessionsForReplacement.removeAll()
+        previousSessionsForReplacementAt = nil
         approvals.removeAll()
         deciding.removeAll()
         queuedNotes.removeAll()
@@ -655,6 +679,7 @@ public final class AppStore {
             case .transport(let urlError):
                 return urlError.code == .timedOut ? .timeout : .network(urlError.localizedDescription)
             case .http(let status, let message, let code):
+                if code == "no_command_route" { return .commandsUnavailable(message) }
                 if code == "terminal_no_pane" { return .waitingInTerminal }
                 if code == "no_pane" { return .noPane }
                 if code == "already_answered" { return .alreadyAnswered }
@@ -814,7 +839,12 @@ public final class AppStore {
             }
             return (id, session)
         }
-        sessions = Dictionary(uniqueKeysWithValues: liveSessions)
+        let nextSessions = Dictionary(uniqueKeysWithValues: liveSessions)
+        if Set(sessions.keys) != Set(nextSessions.keys) {
+            previousSessionsForReplacement = sessions
+            previousSessionsForReplacementAt = clock.now
+        }
+        sessions = nextSessions
         serverEntryCounts = snapshot.entries ?? [:]
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         for store in openStores.values {
@@ -1002,6 +1032,23 @@ public final class AppStore {
 
     static func gapFetchLimit(missing: Int) -> Int {
         min(400, max(1, missing + 20))
+    }
+
+    public static func replacementSessionID(
+        missingSessionID: String,
+        previousSessions: [String: Session],
+        currentSessions: [String: Session],
+        missingAt: Date,
+        now: Date,
+        window: TimeInterval = 10
+    ) -> String? {
+        guard now.timeIntervalSince(missingAt) >= 0,
+              now.timeIntervalSince(missingAt) <= window,
+              let missing = previousSessions[missingSessionID],
+              let pid = missing.pid else { return nil }
+        return currentSessions.values.first {
+            $0.id != missingSessionID && $0.pid == pid && $0.live == true
+        }?.id
     }
 
     private func refetchStoreGap(_ store: SessionStore, missing: Int) {

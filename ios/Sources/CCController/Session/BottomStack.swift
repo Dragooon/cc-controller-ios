@@ -19,7 +19,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let approvals: [Approval]
     let deciding: Set<String>
     let transcriptHeight: CGFloat
-    let onSend: @MainActor @Sendable (String, Bool) async -> Result<Void, ActionError>
+    let onSend: @MainActor @Sendable (String, Bool) async -> Result<MessageResult, ActionError>
     let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
     let onRemoveAttachment: @MainActor @Sendable (String) -> Void
     let onRetryAttachment: @MainActor @Sendable (String) -> Void
@@ -40,7 +40,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         approvals: [Approval] = [],
         deciding: Set<String> = [],
         transcriptHeight: CGFloat = 0,
-        onSend: @escaping @MainActor @Sendable (String, Bool) async -> Result<Void, ActionError> = { _, _ in .success(()) },
+        onSend: @escaping @MainActor @Sendable (String, Bool) async -> Result<MessageResult, ActionError> = { _, _ in .success(MessageResult()) },
         onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
         onRemoveAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         onRetryAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
@@ -120,8 +120,14 @@ struct BottomStackView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if !filteredCommands.isEmpty {
                     SlashSuggestionsView(commands: filteredCommands) { command in
-                        text = "\(command.command) "
-                        composerFocused = true
+                        if command.command == "/model" {
+                            text = ""
+                            composerFocused = false
+                            configuration.onModel()
+                        } else {
+                            text = "\(command.command) "
+                            composerFocused = true
+                        }
                     }
                 }
 
@@ -229,6 +235,13 @@ struct BottomStackView: View {
         let originalText = text
         let submittedText = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (!submittedText.isEmpty || !configuration.attachments.isEmpty), !isSending else { return }
+        if submittedText == "/model" && configuration.attachments.isEmpty {
+            text = ""
+            fieldResetGeneration += 1
+            composerFocused = false
+            configuration.onModel()
+            return
+        }
         isSending = true
         Task { @MainActor in
             let result = await configuration.onSend(submittedText, now)

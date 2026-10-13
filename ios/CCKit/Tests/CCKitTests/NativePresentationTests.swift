@@ -85,7 +85,8 @@ final class NativePresentationTests: XCTestCase {
     }
 
     func testDefaultSlashCommandsIncludeFullStaticComposerList() {
-        XCTAssertEqual(defaultSlashCommands.map(\.command), ["/compact", "/clear", "/model", "/cost", "/context", "/review", "/init", "/help"])
+        XCTAssertEqual(defaultSlashCommands.map(\.command), ["/clear", "/compact", "/rename", "/model", "/context", "/cost", "/review", "/init"])
+        XCTAssertEqual(defaultSlashCommands.map(\.description), ["Clear conversation", "Summarize context", "Rename session", "Switch model", "Show context use", "Show cost", "Review changes", "Initialize project"])
     }
 
     func testComposerModelNameFormatsKnownModelsAndHidesUnknownValues() {

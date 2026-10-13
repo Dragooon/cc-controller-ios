@@ -42,11 +42,16 @@ struct SessionScreen: View {
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
     @State private var knownApprovalIDs: Set<String> = []
+    @State private var modelSheetPresented = false
+    @State private var commandOutput: CommandOutput?
+    @State private var commandToast: String?
+    @State private var commandToastTask: Task<Void, Never>?
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
     var body: some View {
         screen()
+            .accessibilityIdentifier("session-screen-\(sessionID)")
             .quickLookPreview($filePreviewURL)
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
@@ -64,6 +69,14 @@ struct SessionScreen: View {
         }
         .inspector(isPresented: regularInspectorBinding) {
             inspectorContent()
+        }
+        .overlay(alignment: .bottom) {
+            if let commandToast {
+                CommandToastView(message: commandToast)
+            }
+        }
+        .onDisappear {
+            commandToastTask?.cancel()
         }
         .background {
             // TODO: move to navigationDestination once the split-view detail stack keeps the toolbar (see tasks/native-app.md Open)
@@ -179,6 +192,22 @@ struct SessionScreen: View {
                     ActivitySheet(session: session, onSubagent: openSubagentFromActivity)
                 }
             }
+            .sheet(isPresented: $modelSheetPresented) {
+                if let session = model.store.openSession(sessionID)?.session {
+                    CommandModelSheet(
+                        session: session,
+                        loadModels: { try await model.store.commandModelOptions() },
+                        onSelect: { id in
+                            await send(text: "/model \(id)", to: sessionID, now: false, using: model)
+                        }
+                    )
+                }
+            }
+            .sheet(item: $commandOutput) { output in
+                CommandOutputSheet(command: output.command, output: output.output) {
+                    commandOutput = nil
+                }
+            }
         } else {
             ProgressView()
                 .accessibilityIdentifier("session-loading")
@@ -235,7 +264,7 @@ struct SessionScreen: View {
             onStop: { [model] in
                 await interrupt(sessionID: session.id ?? sessionID, using: model)
             },
-            onModel: { inspectorPresented = true },
+            onModel: { modelSheetPresented = true },
             onAllow: { approval in
                 performApprovalDecision(approval, scope: .once)
             },
@@ -249,12 +278,34 @@ struct SessionScreen: View {
     }
 
     @MainActor
-    private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<Void, ActionError> {
+    private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<MessageResult, ActionError> {
         let result = await model.store.sendComposer(text: text, to: sessionID, now: now)
-        if case .failure(let error) = result, shouldPresentSendError(error) {
-            model.actionError = error
+        switch result {
+        case .success(let message):
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("/"), let output = message.output, !output.isEmpty {
+                commandOutput = CommandOutput(command: trimmed.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? trimmed, output: output)
+            }
+            if trimmed.hasPrefix("/"), message.queued == true {
+                showCommandToast()
+            }
+        case .failure(let error):
+            if shouldPresentSendError(error) {
+                model.actionError = error
+            }
         }
         return result
+    }
+
+    @MainActor
+    private func showCommandToast() {
+        commandToastTask?.cancel()
+        commandToast = "Runs when the current turn ends."
+        commandToastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            commandToast = nil
+        }
     }
 
     private func shouldPresentSendError(_ error: ActionError) -> Bool {
@@ -422,6 +473,7 @@ struct SessionScreen: View {
                             .font(.headline)
                             .lineLimit(1)
                             .accessibilityIdentifier("selected-session-name")
+                            .accessibilityValue(session.id ?? sessionID)
                         SessionSubtitleView(session: session)
                             .font(.caption)
                             .foregroundStyle(.ccSecondary)

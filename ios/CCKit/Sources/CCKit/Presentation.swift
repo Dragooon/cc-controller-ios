@@ -78,14 +78,14 @@ public struct SlashCommandDefinition: Sendable, Equatable {
 }
 
 public let defaultSlashCommands: [SlashCommandDefinition] = [
+    SlashCommandDefinition(command: "/clear", description: "Clear conversation"),
     SlashCommandDefinition(command: "/compact", description: "Summarize context"),
-    SlashCommandDefinition(command: "/clear", description: "Clear session"),
-    SlashCommandDefinition(command: "/model", description: "Choose model"),
+    SlashCommandDefinition(command: "/rename", description: "Rename session"),
+    SlashCommandDefinition(command: "/model", description: "Switch model"),
+    SlashCommandDefinition(command: "/context", description: "Show context use"),
     SlashCommandDefinition(command: "/cost", description: "Show cost"),
-    SlashCommandDefinition(command: "/context", description: "Show context"),
     SlashCommandDefinition(command: "/review", description: "Review changes"),
-    SlashCommandDefinition(command: "/init", description: "Initialize project"),
-    SlashCommandDefinition(command: "/help", description: "Show help")
+    SlashCommandDefinition(command: "/init", description: "Initialize project")
 ]
 
 public struct ToolTally: Codable, Sendable, Equatable {

@@ -10,6 +10,7 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
     case alreadyAnswered
     case waitingInTerminal
     case noPane
+    case commandsUnavailable(String)
     case invalid(String)
     case tooLarge(fileName: String, limitBytes: Int)
     case network(String)
@@ -22,6 +23,7 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
         case .alreadyAnswered: "This approval was already answered or has expired."
         case .waitingInTerminal: "This approval is waiting in the terminal and cannot be answered here."
         case .noPane: "This session has no tmux pane for that action."
+        case .commandsUnavailable(let message): message
         case .invalid(let message): message
         case .tooLarge: "Too large (max 25 MB)"
         case .network(let message): "The Mac could not be reached: \(message)"

@@ -72,6 +72,9 @@ final class AppModel {
     private var hasAutoPromptedLockScreen = false
     private var deviceName = "iPhone"
     private var isSettingsVisible = false
+    private var observedSessions: [String: Session] = [:]
+    private var pendingSessionReplacement: (missingID: String, missingAt: Date)?
+    private var sessionReplacementWaitTask: Task<Void, Never>?
 
     init(
         arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -170,6 +173,8 @@ final class AppModel {
             devices: { try await store.pairedDevices() },
             interval: probeInterval
         )
+        observedSessions = store.sessions
+        observeSessionReplacement()
         observeApprovalCount()
         Task { @MainActor [weak self] in
             await self?.updateBadgeCount()
@@ -573,6 +578,68 @@ final class AppModel {
         case .inactive: .inactive
         case .background: .background
         @unknown default: .inactive
+        }
+    }
+
+    private func observeSessionReplacement() {
+        withObservationTracking {
+            _ = store.sessions
+            _ = selectedSessionID
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                reconcileSessionReplacement()
+                observeSessionReplacement()
+            }
+        }
+    }
+
+    func reconcileSessionReplacement() {
+        defer { observedSessions = store.sessions }
+        guard let selectedSessionID else {
+            pendingSessionReplacement = nil
+            sessionReplacementWaitTask?.cancel()
+            sessionReplacementWaitTask = nil
+            return
+        }
+        guard store.sessions[selectedSessionID] == nil else {
+            pendingSessionReplacement = nil
+            sessionReplacementWaitTask?.cancel()
+            sessionReplacementWaitTask = nil
+            return
+        }
+        if pendingSessionReplacement == nil,
+           observedSessions[selectedSessionID] != nil || store.previousSessionsForReplacement[selectedSessionID] != nil {
+            pendingSessionReplacement = (selectedSessionID, store.previousSessionsForReplacementAt ?? Date())
+            sessionReplacementWaitTask = Task { @MainActor [weak self] in
+                for _ in 0..<100 {
+                    try? await Task.sleep(for: .milliseconds(100))
+                    guard !Task.isCancelled, let self else { return }
+                    reconcileSessionReplacement()
+                    guard self.pendingSessionReplacement != nil else { return }
+                }
+            }
+        }
+        guard let pendingSessionReplacement else { return }
+        if Date().timeIntervalSince(pendingSessionReplacement.missingAt) > 10 {
+            self.pendingSessionReplacement = nil
+            sessionReplacementWaitTask = nil
+            return
+        }
+        let previousSessions = store.previousSessionsForReplacement[pendingSessionReplacement.missingID] == nil
+            ? observedSessions
+            : store.previousSessionsForReplacement
+        if let replacement = AppStore.replacementSessionID(
+            missingSessionID: pendingSessionReplacement.missingID,
+            previousSessions: previousSessions,
+            currentSessions: store.sessions,
+            missingAt: pendingSessionReplacement.missingAt,
+            now: Date()
+        ) {
+            self.selectedSessionID = replacement
+            self.pendingSessionReplacement = nil
+            sessionReplacementWaitTask?.cancel()
+            sessionReplacementWaitTask = nil
         }
     }
 
