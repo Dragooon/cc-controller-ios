@@ -40,7 +40,7 @@ private struct WorkingBarMockConfiguration {
             initialText: composerText,
             placeholder: "Message",
             isWorking: session.state == .working,
-            hasTmuxPane: true
+            canInterrupt: true
         )
     }
 }

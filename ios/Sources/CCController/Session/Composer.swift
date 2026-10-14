@@ -24,7 +24,7 @@ struct ComposerConfiguration: Equatable {
     let modelName: String?
     let placeholder: String
     let isWorking: Bool
-    let hasTmuxPane: Bool
+    let canInterrupt: Bool
     let focusesOnAppear: Bool
     var isSending: Bool
     var hasAttachments: Bool
@@ -33,7 +33,7 @@ struct ComposerConfiguration: Equatable {
         lhs.modelName == rhs.modelName
             && lhs.placeholder == rhs.placeholder
             && lhs.isWorking == rhs.isWorking
-            && lhs.hasTmuxPane == rhs.hasTmuxPane
+            && lhs.canInterrupt == rhs.canInterrupt
             && lhs.isSending == rhs.isSending
             && lhs.hasAttachments == rhs.hasAttachments
     }
@@ -44,7 +44,7 @@ struct ComposerConfiguration: Equatable {
         modelName: String? = "Fable 5.1",
         placeholder: String = "Message",
         isWorking: Bool = false,
-        hasTmuxPane: Bool = false,
+        canInterrupt: Bool = false,
         focusesOnAppear: Bool = false,
         isSending: Bool = false,
         hasAttachments: Bool = false
@@ -54,7 +54,7 @@ struct ComposerConfiguration: Equatable {
         self.modelName = modelName
         self.placeholder = placeholder
         self.isWorking = isWorking
-        self.hasTmuxPane = hasTmuxPane
+        self.canInterrupt = canInterrupt
         self.focusesOnAppear = focusesOnAppear
         self.isSending = isSending
         self.hasAttachments = hasAttachments
@@ -211,7 +211,7 @@ struct ComposerView: View, Equatable {
                     modelButton
                 }
                 Spacer(minLength: 0)
-                if configuration.isWorking, configuration.hasTmuxPane {
+                if configuration.isWorking, configuration.canInterrupt {
                     stopButton
                 }
                 sendButton
@@ -304,7 +304,7 @@ struct ComposerView: View, Equatable {
         .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")
         .accessibilityIdentifier(configuration.isWorking ? "composer-queue" : "composer-send")
 
-        if configuration.isWorking {
+        if configuration.isWorking, configuration.canInterrupt {
             button.contextMenu {
                 Button("Send now", systemImage: "paperplane.fill", action: onSendNow)
             }

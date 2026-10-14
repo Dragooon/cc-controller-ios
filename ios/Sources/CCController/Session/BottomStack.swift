@@ -210,7 +210,7 @@ struct BottomStackView: View {
             modelName: configuration.composer.modelName,
             placeholder: configuration.composer.placeholder,
             isWorking: configuration.composer.isWorking,
-            hasTmuxPane: configuration.composer.hasTmuxPane,
+            canInterrupt: configuration.composer.canInterrupt,
             focusesOnAppear: configuration.composer.focusesOnAppear,
             isSending: isSending,
             hasAttachments: !configuration.attachments.isEmpty

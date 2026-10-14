@@ -179,6 +179,30 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 10), "Composer retained leading whitespace after successful send")
     }
 
+    func testStopFromWorkingModSession() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "composer-stop-mod")
+            attach(named: "composer-stop-mod")
+            app.terminate()
+        }
+
+        openSession(id: "session-dune-part-three-imax-tickets", in: app)
+        let field = composerField(in: app)
+        XCTAssertTrue(field.waitForPlaceholder("Queue a message", timeout: 45), "Dune fixture session did not become working")
+
+        let stop = app.buttons["composer-stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 10), "Stop button did not load for a working mod session")
+        stop.tap()
+
+        let requests = try await waitForKeyRequests(timeout: 10)
+        XCTAssertTrue(
+            requests.contains { $0.sessionID == "dune-part-three-imax-tickets" && $0.key == "escape" },
+            "Tapping Stop did not send escape: \(requests)"
+        )
+        XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 1), "An idle Stop response showed an error alert")
+    }
+
     func testQueueWhileWorking() async throws {
         let app = launchFixture()
         defer {
@@ -342,6 +366,20 @@ final class ComposerFlowTests: XCTestCase {
         }
     }
 
+    private func waitForKeyRequests(timeout: TimeInterval) async throws -> [FixtureKeyRequest] {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let base = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+            guard let url = URL(string: "\(base)/fixture/key-requests") else { throw XCTSkip("Fixture control URL was invalid") }
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw NSError(domain: "ComposerFlow", code: 2) }
+            let result = try JSONDecoder().decode(FixtureKeyRequests.self, from: data)
+            if !result.requests.isEmpty { return result.requests }
+            try await Task.sleep(for: .milliseconds(100))
+        } while Date() < deadline
+        return []
+    }
+
     private func launchFixture() -> XCUIApplication {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
@@ -391,6 +429,17 @@ final class ComposerFlowTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
     }
+}
+
+private struct FixtureKeyRequests: Decodable {
+    let requests: [FixtureKeyRequest]
+}
+
+private struct FixtureKeyRequest: Decodable, CustomStringConvertible {
+    let sessionID: String
+    let key: String
+
+    var description: String { "FixtureKeyRequest(sessionID: \(sessionID), key: \(key))" }
 }
 
 @MainActor

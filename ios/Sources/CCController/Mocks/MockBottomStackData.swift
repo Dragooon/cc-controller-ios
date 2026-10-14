@@ -85,7 +85,7 @@ enum MockBottomStackData {
         composer: ComposerConfiguration(
             placeholder: "Queue a message",
             isWorking: true,
-            hasTmuxPane: true
+            canInterrupt: true
         ),
         statusSegments: statusSegments,
         activitySession: workingSession
@@ -95,7 +95,7 @@ enum MockBottomStackData {
         composer: ComposerConfiguration(
             placeholder: "Queue a message",
             isWorking: true,
-            hasTmuxPane: true
+            canInterrupt: true
         ),
         statusSegments: statusSegments,
         activitySession: activitySession

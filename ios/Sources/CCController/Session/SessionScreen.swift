@@ -239,7 +239,7 @@ struct SessionScreen: View {
                 modelName: composerModelName(modelName),
                 placeholder: current.state == .working ? "Queue a message" : "Message",
                 isWorking: current.state == .working,
-                hasTmuxPane: current.tmuxPane?.isEmpty == false
+                canInterrupt: current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
