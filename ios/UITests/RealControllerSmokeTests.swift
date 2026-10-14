@@ -126,12 +126,14 @@ final class RealControllerSmokeTests: XCTestCase {
             firstRowMilliseconds = nil
         }
 
-        let bar = app.descendants(matching: .any).matching(identifier: "working-bar").firstMatch
-        let barState = bar.exists && bar.isHittable ? "present" : "absent"
+        let subtitle = app.descendants(matching: .any).matching(identifier: "selected-session-subtitle").firstMatch
+        let subtitleText = subtitle.exists ? subtitle.label : ""
+        let hasActivityIndicator = subtitle.exists && (subtitleText.hasPrefix("working") || subtitleText.hasPrefix("background"))
+        let barState = hasActivityIndicator ? "present" : "absent"
         var warning: String?
         if session.state == "working" && barState == "absent" {
-            warning = "working-state-bar-absent"
-        } else if session.state != "working" && barState == "present" {
+            warning = "working-indicator-absent"
+        } else if session.state != "working" && barState == "present" && !subtitleText.hasPrefix("background") {
             warning = "session-state-changed-to-working"
         }
         let passed = titleLoaded && firstRowMilliseconds != nil && nonEmpty && pinned
