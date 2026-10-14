@@ -720,7 +720,7 @@ public final class AppStore {
         }
     }
 
-    private func actionError(for error: Error, fileName: String? = nil, limitBytes: Int? = nil) -> ActionError {
+    public func actionError(for error: Error, fileName: String? = nil, limitBytes: Int? = nil) -> ActionError {
         if let apiError = error as? APIError {
             switch apiError {
             case .unauthorized: return .unauthorized
@@ -742,7 +742,7 @@ public final class AppStore {
                 if message.localizedCaseInsensitiveContains("no tmux pane") || (status == 409 && message.localizedCaseInsensitiveContains("pane")) { return .noPane }
                 return .server(status: status, message: message)
             case .rateLimited: return .server(status: 429, message: "Too many requests")
-            case .decoding(let message): return .server(status: 0, message: message)
+            case .decoding(let message): return .unreadable(message)
             }
         }
         if let urlError = error as? URLError {
@@ -846,15 +846,19 @@ public final class AppStore {
                     reconnectSince = nil
                     return started
                 } catch {
-                    connection = .unauthorized
+                    if let retryError = error as? APIError, case .decoding = retryError {
+                        connection = connectionState(for: retryError)
+                    } else {
+                        connection = .unauthorized
+                    }
                     started = false
                     return false
                 }
             }
-            connection = .offline(lastUpdated: lastUpdated, error: error.localizedDescription)
+            connection = connectionState(for: error)
             return started
         } catch {
-            connection = .offline(lastUpdated: lastUpdated, error: error.localizedDescription)
+            connection = connectionState(for: error)
             return started
         }
     }
@@ -1254,14 +1258,21 @@ public final class AppStore {
         cacheChangedStoreKeys = cacheChangedStoreKeys.filter { validKeys.contains($0) }
     }
 
+    private func connectionState(for error: Error) -> ConnectionState {
+        let message = error.localizedDescription
+        if let apiError = error as? APIError, case .decoding = apiError {
+            return .offlineUnreadable(lastUpdated: lastUpdated, error: message)
+        }
+        return .offline(lastUpdated: lastUpdated, error: message)
+    }
+
     private func handleConnectionError(_ error: Error) {
         if let apiError = error as? APIError, apiError == .unauthorized {
             connection = .unauthorized
             started = false
             return
         }
-        let message = error.localizedDescription
-        connection = .offline(lastUpdated: lastUpdated, error: message)
+        connection = connectionState(for: error)
         started = false
     }
 

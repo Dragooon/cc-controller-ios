@@ -4,6 +4,16 @@ import XCTest
 
 @MainActor
 final class ActionTests: XCTestCase {
+    func testDecodingErrorsMapToUnreadableActionErrors() {
+        let app = makeApp()
+        let detail = "entries[12].paste: Expected to decode Dictionary<String, Any> but found an array instead."
+        let mapped = app.actionError(for: APIError.decoding(detail))
+
+        XCTAssertEqual(mapped, .unreadable(detail))
+        XCTAssertEqual(mapped.userMessage, "The Mac sent a reply this app couldn't read: \(detail)")
+        XCTAssertTrue(app.actionError(for: APIError.transport(URLError(.notConnectedToInternet))).userMessage.contains("could not be reached"))
+    }
+
     func testDecisionSuccessSendNowInterruptModeAndUpload() async throws {
         ActionURLProtocol.handler = { request in
             switch request.url?.path {

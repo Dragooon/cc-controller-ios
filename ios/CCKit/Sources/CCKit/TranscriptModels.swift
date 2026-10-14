@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let transcriptLogger = Logger(subsystem: "com.example.cc-controller", category: "transcript")
 
 public struct Paste: Codable, Sendable, Equatable { public var lines: Int?; public var text: String?; public init(lines: Int? = nil, text: String? = nil) { self.lines = lines; self.text = text } }
 
@@ -91,5 +94,64 @@ private extension JSONValue {
     var intValue: Int? { if case .number(let value) = self { return Int(value) }; return nil }
 }
 
-public struct TranscriptPage: Codable, Sendable, Equatable { public var entries:[TranscriptEntry];public var total:Int;public var hasMore:Bool;public init(entries:[TranscriptEntry],total:Int,hasMore:Bool){self.entries = entries;self.total = total;self.hasMore = hasMore} }
+public func decodeTranscriptEntries(from decoder: Decoder, sessionID: String? = nil) throws -> [TranscriptEntry] {
+    let container = try decoder.singleValueContainer()
+    let rawEntries = try container.decode([JSONValue].self)
+    return decodeTranscriptEntries(rawEntries, sessionID: sessionID ?? decoder.userInfo[.transcriptSessionID] as? String)
+}
+
+public func decodeTranscriptEntries(from data: Data, sessionID: String? = nil) throws -> [TranscriptEntry] {
+    let rawEntries = try JSONDecoder.ccKit().decode([JSONValue].self, from: data)
+    return decodeTranscriptEntries(rawEntries, sessionID: sessionID)
+}
+
+private func decodeTranscriptEntries(_ rawEntries: [JSONValue], sessionID: String?) -> [TranscriptEntry] {
+    rawEntries.enumerated().map { index, raw in
+        do {
+            let data = try JSONEncoder.ccKit().encode(raw)
+            return try JSONDecoder.ccKit().decode(TranscriptEntry.self, from: data)
+        } catch {
+            let kind = raw.objectValue?["kind"]?.stringValue ?? "unknown"
+            let path = decodingErrorPath(error)
+            transcriptLogger.error("malformed transcript entry session=\(sessionID ?? "unknown", privacy: .public) index=\(index) kind=\(kind, privacy: .public) path=\(path, privacy: .public)")
+            return .unknown(kind: "malformed", raw: raw)
+        }
+    }
+}
+
+private func decodingErrorPath(_ error: Error) -> String {
+    guard let decodingError = error as? DecodingError else { return "unknown" }
+    let context: DecodingError.Context
+    switch decodingError {
+    case .typeMismatch(_, let value), .valueNotFound(_, let value), .keyNotFound(_, let value), .dataCorrupted(let value):
+        context = value
+    @unknown default:
+        return "unknown"
+    }
+    guard !context.codingPath.isEmpty else { return "root" }
+    return context.codingPath.map { key in
+        key.intValue.map { "[\($0)]" } ?? key.stringValue
+    }.joined(separator: ".")
+}
+
+public struct TranscriptPage: Codable, Sendable, Equatable {
+    public var entries: [TranscriptEntry]
+    public var total: Int
+    public var hasMore: Bool
+
+    public init(entries: [TranscriptEntry], total: Int, hasMore: Bool) {
+        self.entries = entries
+        self.total = total
+        self.hasMore = hasMore
+    }
+
+    private enum CodingKeys: String, CodingKey { case entries, total, hasMore }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try decodeTranscriptEntries(from: container.superDecoder(forKey: .entries), sessionID: decoder.userInfo[.transcriptSessionID] as? String)
+        total = try container.decode(Int.self, forKey: .total)
+        hasMore = try container.decode(Bool.self, forKey: .hasMore)
+    }
+}
 public struct Decision: Codable, Sendable, Equatable { public var decided:Bool?;public var sessionId:String?;public init(decided:Bool? = nil,sessionId:String? = nil){self.decided = decided;self.sessionId = sessionId} }

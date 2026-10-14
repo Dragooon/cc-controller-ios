@@ -9,6 +9,29 @@ final class DiskCacheTests: XCTestCase {
         XCTAssertEqual(debounce, .seconds(30))
     }
 
+    func testTranscriptFileKeepsMalformedKnownKindBetweenValidEntries() async throws {
+        let directory = temporaryDirectory()
+        let cache = DiskCache(directory: directory)
+        let state = DiskCacheState(
+            bootstrap: Bootstrap(state: StateSnapshot(sessions: [Session(id: "session-1")])),
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        await cache.saveNow(state, changedTranscripts: ["session-1": []], retainedTranscriptKeys: ["session-1"])
+        let url = await cache.transcriptFileURL(for: "session-1")
+        try Data("""
+        [{"kind":"assistant","id":"before","text":"Before"},{"kind":"prompt","id":"bad","paste":[]},{"kind":"assistant","id":"after","text":"After"}]
+        """.utf8).write(to: url, options: .atomic)
+
+        let loaded = try await cache.load()
+        let entries = try XCTUnwrap(loaded?.transcripts["session-1"])
+
+        XCTAssertEqual(entries.count, 3)
+        XCTAssertEqual(entries.first?.id, "before")
+        XCTAssertEqual(entries.last?.id, "after")
+        guard case .unknown(let kind, _) = entries[1] else { return XCTFail("Expected malformed entry to be unknown") }
+        XCTAssertEqual(kind, "malformed")
+    }
+
     func testOnlyChangedTranscriptsAreWrittenAndUnopenedTranscriptSurvives() async throws {
         let directory = temporaryDirectory()
         let cache = DiskCache(directory: directory)

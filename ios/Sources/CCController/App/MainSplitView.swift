@@ -174,6 +174,8 @@ struct MainSplitView: View {
             return .reconnecting
         case .offline(let lastUpdated, _):
             return .offline(updatedAt: lastUpdated ?? model.store.lastUpdated ?? .now)
+        case .offlineUnreadable(let lastUpdated, _):
+            return .unreadable(updatedAt: lastUpdated ?? model.store.lastUpdated ?? .now)
         case .unauthorized:
             return .offline(updatedAt: model.store.lastUpdated ?? .now)
         }

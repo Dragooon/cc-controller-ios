@@ -18,7 +18,7 @@ struct SubagentScreen: View {
                 }
             } catch {
                 guard !isTranscriptCancellation(error) else { return }
-                model.actionError = .network(error.localizedDescription)
+                model.actionError = model.store.actionError(for: error)
             }
         }
         .onDisappear {

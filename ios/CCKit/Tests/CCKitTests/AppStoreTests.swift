@@ -772,6 +772,22 @@ final class AppStoreTests: XCTestCase {
         app.suspend()
     }
 
+    func testBootstrapDecodeFailureUsesUnreadableOfflineState() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" {
+                return URLProtocolStub.json(Data("{\"state\":{\"sessions\":[{\"id\":123}]}}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.start()
+        try await waitUntil {
+            if case .offlineUnreadable(_, let error) = app.connection { return error?.contains("state.sessions[0].id") == true }
+            return false
+        }
+        app.suspend()
+    }
+
     func testUnauthorizedBootstrapIsExplicitOfflineState() async throws {
         URLProtocolStub.handler = { _ in URLProtocolStub.json(401, body: Data("{\"error\":\"Authentication required\"}".utf8)) }
         let app = makeApp()

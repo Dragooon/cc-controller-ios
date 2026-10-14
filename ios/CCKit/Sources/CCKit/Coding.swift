@@ -1,5 +1,30 @@
 import Foundation
 
+extension CodingUserInfoKey {
+    static let transcriptSessionID = CodingUserInfoKey(rawValue: "cckit.transcriptSessionID")!
+}
+
+public func decodingErrorDetail(_ error: Error) -> String {
+    guard let decodingError = error as? DecodingError else { return error.localizedDescription }
+    let context: DecodingError.Context
+    switch decodingError {
+    case .typeMismatch(_, let value), .valueNotFound(_, let value), .keyNotFound(_, let value), .dataCorrupted(let value):
+        context = value
+    @unknown default:
+        return error.localizedDescription
+    }
+    let path = context.codingPath.reduce(into: "") { result, key in
+        if let index = key.intValue {
+            result += "[\(index)]"
+        } else if result.isEmpty {
+            result = key.stringValue
+        } else {
+            result += ".\(key.stringValue)"
+        }
+    }
+    return path.isEmpty ? context.debugDescription : "\(path): \(context.debugDescription)"
+}
+
 public enum CCDateCoding {
     public static let decoder: JSONDecoder.DateDecodingStrategy = .custom { decoder in
         let container = try decoder.singleValueContainer()

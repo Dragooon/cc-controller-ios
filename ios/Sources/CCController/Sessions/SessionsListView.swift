@@ -5,11 +5,12 @@ struct SessionsListView: View {
     enum Connection: Equatable {
         case live
         case offline(updatedAt: Date)
+        case unreadable(updatedAt: Date)
         case reconnecting
 
         var isFrozen: Bool {
             switch self {
-            case .offline, .reconnecting: true
+            case .offline, .unreadable, .reconnecting: true
             case .live: false
             }
         }
@@ -264,6 +265,15 @@ private struct ConnectionCapsule: View {
                 Button("Retry", action: onRetry)
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.glass)
+            case .unreadable:
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.ccAccent)
+                Text("Can't read the Mac's reply · updated \(formatTime(.now, timeZone: Self.sydney, locale: Self.english))")
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Button("Retry", action: onRetry)
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.glass)
             case .reconnecting:
                 ProgressView()
                     .controlSize(.small)
@@ -289,6 +299,7 @@ private struct ConnectionCapsule: View {
     private var statusLabel: String {
         switch connection {
         case .offline: "Can't reach the Mac"
+        case .unreadable: "Can't read the Mac's reply"
         case .reconnecting: "Reconnecting"
         case .live: "Connected"
         }

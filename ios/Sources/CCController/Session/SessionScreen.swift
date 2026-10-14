@@ -105,7 +105,7 @@ struct SessionScreen: View {
                 try await sessionStore.loadInitial()
             } catch {
                 guard !isTranscriptCancellation(error) else { return }
-                model.actionError = .network(error.localizedDescription)
+                model.actionError = model.store.actionError(for: error)
             }
         }
         .onAppear {

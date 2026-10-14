@@ -65,7 +65,12 @@ public actor APIClient {
         var query: [URLQueryItem] = []
         if let after { query.append(URLQueryItem(name: "after", value: String(after))) }
         if let agent { query.append(URLQueryItem(name: "agent", value: agent)) }
-        return try await get("/api/sessions/\(pathComponent(sessionID))/transcript", query: query)
+        let response: TranscriptEntriesResponse = try await get(
+            "/api/sessions/\(pathComponent(sessionID))/transcript",
+            query: query,
+            sessionID: sessionID
+        )
+        return response.entries
     }
 
     public func agentTranscript(sessionID: String, agentID: String, after: Int? = nil) async throws -> [TranscriptEntry] {
@@ -82,7 +87,11 @@ public actor APIClient {
             let entries = try await transcript(sessionID: sessionID, agent: agent)
             return TranscriptPage(entries: entries, total: entries.count, hasMore: false)
         }
-        return try await get("/api/sessions/\(pathComponent(sessionID))/transcript", query: query)
+        return try await get(
+            "/api/sessions/\(pathComponent(sessionID))/transcript",
+            query: query,
+            sessionID: sessionID
+        )
     }
 
     public func message(sessionID: String, text: String, files: [String] = [], now: Bool = false) async throws -> MessageResult {
@@ -153,8 +162,8 @@ public actor APIClient {
 
     public func reportAuthenticationFailure() { authenticationContinuation.yield(()) }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
-        try await request(path, method: "GET", query: query)
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], sessionID: String? = nil) async throws -> T {
+        try await request(path, method: "GET", query: query, sessionID: sessionID)
     }
 
     private func post<T: Encodable, U: Decodable>(_ path: String, body: T, staleDecision: Bool = false) async throws -> U {
@@ -171,7 +180,8 @@ public actor APIClient {
         contentType: String? = nil,
         staleDecision: Bool = false,
         timeoutInterval: TimeInterval? = nil,
-        delegate: (any URLSessionTaskDelegate)? = nil
+        delegate: (any URLSessionTaskDelegate)? = nil,
+        sessionID: String? = nil
     ) async throws -> T {
         let (data, _) = try await requestData(
             path,
@@ -184,14 +194,16 @@ public actor APIClient {
             delegate: delegate
         )
         do {
-            let value = try JSONDecoder.ccKit().decode(T.self, from: data)
+            let decoder = JSONDecoder.ccKit()
+            if let sessionID { decoder.userInfo[.transcriptSessionID] = sessionID }
+            let value = try decoder.decode(T.self, from: data)
             #if DEBUG
             if path.contains("/transcript") {
                 await TranscriptPerformance.shared.markDecodeDone()
             }
             #endif
             return value
-        } catch { throw APIError.decoding(error.localizedDescription) }
+        } catch { throw APIError.decoding(decodingErrorDetail(error)) }
     }
 
     private func requestData(
@@ -227,7 +239,7 @@ public actor APIClient {
             return (data, http)
         } catch let error as APIError { throw error }
         catch let error as URLError { throw APIError.transport(error) }
-        catch { throw APIError.decoding(error.localizedDescription) }
+        catch { throw APIError.decoding(decodingErrorDetail(error)) }
     }
 
     private func mappedError(status: Int, data: Data, staleDecision: Bool) async -> APIError {
@@ -276,6 +288,14 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
         totalBytesExpectedToSend: Int64
     ) {
         handler(totalBytesSent, totalBytesExpectedToSend)
+    }
+}
+
+private struct TranscriptEntriesResponse: Decodable {
+    let entries: [TranscriptEntry]
+
+    init(from decoder: Decoder) throws {
+        entries = try decodeTranscriptEntries(from: decoder)
     }
 }
 

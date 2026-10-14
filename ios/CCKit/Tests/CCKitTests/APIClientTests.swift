@@ -3,6 +3,36 @@ import XCTest
 @testable import CCKit
 
 final class APIClientTests: XCTestCase {
+    func testLegacyTranscriptArrayKeepsMalformedKnownKindBetweenValidEntries() async throws {
+        StubURLProtocol.handler = { _ in
+            StubURLProtocol.response(status: 200, body: Data("""
+            [{"kind":"assistant","id":"before","text":"Before"},{"kind":"prompt","id":"bad","paste":[]},{"kind":"assistant","id":"after","text":"After"}]
+            """.utf8))
+        }
+
+        let entries = try await makeClient().transcript(sessionID: "session-1")
+
+        XCTAssertEqual(entries.count, 3)
+        XCTAssertEqual(entries.first?.id, "before")
+        XCTAssertEqual(entries.last?.id, "after")
+        guard case .unknown(let kind, _) = entries[1] else { return XCTFail("Expected malformed entry to be unknown") }
+        XCTAssertEqual(kind, "malformed")
+    }
+
+    func testAPIErrorDecodingDetailContainsCodingPath() async throws {
+        StubURLProtocol.handler = { _ in
+            StubURLProtocol.response(status: 200, body: Data("{\"sessions\":[{\"id\":123}]}".utf8))
+        }
+
+        do {
+            _ = try await makeClient().state()
+            XCTFail("Expected decoding failure")
+        } catch let error as APIError {
+            guard case .decoding(let detail) = error else { return XCTFail("Expected decoding error") }
+            XCTAssertTrue(detail.contains("sessions[0].id"), detail)
+        }
+    }
+
     func testRequestsBearerAndMapsErrors() async throws {
         StubURLProtocol.handler = { request in
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")

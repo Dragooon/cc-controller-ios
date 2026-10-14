@@ -3,6 +3,20 @@ import XCTest
 @testable import CCKit
 
 final class TranscriptModelsTests: XCTestCase {
+    func testTranscriptPageKeepsMalformedKnownKindBetweenValidEntries() throws {
+        let data = Data("""
+        {"entries":[{"kind":"assistant","id":"before","text":"Before"},{"kind":"prompt","id":"bad","paste":[]},{"kind":"assistant","id":"after","text":"After"}],"total":3,"hasMore":false}
+        """.utf8)
+
+        let page = try JSONDecoder.ccKit().decode(TranscriptPage.self, from: data)
+
+        XCTAssertEqual(page.entries.count, 3)
+        XCTAssertEqual(page.entries.first?.id, "before")
+        XCTAssertEqual(page.entries.last?.id, "after")
+        guard case .unknown(let kind, _) = page.entries[1] else { return XCTFail("Expected malformed entry to be unknown") }
+        XCTAssertEqual(kind, "malformed")
+    }
+
     func testEveryTranscriptKindRoundTripsWithKindField() throws {
         let entries: [(String, TranscriptEntry)] = [
             ("prompt", .prompt(PromptEntry(id: "prompt", text: "Ask"))),

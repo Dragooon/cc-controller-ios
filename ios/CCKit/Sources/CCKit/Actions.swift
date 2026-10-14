@@ -14,6 +14,7 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
     case invalid(String)
     case tooLarge(fileName: String, limitBytes: Int)
     case network(String)
+    case unreadable(String)
     case timeout
     case server(status: Int, message: String)
 
@@ -27,6 +28,7 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
         case .invalid(let message): message
         case .tooLarge: "Too large (max 25 MB)"
         case .network(let message): "The Mac could not be reached: \(message)"
+        case .unreadable(let message): "The Mac sent a reply this app couldn't read: \(message)"
         case .timeout: "The Mac did not finish that action in time."
         case .server(let status, let message): "The Mac returned HTTP \(status): \(message)"
         }

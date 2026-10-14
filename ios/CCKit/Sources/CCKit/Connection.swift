@@ -26,5 +26,6 @@ public enum ConnectionState: Sendable, Equatable {
     case live
     case reconnecting(attempt: Int, since: Date)
     case offline(lastUpdated: Date?, error: String?)
+    case offlineUnreadable(lastUpdated: Date?, error: String?)
     case unauthorized
 }
