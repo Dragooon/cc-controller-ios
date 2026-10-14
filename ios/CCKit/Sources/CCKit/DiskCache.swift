@@ -22,10 +22,14 @@ public struct DiskCacheState: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         bootstrap = try container.decode(Bootstrap.self, forKey: .bootstrap)
-        let rawTranscripts = try container.decodeIfPresent([String: JSONValue].self, forKey: .transcripts) ?? [:]
-        transcripts = try rawTranscripts.reduce(into: [String: [TranscriptEntry]]()) { result, item in
-            let data = try JSONEncoder.ccKit().encode(item.value)
-            result[item.key] = try decodeTranscriptEntries(from: data, sessionID: item.key)
+        do {
+            transcripts = try container.decodeIfPresent([String: [TranscriptEntry]].self, forKey: .transcripts) ?? [:]
+        } catch {
+            let rawTranscripts = try container.decodeIfPresent([String: JSONValue].self, forKey: .transcripts) ?? [:]
+            transcripts = try rawTranscripts.reduce(into: [String: [TranscriptEntry]]()) { result, item in
+                let data = try JSONEncoder.ccKit().encode(item.value)
+                result[item.key] = try decodeTranscriptEntries(from: data, sessionID: item.key)
+            }
         }
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         loadedLegacyFormat = container.contains(.transcripts)

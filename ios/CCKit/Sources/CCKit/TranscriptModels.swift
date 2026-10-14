@@ -96,13 +96,22 @@ private extension JSONValue {
 
 public func decodeTranscriptEntries(from decoder: Decoder, sessionID: String? = nil) throws -> [TranscriptEntry] {
     let container = try decoder.singleValueContainer()
-    let rawEntries = try container.decode([JSONValue].self)
-    return decodeTranscriptEntries(rawEntries, sessionID: sessionID ?? decoder.userInfo[.transcriptSessionID] as? String)
+    do {
+        return try container.decode([TranscriptEntry].self)
+    } catch {
+        let rawEntries = try container.decode([JSONValue].self)
+        return decodeTranscriptEntries(rawEntries, sessionID: sessionID ?? decoder.userInfo[.transcriptSessionID] as? String)
+    }
 }
 
 public func decodeTranscriptEntries(from data: Data, sessionID: String? = nil) throws -> [TranscriptEntry] {
-    let rawEntries = try JSONDecoder.ccKit().decode([JSONValue].self, from: data)
-    return decodeTranscriptEntries(rawEntries, sessionID: sessionID)
+    let decoder = JSONDecoder.ccKit()
+    do {
+        return try decoder.decode([TranscriptEntry].self, from: data)
+    } catch {
+        let rawEntries = try decoder.decode([JSONValue].self, from: data)
+        return decodeTranscriptEntries(rawEntries, sessionID: sessionID)
+    }
 }
 
 private func decodeTranscriptEntries(_ rawEntries: [JSONValue], sessionID: String?) -> [TranscriptEntry] {

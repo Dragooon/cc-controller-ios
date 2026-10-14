@@ -256,19 +256,19 @@ private struct ConnectionCapsule: View {
     var body: some View {
         HStack(spacing: 8) {
             switch connection {
-            case .offline:
+            case .offline(let updatedAt):
                 Image(systemName: "wifi.exclamationmark")
                     .foregroundStyle(.ccAccent)
-                Text("Can't reach the Mac · updated \(formatTime(.now, timeZone: Self.sydney, locale: Self.english))")
+                Text("Can't reach the Mac · updated \(formatTime(updatedAt, timeZone: Self.sydney, locale: Self.english))")
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Button("Retry", action: onRetry)
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.glass)
-            case .unreadable:
+            case .unreadable(let updatedAt):
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(.ccAccent)
-                Text("Can't read the Mac's reply · updated \(formatTime(.now, timeZone: Self.sydney, locale: Self.english))")
+                Text("Can't read the Mac's reply · updated \(formatTime(updatedAt, timeZone: Self.sydney, locale: Self.english))")
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Button("Retry", action: onRetry)

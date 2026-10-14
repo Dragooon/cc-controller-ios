@@ -3,6 +3,18 @@ import XCTest
 @testable import CCKit
 
 final class TranscriptModelsTests: XCTestCase {
+    func testTranscriptPageDecodesCleanEntries() throws {
+        let data = Data("""
+        {"entries":[{"kind":"assistant","id":"one","text":"One"},{"kind":"assistant","id":"two","text":"Two"}],"total":2,"hasMore":false}
+        """.utf8)
+
+        let page = try JSONDecoder.ccKit().decode(TranscriptPage.self, from: data)
+
+        XCTAssertEqual(page.entries.map(\.id), ["one", "two"])
+        XCTAssertEqual(page.total, 2)
+        XCTAssertFalse(page.hasMore)
+    }
+
     func testTranscriptPageKeepsMalformedKnownKindBetweenValidEntries() throws {
         let data = Data("""
         {"entries":[{"kind":"assistant","id":"before","text":"Before"},{"kind":"prompt","id":"bad","paste":[]},{"kind":"assistant","id":"after","text":"After"}],"total":3,"hasMore":false}
