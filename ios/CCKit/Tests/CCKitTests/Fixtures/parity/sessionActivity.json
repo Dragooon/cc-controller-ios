@@ -1,0 +1,200 @@
+{
+  "function": "sessionActivity",
+  "cases": [
+    {
+      "name": "needs-state",
+      "input": {
+        "id": "session-1",
+        "state": "needs_you",
+        "startedAt": "2026-09-30T13:18:00.000Z",
+        "idleSince": "2026-09-30T13:53:00.000Z",
+        "lastTool": "Bash",
+        "lastToolInput": {
+          "command": "npm test"
+        },
+        "toolRunning": true,
+        "usage": {
+          "model": "claude-fable-5-1[1m]",
+          "contextTokens": 412000,
+          "contextWindow": 1000000,
+          "contextPercent": 41.2,
+          "totalInputTokens": 6000000,
+          "inputTokens": 3100000,
+          "outputTokens": 84000,
+          "cacheHitRate": 0.4666666667
+        },
+        "subagents": [
+          {
+            "agentId": "agent-1",
+            "agent": "engineer",
+            "state": "running"
+          },
+          {
+            "agentId": "agent-2",
+            "agent": "researcher",
+            "state": "done"
+          }
+        ]
+      },
+      "output": {
+        "kind": "needs_you"
+      }
+    },
+    {
+      "name": "needs-pending",
+      "input": {
+        "id": "session-1",
+        "state": "idle",
+        "startedAt": "2026-09-30T13:18:00.000Z",
+        "idleSince": "2026-09-30T13:53:00.000Z",
+        "lastTool": "Bash",
+        "lastToolInput": {
+          "command": "npm test"
+        },
+        "toolRunning": true,
+        "usage": {
+          "model": "claude-fable-5-1[1m]",
+          "contextTokens": 412000,
+          "contextWindow": 1000000,
+          "contextPercent": 41.2,
+          "totalInputTokens": 6000000,
+          "inputTokens": 3100000,
+          "outputTokens": 84000,
+          "cacheHitRate": 0.4666666667
+        },
+        "subagents": [],
+        "pending": [
+          {
+            "requestId": "approval-1"
+          }
+        ],
+        "shells": []
+      },
+      "output": {
+        "kind": "needs_you"
+      }
+    },
+    {
+      "name": "working-wins",
+      "input": {
+        "id": "session-1",
+        "state": "working",
+        "startedAt": "2026-09-30T13:18:00.000Z",
+        "idleSince": "2026-09-30T13:53:00.000Z",
+        "lastTool": "Bash",
+        "lastToolInput": {
+          "command": "npm test"
+        },
+        "toolRunning": true,
+        "usage": {
+          "model": "claude-fable-5-1[1m]",
+          "contextTokens": 412000,
+          "contextWindow": 1000000,
+          "contextPercent": 41.2,
+          "totalInputTokens": 6000000,
+          "inputTokens": 3100000,
+          "outputTokens": 84000,
+          "cacheHitRate": 0.4666666667
+        },
+        "subagents": [
+          {
+            "state": "running"
+          }
+        ],
+        "shells": [
+          {
+            "state": "running"
+          }
+        ]
+      },
+      "output": {
+        "kind": "working"
+      }
+    },
+    {
+      "name": "background",
+      "input": {
+        "id": "session-1",
+        "state": "idle",
+        "startedAt": "2026-09-30T13:18:00.000Z",
+        "idleSince": "2026-09-30T13:53:00.000Z",
+        "lastTool": "Bash",
+        "lastToolInput": {
+          "command": "npm test"
+        },
+        "toolRunning": true,
+        "usage": {
+          "model": "claude-fable-5-1[1m]",
+          "contextTokens": 412000,
+          "contextWindow": 1000000,
+          "contextPercent": 41.2,
+          "totalInputTokens": 6000000,
+          "inputTokens": 3100000,
+          "outputTokens": 84000,
+          "cacheHitRate": 0.4666666667
+        },
+        "subagents": [
+          {
+            "state": "running"
+          },
+          {
+            "state": "running"
+          },
+          {
+            "state": "done"
+          }
+        ],
+        "shells": [
+          {
+            "state": "running"
+          },
+          {
+            "state": "stopped"
+          }
+        ]
+      },
+      "output": {
+        "kind": "background",
+        "agents": 2,
+        "shells": 1
+      }
+    },
+    {
+      "name": "idle",
+      "input": {
+        "id": "session-1",
+        "state": "idle",
+        "startedAt": "2026-09-30T13:18:00.000Z",
+        "idleSince": "2026-09-30T13:53:00.000Z",
+        "lastTool": "Bash",
+        "lastToolInput": {
+          "command": "npm test"
+        },
+        "toolRunning": true,
+        "usage": {
+          "model": "claude-fable-5-1[1m]",
+          "contextTokens": 412000,
+          "contextWindow": 1000000,
+          "contextPercent": 41.2,
+          "totalInputTokens": 6000000,
+          "inputTokens": 3100000,
+          "outputTokens": 84000,
+          "cacheHitRate": 0.4666666667
+        },
+        "subagents": [
+          {
+            "state": "done"
+          }
+        ],
+        "shells": [
+          {
+            "state": "stopped"
+          }
+        ]
+      },
+      "output": {
+        "kind": "idle"
+      }
+    }
+  ]
+}

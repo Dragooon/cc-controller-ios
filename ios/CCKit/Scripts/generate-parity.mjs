@@ -9,7 +9,7 @@ import {
   formatModelName, formatSendMessage, formatTime, formatTokenCount,
   groupToolEntries, groupTurns, mergeTranscriptEntries, normalisePromptText,
   nowSubtitle, permissionCopy, promptCollapse, reconcileQueuedNote,
-  resolveSendMessageTarget, sendMessageSummary, sessionNavSubtitle,
+  resolveSendMessageTarget, sendMessageSummary, sessionActivity, sessionNavSubtitle,
   sessionStateSegment, stateLabel, subagentStateLabel, toolArgument,
   turnOutputTokens,
 } from '../../../app/lib.js';
@@ -121,6 +121,13 @@ const formatCases = [
   ['normalisePromptText', [['attachments', 'Inspect\n\nAttached files:\n- /tmp/report.txt\n- C:\\tmp\\photo.png'], ['plain', 'hello']], (v) => normalisePromptText(v)],
   ['toolArgument', [['bash', ['Bash', { command: 'npm test' }]], ['path', ['Read', { file_path: '/tmp/a.txt' }]], ['edit-path', ['Edit', { path: '/tmp/a.txt' }]], ['pattern', ['Grep', { pattern: 'needle' }]], ['agent', ['Agent', { description: 'research' }]], ['url', ['WebFetch', { url: 'https://example.com' }]], ['skill', ['Skill', { skill: 'gitlab' }]], ['fallback', ['Custom', { first: 'value' }]], ['key', ['Custom', { object: { x: 1 } }]]], ([tool, args]) => toolArgument(tool, args)],
   ['activityLineText', [['tool', session()], ['agents', session({ toolRunning: false, lastTool: null })]], (v) => activityLineText(v)],
+  ['sessionActivity', [
+    ['needs-state', session({ state: 'needs_you' })],
+    ['needs-pending', session({ state: 'idle', pending: [{ requestId: 'approval-1' }], subagents: [], shells: [] })],
+    ['working-wins', session({ state: 'working', subagents: [{ state: 'running' }], shells: [{ state: 'running' }] })],
+    ['background', session({ state: 'idle', subagents: [{ state: 'running' }, { state: 'running' }, { state: 'done' }], shells: [{ state: 'running' }, { state: 'stopped' }] })],
+    ['idle', session({ state: 'idle', subagents: [{ state: 'done' }], shells: [{ state: 'stopped' }] })],
+  ], (v) => sessionActivity(v)],
   ['nowSubtitle', [['needs', [3, 1]], ['none', [3, 0]]], ([total, needs]) => nowSubtitle(total, needs)],
   ['composeSessionState', [['working', [session(), Date.parse(now)]], ['idle', [session({ state: 'idle', toolRunning: false }), Date.parse(now)]], ['needs', [session({ state: 'needs_you' }), Date.parse(now)]]], ([value, time]) => composeSessionState(value, time)],
   ['entryFields', [['prompt', prompt('p', 'hello')], ['tool', tool('t', 'Bash', 1, { args: { command: 'npm test' }, text: 'done' })], ['decision-deny', { id: 'd', kind: 'decision', ts: now, behavior: 'deny' }], ['decision-allow', { id: 'd2', kind: 'decision', ts: now, behavior: 'allow' }], ['decision-session', { id: 'd3', kind: 'decision', ts: now, behavior: 'allow_session' }], ['decision-timeout', { id: 'd4', kind: 'decision', ts: now, behavior: 'timeout' }], ['decision-other', { id: 'd5', kind: 'decision', ts: now, behavior: 'other' }], ['file', { id: 'f', kind: 'file', name: 'out.png', size: 3, mime: 'image/png', url: '/file' }]], (v) => entryFields(v)],

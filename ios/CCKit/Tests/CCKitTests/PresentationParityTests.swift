@@ -13,7 +13,7 @@ final class PresentationParityTests: XCTestCase {
             "formatContextUsage", "sessionStateSegment", "buildStatusSegments", "sessionNavSubtitle",
             "resolveSendMessageTarget", "sendMessageSummary", "formatSendMessage", "earlierTurnCount",
             "displayText", "firstMeaningfulLine", "promptCollapse", "normalisePromptText", "toolArgument",
-            "activityLineText", "nowSubtitle", "composeSessionState", "entryFields", "permissionCopy",
+            "activityLineText", "sessionActivity", "nowSubtitle", "composeSessionState", "entryFields", "permissionCopy",
             "reconcileQueuedNote", "mergeTranscriptEntries", "groupTurns",
         ]
         for function in functions {
@@ -109,6 +109,7 @@ final class PresentationParityTests: XCTestCase {
             let values = try input.arrayValues
             return .string(toolArgument(values[0].stringValue, args: values[1]))
         case "activityLineText": return .string(activityLineText(try decode(Session.self, from: input)))
+        case "sessionActivity": return sessionActivityParity(try decode(Session.self, from: input))
         case "nowSubtitle":
             let values = try input.arrayValues
             return .string(nowSubtitle(total: values[0].intValue, needsYou: values[1].intValue))
@@ -127,6 +128,16 @@ final class PresentationParityTests: XCTestCase {
             let merged = mergeTranscriptEntries(snapshot: try decode([TranscriptEntry].self, from: values[0]), local: try decode([TranscriptEntry].self, from: values[1]))
             return .array(merged.map(transcriptEntryParity))
         default: throw XCTSkip("No evaluator for \(function)")
+        }
+    }
+
+    private func sessionActivityParity(_ session: Session) -> JSONValue {
+        switch sessionActivity(session) {
+        case .needsYou: return .object(["kind": .string("needs_you")])
+        case .working: return .object(["kind": .string("working")])
+        case .background(let agents, let shells):
+            return .object(["kind": .string("background"), "agents": .number(Double(agents)), "shells": .number(Double(shells))])
+        case .idle: return .object(["kind": .string("idle")])
         }
     }
 
