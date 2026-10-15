@@ -295,7 +295,7 @@ enum MockSessionData {
 
     private static let transcriptJSON = #"""
     [
-      {"kind":"compaction","id":"compact-1","ts":"2026-09-30T03:10:00Z","text":"Context compacted 11:02"},
+      {"kind":"compaction","id":"compact-1","ts":"2026-09-30T03:10:00Z","text":"Earlier context was compacted after the policy evidence was collected."},
       {"kind":"turn_end","id":"end-compact","ts":"2026-09-30T03:10:01Z","durationMs":1000},
       {"kind":"prompt","id":"prompt-paste","ts":"2026-09-30T03:18:00Z","text":"Review the latest judge alignment screenshots and tell me what changed.","paste":{"lines":42,"text":"pasted review notes"},"attachments":["judge-alignment.png"]},
       {"kind":"tool","id":"send-1","ts":"2026-09-30T03:18:04Z","toolUseId":"send-1","tool":"SendMessage","args":{"to":"engineer","summary":"Polish four defects"},"result":"Message queued","state":"done"},

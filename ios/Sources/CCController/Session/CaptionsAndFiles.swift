@@ -65,6 +65,15 @@ struct CompactionDivider: View {
         !(entry.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var captionText: String {
+        let time = formatTime(
+            entry.ts,
+            timeZone: TimeZone(identifier: "Australia/Sydney")!,
+            locale: Locale(identifier: "en_AU")
+        )
+        return time.isEmpty ? "Context compacted" : "Context compacted \(time)"
+    }
+
     var body: some View {
         Group {
             if hasSummary {
@@ -73,7 +82,8 @@ struct CompactionDivider: View {
                 }
                 .buttonStyle(.plain)
                 .contentShape(Rectangle())
-                .accessibilityLabel("Context compacted")
+                .accessibilityIdentifier("compaction-divider")
+                .accessibilityLabel(captionText)
             } else {
                 dividerContent
             }
@@ -108,7 +118,7 @@ struct CompactionDivider: View {
             Image(systemName: "arrow.down.right.and.arrow.up.left")
                 .font(.caption)
                 .foregroundStyle(.ccSecondary)
-            Text(entry.text ?? "Context compacted")
+            Text(captionText)
                 .font(.caption)
                 .foregroundStyle(.ccSecondary)
         }

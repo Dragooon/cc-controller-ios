@@ -112,6 +112,37 @@ final class TranscriptFlowTests: XCTestCase {
         )
     }
 
+    func testCompactionDividerOpensLongSummary() throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "compaction-divider")
+            app.terminate()
+        }
+        let session = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(session.waitForExistence(timeout: 75), "Compaction fixture session did not load")
+        session.tap()
+
+        let divider = app.buttons["compaction-divider"]
+        XCTAssertTrue(divider.waitForExistence(timeout: 20), "Compaction divider did not load")
+        XCTAssertTrue(
+            divider.label.range(of: #"^Context compacted [0-2][0-9]:[0-5][0-9]$"#, options: .regularExpression) != nil,
+            "Compaction divider caption was not a short timestamped label: \(divider.label)"
+        )
+        let summaryMarker = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "COMPACTION_SUMMARY_MARKER")
+        ).firstMatch
+        XCTAssertFalse(summaryMarker.exists, "Compaction summary leaked into the transcript")
+        XCTAssertTrue(waitForHittable(divider, timeout: 10), "Compaction divider was not visible")
+        attach(named: "compaction-caption")
+        divider.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Context compacted"].waitForExistence(timeout: 15),
+            "Compaction summary sheet did not open"
+        )
+        XCTAssertTrue(summaryMarker.waitForExistence(timeout: 15), "Compaction summary did not load in the sheet")
+    }
+
     func testOpeningPerformance() async throws {
         let app = launchFixture()
         defer {
