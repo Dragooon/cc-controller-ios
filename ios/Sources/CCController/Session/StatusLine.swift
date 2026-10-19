@@ -44,24 +44,22 @@ struct StatusLineView: View {
 
     private var activityLayout: some View {
         ViewThatFits(in: .horizontal) {
-            activityRow { statusText(fullText) }
-            activityRow { statusText(reducedText) }
-            activityRow { statusText(shortestText) }
-            activityRow { EmptyView() }
-        }
-    }
-
-    private func activityRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            activityButton
-                .layoutPriority(1)
-            if !segments.isEmpty {
-                Text("·")
-                    .accessibilityHidden(true)
-                content()
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                activityButton
+                    .layoutPriority(1)
+                if !segments.isEmpty {
+                    Text("·")
+                        .accessibilityHidden(true)
+                    Text(fullText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            activityButton
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var activityButton: some View {

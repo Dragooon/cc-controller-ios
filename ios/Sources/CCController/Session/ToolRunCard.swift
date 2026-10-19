@@ -89,8 +89,6 @@ private struct ToolRow: View {
         Text(toolArgument(entry.tool, args: entry.args))
             .font(.footnote.monospaced())
             .foregroundStyle(.ccSecondary)
-            .lineLimit(1)
-            .truncationMode(.tail)
     }
 
     var body: some View {
@@ -105,13 +103,24 @@ private struct ToolRow: View {
                     }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        toolTitle
-                            .layoutPriority(1)
-                        argumentView
-                            .layoutPriority(0)
-                        ToolStatusView(state: state)
-                            .layoutPriority(1)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            toolTitle
+                            argumentView
+                                .fixedSize(horizontal: true, vertical: false)
+                            ToolStatusView(state: state)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                toolTitle
+                                Spacer(minLength: 0)
+                                ToolStatusView(state: state)
+                            }
+                            argumentView
+                                .lineLimit(2)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                     Text(firstMeaningfulLine(entry.result))
                         .font(.caption.monospaced())
