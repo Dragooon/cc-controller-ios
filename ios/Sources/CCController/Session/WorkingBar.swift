@@ -69,14 +69,15 @@ struct WorkingBarView: View {
             Text(elapsedText(now: now) + tokenText)
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(.ccSecondary)
-                .fixedSize()
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             if let activitySummary = activitySummaryText(for: session) {
                 Text(activitySummary)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.ccAccent)
                     .lineLimit(1)
-                    .fixedSize()
+                    .truncationMode(.tail)
                     .padding(.horizontal, 7)
                     .frame(height: 22)
                     .background(.ccAccent.opacity(0.13), in: Capsule())

@@ -81,13 +81,16 @@ private struct ToolRow: View {
         Text(entry.tool ?? "Tool")
             .font(.footnote.weight(.semibold))
             .foregroundStyle(.ccLabel)
-            .fixedSize(horizontal: true, vertical: false)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     private var argumentView: some View {
         Text(toolArgument(entry.tool, args: entry.args))
             .font(.footnote.monospaced())
             .foregroundStyle(.ccSecondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
     var body: some View {
@@ -102,24 +105,13 @@ private struct ToolRow: View {
                     }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            toolTitle
-                            argumentView
-                                .fixedSize(horizontal: true, vertical: false)
-                            ToolStatusView(state: state)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                toolTitle
-                                Spacer(minLength: 0)
-                                ToolStatusView(state: state)
-                            }
-                            argumentView
-                                .lineLimit(2)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        toolTitle
+                            .layoutPriority(1)
+                        argumentView
+                            .layoutPriority(0)
+                        ToolStatusView(state: state)
+                            .layoutPriority(1)
                     }
                     Text(firstMeaningfulLine(entry.result))
                         .font(.caption.monospaced())

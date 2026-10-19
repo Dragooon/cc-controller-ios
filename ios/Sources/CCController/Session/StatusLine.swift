@@ -54,13 +54,14 @@ struct StatusLineView: View {
     private func activityRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             activityButton
+                .layoutPriority(1)
             if !segments.isEmpty {
                 Text("·")
                     .accessibilityHidden(true)
                 content()
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var activityButton: some View {
@@ -69,6 +70,8 @@ struct StatusLineView: View {
                 PulsingAccentDot()
                 Text(activitySummary ?? "")
                     .font(.caption.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
             }
@@ -91,7 +94,9 @@ struct StatusLineView: View {
 
     private func statusText(_ text: String) -> some View {
         Text(text)
-            .fixedSize(horizontal: true, vertical: false)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

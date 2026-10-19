@@ -22,6 +22,9 @@ struct LiveActivityFooterView: View {
                 primary
                     .font(.footnote)
                     .foregroundStyle(.ccLabel)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Text(footer.detail)

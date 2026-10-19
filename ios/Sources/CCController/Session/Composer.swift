@@ -257,12 +257,14 @@ struct ComposerView: View, Equatable {
                     .font(.footnote)
                     .foregroundStyle(.ccLabel)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .padding(.horizontal, 11)
                     .frame(height: visibleChipHeight)
                     .glassEffect(.regular.interactive(), in: .capsule)
             }
             .buttonStyle(.plain)
             .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
+            .layoutPriority(-1)
             .contentShape(Rectangle())
             .accessibilityLabel("Model \(modelName)")
         }

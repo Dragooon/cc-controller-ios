@@ -18,10 +18,13 @@ struct SubagentCard: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.ccLabel)
                             .lineLimit(1)
+                            .truncationMode(.tail)
                         Spacer(minLength: 4)
                         Text("\(stateLabel) ·")
                             .font(.caption)
                             .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         LiveElapsedText(
                             startedAt: entry.startedAt,
                             finishedAt: entry.finishedAt,
@@ -126,6 +129,7 @@ struct SubagentResultView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(stateColor)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     Text(summary.isEmpty ? "No result" : summary)
                         .font(.caption)
                         .foregroundStyle(.ccSecondary)
@@ -138,7 +142,8 @@ struct SubagentResultView: View {
                 Text(durationText)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.ccSecondary)
-                    .fixedSize()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.ccSecondary)
