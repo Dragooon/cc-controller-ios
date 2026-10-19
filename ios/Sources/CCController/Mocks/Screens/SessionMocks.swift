@@ -245,11 +245,12 @@ enum MockSessionData {
 
     static let sendingStateNotes: [QueuedNote] = {
         let now = MockFixtures.now
+        let currentTime = Date()
         return [
             QueuedNote(id: "sending-state-sending", text: "A message is being sent", state: .sending, createdAt: now, now: false),
-            QueuedNote(id: "sending-state-sent", text: "A message was sent", state: .sent, createdAt: now, sentAt: now, now: false),
+            QueuedNote(id: "sending-state-sent", text: "A message was sent", state: .sent, createdAt: currentTime, sentAt: currentTime, now: false),
             QueuedNote(id: "sending-state-queued", text: "A message is queued", state: .queued, createdAt: now, sentAt: now, now: false),
-            QueuedNote(id: "sending-state-attention", text: "A message needs attention", state: .sent, createdAt: now.addingTimeInterval(-60), sentAt: now.addingTimeInterval(-60), now: false),
+            QueuedNote(id: "sending-state-attention", text: "A message needs attention", state: .sent, createdAt: currentTime.addingTimeInterval(-60), sentAt: currentTime.addingTimeInterval(-60), now: false),
             QueuedNote(id: "sending-state-failed", text: "A message failed", state: .failed(message: "The fixture could not send this message."), createdAt: now, now: false)
         ]
     }()

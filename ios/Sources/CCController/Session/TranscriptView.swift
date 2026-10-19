@@ -438,21 +438,17 @@ private struct PendingPromptView: View {
         return false
     }
 
-    private var attention: Bool {
-        noteNeedsAttention(note: note, sessionState: sessionState, now: .now)
-    }
-
     private var statusText: String {
         switch note.state {
         case .sending: "Sending…"
-        case .sent: attention ? "Sent · not received yet" : "Sent"
+        case .sent: "Sent"
         case .queued: "Queued"
         case .failed: "Not sent · Tap to retry"
         }
     }
 
-    private var statusColor: Color {
-        if attention { return .ccAmber }
+    private func statusColor(needsAttention: Bool) -> Color {
+        if needsAttention { return .ccAmber }
         if failureMessage != nil { return .ccRed }
         return .ccSecondary
     }
@@ -470,6 +466,7 @@ private struct PendingPromptView: View {
 
     private func content(now: Date) -> some View {
         let needsAttention = noteNeedsAttention(note: note, sessionState: sessionState, now: now)
+        let actionable = needsAttention || isFailed
         let text = needsAttention ? "Sent · not received yet" : statusText
         return VStack(alignment: .trailing, spacing: 4) {
             PromptBubble(
@@ -480,7 +477,6 @@ private struct PendingPromptView: View {
                 bubbleAccessibilityIdentifier: "pending-prompt-bubble"
             )
             .opacity(isFailed ? 1 : 0.55)
-            .onTapGesture { presentConfirmationIfNeeded() }
 
             HStack(spacing: 4) {
                 if note.state == .sending {
@@ -493,15 +489,21 @@ private struct PendingPromptView: View {
                 Text(text)
             }
             .font(.caption)
-            .foregroundStyle(needsAttention ? .ccAmber : statusColor)
+            .foregroundStyle(statusColor(needsAttention: needsAttention))
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("pending-prompt-status")
-            .onTapGesture { presentConfirmationIfNeeded() }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .gesture(
+            TapGesture().onEnded { presentConfirmationIfNeeded(actionable: actionable) },
+            including: actionable ? .all : .subviews
+        )
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("pending-prompt")
         .accessibilityLabel("\(note.text), \(text)")
+        .accessibilityAddTraits(actionable ? .isButton : [])
+        .accessibilityHint(actionable ? "Shows options for this message" : "")
+        .accessibilityAction { presentConfirmationIfNeeded(actionable: actionable) }
         .confirmationDialog(
             failureMessage ?? "Message not received",
             isPresented: $confirmationPresented,
@@ -509,18 +511,22 @@ private struct PendingPromptView: View {
         ) {
             if needsAttention {
                 Button("Send again") { onSendAgain(note.id) }
-            }
-            if failureMessage != nil {
+                Button("Dismiss") { onDelete(note.id) }
+            } else if failureMessage != nil {
                 Button("Retry") { onRetry(note.id) }
                 Button("Edit message") { onEdit(note.id) }
+                Button("Delete", role: .destructive) { onDelete(note.id) }
             }
-            Button("Delete", role: .destructive) { onDelete(note.id) }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            if needsAttention {
+                Text("The session hasn't shown this message yet. Sending again may deliver it twice.")
+            }
         }
     }
 
-    private func presentConfirmationIfNeeded() {
-        guard attention || failureMessage != nil else { return }
+    private func presentConfirmationIfNeeded(actionable: Bool) {
+        guard actionable else { return }
         confirmationPresented = true
     }
 }
