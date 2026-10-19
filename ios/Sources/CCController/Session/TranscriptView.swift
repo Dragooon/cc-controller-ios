@@ -6,8 +6,13 @@ import UIKit
 #endif
 
 private struct TranscriptScrollMetrics: Equatable {
-    let geometry: ScrollGuardGeometry
+    let contentHeight: CGFloat
+    let containerHeight: CGFloat
+    let insetTop: CGFloat
+    let insetBottom: CGFloat
     let contentFitsViewport: Bool
+    let overshoot: Bool
+    let overshootGeometry: ScrollGuardGeometry?
 }
 
 private struct ScrollBlankOccurrence {
@@ -15,6 +20,135 @@ private struct ScrollBlankOccurrence {
     let startedAt: Date
     var corrections: Int
     var latestGeometry: ScrollGuardGeometry
+}
+
+@MainActor
+private final class TranscriptScrollState {
+    var builtRowIndices: [String: Int] = [:]
+    var highestBuiltRowIndex = -1
+    var lastBuiltRowID: String?
+    var lastScrollGeometry: ScrollGuardGeometry?
+    var blankCandidate: ScrollBlankKind?
+    var blankCandidateStartedAt: Date?
+    var blankCheckTask: Task<Void, Never>?
+    var blankOccurrence: ScrollBlankOccurrence?
+    var scrollPhaseIsIdle = true
+    var recorder: ScrollDiagnosticsRecorder?
+    var onBuiltRowsEmpty: (() -> Void)?
+    var onDiagnosticWritten: ((ScrollBlankKind, Bool) -> Void)?
+    private var displayRowIDs: [String] = []
+    private var displayRowIndices: [String: Int] = [:]
+    private var queuedNoteIDs: [String] = []
+    private var queuedNoteIndices: [String: Int] = [:]
+    private var sessionID: String
+
+    init(sessionID: String) {
+        self.sessionID = sessionID
+    }
+
+    func prepare(
+        sessionID: String,
+        onDiagnosticWritten: @escaping (ScrollBlankKind, Bool) -> Void
+    ) {
+        self.onDiagnosticWritten = onDiagnosticWritten
+        ensureRecorder(sessionID: sessionID)
+    }
+
+    func ensureRecorder(sessionID: String? = nil) -> ScrollDiagnosticsRecorder {
+        if let sessionID {
+            self.sessionID = sessionID
+        }
+        if let recorder { return recorder }
+        let recorder = ScrollDiagnosticsRecorder(sessionID: self.sessionID)
+        self.recorder = recorder
+        return recorder
+    }
+
+    func recordEvent(name: String, oldValue: Double? = nil, newValue: Double? = nil) {
+        ensureRecorder().recordEvent(name: name, oldValue: oldValue, newValue: newValue)
+    }
+
+    func sessionChanged(to sessionID: String) {
+        self.sessionID = sessionID
+        ensureRecorder().sessionChanged(to: sessionID)
+        cancelBlankCheck()
+        blankCandidate = nil
+        blankCandidateStartedAt = nil
+        blankOccurrence = nil
+        builtRowIndices = [:]
+        highestBuiltRowIndex = -1
+        lastBuiltRowID = nil
+        lastScrollGeometry = nil
+    }
+
+    func cancelBlankCheck() {
+        blankCheckTask?.cancel()
+        blankCheckTask = nil
+    }
+
+    func updateRowIndices(displayRows: [TranscriptRow], queuedNotes: [QueuedNote]) {
+        let displayRowsChanged = displayRowIDs.count != displayRows.count
+            || zip(displayRowIDs, displayRows).contains { $0 != $1.id }
+        if displayRowsChanged {
+            displayRowIDs = displayRows.map(\.id)
+            displayRowIndices = Dictionary(uniqueKeysWithValues: displayRowIDs.enumerated().map { ($1, $0) })
+        }
+        let queuedNotesChanged = queuedNoteIDs.count != queuedNotes.count
+            || zip(queuedNoteIDs, queuedNotes).contains { $0 != $1.id }
+        if queuedNotesChanged {
+            queuedNoteIDs = queuedNotes.map(\.id)
+            queuedNoteIndices = Dictionary(uniqueKeysWithValues: queuedNoteIDs.enumerated().map { ($1, $0) })
+        }
+    }
+
+    func displayRowIndex(for id: String) -> Int? {
+        displayRowIndices[id]
+    }
+
+    func queuedNoteIndex(for id: String) -> Int? {
+        queuedNoteIndices[id]
+    }
+
+    func builtRowDidAppear(id: String, index: Int) {
+        builtRowIndices[id] = index
+        guard index > highestBuiltRowIndex else { return }
+        highestBuiltRowIndex = index
+        lastBuiltRowID = id
+    }
+
+    func builtRowDidDisappear(id: String, displayRowCount: Int, queuedNoteCount: Int) {
+        builtRowIndices.removeValue(forKey: id)
+        guard builtRowIndices.isEmpty, displayRowCount > 0 || queuedNoteCount > 0 else { return }
+        onBuiltRowsEmpty?()
+    }
+
+    func recordOccurrence(
+        kind: ScrollBlankKind,
+        geometry: ScrollGuardGeometry,
+        rowsCount: Int,
+        notesCount: Int,
+        isPinnedToBottom: Bool,
+        userHasScrolled: Bool,
+        corrections: Int,
+        recovered: Bool,
+        msToRecover: Int
+    ) {
+        let callback = onDiagnosticWritten
+        ensureRecorder().record(
+            kind: kind,
+            geometry: geometry,
+            rowsCount: rowsCount,
+            notesCount: notesCount,
+            isPinnedToBottom: isPinnedToBottom,
+            userHasScrolled: userHasScrolled,
+            corrections: corrections,
+            recovered: recovered,
+            msToRecover: msToRecover
+        ) { written in
+            guard written else { return }
+            callback?(kind, recovered)
+        }
+    }
 }
 
 struct SessionTranscriptView: View {
@@ -53,16 +187,7 @@ struct SessionTranscriptView: View {
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
     @State private var userIsScrolling = false
-    @State private var builtRowIndices: [String: Int] = [:]
-    @State private var highestBuiltRowIndex = -1
-    @State private var lastBuiltRowID: String?
-    @State private var lastScrollGeometry: ScrollGuardGeometry?
-    @State private var scrollPhaseIsIdle = true
-    @State private var blankCandidate: ScrollBlankKind?
-    @State private var blankCandidateStartedAt: Date?
-    @State private var blankCheckTask: Task<Void, Never>?
-    @State private var blankOccurrence: ScrollBlankOccurrence?
-    @State private var diagnosticsRecorder: ScrollDiagnosticsRecorder
+    @State private var scrollState: TranscriptScrollState
     @State private var diagnosticWrittenCount = 0
     @State private var diagnosticStatus = "count=0"
     @State private var subagentIndex: SubagentIndex
@@ -116,7 +241,7 @@ struct SessionTranscriptView: View {
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
         self.scrollAnchor = scrollAnchor
-        _diagnosticsRecorder = State(initialValue: ScrollDiagnosticsRecorder(sessionID: sessionID))
+        _scrollState = State(initialValue: TranscriptScrollState(sessionID: sessionID))
     }
 
     var body: some View {
@@ -228,32 +353,36 @@ struct SessionTranscriptView: View {
                 handleTranscriptAppear(using: proxy)
             }
             .onDisappear {
-                blankCheckTask?.cancel()
+                scrollState.cancelBlankCheck()
+                scrollState.onBuiltRowsEmpty = nil
             }
             .onChange(of: displayRows.count) { oldCount, newCount in
-                diagnosticsRecorder.recordEvent(name: "rows", oldValue: Double(oldCount), newValue: Double(newCount))
+                scrollState.recordEvent(name: "rows", oldValue: Double(oldCount), newValue: Double(newCount))
             }
             .onChange(of: queuedNotes) { _, _ in
                 handleQueuedNotesChange(using: proxy)
             }
             .onChange(of: queuedNotes.count) { oldCount, newCount in
-                diagnosticsRecorder.recordEvent(name: "notes", oldValue: Double(oldCount), newValue: Double(newCount))
+                scrollState.recordEvent(name: "notes", oldValue: Double(oldCount), newValue: Double(newCount))
             }
         let withScrollEvents = withRows
             .background(.ccBackground)
             .scrollEdgeEffectStyle(.hard, for: .bottom)
             .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
-                TranscriptScrollMetrics(
-                    geometry: ScrollGuardGeometry(
-                        contentOffsetY: geometry.contentOffset.y,
-                        contentHeight: geometry.contentSize.height,
-                        containerHeight: geometry.visibleRect.height,
-                        insetTop: geometry.contentInsets.top,
-                        insetBottom: geometry.contentInsets.bottom,
-                        visibleMinY: geometry.visibleRect.minY,
-                        visibleMaxY: geometry.visibleRect.maxY
-                    ),
-                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height
+                let overshoot = ScrollBlankCondition.isOvershoot(
+                    contentHeight: geometry.contentSize.height,
+                    visibleMinY: geometry.visibleRect.minY,
+                    insetTop: geometry.contentInsets.top
+                )
+                let overshootGeometry = overshoot ? makeScrollGuardGeometry(from: geometry) : nil
+                return TranscriptScrollMetrics(
+                    contentHeight: geometry.contentSize.height,
+                    containerHeight: geometry.visibleRect.height,
+                    insetTop: geometry.contentInsets.top,
+                    insetBottom: geometry.contentInsets.bottom,
+                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height,
+                    overshoot: overshoot,
+                    overshootGeometry: overshootGeometry
                 )
             } action: { oldMetrics, metrics in
                 handleScrollGeometryChange(from: oldMetrics, to: metrics, using: proxy)
@@ -305,7 +434,7 @@ struct SessionTranscriptView: View {
         pagingAnchorEntryID = turns.first?.entryIDs.first
         didTriggerPaging = true
         isLoadingEarlier = true
-        diagnosticsRecorder.recordEvent(name: "paging-start", newValue: 1)
+        scrollState.recordEvent(name: "paging-start", newValue: 1)
         Task { @MainActor in
             var loaded = false
             do {
@@ -316,7 +445,7 @@ struct SessionTranscriptView: View {
             }
             isLoadingEarlier = false
             didTriggerPaging = false
-            diagnosticsRecorder.recordEvent(name: "paging-end", newValue: loaded ? 1 : 0)
+            scrollState.recordEvent(name: "paging-end", newValue: loaded ? 1 : 0)
             guard loaded, pagingRowIsVisible else { return }
             Task { @MainActor in
                 await Task.yield()
@@ -366,26 +495,19 @@ struct SessionTranscriptView: View {
     }
 
     private func builtRowDidAppear(id: String, index: Int) {
-        builtRowIndices[id] = index
-        guard index > highestBuiltRowIndex else { return }
-        highestBuiltRowIndex = index
-        lastBuiltRowID = id
+        scrollState.builtRowDidAppear(id: id, index: index)
     }
 
     private func builtRowDidDisappear(id: String) {
-        builtRowIndices.removeValue(forKey: id)
+        scrollState.builtRowDidDisappear(
+            id: id,
+            displayRowCount: displayRows.count,
+            queuedNoteCount: queuedNotes.count
+        )
     }
 
     private func handleSessionChange(to newSessionID: String) {
-        diagnosticsRecorder.sessionChanged(to: newSessionID)
-        blankCheckTask?.cancel()
-        blankCandidate = nil
-        blankCandidateStartedAt = nil
-        blankOccurrence = nil
-        builtRowIndices = [:]
-        highestBuiltRowIndex = -1
-        lastBuiltRowID = nil
-        lastScrollGeometry = nil
+        scrollState.sessionChanged(to: newSessionID)
         subagentIndex = SubagentIndex(subagents)
         userHasScrolled = false
         contentFitsViewport = false
@@ -395,8 +517,15 @@ struct SessionTranscriptView: View {
     }
 
     private func handleTranscriptAppear(using proxy: ScrollViewProxy) {
-        diagnosticsRecorder.recordEvent(name: "rows", newValue: Double(displayRows.count))
-        diagnosticsRecorder.recordEvent(name: "notes", newValue: Double(queuedNotes.count))
+        scrollState.prepare(sessionID: sessionID) { kind, recovered in
+            diagnosticWrittenCount += 1
+            diagnosticStatus = "count=\(diagnosticWrittenCount) kind=\(kind.rawValue) recovered=\(recovered)"
+        }
+        scrollState.onBuiltRowsEmpty = { [scrollState] in
+            scheduleBlankCheck(using: proxy)
+        }
+        scrollState.recordEvent(name: "rows", newValue: Double(displayRows.count))
+        scrollState.recordEvent(name: "notes", newValue: Double(queuedNotes.count))
         scrollToNewest(using: proxy)
     }
 
@@ -405,42 +534,58 @@ struct SessionTranscriptView: View {
         scrollToNewest(using: proxy)
     }
 
+    private func makeScrollGuardGeometry(from geometry: ScrollGeometry) -> ScrollGuardGeometry {
+        ScrollGuardGeometry(
+            contentOffsetY: geometry.contentOffset.y,
+            contentHeight: geometry.contentSize.height,
+            containerHeight: geometry.visibleRect.height,
+            insetTop: geometry.contentInsets.top,
+            insetBottom: geometry.contentInsets.bottom,
+            visibleMinY: geometry.visibleRect.minY,
+            visibleMaxY: geometry.visibleRect.maxY
+        )
+    }
+
     private func handleScrollGeometryChange(
         from oldMetrics: TranscriptScrollMetrics,
         to metrics: TranscriptScrollMetrics,
         using proxy: ScrollViewProxy
     ) {
         contentFitsViewport = metrics.contentFitsViewport
-        recordGeometryChanges(from: oldMetrics.geometry, to: metrics.geometry)
-        lastScrollGeometry = metrics.geometry
-        evaluateBlankState(using: proxy)
+        recordGeometryChanges(from: oldMetrics, to: metrics)
+        if let geometry = metrics.overshootGeometry {
+            scrollState.lastScrollGeometry = geometry
+            evaluateBlankState(using: proxy)
+        } else if oldMetrics.overshoot, scrollState.blankOccurrence != nil {
+            finishBlankOccurrence(recovered: true)
+        }
         if metrics.contentFitsViewport {
             loadEarlierIfNeeded()
         }
         guard isPinnedToBottom,
               !userIsScrolling,
-              oldMetrics.geometry.contentHeight != metrics.geometry.contentHeight
-                  || oldMetrics.geometry.containerHeight != metrics.geometry.containerHeight else { return }
+              oldMetrics.contentHeight != metrics.contentHeight
+                  || oldMetrics.containerHeight != metrics.containerHeight else { return }
         scrollToNewest(using: proxy)
     }
 
-    private func recordGeometryChanges(from old: ScrollGuardGeometry, to new: ScrollGuardGeometry) {
+    private func recordGeometryChanges(from old: TranscriptScrollMetrics, to new: TranscriptScrollMetrics) {
         if old.contentHeight != new.contentHeight {
-            diagnosticsRecorder.recordEvent(
+            scrollState.recordEvent(
                 name: "content-height",
                 oldValue: Double(old.contentHeight),
                 newValue: Double(new.contentHeight)
             )
         }
         if old.containerHeight != new.containerHeight {
-            diagnosticsRecorder.recordEvent(
+            scrollState.recordEvent(
                 name: "container-height",
                 oldValue: Double(old.containerHeight),
                 newValue: Double(new.containerHeight)
             )
         }
         if old.insetBottom != new.insetBottom {
-            diagnosticsRecorder.recordEvent(
+            scrollState.recordEvent(
                 name: "inset-bottom",
                 oldValue: Double(old.insetBottom),
                 newValue: Double(new.insetBottom)
@@ -453,9 +598,10 @@ struct SessionTranscriptView: View {
         geometry: ScrollGeometry,
         using proxy: ScrollViewProxy
     ) {
-        scrollPhaseIsIdle = phase == .idle
+        scrollState.scrollPhaseIsIdle = phase == .idle
+        scrollState.lastScrollGeometry = makeScrollGuardGeometry(from: geometry)
         recordPhaseChange(phase)
-        if scrollPhaseIsIdle {
+        if scrollState.scrollPhaseIsIdle {
             evaluateBlankState(using: proxy)
         }
         switch phase {
@@ -488,53 +634,53 @@ struct SessionTranscriptView: View {
         case .tracking: code = 4
         @unknown default: code = 5
         }
-        diagnosticsRecorder.recordEvent(name: "scroll-phase", newValue: code)
+        scrollState.recordEvent(name: "scroll-phase", newValue: code)
     }
 
     private func evaluateBlankState(using proxy: ScrollViewProxy, mayCorrect: Bool = false) {
-        guard scrollPhaseIsIdle, let geometry = lastScrollGeometry else { return }
+        guard scrollState.scrollPhaseIsIdle,
+              let geometry = scrollState.lastScrollGeometry else { return }
         let kind = ScrollBlankCondition.kind(
             geometry: geometry,
-            builtRowCount: builtRowIndices.count,
+            builtRowCount: scrollState.builtRowIndices.count,
             displayRowCount: displayRows.count,
             queuedNoteCount: queuedNotes.count
         )
         guard let kind else {
-            if blankOccurrence != nil {
+            if scrollState.blankOccurrence != nil {
                 finishBlankOccurrence(recovered: true)
             } else {
-                blankCandidate = nil
-                blankCandidateStartedAt = nil
+                scrollState.blankCandidate = nil
+                scrollState.blankCandidateStartedAt = nil
             }
             return
         }
-        if var occurrence = blankOccurrence {
+        if var occurrence = scrollState.blankOccurrence {
             occurrence.latestGeometry = geometry
-            blankOccurrence = occurrence
+            scrollState.blankOccurrence = occurrence
             guard mayCorrect else { return }
             startCorrection(for: occurrence.kind, geometry: geometry, using: proxy)
             return
         }
-        if blankCandidate != kind {
-            blankCandidate = kind
-            blankCandidateStartedAt = Date()
+        if scrollState.blankCandidate != kind {
+            scrollState.blankCandidate = kind
+            scrollState.blankCandidateStartedAt = Date()
         }
         scheduleBlankCheck(using: proxy)
-        guard scrollPhaseIsIdle,
-              let startedAt = blankCandidateStartedAt,
+        guard let startedAt = scrollState.blankCandidateStartedAt,
               Date().timeIntervalSince(startedAt) >= 0.4 else { return }
         startCorrection(for: kind, geometry: geometry, using: proxy)
     }
 
     private func scheduleBlankCheck(using proxy: ScrollViewProxy, delay: Duration = .milliseconds(250)) {
-        guard blankCheckTask == nil else { return }
-        blankCheckTask = Task { @MainActor in
+        guard scrollState.blankCheckTask == nil else { return }
+        scrollState.blankCheckTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: delay)
             } catch {
                 return
             }
-            blankCheckTask = nil
+            scrollState.blankCheckTask = nil
             evaluateBlankState(using: proxy, mayCorrect: true)
         }
     }
@@ -544,26 +690,26 @@ struct SessionTranscriptView: View {
         geometry: ScrollGuardGeometry,
         using proxy: ScrollViewProxy
     ) {
-        var occurrence = blankOccurrence ?? ScrollBlankOccurrence(
+        var occurrence = scrollState.blankOccurrence ?? ScrollBlankOccurrence(
             kind: kind,
-            startedAt: blankCandidateStartedAt ?? Date(),
+            startedAt: scrollState.blankCandidateStartedAt ?? Date(),
             corrections: 0,
             latestGeometry: geometry
         )
         occurrence.latestGeometry = geometry
         guard occurrence.corrections < 2 else {
-            blankOccurrence = occurrence
+            scrollState.blankOccurrence = occurrence
             finishBlankOccurrence(recovered: false)
             return
         }
         occurrence.corrections += 1
-        blankOccurrence = occurrence
+        scrollState.blankOccurrence = occurrence
         if kind == .overshoot || isPinnedToBottom {
             isPinnedToBottom = true
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
-        } else if let lastBuiltRowID {
+        } else if let lastBuiltRowID = scrollState.lastBuiltRowID {
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo(lastBuiltRowID, anchor: .center)
             }
@@ -572,18 +718,16 @@ struct SessionTranscriptView: View {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
         }
-        blankCheckTask?.cancel()
-        blankCheckTask = nil
+        scrollState.cancelBlankCheck()
         scheduleBlankCheck(using: proxy, delay: .milliseconds(500))
     }
 
     private func finishBlankOccurrence(recovered: Bool) {
-        guard let occurrence = blankOccurrence else { return }
-        blankCheckTask?.cancel()
-        blankCheckTask = nil
+        guard let occurrence = scrollState.blankOccurrence else { return }
+        scrollState.cancelBlankCheck()
         let elapsed = max(0, Int(Date().timeIntervalSince(occurrence.startedAt) * 1000))
         let kind = occurrence.kind
-        diagnosticsRecorder.record(
+        scrollState.recordOccurrence(
             kind: kind,
             geometry: occurrence.latestGeometry,
             rowsCount: displayRows.count,
@@ -593,14 +737,10 @@ struct SessionTranscriptView: View {
             corrections: occurrence.corrections,
             recovered: recovered,
             msToRecover: elapsed
-        ) { [kind, recovered] written in
-            guard written else { return }
-            diagnosticWrittenCount += 1
-            diagnosticStatus = "count=\(diagnosticWrittenCount) kind=\(kind.rawValue) recovered=\(recovered)"
-        }
-        blankOccurrence = nil
-        blankCandidate = nil
-        blankCandidateStartedAt = nil
+        )
+        scrollState.blankOccurrence = nil
+        scrollState.blankCandidate = nil
+        scrollState.blankCandidateStartedAt = nil
     }
 
     private func isAtBottom(in geometry: ScrollGeometry) -> Bool {
@@ -609,7 +749,7 @@ struct SessionTranscriptView: View {
     }
 
     private func scrollToNewest(using proxy: ScrollViewProxy) {
-        diagnosticsRecorder.recordEvent(name: "scrollToNewest", newValue: 1)
+        scrollState.recordEvent(name: "scrollToNewest", newValue: 1)
         #if CC_PERF
         PerfCounters.shared.hit(.scrollToBottom)
         #endif
@@ -640,7 +780,11 @@ struct SessionTranscriptView: View {
 
     @ViewBuilder
     private var transcriptRows: some View {
-        ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
+        let currentRows = displayRows
+        let currentNotes = queuedNotes
+        let _ = scrollState.updateRowIndices(displayRows: currentRows, queuedNotes: currentNotes)
+
+        ForEach(currentRows) { row in
             TranscriptRowView(
                 sessionID: sessionID,
                 row: row,
@@ -655,6 +799,7 @@ struct SessionTranscriptView: View {
             .equatable()
             .id(row.id)
             .onAppear {
+                let index = scrollState.displayRowIndex(for: row.id) ?? 0
                 builtRowDidAppear(id: row.id, index: index)
             }
             .onDisappear {
@@ -667,7 +812,7 @@ struct SessionTranscriptView: View {
             #endif
         }
 
-        ForEach(Array(queuedNotes.enumerated()), id: \.element.id) { index, note in
+        ForEach(currentNotes) { note in
             PendingPromptView(
                 sessionID: sessionID,
                 note: note,
@@ -679,7 +824,8 @@ struct SessionTranscriptView: View {
                 onSendAgain: onSendAgain
             )
             .onAppear {
-                builtRowDidAppear(id: note.id, index: displayRows.count + index)
+                let index = scrollState.queuedNoteIndex(for: note.id) ?? 0
+                builtRowDidAppear(id: note.id, index: currentRows.count + index)
             }
             .onDisappear {
                 builtRowDidDisappear(id: note.id)

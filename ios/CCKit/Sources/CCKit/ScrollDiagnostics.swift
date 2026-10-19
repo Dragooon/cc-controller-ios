@@ -35,14 +35,25 @@ public enum ScrollBlankKind: String, Codable, Sendable {
 }
 
 public enum ScrollBlankCondition {
+    public static func isOvershoot(
+        contentHeight: CGFloat,
+        visibleMinY: CGFloat,
+        insetTop: CGFloat
+    ) -> Bool {
+        contentHeight > 0 && visibleMinY + insetTop >= contentHeight - 1
+    }
+
     public static func kind(
         geometry: ScrollGuardGeometry,
         builtRowCount: Int,
         displayRowCount: Int,
         queuedNoteCount: Int
     ) -> ScrollBlankKind? {
-        if geometry.contentHeight > 0,
-           geometry.visibleMinY + geometry.insetTop >= geometry.contentHeight - 1 {
+        if isOvershoot(
+            contentHeight: geometry.contentHeight,
+            visibleMinY: geometry.visibleMinY,
+            insetTop: geometry.insetTop
+        ) {
             return .overshoot
         }
         if builtRowCount == 0, displayRowCount > 0 || queuedNoteCount > 0 {
