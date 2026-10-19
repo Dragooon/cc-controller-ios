@@ -528,11 +528,18 @@ struct SessionTranscriptView: View {
         scrollState.recordEvent(name: "rows", newValue: Double(displayRows.count))
         scrollState.recordEvent(name: "notes", newValue: Double(queuedNotes.count))
         scrollToNewest(using: proxy)
+        evaluateBlankIfNeeded(using: proxy)
     }
 
     private func handleQueuedNotesChange(using proxy: ScrollViewProxy) {
         isPinnedToBottom = true
         scrollToNewest(using: proxy)
+    }
+
+    private func evaluateBlankIfNeeded(using proxy: ScrollViewProxy) {
+        guard scrollState.builtRowIndices.isEmpty,
+              !displayRows.isEmpty || !queuedNotes.isEmpty else { return }
+        evaluateBlankState(using: proxy)
     }
 
     private func makeScrollGuardGeometry(from geometry: ScrollGeometry) -> ScrollGuardGeometry {
@@ -563,11 +570,13 @@ struct SessionTranscriptView: View {
         if metrics.contentFitsViewport {
             loadEarlierIfNeeded()
         }
-        guard isPinnedToBottom,
-              !userIsScrolling,
-              oldMetrics.contentHeight != metrics.contentHeight
-                  || oldMetrics.containerHeight != metrics.containerHeight else { return }
-        scrollToNewest(using: proxy)
+        if isPinnedToBottom,
+           !userIsScrolling,
+           oldMetrics.contentHeight != metrics.contentHeight
+               || oldMetrics.containerHeight != metrics.containerHeight {
+            scrollToNewest(using: proxy)
+        }
+        evaluateBlankIfNeeded(using: proxy)
     }
 
     private func recordGeometryChanges(from old: TranscriptScrollMetrics, to new: TranscriptScrollMetrics) {
