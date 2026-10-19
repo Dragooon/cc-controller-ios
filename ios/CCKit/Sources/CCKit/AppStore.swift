@@ -28,6 +28,7 @@ public final class AppStore {
     public private(set) var attachments: [String: [AttachmentItem]] = [:]
     public private(set) var attachmentNotices: [String: String] = [:]
     public private(set) var attachmentRevision = 0
+    public private(set) var draftRevisions: [String: Int] = [:]
     @ObservationIgnored private var drafts: [String: String] = [:]
     private var attachmentProgressDates: [String: Date] = [:]
     private var debugAttachmentSessions: Set<String> = []
@@ -236,6 +237,10 @@ public final class AppStore {
 
     public func draft(for sessionID: String, agentID: String? = nil) -> String {
         drafts[draftKey(sessionID: sessionID, agentID: agentID)] ?? ""
+    }
+
+    public func draftRevision(for sessionID: String, agentID: String? = nil) -> Int {
+        draftRevisions[draftKey(sessionID: sessionID, agentID: agentID)] ?? 0
     }
 
     public func setDraft(_ text: String, for sessionID: String, agentID: String? = nil) {
@@ -484,6 +489,7 @@ public final class AppStore {
         let existingDraft = draft(for: sessionID)
         setDraft(existingDraft.isEmpty ? note.text : "\(note.text)\n\n\(existingDraft)", for: sessionID)
         restoreAttachments(from: note, to: sessionID)
+        draftRevisions[draftKey(sessionID: sessionID, agentID: nil), default: 0] += 1
         persistQueuedNotes()
         return true
     }
@@ -729,6 +735,7 @@ public final class AppStore {
         draftCache.clear()
         queuedNoteCache.clear()
         drafts.removeAll()
+        draftRevisions.removeAll()
         sessions.removeAll()
         previousSessionsForReplacement.removeAll()
         previousSessionsForReplacementAt = nil

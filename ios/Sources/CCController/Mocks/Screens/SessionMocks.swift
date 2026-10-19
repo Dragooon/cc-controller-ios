@@ -17,6 +17,22 @@ enum SessionMocks {
         ActivitySessionMock()
     }
 
+    static var sendingStates: some View {
+        NavigationStack {
+            SessionTranscriptView(
+                turns: MockSessionData.shortTurns,
+                showsComposer: false,
+                showsWorkedFooter: false,
+                queuedNotes: MockSessionData.sendingStateNotes,
+                sessionState: .idle
+            )
+            .navigationTitle("Sending states")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .tint(.ccAccent)
+        .background(.ccBackground)
+    }
+
     static var toolDetail: some View {
         ToolDetailMock(
             session: MockSessionData.session,
@@ -213,6 +229,30 @@ enum MockSessionData {
         result: "The deployment is healthy; one pod is being replaced after the image digest changed.\n\nThe new digest is registered and the final pod is progressing through readiness.",
         durationMs: 240_000
     )
+
+    static let shortTurns: [Turn] = [
+        Turn(
+            id: "sending-states-idle",
+            prompts: [PromptEntry(id: "sending-states-prompt", text: "Review the latest session changes.")],
+            items: [.assistant(AssistantEntry(id: "sending-states-assistant", text: "The session is idle and ready for another message."))],
+            end: TurnEndEntry(id: "sending-states-end"),
+            durationMs: 1_200,
+            hasBody: true,
+            live: false,
+            hasWorkedFooter: false
+        )
+    ]
+
+    static let sendingStateNotes: [QueuedNote] = {
+        let now = MockFixtures.now
+        return [
+            QueuedNote(id: "sending-state-sending", text: "A message is being sent", state: .sending, createdAt: now, now: false),
+            QueuedNote(id: "sending-state-sent", text: "A message was sent", state: .sent, createdAt: now, sentAt: now, now: false),
+            QueuedNote(id: "sending-state-queued", text: "A message is queued", state: .queued, createdAt: now, sentAt: now, now: false),
+            QueuedNote(id: "sending-state-attention", text: "A message needs attention", state: .sent, createdAt: now.addingTimeInterval(-60), sentAt: now.addingTimeInterval(-60), now: false),
+            QueuedNote(id: "sending-state-failed", text: "A message failed", state: .failed(message: "The fixture could not send this message."), createdAt: now, now: false)
+        ]
+    }()
 
     static let turns: [Turn] = {
         let entries = decode(transcriptJSON)

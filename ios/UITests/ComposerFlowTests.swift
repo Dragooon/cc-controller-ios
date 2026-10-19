@@ -121,6 +121,7 @@ final class ComposerFlowTests: XCTestCase {
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
         XCTAssertTrue(pending.waitForExistence(timeout: 10), "Sent marker did not appear as a pending prompt")
         XCTAssertTrue(pending.label.contains(marker), "Pending bubble did not contain the sent marker")
+        XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 10), "Optimistic prompt did not reach Sent state")
 
         let resetField = composerField(in: app)
         XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not reappear after send")
@@ -137,6 +138,104 @@ final class ComposerFlowTests: XCTestCase {
         let matchingPrompts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker))
         XCTAssertEqual(matchingPrompts.count, 1, "Sent marker appeared in both pending and delivered prompts")
         XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
+    }
+
+    func testHeldSendShowsSendingAndClearsComposer() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "optimistic-sending")
+            attach(named: "optimistic-sending")
+            app.terminate()
+        }
+        openSession(id: "session-long-session", in: app)
+        try await setMessageBehaviour(delayMs: 2_000)
+        let field = composerField(in: app)
+        let marker = "optimistic-held-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker)
+        app.buttons["composer-send"].tap()
+
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        XCTAssertTrue(pending.waitForExistence(timeout: 1), "Held send did not show an optimistic bubble")
+        XCTAssertTrue(waitForPendingStatus("Sending…", in: app, timeout: 1), "Held send did not show Sending…")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 1), "Composer did not clear while send was held")
+        XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 5), "Held send did not reconcile to Sent")
+    }
+
+    func testFailedSendRetryShowsSentState() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "optimistic-retry")
+            attach(named: "optimistic-retry")
+            app.terminate()
+        }
+        openSession(id: "session-long-session", in: app)
+        try await setMessageBehaviour(failNext: true, status: 500)
+        let field = composerField(in: app)
+        let marker = "optimistic-retry-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker)
+        app.buttons["composer-send"].tap()
+
+        XCTAssertTrue(waitForPendingStatus("Not sent · Tap to retry", in: app, timeout: 10), "Failed send did not show its inline error")
+        app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch.tap()
+        XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 5), "Failed send confirmation did not offer Retry")
+        app.buttons["Retry"].tap()
+        XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 10), "Retry did not transition the note to Sent")
+    }
+
+    func testFailedSendEditRestoresComposerAndRemovesBubble() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "optimistic-edit")
+            attach(named: "optimistic-edit")
+            app.terminate()
+        }
+        openSession(id: "session-long-session", in: app)
+        try await setMessageBehaviour(failNext: true, status: 500)
+        let field = composerField(in: app)
+        let marker = "optimistic-edit-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker)
+        app.buttons["composer-send"].tap()
+
+        XCTAssertTrue(waitForPendingStatus("Not sent · Tap to retry", in: app, timeout: 10), "Failed send did not show its inline error")
+        app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch.tap()
+        XCTAssertTrue(app.buttons["Edit message"].waitForExistence(timeout: 5), "Failed send confirmation did not offer Edit message")
+        app.buttons["Edit message"].tap()
+        XCTAssertTrue(waitForValue(of: field, equalTo: marker, timeout: 5), "Edit message did not restore the composer")
+        XCTAssertTrue(waitForNonExistence(of: app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch, timeout: 5), "Edited message bubble remained visible")
+    }
+
+    func testQuickSendsKeepPendingOrder() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "optimistic-order")
+            attach(named: "optimistic-order")
+            app.terminate()
+        }
+        openSession(id: "session-long-session", in: app)
+        let field = composerField(in: app)
+        let first = "optimistic-order-first-\(UUID().uuidString)"
+        let second = "optimistic-order-second-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(first)
+        app.buttons["composer-send"].tap()
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 2), "First quick send did not clear the composer")
+        field.typeText(second)
+        app.buttons["composer-send"].tap()
+
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").allElementsBoundByIndex
+            if pending.count >= 2 {
+                XCTAssertTrue(pending[0].label.contains(first), "First pending bubble moved behind the second")
+                XCTAssertTrue(pending[1].label.contains(second), "Second pending bubble did not follow the first")
+                return
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("Two quick sends did not leave two ordered pending bubbles")
     }
 
     func testSendClearsTrailingWhitespace() throws {
@@ -355,6 +454,23 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "while sending", timeout: 10), "Text typed during send did not survive")
     }
 
+    private func setMessageBehaviour(delayMs: Int? = nil, failNext: Bool? = nil, status: Int? = nil) async throws {
+        var body: [String: Any] = [:]
+        if let delayMs { body["delayMs"] = delayMs }
+        if let failNext { body["failNext"] = failNext }
+        if let status { body["status"] = status }
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)/fixture/message-behaviour") else { throw XCTSkip("Fixture control URL was invalid") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw NSError(domain: "ComposerFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "fixture request failed"])
+        }
+    }
+
     private func postFixture(_ path: String) async throws {
         let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
         guard let url = URL(string: "\(value)\(path)") else { throw XCTSkip("Fixture control URL was invalid") }
@@ -410,6 +526,16 @@ final class ComposerFlowTests: XCTestCase {
 
     private func composerField(in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+    }
+
+    private func waitForPendingStatus(_ text: String, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if pending.exists && pending.label.contains(text) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return false
     }
 
     private func audit(app: XCUIApplication, name: String) {

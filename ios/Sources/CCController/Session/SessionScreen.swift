@@ -123,6 +123,7 @@ struct SessionScreen: View {
     @ViewBuilder
     private func screen() -> some View {
         let _ = model.store.attachmentRevision
+        let _ = model.store.draftRevision(for: sessionID)
         if let sessionStore = model.store.openSession(sessionID) {
             contentNavigation(
                 name: sessionStore.session.name ?? "Session",
@@ -140,6 +141,19 @@ struct SessionScreen: View {
                         ),
                         queuedNotes: model.store.queuedNotes(for: sessionID),
                         liveSession: sessionStore.session,
+                        sessionState: sessionStore.session.state,
+                        onRetryNote: { noteID in
+                            _ = model.store.retryNote(id: noteID, sessionID: sessionID)
+                        },
+                        onEditNote: { noteID in
+                            _ = model.store.editNote(id: noteID, sessionID: sessionID)
+                        },
+                        onDeleteNote: { noteID in
+                            _ = model.store.deleteNote(id: noteID, sessionID: sessionID)
+                        },
+                        onSendAgain: { noteID in
+                            _ = model.store.sendAgain(id: noteID, sessionID: sessionID)
+                        },
                         subagents: sessionStore.session.subagents ?? [],
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
                         loadEarlier: { try await sessionStore.loadEarlier() },
@@ -234,6 +248,7 @@ struct SessionScreen: View {
             composer: ComposerConfiguration(
                 draft: ComposerDraft(
                     initialText: { model.store.draft(for: sessionID) },
+                    revision: model.store.draftRevision(for: sessionID),
                     onChange: { [model] text in model.store.setDraft(text, for: sessionID) }
                 ),
                 modelName: composerModelName(modelName),
@@ -251,6 +266,9 @@ struct SessionScreen: View {
             deciding: model.store.deciding,
             onSend: { [model] text, now in
                 await send(text: text, to: session.id ?? sessionID, now: now, using: model)
+            },
+            onEnqueue: { [model] text, now in
+                await enqueue(text: text, to: session.id ?? sessionID, now: now, using: model)
             },
             onAddAttachment: { [model] file in
                 model.store.addAttachment(file, to: sessionID)
@@ -278,6 +296,15 @@ struct SessionScreen: View {
                 performApprovalDeny(approval)
             }
         )
+    }
+
+    @MainActor
+    private func enqueue(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<QueuedNote, ActionError> {
+        let result = await model.store.enqueueMessage(text: text, to: sessionID, now: now)
+        if case .failure(let error) = result, shouldPresentSendError(error) {
+            model.actionError = error
+        }
+        return result
     }
 
     @MainActor

@@ -7,13 +7,16 @@ import UIKit
 
 struct ComposerDraft {
     let initialText: @MainActor () -> String
+    let revision: Int
     let onChange: @MainActor (String) -> Void
 
     init(
         initialText: @escaping @MainActor () -> String,
+        revision: Int = 0,
         onChange: @escaping @MainActor (String) -> Void
     ) {
         self.initialText = initialText
+        self.revision = revision
         self.onChange = onChange
     }
 }

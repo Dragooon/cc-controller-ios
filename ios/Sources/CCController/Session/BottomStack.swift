@@ -20,6 +20,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let deciding: Set<String>
     let transcriptHeight: CGFloat
     let onSend: @MainActor @Sendable (String, Bool) async -> Result<MessageResult, ActionError>
+    let onEnqueue: @MainActor @Sendable (String, Bool) async -> Result<QueuedNote, ActionError>
     let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
     let onRemoveAttachment: @MainActor @Sendable (String) -> Void
     let onRetryAttachment: @MainActor @Sendable (String) -> Void
@@ -41,6 +42,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         deciding: Set<String> = [],
         transcriptHeight: CGFloat = 0,
         onSend: @escaping @MainActor @Sendable (String, Bool) async -> Result<MessageResult, ActionError> = { _, _ in .success(MessageResult()) },
+        onEnqueue: @escaping @MainActor @Sendable (String, Bool) async -> Result<QueuedNote, ActionError> = { text, _ in .success(QueuedNote(text: text)) },
         onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
         onRemoveAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         onRetryAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
@@ -61,6 +63,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.deciding = deciding
         self.transcriptHeight = transcriptHeight
         self.onSend = onSend
+        self.onEnqueue = onEnqueue
         self.onAddAttachment = onAddAttachment
         self.onRemoveAttachment = onRemoveAttachment
         self.onRetryAttachment = onRetryAttachment
@@ -84,6 +87,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
             deciding: deciding,
             transcriptHeight: height,
             onSend: onSend,
+            onEnqueue: onEnqueue,
             onAddAttachment: onAddAttachment,
             onRemoveAttachment: onRemoveAttachment,
             onRetryAttachment: onRetryAttachment,
@@ -202,6 +206,11 @@ struct BottomStackView: View {
         .onChange(of: text) { _, newText in
             configuration.composer.draft?.onChange(newText)
         }
+        .onChange(of: configuration.composer.draft?.revision) { _, _ in
+            guard let draft = configuration.composer.draft else { return }
+            text = draft.initialText()
+            fieldResetGeneration += 1
+        }
     }
 
     private var composerConfiguration: ComposerConfiguration {
@@ -247,34 +256,53 @@ struct BottomStackView: View {
         }
         isSending = true
         Task { @MainActor in
-            let result = await configuration.onSend(submittedText, now)
-            isSending = false
-            switch result {
-            case .success:
-                if isSlashCommand(submittedText) {
-                    composerFocused = false
+            if isSlashCommand(submittedText) {
+                let result = await configuration.onSend(submittedText, now)
+                isSending = false
+                switch result {
+                case .success:
+                    finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
+                case .failure(let error):
+                    handleSendFailure(error)
                 }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    if let nextText = composerTextAfterSuccessfulSend(
-                        originalText: originalText,
-                        submittedText: submittedText,
-                        currentText: text
-                    ) {
-                        text = nextText
-                        fieldResetGeneration += 1
-                    }
+            } else {
+                let result = await configuration.onEnqueue(submittedText, now)
+                isSending = false
+                switch result {
+                case .success:
+                    finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
+                case .failure(let error):
+                    handleSendFailure(error)
                 }
-                sendFeedbackCount += 1
-            case .failure(let error):
-                if case .invalid("Remove or retry the failed attachment") = error {
-                    pulseFailedAttachments = true
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(220))
-                        pulseFailedAttachments = false
-                    }
-                }
+            }
+        }
+    }
+
+    private func finishSuccessfulSend(originalText: String, submittedText: String) {
+        if isSlashCommand(submittedText) {
+            composerFocused = false
+        }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if let nextText = composerTextAfterSuccessfulSend(
+                originalText: originalText,
+                submittedText: submittedText,
+                currentText: text
+            ) {
+                text = nextText
+                fieldResetGeneration += 1
+            }
+        }
+        sendFeedbackCount += 1
+    }
+
+    private func handleSendFailure(_ error: ActionError) {
+        if case .invalid("Remove or retry the failed attachment") = error {
+            pulseFailedAttachments = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(220))
+                pulseFailedAttachments = false
             }
         }
     }

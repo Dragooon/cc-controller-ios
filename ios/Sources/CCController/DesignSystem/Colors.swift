@@ -12,4 +12,5 @@ extension ShapeStyle where Self == Color {
     static var ccGreen: Color { Color("Green") }
     static var ccRed: Color { Color("Red") }
     static var ccBlue: Color { Color("Blue") }
+    static var ccAmber: Color { Color("Amber") }
 }

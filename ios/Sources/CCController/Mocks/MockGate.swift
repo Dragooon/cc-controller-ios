@@ -46,6 +46,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     case sessionsReconnecting = "sessions-reconnecting"
     case sessionIdle = "session-idle"
     case sessionWorking = "session-working"
+    case sessionSendingStates = "session-sending-states"
     case subagentResultSheet = "subagent-result-sheet"
     case sessionActivity = "session-activity"
     case sessionApprovals = "session-approvals"
@@ -76,7 +77,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     var isBuilt: Bool {
         switch self {
         case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting,
-             .sessionWorking, .subagentResultSheet, .sessionActivity, .composerSlash, .composerAttachments, .composerKeyboard,
+             .sessionWorking, .sessionSendingStates, .subagentResultSheet, .sessionActivity, .composerSlash, .composerAttachments, .composerKeyboard,
              .inspector, .activitySheet, .settings, .onboardingWelcome, .onboardingConnect,
              .onboardingPair, .onboardingFaceID, .lock, .privacyCover,
              .workingBarThinking, .workingBarToolAgents, .workingBarTyping, .workingBarIdle, .workingBarCurrent: true
@@ -107,6 +108,8 @@ private struct MockScreenView: View {
                 ApprovalMocks.terminal
             case .sessionWorking:
                 BottomStackMocks.working
+            case .sessionSendingStates:
+                SessionMocks.sendingStates
             case .subagentResultSheet:
                 SessionMocks.resultSheet
             case .sessionActivity:

@@ -13,6 +13,7 @@ final class MockScreenshotTests: XCTestCase {
         "sessions-reconnecting",
         "session-idle",
         "session-working",
+        "session-sending-states",
         "subagent-result-sheet",
         "session-activity",
         "session-approvals",

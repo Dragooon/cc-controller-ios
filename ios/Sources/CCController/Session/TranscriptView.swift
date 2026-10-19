@@ -18,6 +18,11 @@ struct SessionTranscriptView: View {
     let queuedNotes: [QueuedNote]
     let activityFooter: CCKit.ActivityFooter?
     let liveSession: Session?
+    let sessionState: SessionState?
+    let onRetryNote: (String) -> Void
+    let onEditNote: (String) -> Void
+    let onDeleteNote: (String) -> Void
+    let onSendAgain: (String) -> Void
     let hasMoreEarlier: Bool
     let loadEarlier: (() async throws -> Void)?
     let onTool: (ToolEntry) -> Void
@@ -50,6 +55,11 @@ struct SessionTranscriptView: View {
         queuedNotes: [QueuedNote] = [],
         activityFooter: CCKit.ActivityFooter? = nil,
         liveSession: Session? = nil,
+        sessionState: SessionState? = nil,
+        onRetryNote: @escaping (String) -> Void = { _ in },
+        onEditNote: @escaping (String) -> Void = { _ in },
+        onDeleteNote: @escaping (String) -> Void = { _ in },
+        onSendAgain: @escaping (String) -> Void = { _ in },
         subagents: [Subagent] = [],
         hasMoreEarlier: Bool = false,
         loadEarlier: (() async throws -> Void)? = nil,
@@ -69,6 +79,11 @@ struct SessionTranscriptView: View {
         self.queuedNotes = queuedNotes
         self.activityFooter = activityFooter
         self.liveSession = liveSession
+        self.sessionState = sessionState ?? liveSession?.state
+        self.onRetryNote = onRetryNote
+        self.onEditNote = onEditNote
+        self.onDeleteNote = onDeleteNote
+        self.onSendAgain = onSendAgain
         self.subagents = subagents
         _subagentIndex = State(initialValue: SubagentIndex(subagents))
         self.hasMoreEarlier = hasMoreEarlier
@@ -364,8 +379,17 @@ struct SessionTranscriptView: View {
             #endif
         }
 
-        ForEach(Array(queuedNotes.enumerated()), id: \.offset) { _, note in
-            PendingPromptView(sessionID: sessionID, note: note, downloadFile: downloadFile)
+        ForEach(queuedNotes) { note in
+            PendingPromptView(
+                sessionID: sessionID,
+                note: note,
+                sessionState: sessionState,
+                downloadFile: downloadFile,
+                onRetry: onRetryNote,
+                onEdit: onEditNote,
+                onDelete: onDeleteNote,
+                onSendAgain: onSendAgain
+            )
         }
 
         Color.clear
@@ -388,7 +412,13 @@ struct SessionTranscriptView: View {
 private struct PendingPromptView: View {
     let sessionID: String
     let note: QueuedNote
+    let sessionState: SessionState?
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+    let onRetry: (String) -> Void
+    let onEdit: (String) -> Void
+    let onDelete: (String) -> Void
+    let onSendAgain: (String) -> Void
+    @State private var confirmationPresented = false
 
     private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
         guard let downloadFile else { return nil }
@@ -398,8 +428,50 @@ private struct PendingPromptView: View {
         }
     }
 
+    private var failureMessage: String? {
+        guard case .failed(let message) = note.state else { return nil }
+        return message
+    }
+
+    private var isFailed: Bool {
+        if case .failed = note.state { return true }
+        return false
+    }
+
+    private var attention: Bool {
+        noteNeedsAttention(note: note, sessionState: sessionState, now: .now)
+    }
+
+    private var statusText: String {
+        switch note.state {
+        case .sending: "Sending…"
+        case .sent: attention ? "Sent · not received yet" : "Sent"
+        case .queued: "Queued"
+        case .failed: "Not sent · Tap to retry"
+        }
+    }
+
+    private var statusColor: Color {
+        if attention { return .ccAmber }
+        if failureMessage != nil { return .ccRed }
+        return .ccSecondary
+    }
+
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .trailing, spacing: 4) {
+        if note.state == .sent {
+            TimelineView(.periodic(from: .now, by: 5)) { context in
+                content(now: context.date)
+            }
+        } else {
+            content(now: .now)
+        }
+    }
+
+    private func content(now: Date) -> some View {
+        let needsAttention = noteNeedsAttention(note: note, sessionState: sessionState, now: now)
+        let text = needsAttention ? "Sent · not received yet" : statusText
+        return VStack(alignment: .trailing, spacing: 4) {
             PromptBubble(
                 prompt: PromptEntry(text: note.text, attachments: note.attachments),
                 sessionID: sessionID,
@@ -407,17 +479,49 @@ private struct PendingPromptView: View {
                 attachmentThumbnails: note.attachmentThumbnails,
                 bubbleAccessibilityIdentifier: "pending-prompt-bubble"
             )
-                .opacity(0.55)
-            if note.queued {
-                Text("Queued")
-                    .font(.caption)
-                    .foregroundStyle(.ccSecondary)
+            .opacity(isFailed ? 1 : 0.55)
+            .onTapGesture { presentConfirmationIfNeeded() }
+
+            HStack(spacing: 4) {
+                if note.state == .sending {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+                if isFailed {
+                    Image(systemName: "exclamationmark.circle")
+                }
+                Text(text)
             }
+            .font(.caption)
+            .foregroundStyle(needsAttention ? .ccAmber : statusColor)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("pending-prompt-status")
+            .onTapGesture { presentConfirmationIfNeeded() }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("pending-prompt")
-        .accessibilityLabel(note.queued ? "\(note.text), Queued" : note.text)
+        .accessibilityLabel("\(note.text), \(text)")
+        .confirmationDialog(
+            failureMessage ?? "Message not received",
+            isPresented: $confirmationPresented,
+            titleVisibility: .visible
+        ) {
+            if needsAttention {
+                Button("Send again") { onSendAgain(note.id) }
+            }
+            if failureMessage != nil {
+                Button("Retry") { onRetry(note.id) }
+                Button("Edit message") { onEdit(note.id) }
+            }
+            Button("Delete", role: .destructive) { onDelete(note.id) }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func presentConfirmationIfNeeded() {
+        guard attention || failureMessage != nil else { return }
+        confirmationPresented = true
     }
 }
 
