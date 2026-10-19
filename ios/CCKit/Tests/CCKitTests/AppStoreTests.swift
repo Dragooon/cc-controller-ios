@@ -501,6 +501,139 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(note.attachmentThumbnails["attachment.png"], Data([1, 2, 3]))
     }
 
+    func testEnqueueShowsSendingBeforeNetworkCompletesAndThenSends() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        var requestBody = Data()
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                requestBody = Self.bodyData(for: request)
+                gate.wait()
+                return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.setDraft("send now", for: "session-1")
+        let sending = Task { @MainActor in await app.enqueueMessage(text: "send now", to: "session-1") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sending && !requestBody.isEmpty }
+        let note = try XCTUnwrap(app.queuedNotes(for: "session-1").first)
+        XCTAssertEqual(note.text, "send now")
+        XCTAssertEqual(app.draft(for: "session-1"), "")
+        let beforeNetwork = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        XCTAssertEqual(beforeNetwork["text"] as? String, "send now")
+        gate.signal()
+        guard case .success = await sending.value else { return XCTFail("Enqueue was rejected") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sent }
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+        XCTAssertEqual(body["clientMessageId"] as? String, note.id)
+    }
+
+    func testEnqueueFailurePreservesTextAndRetryUsesSameClientMessageID() async throws {
+        var attempts = 0
+        var clientMessageIDs: [String] = []
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                attempts += 1
+                if let object = try? JSONSerialization.jsonObject(with: Self.bodyData(for: request)) as? [String: Any],
+                   let id = object["clientMessageId"] as? String { clientMessageIDs.append(id) }
+                if attempts == 1 { return URLProtocolStub.json(500, body: Data("{\"error\":\"send failed\"}".utf8)) }
+                return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        guard case .success(let note) = await app.enqueueMessage(text: "keep this", to: "session-1") else { return XCTFail("Enqueue was rejected") }
+        try await waitUntil {
+            if case .failed = app.queuedNotes(for: "session-1").first?.state { return true }
+            return false
+        }
+        XCTAssertEqual(app.queuedNotes(for: "session-1").first?.text, "keep this")
+        XCTAssertTrue(app.retryNote(id: note.id, sessionID: "session-1"))
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sent }
+        XCTAssertEqual(clientMessageIDs, [note.id, note.id])
+    }
+
+    func testEnqueueFailureFailsLaterNotesWithoutInvertingOrder() async throws {
+        var messageTexts: [String] = []
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                let object = try? JSONSerialization.jsonObject(with: Self.bodyData(for: request)) as? [String: Any]
+                messageTexts.append(object?["text"] as? String ?? "")
+                return URLProtocolStub.json(500, body: Data("{\"error\":\"first failed\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        guard case .success = await app.enqueueMessage(text: "first", to: "session-1"),
+              case .success = await app.enqueueMessage(text: "second", to: "session-1") else { return XCTFail("Enqueue was rejected") }
+        try await waitUntil { app.queuedNotes(for: "session-1").allSatisfy { if case .failed = $0.state { return true }; return false } }
+        XCTAssertEqual(messageTexts, ["first"])
+        XCTAssertEqual(app.queuedNotes(for: "session-1").map(\.text), ["first", "second"])
+        if case .failed(let message) = app.queuedNotes(for: "session-1")[1].state {
+            XCTAssertEqual(message, "An earlier message did not send.")
+        } else {
+            XCTFail("The later note was not failed")
+        }
+    }
+
+    func testQueuedNotePersistenceFailsSendingAndDropsOldNotes() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let current = QueuedNote(id: "current", text: "current", state: .sending, createdAt: now, attachmentThumbnails: ["image.png": Data([1])])
+        let old = QueuedNote(id: "old", text: "old", state: .sent, createdAt: now.addingTimeInterval(-8 * 24 * 60 * 60))
+        QueuedNoteCache(directory: directory, clock: FixedClock(now: now)).saveNow(["session-1": [current, old]])
+        let app = AppStore(serverURL: URL(string: "http://localhost:47832")!, bearerProvider: { "token" }, session: URLProtocolStub.session, clock: FixedClock(now: now), cacheDirectory: directory)
+        XCTAssertEqual(app.queuedNotes(for: "session-1").map(\.id), ["current"])
+        XCTAssertEqual(app.queuedNotes(for: "session-1").first?.state, .failed(message: "The app closed before this message was sent."))
+        XCTAssertTrue(app.queuedNotes(for: "session-1").first?.attachmentThumbnails.isEmpty == true)
+    }
+
+    func testFailedNoteReconcilesWhenItsPromptArrives() {
+        let timestamp = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(id: "failed", text: "retry me", state: .failed(message: "offline"), createdAt: timestamp)
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: timestamp.addingTimeInterval(1), text: "retry me"))
+        XCTAssertTrue(reconcileQueuedNote([note], promptEntry: prompt).isEmpty)
+    }
+
+    func testEditRestoresDraftAndDeleteRemovesNote() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true { return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8)) }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        guard case .success(let note) = await app.enqueueMessage(text: "edit me", to: "session-1") else { return XCTFail("Enqueue was rejected") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sent }
+        app.setDraft("existing", for: "session-1")
+        XCTAssertTrue(app.editNote(id: note.id, sessionID: "session-1"))
+        XCTAssertEqual(app.draft(for: "session-1"), "edit me\n\nexisting")
+        XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
+        guard case .success(let second) = await app.enqueueMessage(text: "delete me", to: "session-1") else { return XCTFail("Enqueue was rejected") }
+        XCTAssertTrue(app.deleteNote(id: second.id, sessionID: "session-1"))
+        XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
+    }
+
+    func testSendAgainUsesFreshIDForSentNote() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true { return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8)) }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        guard case .success(let original) = await app.enqueueMessage(text: "again", to: "session-1") else { return XCTFail("Enqueue was rejected") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sent }
+        let replacement = try XCTUnwrap(app.sendAgain(id: original.id, sessionID: "session-1"))
+        XCTAssertNotEqual(replacement.id, original.id)
+        XCTAssertEqual(replacement.text, original.text)
+    }
+
+    func testNoteNeedsAttentionOnlyForUnconfirmedSentNotes() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let sent = QueuedNote(text: "sent", state: .sent, createdAt: now, sentAt: now.addingTimeInterval(-31))
+        XCTAssertTrue(noteNeedsAttention(note: sent, sessionState: .idle, now: now))
+        XCTAssertFalse(noteNeedsAttention(note: sent, sessionState: .working, now: now))
+        let queued = QueuedNote(text: "queued", state: .queued, createdAt: now, sentAt: now.addingTimeInterval(-31))
+        XCTAssertFalse(noteNeedsAttention(note: queued, sessionState: .idle, now: now))
+    }
+
     func testDraftPersistsAndRestoresAcrossStoreRecreation() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let app = makeApp(cacheDirectory: directory)
@@ -862,6 +995,14 @@ final class AppStoreTests: XCTestCase {
 
     private static func promptJSON(text: String, timestamp: Date) -> Data {
         Data("[{\"kind\":\"prompt\",\"ts\":\"\(CCDateCoding.format(timestamp))\",\"text\":\"\(text)\"}]".utf8)
+    }
+}
+
+private struct FixedClock: CCKitClock {
+    let now: Date
+
+    func sleep(for duration: Duration) async throws {
+        try Task.checkCancellation()
     }
 }
 

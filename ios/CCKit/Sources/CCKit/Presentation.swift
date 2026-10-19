@@ -22,48 +22,99 @@ public struct NormalizedPromptText: Codable, Sendable, Equatable {
     }
 }
 
-public struct QueuedNote: Codable, Sendable, Equatable {
+public enum QueuedNoteState: Codable, Sendable, Equatable {
+    case sending
+    case sent
+    case queued
+    case failed(message: String)
+}
+
+public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
     public var text: String
-    public var queued: Bool
+    public var state: QueuedNoteState
     public var forceSent: Bool
     public var createdAt: Date
+    public var sentAt: Date?
+    public var now: Bool
     public var attachments: [String]
     public var attachmentThumbnails: [String: Data]
+    private var legacyEncoding: Bool
+
+    public var queued: Bool {
+        get { state == .queued }
+        set { state = newValue ? .queued : .sent }
+    }
 
     public init(
+        id: String = UUID().uuidString,
         text: String,
-        queued: Bool = false,
+        state: QueuedNoteState = .sent,
+        queued: Bool? = nil,
         forceSent: Bool = false,
         createdAt: Date = .distantPast,
+        sentAt: Date? = nil,
+        now: Bool = false,
         attachments: [String] = [],
         attachmentThumbnails: [String: Data] = [:]
     ) {
+        self.id = id
         self.text = text
-        self.queued = queued
+        self.state = queued == true ? .queued : state
         self.forceSent = forceSent
         self.createdAt = createdAt
+        self.sentAt = sentAt
+        self.now = now
         self.attachments = attachments
         self.attachmentThumbnails = attachmentThumbnails
+        self.legacyEncoding = false
     }
 
-    private enum CodingKeys: String, CodingKey { case text, queued, forceSent, createdAt, attachments, attachmentThumbnails }
+    private enum CodingKeys: String, CodingKey { case id, text, state, queued, forceSent, createdAt, sentAt, now, attachments, attachmentThumbnails }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        legacyEncoding = !container.contains(.id) && !container.contains(.state) && !container.contains(.sentAt) && !container.contains(.now)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
-        queued = try container.decodeIfPresent(Bool.self, forKey: .queued) ?? false
+        if let value = try container.decodeIfPresent(QueuedNoteState.self, forKey: .state) {
+            state = value
+        } else {
+            state = (try container.decodeIfPresent(Bool.self, forKey: .queued) ?? false) ? .queued : .sent
+        }
         forceSent = try container.decodeIfPresent(Bool.self, forKey: .forceSent) ?? false
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? .distantPast
+        sentAt = try container.decodeIfPresent(Date.self, forKey: .sentAt)
+        now = try container.decodeIfPresent(Bool.self, forKey: .now) ?? false
         attachments = try container.decodeIfPresent([String].self, forKey: .attachments) ?? []
         attachmentThumbnails = try container.decodeIfPresent([String: Data].self, forKey: .attachmentThumbnails) ?? [:]
     }
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(text, forKey: .text)
-        try container.encode(queued, forKey: .queued)
-        if forceSent { try container.encode(true, forKey: .forceSent) }
-        if createdAt != .distantPast { try container.encode(createdAt, forKey: .createdAt) }
+        if legacyEncoding {
+            try container.encode(queued, forKey: .queued)
+            if forceSent { try container.encode(true, forKey: .forceSent) }
+            if createdAt != .distantPast { try container.encode(createdAt, forKey: .createdAt) }
+        } else {
+            try container.encode(id, forKey: .id)
+            try container.encode(state, forKey: .state)
+            try container.encode(forceSent, forKey: .forceSent)
+            try container.encode(createdAt, forKey: .createdAt)
+            try container.encodeIfPresent(sentAt, forKey: .sentAt)
+            try container.encode(now, forKey: .now)
+        }
         if !attachments.isEmpty { try container.encode(attachments, forKey: .attachments) }
         if !attachmentThumbnails.isEmpty { try container.encode(attachmentThumbnails, forKey: .attachmentThumbnails) }
+    }
+
+    mutating func useCurrentEncoding() {
+        legacyEncoding = false
+    }
+
+    public static func == (lhs: QueuedNote, rhs: QueuedNote) -> Bool {
+        lhs.id == rhs.id && lhs.text == rhs.text && lhs.state == rhs.state && lhs.forceSent == rhs.forceSent
+            && lhs.createdAt == rhs.createdAt && lhs.sentAt == rhs.sentAt && lhs.now == rhs.now
+            && lhs.attachments == rhs.attachments && lhs.attachmentThumbnails == rhs.attachmentThumbnails
     }
 }
 
@@ -968,6 +1019,13 @@ public func decisionText(_ entry: DecisionEntry, timeZone: TimeZone = .current, 
     }
     let time = formatTime(entry.ts ?? entry.receivedAt, timeZone: timeZone, locale: locale)
     return time.isEmpty ? text : "\(text), \(time)"
+}
+
+public func noteNeedsAttention(note: QueuedNote, sessionState: SessionState?, now: Date = .now) -> Bool {
+    guard note.state == .sent,
+          let sentAt = note.sentAt,
+          now.timeIntervalSince(sentAt) > 30 else { return false }
+    return sessionState != .working
 }
 
 public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: TranscriptEntry, skew: TimeInterval = 5) -> [QueuedNote] {

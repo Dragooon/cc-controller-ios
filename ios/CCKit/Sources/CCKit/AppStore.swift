@@ -65,6 +65,7 @@ public final class AppStore {
     @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let cache: DiskCache
     @ObservationIgnored private let draftCache: DraftCache
+    @ObservationIgnored private let queuedNoteCache: QueuedNoteCache
     @ObservationIgnored private let uploadTimeout: TimeInterval
     @ObservationIgnored private let initialTranscriptTail: Int
     @ObservationIgnored private let authenticationFailureHandler: (@Sendable () async -> Void)?
@@ -84,6 +85,7 @@ public final class AppStore {
     @ObservationIgnored private let eventCoalescer = LiveEventCoalescer()
     @ObservationIgnored private var eventCoalescingTask: Task<Void, Never>?
     @ObservationIgnored private var cacheWriteTask: Task<Void, Never>?
+    @ObservationIgnored private var deliveryTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var cacheWritePending = false
 
     public init(
@@ -102,7 +104,9 @@ public final class AppStore {
         self.clock = clock
         self.cache = DiskCache(directory: cacheDirectory, clock: clock)
         self.draftCache = DraftCache(directory: cacheDirectory, clock: clock)
+        self.queuedNoteCache = QueuedNoteCache(directory: cacheDirectory, clock: clock)
         self.drafts = (try? DraftCache.loadSync(directory: cacheDirectory)) ?? [:]
+        self.queuedNotes = (try? QueuedNoteCache.loadSync(directory: cacheDirectory, now: clock.now)) ?? [:]
         self.uploadTimeout = uploadTimeout
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.authenticationFailureHandler = authenticationFailureHandler
@@ -128,6 +132,9 @@ public final class AppStore {
         flushPendingEvents()
         flushCacheImmediately()
         draftCache.saveNow(drafts)
+        deliveryTasks.values.forEach { $0.cancel() }
+        deliveryTasks.removeAll()
+        queuedNoteCache.saveNow(queuedNotes)
         started = false
         lifecycleTask?.cancel()
         lifecycleTask = nil
@@ -149,6 +156,9 @@ public final class AppStore {
     public func resume() {
         suspend()
         start()
+        for sessionID in queuedNotes.keys where queuedNotes[sessionID]?.contains(where: { $0.state == .sending }) == true {
+            startDeliveryWorker(for: sessionID)
+        }
     }
 
     public func openSession(_ id: String) -> SessionStore? {
@@ -288,12 +298,15 @@ public final class AppStore {
                 queuedNotes[sessionID, default: []].append(
                     QueuedNote(
                         text: trimmed,
-                        queued: result.queued == true,
+                        state: result.queued == true ? .queued : .sent,
                         createdAt: createdAt,
+                        sentAt: clock.now,
+                        now: now,
                         attachments: attachments,
                         attachmentThumbnails: attachmentThumbnails
                     )
                 )
+                persistQueuedNotes()
                 if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
                     reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
                 }
@@ -396,6 +409,187 @@ public final class AppStore {
             clearDraft(for: sessionID, matching: trimmed)
         }
         return result
+    }
+
+    /// Adds a non-command message locally, then delivers it in the background.
+    @discardableResult
+    public func enqueueMessage(text: String, to sessionID: String, now: Bool = false) async -> Result<QueuedNote, ActionError> {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pending = attachments(for: sessionID)
+        guard !trimmed.isEmpty || !pending.isEmpty else { return .failure(.invalid("Message text is required.")) }
+        guard !isSlashCommand(trimmed) else { return .failure(.invalid("Slash commands must use sendComposer.")) }
+        if let caption = AttachmentItem.sendBlockedCaption(for: pending) {
+            return .failure(.invalid(caption))
+        }
+        let pendingIDs = Set(pending.map(\.id))
+        while attachments(for: sessionID).contains(where: { pendingIDs.contains($0.id) && isUploading($0) }) {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        let finished = attachments(for: sessionID).filter { pendingIDs.contains($0.id) }
+        if let caption = AttachmentItem.sendBlockedCaption(for: finished) {
+            return .failure(.invalid(caption))
+        }
+        let sentIDs = Set(finished.compactMap { item -> String? in
+            guard case .attached = item.state else { return nil }
+            return item.id
+        })
+        let names = finished.compactMap { item -> String? in
+            guard case .attached(let file) = item.state else { return nil }
+            return file.name
+        }
+        let thumbnails = finished.reduce(into: [String: Data]()) { result, item in
+            guard item.isImage,
+                  case .attached(let file) = item.state,
+                  let name = file.name,
+                  let data = item.thumbnailData else { return }
+            result[name] = data
+        }
+        let note = QueuedNote(
+            text: trimmed.isEmpty ? "See attached." : trimmed,
+            state: .sending,
+            createdAt: clock.now,
+            now: now,
+            attachments: names,
+            attachmentThumbnails: thumbnails
+        )
+        queuedNotes[sessionID, default: []].append(note)
+        queuedNotes[sessionID] = orderedNotes(queuedNotes[sessionID] ?? [])
+        attachments[sessionID]?.removeAll { sentIDs.contains($0.id) }
+        attachmentProgressDates = attachmentProgressDates.filter { !sentIDs.contains($0.key) }
+        if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
+        attachmentRevision += 1
+        clearDraft(for: sessionID, matching: trimmed)
+        persistQueuedNotes()
+        startDeliveryWorker(for: sessionID)
+        return .success(note)
+    }
+
+    @discardableResult
+    public func retryNote(id: String, sessionID: String) -> Bool {
+        guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == id }), case .failed = notes[index].state else { return false }
+        notes[index].state = .sending
+        notes[index].sentAt = nil
+        notes = orderedNotes(notes)
+        queuedNotes[sessionID] = notes
+        persistQueuedNotes()
+        startDeliveryWorker(for: sessionID)
+        return true
+    }
+
+    @discardableResult
+    public func editNote(id: String, sessionID: String) -> Bool {
+        guard let note = queuedNotes[sessionID]?.first(where: { $0.id == id }) else { return false }
+        queuedNotes[sessionID]?.removeAll { $0.id == id }
+        if queuedNotes[sessionID]?.isEmpty == true { queuedNotes.removeValue(forKey: sessionID) }
+        let existingDraft = draft(for: sessionID)
+        setDraft(existingDraft.isEmpty ? note.text : "\(note.text)\n\n\(existingDraft)", for: sessionID)
+        restoreAttachments(from: note, to: sessionID)
+        persistQueuedNotes()
+        return true
+    }
+
+    @discardableResult
+    public func deleteNote(id: String, sessionID: String) -> Bool {
+        guard queuedNotes[sessionID]?.contains(where: { $0.id == id }) == true else { return false }
+        queuedNotes[sessionID]?.removeAll { $0.id == id }
+        if queuedNotes[sessionID]?.isEmpty == true { queuedNotes.removeValue(forKey: sessionID) }
+        persistQueuedNotes()
+        return true
+    }
+
+    @discardableResult
+    public func sendAgain(id: String, sessionID: String) -> QueuedNote? {
+        guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == id }), notes[index].state == .sent else { return nil }
+        let old = notes.remove(at: index)
+        let note = QueuedNote(
+            text: old.text,
+            state: .sending,
+            forceSent: old.forceSent,
+            createdAt: clock.now,
+            now: old.now,
+            attachments: old.attachments,
+            attachmentThumbnails: old.attachmentThumbnails
+        )
+        notes.append(note)
+        notes = orderedNotes(notes)
+        queuedNotes[sessionID] = notes
+        persistQueuedNotes()
+        startDeliveryWorker(for: sessionID)
+        return note
+    }
+
+    private func restoreAttachments(from note: QueuedNote, to sessionID: String) {
+        guard !note.attachments.isEmpty else { return }
+        let existingNames = Set(attachments(for: sessionID).map(\.name))
+        let restored = note.attachments.compactMap { name -> AttachmentItem? in
+            guard !existingNames.contains(name) else { return nil }
+            let thumbnail = note.attachmentThumbnails[name]
+            let file = UploadFile(name: name, data: thumbnail ?? Data(), isImage: thumbnail != nil, thumbnailData: thumbnail)
+            return AttachmentItem(file: file, state: .attached(UploadedFile(name: name)))
+        }
+        guard !restored.isEmpty else { return }
+        attachments[sessionID, default: []].append(contentsOf: restored)
+        attachmentRevision += 1
+    }
+
+    private func orderedNotes(_ notes: [QueuedNote]) -> [QueuedNote] {
+        notes.enumerated().sorted { left, right in
+            if left.element.createdAt != right.element.createdAt { return left.element.createdAt < right.element.createdAt }
+            return left.offset < right.offset
+        }.map(\.element)
+    }
+
+    private func persistQueuedNotes() {
+        queuedNoteCache.save(queuedNotes)
+    }
+
+    private func startDeliveryWorker(for sessionID: String) {
+        guard deliveryTasks[sessionID] == nil else { return }
+        deliveryTasks[sessionID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                guard let note = self.orderedNotes(self.queuedNotes[sessionID]?.filter({ $0.state == .sending }) ?? []).first else { break }
+                do {
+                    let result = try await self.client.message(
+                        sessionID: sessionID,
+                        text: note.text,
+                        files: note.attachments,
+                        now: note.now,
+                        clientMessageId: note.id
+                    )
+                    guard !Task.isCancelled else { return }
+                    self.markDeliverySucceeded(noteID: note.id, sessionID: sessionID, queued: result.queued == true)
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.markDeliveryFailed(noteID: note.id, sessionID: sessionID, message: self.actionError(for: error).userMessage)
+                }
+            }
+            self.deliveryTasks.removeValue(forKey: sessionID)
+        }
+    }
+
+    private func markDeliverySucceeded(noteID: String, sessionID: String, queued: Bool) {
+        guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == noteID }) else { return }
+        notes[index].state = queued ? .queued : .sent
+        notes[index].sentAt = clock.now
+        queuedNotes[sessionID] = notes
+        persistQueuedNotes()
+        if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
+            reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
+        }
+    }
+
+    private func markDeliveryFailed(noteID: String, sessionID: String, message: String) {
+        guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == noteID }) else { return }
+        notes[index].state = .failed(message: message)
+        notes[index].sentAt = nil
+        let failureIndex = index
+        for laterIndex in notes.indices where laterIndex > failureIndex && notes[laterIndex].state == .sending {
+            notes[laterIndex].state = .failed(message: "An earlier message did not send.")
+            notes[laterIndex].sentAt = nil
+        }
+        queuedNotes[sessionID] = notes
+        persistQueuedNotes()
     }
 
     private var uploadLimit: Int {
@@ -533,6 +727,7 @@ public final class AppStore {
         await client.setBearerToken(nil)
         try? await cache.clear()
         draftCache.clear()
+        queuedNoteCache.clear()
         drafts.removeAll()
         sessions.removeAll()
         previousSessionsForReplacement.removeAll()
@@ -978,6 +1173,7 @@ public final class AppStore {
         }
         if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) }
         else { queuedNotes[sessionID] = pending }
+        persistQueuedNotes()
     }
 
     private func applyUsage(_ event: UsageEvent) {

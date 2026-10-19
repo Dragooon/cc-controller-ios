@@ -94,9 +94,19 @@ public actor APIClient {
         )
     }
 
-    public func message(sessionID: String, text: String, files: [String] = [], now: Bool = false) async throws -> MessageResult {
-        let body = MessageRequest(text: text, files: files, now: now)
-        return try await post("/api/sessions/\(pathComponent(sessionID))/message", body: body)
+    public func message(
+        sessionID: String,
+        text: String,
+        files: [String] = [],
+        now: Bool = false,
+        clientMessageId: String? = nil
+    ) async throws -> MessageResult {
+        let body = MessageRequest(text: text, files: files, now: now, clientMessageId: clientMessageId)
+        return try await post(
+            "/api/sessions/\(pathComponent(sessionID))/message",
+            body: body,
+            timeoutInterval: 20
+        )
     }
 
     public func escape(sessionID: String) async throws -> KeyResult { try await post("/api/sessions/\(pathComponent(sessionID))/keys", body: KeyRequest(key: "escape", text: nil)) }
@@ -166,10 +176,22 @@ public actor APIClient {
         try await request(path, method: "GET", query: query, sessionID: sessionID)
     }
 
-    private func post<T: Encodable, U: Decodable>(_ path: String, body: T, staleDecision: Bool = false) async throws -> U {
+    private func post<T: Encodable, U: Decodable>(
+        _ path: String,
+        body: T,
+        staleDecision: Bool = false,
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> U {
         let data: Data
         do { data = try JSONEncoder.ccKit().encode(body) } catch { throw APIError.decoding(error.localizedDescription) }
-        return try await request(path, method: "POST", body: data, contentType: "application/json", staleDecision: staleDecision)
+        return try await request(
+            path,
+            method: "POST",
+            body: data,
+            contentType: "application/json",
+            staleDecision: staleDecision,
+            timeoutInterval: timeoutInterval
+        )
     }
 
     private func request<T: Decodable>(
@@ -316,7 +338,22 @@ private struct CreateSessionRequest: Encodable {
         try container.encodeIfPresent(prompt, forKey: .prompt)
     }
 }
-private struct MessageRequest: Encodable { let text: String; let files: [String]; let now: Bool }
+private struct MessageRequest: Encodable {
+    let text: String
+    let files: [String]
+    let now: Bool
+    let clientMessageId: String?
+
+    enum CodingKeys: String, CodingKey { case text, files, now, clientMessageId }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encode(files, forKey: .files)
+        try container.encode(now, forKey: .now)
+        try container.encodeIfPresent(clientMessageId, forKey: .clientMessageId)
+    }
+}
 private struct KeyRequest: Encodable { let key: String; let text: String? }
 private struct ModeRequest: Encodable { let mode: String }
 private struct DecisionRequest: Encodable { let requestId: String; let behavior: String }
