@@ -426,32 +426,39 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertEqual(relaunchedField.value as? String, marker, "Draft was not restored after relaunch")
     }
 
-    func testComposerDraftStaysOnRejectedSendAndClearsOnSuccess() async throws {
+    func testRejectedSendKeepsMessageAndTypingDuringSendSurvives() async throws {
         let app = launchFixture()
         defer {
-            audit(app: app, name: "composer-draft-send-outcomes")
-            attach(named: "composer-draft-send-outcomes")
+            audit(app: app, name: "composer-rejected-and-typing-during-send")
+            attach(named: "composer-rejected-and-typing-during-send")
             app.terminate()
         }
 
         try await postFixture("/fixture/clear-approvals")
         openSession(id: "session-staff-account-exclusions", in: app)
         let field = composerField(in: app)
-        let marker = "draft-send-failure-\(UUID().uuidString)"
+        let marker = "rejected-send-\(UUID().uuidString)"
         field.tap()
         field.typeText(marker)
         try await postFixture("/fixture/reject-next-send")
         app.buttons["composer-send"].tap()
-        XCTAssertTrue(waitForValue(of: field, equalTo: marker, timeout: 10), "Failed send wiped the draft")
-        if app.alerts.firstMatch.waitForExistence(timeout: 5) { app.alerts.buttons["OK"].tap() }
 
-        try await postFixture("/fixture/delay-next-send")
+        XCTAssertTrue(waitForPendingStatus("Not sent · Tap to retry", message: marker, in: app, timeout: 10), "Rejected send did not keep the message as Not sent")
+        let failedMessage = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
+        XCTAssertTrue(failedMessage.waitForExistence(timeout: 5), "Rejected message text is not visible")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Composer kept the rejected text instead of moving it to the bubble")
+        XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 1), "Rejected send also showed an alert")
+
+        try await setMessageBehaviour(delayMs: 8_000)
+        let heldMarker = "held-send-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(heldMarker)
         app.buttons["composer-send"].tap()
-        try await Task.sleep(for: .milliseconds(100))
-        let extraText = " while sending"
-        field.typeText(extraText)
-        let resetField = composerField(in: app)
-        XCTAssertTrue(waitForValue(of: resetField, equalTo: "while sending", timeout: 10), "Text typed during send did not survive")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Held send did not clear the composer")
+        field.typeText("while sending")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "while sending", timeout: 3), "Text typed during send did not appear")
+        XCTAssertTrue(waitForPendingStatus("Sent", message: heldMarker, in: app, timeout: 15), "Held send did not reconcile to Sent")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "while sending", timeout: 3), "Text typed during send was wiped when the send succeeded")
     }
 
     private func setMessageBehaviour(delayMs: Int? = nil, failNext: Bool? = nil, status: Int? = nil) async throws {
@@ -528,8 +535,10 @@ final class ComposerFlowTests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
     }
 
-    private func waitForPendingStatus(_ text: String, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+    private func waitForPendingStatus(_ text: String, message: String? = nil, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        var query = app.descendants(matching: .any).matching(identifier: "pending-prompt")
+        if let message { query = query.matching(NSPredicate(format: "label BEGINSWITH %@", message)) }
+        let pending = query.firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if pending.exists && pending.label.contains(text) { return true }
