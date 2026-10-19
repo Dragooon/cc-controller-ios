@@ -339,6 +339,29 @@ final class TranscriptFlowTests: XCTestCase {
         attach(named: "transcript-jump-to-latest")
     }
 
+    func testScrollGuardCorrectsInjectedOvershoot() async throws {
+        let app = launchFixture(initialTranscriptTail: 20, scrollGuardOvershoot: true)
+        defer {
+            audit(app: app, name: "scroll-guard-overshoot")
+            app.terminate()
+        }
+
+        let longSession = findLongSession(in: app)
+        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        longSession.tap()
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+
+        let status = app.staticTexts["scroll-diagnostics-status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 2), "Scroll diagnostic status did not load")
+        let deadline = Date().addingTimeInterval(2)
+        while status.label != "count=1 kind=overshoot recovered=true" && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(status.label, "count=1 kind=overshoot recovered=true", "Unexpected scroll diagnostic status")
+        XCTAssertTrue(newest.isHittable, "Newest transcript row was not visible after overshoot correction")
+    }
+
     func testSmallScrollUpKeepsPlace() async throws {
         let app = launchFixture()
         defer {
@@ -628,7 +651,11 @@ final class TranscriptFlowTests: XCTestCase {
         return app.buttons["session-long-session"]
     }
 
-    private func launchFixture(resetCache: Bool = true, initialTranscriptTail: Int? = nil) -> XCUIApplication {
+    private func launchFixture(
+        resetCache: Bool = true,
+        initialTranscriptTail: Int? = nil,
+        scrollGuardOvershoot: Bool = false
+    ) -> XCUIApplication {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
@@ -636,6 +663,9 @@ final class TranscriptFlowTests: XCTestCase {
         if resetCache { app.launchArguments.append("-CCResetCache") }
         if let initialTranscriptTail {
             app.launchArguments += ["-CCFixtureInitialTranscriptTail", String(initialTranscriptTail)]
+        }
+        if scrollGuardOvershoot {
+            app.launchArguments.append("-CCScrollGuardTestOvershoot")
         }
         app.launchEnvironment["CCBearer"] = bearer
         dismissLeftoverNotificationPrompt()

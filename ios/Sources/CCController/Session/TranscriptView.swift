@@ -1,10 +1,20 @@
 import CCKit
 import SwiftUI
 
+#if DEBUG
+import UIKit
+#endif
+
 private struct TranscriptScrollMetrics: Equatable {
+    let geometry: ScrollGuardGeometry
     let contentFitsViewport: Bool
-    let contentHeight: CGFloat
-    let containerHeight: CGFloat
+}
+
+private struct ScrollBlankOccurrence {
+    let kind: ScrollBlankKind
+    let startedAt: Date
+    var corrections: Int
+    var latestGeometry: ScrollGuardGeometry
 }
 
 struct SessionTranscriptView: View {
@@ -43,6 +53,18 @@ struct SessionTranscriptView: View {
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
     @State private var userIsScrolling = false
+    @State private var builtRowIndices: [String: Int] = [:]
+    @State private var highestBuiltRowIndex = -1
+    @State private var lastBuiltRowID: String?
+    @State private var lastScrollGeometry: ScrollGuardGeometry?
+    @State private var scrollPhaseIsIdle = true
+    @State private var blankCandidate: ScrollBlankKind?
+    @State private var blankCandidateStartedAt: Date?
+    @State private var blankCheckTask: Task<Void, Never>?
+    @State private var blankOccurrence: ScrollBlankOccurrence?
+    @State private var diagnosticsRecorder: ScrollDiagnosticsRecorder
+    @State private var diagnosticWrittenCount = 0
+    @State private var diagnosticStatus = "count=0"
     @State private var subagentIndex: SubagentIndex
 
     init(
@@ -94,120 +116,15 @@ struct SessionTranscriptView: View {
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
         self.scrollAnchor = scrollAnchor
+        _diagnosticsRecorder = State(initialValue: ScrollDiagnosticsRecorder(sessionID: sessionID))
     }
 
     var body: some View {
-        #if CC_PERF
+#if CC_PERF
         let _ = PerfCounters.shared.hit(.transcriptList)
-        #endif
+#endif
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
-                    pagingRow
-                    transcriptRows
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 18)
-                .scrollTargetLayout()
-                #if DEBUG || CC_PERF
-                .onAppear { TranscriptPerformance.shared.markFirstRows() }
-                #endif
-            }
-            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .initialOffset)
-            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .alignment)
-            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .sizeChanges)
-            .scrollDismissesKeyboard(.interactively)
-            .accessibilityIdentifier("transcript-scroll")
-            .onGeometryChange(for: CGFloat.self) { geometry in
-                geometry.size.height
-            } action: { _, height in
-                transcriptHeight = height
-            }
-            .onChange(of: turns.first?.id) { _, newID in
-                guard let anchorEntryID = pagingAnchorEntryID else { return }
-                guard let anchorID = turns.first(where: { $0.entryIDs.contains(anchorEntryID) })?.id else {
-                    pagingAnchorEntryID = nil
-                    return
-                }
-                guard newID != anchorID else { return }
-                cancelPagingRestore()
-                scrollToPagingAnchor(anchorID, using: proxy)
-                pagingAnchorEntryID = nil
-                pagingRestoreTask = Task { @MainActor in
-                    await Task.yield()
-                    guard !Task.isCancelled else { return }
-                    scrollToPagingAnchor(anchorID, using: proxy)
-                    do {
-                        try await Task.sleep(for: .milliseconds(100))
-                    } catch {
-                        return
-                    }
-                    guard !Task.isCancelled else { return }
-                    scrollToPagingAnchor(anchorID, using: proxy)
-                }
-            }
-            .onChange(of: turns.last) { _, _ in
-                scrollToNewest(using: proxy)
-            }
-            // Rows present at creation do not trigger the change handlers, so estimated heights can leave the viewport past every built row.
-            .onAppear {
-                scrollToNewest(using: proxy)
-            }
-            .onChange(of: queuedNotes) { _, _ in
-                isPinnedToBottom = true
-                scrollToNewest(using: proxy)
-            }
-            .background(.ccBackground)
-            .scrollEdgeEffectStyle(.hard, for: .bottom)
-            .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
-                TranscriptScrollMetrics(
-                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height,
-                    contentHeight: geometry.contentSize.height,
-                    containerHeight: geometry.visibleRect.height
-                )
-            } action: { oldMetrics, metrics in
-                contentFitsViewport = metrics.contentFitsViewport
-                if metrics.contentFitsViewport {
-                    loadEarlierIfNeeded()
-                }
-                guard isPinnedToBottom,
-                      !userIsScrolling,
-                      oldMetrics.contentHeight != metrics.contentHeight
-                          || oldMetrics.containerHeight != metrics.containerHeight else { return }
-                scrollToNewest(using: proxy)
-            }
-            .onScrollPhaseChange { _, phase, context in
-                switch phase {
-                case .interacting:
-                    newestScrollTask?.cancel()
-                    userIsScrolling = true
-                    userHasScrolled = true
-                    if pagingRowIsVisible {
-                        loadEarlierIfNeeded()
-                    }
-                    cancelPagingRestore()
-                case .decelerating:
-                    userIsScrolling = true
-                case .idle:
-                    guard userIsScrolling else { return }
-                    userIsScrolling = false
-                    isPinnedToBottom = isAtBottom(in: context.geometry)
-                default:
-                    break
-                }
-            }
-            .onChange(of: subagents) { _, newSubagents in
-                subagentIndex = SubagentIndex(newSubagents)
-            }
-            .onChange(of: sessionID) { _, _ in
-                subagentIndex = SubagentIndex(subagents)
-                userHasScrolled = false
-                contentFitsViewport = false
-                isPinnedToBottom = true
-                userIsScrolling = false
-                pagingAnchorEntryID = nil
-            }
+            transcriptScrollView(using: proxy)
             .overlay(alignment: .bottomTrailing) {
                 if !isPinnedToBottom, turns.last != nil {
                     Button {
@@ -256,7 +173,103 @@ struct SessionTranscriptView: View {
                     .opacity(0.01)
             }
             #endif
+            #if DEBUG
+            .overlay(alignment: .topTrailing) {
+                Text(diagnosticStatus)
+                    .accessibilityIdentifier("scroll-diagnostics-status")
+                    .accessibilityLabel(diagnosticStatus)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+            }
+            #endif
         }
+    }
+
+    private var transcriptStack: some View {
+        LazyVStack(alignment: .leading, spacing: 20) {
+            pagingRow
+            transcriptRows
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .scrollTargetLayout()
+        #if DEBUG || CC_PERF
+        .onAppear { TranscriptPerformance.shared.markFirstRows() }
+        #endif
+    }
+
+    private func transcriptScrollView(using proxy: ScrollViewProxy) -> some View {
+        let scrollView = ScrollView {
+            transcriptStack
+        }
+        let configuredScrollView = scrollView
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .initialOffset)
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .alignment)
+            .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .sizeChanges)
+            .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("transcript-scroll")
+        let withGeometry = configuredScrollView
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { _, height in
+                transcriptHeight = height
+            }
+        let withPaging = withGeometry
+            .onChange(of: turns.first?.id) { _, newID in
+                handleFirstTurnChange(newID: newID, using: proxy)
+            }
+        let withRows = withPaging
+            .onChange(of: turns.last) { _, _ in
+                scrollToNewest(using: proxy)
+            }
+            // Rows present at creation do not trigger the change handlers, so estimated heights can leave the viewport past every built row.
+            .onAppear {
+                handleTranscriptAppear(using: proxy)
+            }
+            .onDisappear {
+                blankCheckTask?.cancel()
+            }
+            .onChange(of: displayRows.count) { oldCount, newCount in
+                diagnosticsRecorder.recordEvent(name: "rows", oldValue: Double(oldCount), newValue: Double(newCount))
+            }
+            .onChange(of: queuedNotes) { _, _ in
+                handleQueuedNotesChange(using: proxy)
+            }
+            .onChange(of: queuedNotes.count) { oldCount, newCount in
+                diagnosticsRecorder.recordEvent(name: "notes", oldValue: Double(oldCount), newValue: Double(newCount))
+            }
+        let withScrollEvents = withRows
+            .background(.ccBackground)
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
+            .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
+                TranscriptScrollMetrics(
+                    geometry: ScrollGuardGeometry(
+                        contentOffsetY: geometry.contentOffset.y,
+                        contentHeight: geometry.contentSize.height,
+                        containerHeight: geometry.visibleRect.height,
+                        insetTop: geometry.contentInsets.top,
+                        insetBottom: geometry.contentInsets.bottom,
+                        visibleMinY: geometry.visibleRect.minY,
+                        visibleMaxY: geometry.visibleRect.maxY
+                    ),
+                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height
+                )
+            } action: { oldMetrics, metrics in
+                handleScrollGeometryChange(from: oldMetrics, to: metrics, using: proxy)
+            }
+        let withPhase = withScrollEvents
+            .onScrollPhaseChange { _, phase, context in
+                handleScrollPhaseChange(phase, geometry: context.geometry, using: proxy)
+            }
+        let withSession = withPhase
+            .onChange(of: subagents) { _, newSubagents in
+                subagentIndex = SubagentIndex(newSubagents)
+            }
+            .onChange(of: sessionID) { _, newSessionID in
+                handleSessionChange(to: newSessionID)
+            }
+        return withSession
     }
 
     @ViewBuilder
@@ -292,6 +305,7 @@ struct SessionTranscriptView: View {
         pagingAnchorEntryID = turns.first?.entryIDs.first
         didTriggerPaging = true
         isLoadingEarlier = true
+        diagnosticsRecorder.recordEvent(name: "paging-start", newValue: 1)
         Task { @MainActor in
             var loaded = false
             do {
@@ -302,6 +316,7 @@ struct SessionTranscriptView: View {
             }
             isLoadingEarlier = false
             didTriggerPaging = false
+            diagnosticsRecorder.recordEvent(name: "paging-end", newValue: loaded ? 1 : 0)
             guard loaded, pagingRowIsVisible else { return }
             Task { @MainActor in
                 await Task.yield()
@@ -311,9 +326,37 @@ struct SessionTranscriptView: View {
         }
     }
 
+    private func handleFirstTurnChange(newID: Turn.ID?, using proxy: ScrollViewProxy) {
+        guard let anchorEntryID = pagingAnchorEntryID else { return }
+        guard let anchorID = turns.first(where: { $0.entryIDs.contains(anchorEntryID) })?.id else {
+            pagingAnchorEntryID = nil
+            return
+        }
+        guard newID != anchorID else { return }
+        cancelPagingRestore()
+        scrollToPagingAnchor(anchorID, using: proxy)
+        pagingAnchorEntryID = nil
+        schedulePagingRestore(anchorID: anchorID, using: proxy)
+    }
+
     private func cancelPagingRestore() {
         pagingRestoreTask?.cancel()
         pagingRestoreTask = nil
+    }
+
+    private func schedulePagingRestore(anchorID: Turn.ID, using proxy: ScrollViewProxy) {
+        pagingRestoreTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            scrollToPagingAnchor(anchorID, using: proxy)
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            scrollToPagingAnchor(anchorID, using: proxy)
+        }
     }
 
     private func scrollToPagingAnchor(_ anchorID: Turn.ID, using proxy: ScrollViewProxy) {
@@ -322,12 +365,251 @@ struct SessionTranscriptView: View {
         }
     }
 
+    private func builtRowDidAppear(id: String, index: Int) {
+        builtRowIndices[id] = index
+        guard index > highestBuiltRowIndex else { return }
+        highestBuiltRowIndex = index
+        lastBuiltRowID = id
+    }
+
+    private func builtRowDidDisappear(id: String) {
+        builtRowIndices.removeValue(forKey: id)
+    }
+
+    private func handleSessionChange(to newSessionID: String) {
+        diagnosticsRecorder.sessionChanged(to: newSessionID)
+        blankCheckTask?.cancel()
+        blankCandidate = nil
+        blankCandidateStartedAt = nil
+        blankOccurrence = nil
+        builtRowIndices = [:]
+        highestBuiltRowIndex = -1
+        lastBuiltRowID = nil
+        lastScrollGeometry = nil
+        subagentIndex = SubagentIndex(subagents)
+        userHasScrolled = false
+        contentFitsViewport = false
+        isPinnedToBottom = true
+        userIsScrolling = false
+        pagingAnchorEntryID = nil
+    }
+
+    private func handleTranscriptAppear(using proxy: ScrollViewProxy) {
+        diagnosticsRecorder.recordEvent(name: "rows", newValue: Double(displayRows.count))
+        diagnosticsRecorder.recordEvent(name: "notes", newValue: Double(queuedNotes.count))
+        scrollToNewest(using: proxy)
+    }
+
+    private func handleQueuedNotesChange(using proxy: ScrollViewProxy) {
+        isPinnedToBottom = true
+        scrollToNewest(using: proxy)
+    }
+
+    private func handleScrollGeometryChange(
+        from oldMetrics: TranscriptScrollMetrics,
+        to metrics: TranscriptScrollMetrics,
+        using proxy: ScrollViewProxy
+    ) {
+        contentFitsViewport = metrics.contentFitsViewport
+        recordGeometryChanges(from: oldMetrics.geometry, to: metrics.geometry)
+        lastScrollGeometry = metrics.geometry
+        evaluateBlankState(using: proxy)
+        if metrics.contentFitsViewport {
+            loadEarlierIfNeeded()
+        }
+        guard isPinnedToBottom,
+              !userIsScrolling,
+              oldMetrics.geometry.contentHeight != metrics.geometry.contentHeight
+                  || oldMetrics.geometry.containerHeight != metrics.geometry.containerHeight else { return }
+        scrollToNewest(using: proxy)
+    }
+
+    private func recordGeometryChanges(from old: ScrollGuardGeometry, to new: ScrollGuardGeometry) {
+        if old.contentHeight != new.contentHeight {
+            diagnosticsRecorder.recordEvent(
+                name: "content-height",
+                oldValue: Double(old.contentHeight),
+                newValue: Double(new.contentHeight)
+            )
+        }
+        if old.containerHeight != new.containerHeight {
+            diagnosticsRecorder.recordEvent(
+                name: "container-height",
+                oldValue: Double(old.containerHeight),
+                newValue: Double(new.containerHeight)
+            )
+        }
+        if old.insetBottom != new.insetBottom {
+            diagnosticsRecorder.recordEvent(
+                name: "inset-bottom",
+                oldValue: Double(old.insetBottom),
+                newValue: Double(new.insetBottom)
+            )
+        }
+    }
+
+    private func handleScrollPhaseChange(
+        _ phase: ScrollPhase,
+        geometry: ScrollGeometry,
+        using proxy: ScrollViewProxy
+    ) {
+        scrollPhaseIsIdle = phase == .idle
+        recordPhaseChange(phase)
+        if scrollPhaseIsIdle {
+            evaluateBlankState(using: proxy)
+        }
+        switch phase {
+        case .interacting:
+            newestScrollTask?.cancel()
+            userIsScrolling = true
+            userHasScrolled = true
+            if pagingRowIsVisible {
+                loadEarlierIfNeeded()
+            }
+            cancelPagingRestore()
+        case .decelerating:
+            userIsScrolling = true
+        case .idle:
+            guard userIsScrolling else { return }
+            userIsScrolling = false
+            isPinnedToBottom = isAtBottom(in: geometry)
+        default:
+            break
+        }
+    }
+
+    private func recordPhaseChange(_ phase: ScrollPhase) {
+        let code: Double
+        switch phase {
+        case .idle: code = 0
+        case .interacting: code = 1
+        case .decelerating: code = 2
+        case .animating: code = 3
+        case .tracking: code = 4
+        @unknown default: code = 5
+        }
+        diagnosticsRecorder.recordEvent(name: "scroll-phase", newValue: code)
+    }
+
+    private func evaluateBlankState(using proxy: ScrollViewProxy, mayCorrect: Bool = false) {
+        guard scrollPhaseIsIdle, let geometry = lastScrollGeometry else { return }
+        let kind = ScrollBlankCondition.kind(
+            geometry: geometry,
+            builtRowCount: builtRowIndices.count,
+            displayRowCount: displayRows.count,
+            queuedNoteCount: queuedNotes.count
+        )
+        guard let kind else {
+            if blankOccurrence != nil {
+                finishBlankOccurrence(recovered: true)
+            } else {
+                blankCandidate = nil
+                blankCandidateStartedAt = nil
+            }
+            return
+        }
+        if var occurrence = blankOccurrence {
+            occurrence.latestGeometry = geometry
+            blankOccurrence = occurrence
+            guard mayCorrect else { return }
+            startCorrection(for: occurrence.kind, geometry: geometry, using: proxy)
+            return
+        }
+        if blankCandidate != kind {
+            blankCandidate = kind
+            blankCandidateStartedAt = Date()
+        }
+        scheduleBlankCheck(using: proxy)
+        guard scrollPhaseIsIdle,
+              let startedAt = blankCandidateStartedAt,
+              Date().timeIntervalSince(startedAt) >= 0.4 else { return }
+        startCorrection(for: kind, geometry: geometry, using: proxy)
+    }
+
+    private func scheduleBlankCheck(using proxy: ScrollViewProxy, delay: Duration = .milliseconds(250)) {
+        guard blankCheckTask == nil else { return }
+        blankCheckTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            blankCheckTask = nil
+            evaluateBlankState(using: proxy, mayCorrect: true)
+        }
+    }
+
+    private func startCorrection(
+        for kind: ScrollBlankKind,
+        geometry: ScrollGuardGeometry,
+        using proxy: ScrollViewProxy
+    ) {
+        var occurrence = blankOccurrence ?? ScrollBlankOccurrence(
+            kind: kind,
+            startedAt: blankCandidateStartedAt ?? Date(),
+            corrections: 0,
+            latestGeometry: geometry
+        )
+        occurrence.latestGeometry = geometry
+        guard occurrence.corrections < 2 else {
+            blankOccurrence = occurrence
+            finishBlankOccurrence(recovered: false)
+            return
+        }
+        occurrence.corrections += 1
+        blankOccurrence = occurrence
+        if kind == .overshoot || isPinnedToBottom {
+            isPinnedToBottom = true
+            withTransaction(Transaction(animation: nil)) {
+                proxy.scrollTo("transcript-bottom", anchor: .bottom)
+            }
+        } else if let lastBuiltRowID {
+            withTransaction(Transaction(animation: nil)) {
+                proxy.scrollTo(lastBuiltRowID, anchor: .center)
+            }
+        } else {
+            withTransaction(Transaction(animation: nil)) {
+                proxy.scrollTo("transcript-bottom", anchor: .bottom)
+            }
+        }
+        blankCheckTask?.cancel()
+        blankCheckTask = nil
+        scheduleBlankCheck(using: proxy, delay: .milliseconds(500))
+    }
+
+    private func finishBlankOccurrence(recovered: Bool) {
+        guard let occurrence = blankOccurrence else { return }
+        blankCheckTask?.cancel()
+        blankCheckTask = nil
+        let elapsed = max(0, Int(Date().timeIntervalSince(occurrence.startedAt) * 1000))
+        let kind = occurrence.kind
+        diagnosticsRecorder.record(
+            kind: kind,
+            geometry: occurrence.latestGeometry,
+            rowsCount: displayRows.count,
+            notesCount: queuedNotes.count,
+            isPinnedToBottom: isPinnedToBottom,
+            userHasScrolled: userHasScrolled,
+            corrections: occurrence.corrections,
+            recovered: recovered,
+            msToRecover: elapsed
+        ) { [kind, recovered] written in
+            guard written else { return }
+            diagnosticWrittenCount += 1
+            diagnosticStatus = "count=\(diagnosticWrittenCount) kind=\(kind.rawValue) recovered=\(recovered)"
+        }
+        blankOccurrence = nil
+        blankCandidate = nil
+        blankCandidateStartedAt = nil
+    }
+
     private func isAtBottom(in geometry: ScrollGeometry) -> Bool {
         let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
         return visibleBottom >= geometry.contentSize.height - 36
     }
 
     private func scrollToNewest(using proxy: ScrollViewProxy) {
+        diagnosticsRecorder.recordEvent(name: "scrollToNewest", newValue: 1)
         #if CC_PERF
         PerfCounters.shared.hit(.scrollToBottom)
         #endif
@@ -358,7 +640,7 @@ struct SessionTranscriptView: View {
 
     @ViewBuilder
     private var transcriptRows: some View {
-        ForEach(displayRows) { row in
+        ForEach(Array(displayRows.enumerated()), id: \.element.id) { index, row in
             TranscriptRowView(
                 sessionID: sessionID,
                 row: row,
@@ -372,6 +654,12 @@ struct SessionTranscriptView: View {
             )
             .equatable()
             .id(row.id)
+            .onAppear {
+                builtRowDidAppear(id: row.id, index: index)
+            }
+            .onDisappear {
+                builtRowDidDisappear(id: row.id)
+            }
             #if DEBUG || CC_PERF
             .onAppear {
                 TranscriptPerformance.shared.markFirstRows()
@@ -379,7 +667,7 @@ struct SessionTranscriptView: View {
             #endif
         }
 
-        ForEach(queuedNotes) { note in
+        ForEach(Array(queuedNotes.enumerated()), id: \.element.id) { index, note in
             PendingPromptView(
                 sessionID: sessionID,
                 note: note,
@@ -390,12 +678,25 @@ struct SessionTranscriptView: View {
                 onDelete: onDeleteNote,
                 onSendAgain: onSendAgain
             )
+            .onAppear {
+                builtRowDidAppear(id: note.id, index: displayRows.count + index)
+            }
+            .onDisappear {
+                builtRowDidDisappear(id: note.id)
+            }
         }
 
         Color.clear
             .frame(height: 1)
             .id("transcript-bottom")
             .accessibilityHidden(true)
+            #if DEBUG
+            .background {
+                if ProcessInfo.processInfo.arguments.contains("-CCScrollGuardTestOvershoot") {
+                    ScrollGuardDebugOvershootHook()
+                }
+            }
+            #endif
     }
 
     private func rowUsesLiveSession(_ row: TranscriptRow) -> Bool {
@@ -408,6 +709,58 @@ struct SessionTranscriptView: View {
         return subagentIndex.matchingSubagents(for: item)
     }
 }
+
+#if DEBUG
+private struct ScrollGuardDebugOvershootHook: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        context.coordinator.schedule(from: view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.schedule(from: uiView)
+    }
+
+    @MainActor
+    final class Coordinator {
+        private var attempts = 0
+        private var scheduled = false
+
+        func schedule(from view: UIView) {
+            guard !scheduled, attempts < 12 else { return }
+            scheduled = true
+            attempts += 1
+            let delay: Duration = attempts == 1 ? .seconds(1.5) : .milliseconds(250)
+            Task { @MainActor [weak self, weak view] in
+                try? await Task.sleep(for: delay)
+                guard let self, let view else { return }
+                self.scheduled = false
+                guard let scrollView = self.scrollView(above: view) else {
+                    self.schedule(from: view)
+                    return
+                }
+                scrollView.layoutIfNeeded()
+                scrollView.setContentOffset(
+                    CGPoint(x: scrollView.contentOffset.x, y: scrollView.contentSize.height + 2_000),
+                    animated: false
+                )
+            }
+        }
+
+        private func scrollView(above view: UIView) -> UIScrollView? {
+            var current: UIView? = view.superview
+            while let candidate = current {
+                if let scrollView = candidate as? UIScrollView { return scrollView }
+                current = candidate.superview
+            }
+            return nil
+        }
+    }
+}
+#endif
 
 private struct PendingPromptView: View {
     let sessionID: String
