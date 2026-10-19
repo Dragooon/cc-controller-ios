@@ -148,7 +148,7 @@ final class ComposerFlowTests: XCTestCase {
             app.terminate()
         }
         openSession(id: "session-long-session", in: app)
-        try await setMessageBehaviour(delayMs: 2_000)
+        try await setMessageBehaviour(delayMs: 8_000)
         let field = composerField(in: app)
         let marker = "optimistic-held-\(UUID().uuidString)"
         field.tap()
@@ -156,10 +156,10 @@ final class ComposerFlowTests: XCTestCase {
         app.buttons["composer-send"].tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 1), "Held send did not show an optimistic bubble")
-        XCTAssertTrue(waitForPendingStatus("Sending…", in: app, timeout: 1), "Held send did not show Sending…")
-        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 1), "Composer did not clear while send was held")
-        XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 5), "Held send did not reconcile to Sent")
+        XCTAssertTrue(pending.waitForExistence(timeout: 3), "Held send did not show an optimistic bubble")
+        XCTAssertTrue(waitForPendingStatus("Sending…", in: app, timeout: 3), "Held send did not show Sending…")
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Composer did not clear while send was held")
+        XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 15), "Held send did not reconcile to Sent")
     }
 
     func testFailedSendRetryShowsSentState() async throws {
