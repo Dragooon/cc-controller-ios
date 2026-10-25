@@ -55,33 +55,28 @@ public struct ControllerConfig: Codable, Sendable, Equatable, Identifiable {
     public var displayName: String
     public var directBaseURL: URL?
     public var relayEndpoints: [URL]
-    public var relayHostID: ControllerID?
 
     public init(
         id: ControllerID,
         displayName: String,
         directBaseURL: URL? = nil,
-        relayEndpoints: [URL] = [],
-        relayHostID: ControllerID? = nil
+        relayEndpoints: [URL] = []
     ) {
         self.id = id
         self.displayName = displayName
         self.directBaseURL = directBaseURL
         self.relayEndpoints = relayEndpoints
-        self.relayHostID = relayHostID
     }
 
     public static func mac(
         directBaseURL: URL = URL(string: "http://127.0.0.1:47832")!,
-        relayEndpoints: [URL] = [],
-        relayHostID: ControllerID = .mac
+        relayEndpoints: [URL] = []
     ) -> ControllerConfig {
         ControllerConfig(
             id: .mac,
             displayName: "Mac",
             directBaseURL: relayEndpoints.isEmpty ? directBaseURL : nil,
-            relayEndpoints: relayEndpoints,
-            relayHostID: relayHostID
+            relayEndpoints: relayEndpoints
         )
     }
 }

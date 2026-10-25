@@ -26,7 +26,6 @@ public enum ConnectionRouterError: Error, Sendable, Equatable, LocalizedError {
 /// Owns the transport selected for the daemon API and event stream.
 public final class ConnectionRouter: @unchecked Sendable {
     public let mode: Mode
-    public let relayHostID: ControllerID?
 
     public enum Mode: Sendable, Equatable {
         case direct
@@ -52,9 +51,8 @@ public final class ConnectionRouter: @unchecked Sendable {
         return body()
     }
 
-    public init(baseURL: URL, session: URLSession = .shared, relayHostID: ControllerID? = nil) {
+    public init(baseURL: URL, session: URLSession = .shared) {
         mode = .direct
-        self.relayHostID = relayHostID
         endpoints = [baseURL]
         directURL = baseURL
         directSession = session
@@ -65,11 +63,9 @@ public final class ConnectionRouter: @unchecked Sendable {
     public init(
         endpoints: [URL],
         pin: RelayPin? = nil,
-        pinLoader: (@Sendable () async -> RelayPin?)? = nil,
-        relayHostID: ControllerID? = nil
+        pinLoader: (@Sendable () async -> RelayPin?)? = nil
     ) {
         mode = .relay
-        self.relayHostID = relayHostID
         self.endpoints = endpoints
         directURL = nil
         directSession = nil
@@ -78,8 +74,7 @@ public final class ConnectionRouter: @unchecked Sendable {
         pinResolved = pin != nil || pinLoader == nil
         let relay = RelaySessionFactory.make(
             endpoints: endpoints,
-            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse,
-            hostID: relayHostID
+            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
         )
         relaySession = relay
         selector = RelayEndpointSelector(endpoints: endpoints, session: relay.session, trustDelegate: relay.trustDelegate)
@@ -200,8 +195,7 @@ public final class ConnectionRouter: @unchecked Sendable {
     private func replaceRelaySession(endpoints: [URL], pin: RelayPin?) {
         let relay = RelaySessionFactory.make(
             endpoints: endpoints,
-            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse,
-            hostID: relayHostID
+            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
         )
         let nextSelector = RelayEndpointSelector(
             endpoints: endpoints,

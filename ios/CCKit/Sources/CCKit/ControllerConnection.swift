@@ -30,8 +30,7 @@ public final class ControllerConnection {
         if let directBaseURL = config.directBaseURL {
             router = ConnectionRouter(
                 baseURL: directBaseURL,
-                session: session,
-                relayHostID: config.relayHostID
+                session: session
             )
         } else {
             router = ConnectionRouter(
@@ -40,8 +39,7 @@ public final class ControllerConnection {
                 pinLoader: { [credentials] in
                     guard let value = try? await credentials.getRelayPin() else { return nil }
                     return try? RelayPin(value)
-                },
-                relayHostID: config.relayHostID
+                }
             )
         }
         self.router = router

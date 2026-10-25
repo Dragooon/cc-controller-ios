@@ -29,6 +29,17 @@ final class ControllerTests: XCTestCase {
         XCTAssertEqual(store.controllerInfo, fallback)
     }
 
+    func testRegistryDecodesSavedEntriesWithLegacyRelayHostID() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        defaults.set(Data("""
+        [{"id":"mustafar","displayName":"Mustafar","directBaseURL":null,"relayEndpoints":[],"relayHostID":"mustafar"}]
+        """.utf8), forKey: ControllerRegistry.defaultDefaultsKey)
+
+        let registry = ControllerRegistry(defaults: defaults)
+
+        XCTAssertEqual(registry.controllers, [ControllerConfig(id: try ControllerID("mustafar"), displayName: "Mustafar")])
+    }
+
     func testControllerNamespacesDoNotCollide() throws {
         let mac = try ControllerID("mac")
         let mustafar = try ControllerID("mustafar")
