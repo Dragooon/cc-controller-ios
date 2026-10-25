@@ -595,6 +595,45 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(reconcileQueuedNote([note], promptEntry: prompt).isEmpty)
     }
 
+    func testBatchedPromptReconcilesTwoNotes() {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let notes = [
+            QueuedNote(id: "first", text: "first", state: .queued, createdAt: sentAt, sentAt: sentAt),
+            QueuedNote(id: "second", text: "second", state: .queued, createdAt: sentAt.addingTimeInterval(1), sentAt: sentAt.addingTimeInterval(1)),
+        ]
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: sentAt.addingTimeInterval(2), text: "first\nsecond"))
+
+        XCTAssertTrue(reconcileQueuedNote(notes, promptEntry: prompt).isEmpty)
+    }
+
+    func testBatchedPromptReconcilesThreeNotesInSendOrder() {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let notes = [
+            QueuedNote(id: "first", text: "first", state: .queued, createdAt: sentAt, sentAt: sentAt),
+            QueuedNote(id: "second", text: "second", state: .queued, createdAt: sentAt.addingTimeInterval(1), sentAt: sentAt.addingTimeInterval(1)),
+            QueuedNote(id: "third", text: "third", state: .queued, createdAt: sentAt.addingTimeInterval(2), sentAt: sentAt.addingTimeInterval(2)),
+        ]
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: sentAt.addingTimeInterval(3), text: "first\nsecond\nthird"))
+
+        XCTAssertTrue(reconcileQueuedNote(notes, promptEntry: prompt).isEmpty)
+    }
+
+    func testContainmentDoesNotMatchAnUnrelatedLongerPrompt() {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(id: "note", text: "fix", state: .queued, createdAt: sentAt, sentAt: sentAt)
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: sentAt.addingTimeInterval(1), text: "prefix"))
+
+        XCTAssertEqual(reconcileQueuedNote([note], promptEntry: prompt).map(\.id), ["note"])
+    }
+
+    func testContainmentRequiresPromptAfterNoteWasSent() {
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(id: "note", text: "same", state: .queued, createdAt: sentAt.addingTimeInterval(-1), sentAt: sentAt)
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: sentAt.addingTimeInterval(-1), text: "other\nsame"))
+
+        XCTAssertEqual(reconcileQueuedNote([note], promptEntry: prompt).map(\.id), ["note"])
+    }
+
     func testEditRestoresDraftAndDeleteRemovesNote() async throws {
         URLProtocolStub.handler = { request in
             if request.url?.path.hasSuffix("/message") == true { return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8)) }
@@ -612,6 +651,24 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
     }
 
+    func testDismissedNoteDoesNotReturnAfterStoreRecreation() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                return URLProtocolStub.json(Data("{\"delivered\":false,\"queued\":true}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = makeApp(cacheDirectory: directory)
+        guard case .success(let note) = await app.enqueueMessage(text: "dismiss me", to: "session-1") else {
+            return XCTFail("Enqueue was rejected")
+        }
+        XCTAssertTrue(app.deleteNote(id: note.id, sessionID: "session-1"))
+
+        let restored = makeApp(cacheDirectory: directory)
+        XCTAssertTrue(restored.queuedNotes(for: "session-1").isEmpty)
+    }
+
     func testSendAgainUsesFreshIDForSentNote() async throws {
         URLProtocolStub.handler = { request in
             if request.url?.path.hasSuffix("/message") == true { return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8)) }
@@ -625,13 +682,19 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(replacement.text, original.text)
     }
 
-    func testNoteNeedsAttentionOnlyForUnconfirmedSentNotes() {
+    func testNoteNeedsAttentionForPendingNotesAfterTimeouts() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let sent = QueuedNote(text: "sent", state: .sent, createdAt: now, sentAt: now.addingTimeInterval(-31))
         XCTAssertTrue(noteNeedsAttention(note: sent, sessionState: .idle, now: now))
         XCTAssertFalse(noteNeedsAttention(note: sent, sessionState: .working, now: now))
         let queued = QueuedNote(text: "queued", state: .queued, createdAt: now, sentAt: now.addingTimeInterval(-31))
-        XCTAssertFalse(noteNeedsAttention(note: queued, sessionState: .idle, now: now))
+        XCTAssertTrue(noteNeedsAttention(note: queued, sessionState: .idle, now: now))
+        XCTAssertFalse(noteNeedsAttention(note: queued, sessionState: .working, now: now))
+
+        let workingSent = QueuedNote(text: "working sent", state: .sent, createdAt: now, sentAt: now.addingTimeInterval(-10 * 60))
+        XCTAssertTrue(noteNeedsAttention(note: workingSent, sessionState: .working, now: now))
+        let workingQueued = QueuedNote(text: "working queued", state: .queued, createdAt: now, sentAt: now.addingTimeInterval(-10 * 60))
+        XCTAssertTrue(noteNeedsAttention(note: workingQueued, sessionState: .working, now: now))
     }
 
     func testDraftPersistsAndRestoresAcrossStoreRecreation() {

@@ -354,6 +354,70 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 6%")
     }
 
+    func testQueuedMessageActionsDismissAndPersistAcrossRelaunch() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "queued-actions")
+            app.terminate()
+        }
+
+        openSession(id: "session-dune-part-three-imax-tickets", in: app)
+        let field = composerField(in: app)
+        XCTAssertTrue(field.waitForPlaceholder("Queue a message", timeout: 45), "Dune fixture session did not become working")
+        let marker = "queued-actions-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(marker)
+        app.buttons["composer-queue"].tap()
+
+        XCTAssertTrue(waitForPendingStatus("Queued", message: marker, in: app, timeout: 10), "Queued message did not render")
+        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", marker)).firstMatch
+        XCTAssertTrue(pending.waitForExistence(timeout: 5), "Queued message bubble was not found")
+        pending.tap()
+        XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5), "Queued message menu did not offer Copy")
+        XCTAssertTrue(app.buttons["Edit message"].exists, "Queued message menu did not offer Edit message")
+        XCTAssertTrue(app.buttons["Dismiss"].exists, "Queued message menu did not offer Dismiss")
+        attach(named: "queued-actions-menu")
+        app.buttons["Dismiss"].tap()
+        XCTAssertTrue(waitForNonExistence(of: pending, timeout: 5), "Dismissed queued message bubble remained visible")
+        attach(named: "queued-actions-dismissed")
+
+        app.terminate()
+        app.launch()
+        openSession(id: "session-dune-part-three-imax-tickets", in: app)
+        let relaunchedPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", marker)).firstMatch
+        XCTAssertFalse(relaunchedPending.waitForExistence(timeout: 5), "Dismissed queued message returned after relaunch")
+        attach(named: "queued-actions-relaunch")
+    }
+
+    func testBatchedQuickSendsReconcileBothPendingBubbles() async throws {
+        let app = launchFixture()
+        defer {
+            audit(app: app, name: "batched-reconciliation")
+            attach(named: "batched-reconciliation")
+            app.terminate()
+        }
+
+        openSession(id: "session-dune-part-three-imax-tickets", in: app)
+        let field = composerField(in: app)
+        XCTAssertTrue(field.waitForPlaceholder("Queue a message", timeout: 45), "Dune fixture session did not become working")
+        try await postFixture("/fixture/batch-next-prompts")
+        let first = "batched-first-\(UUID().uuidString)"
+        let second = "batched-second-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(first)
+        app.buttons["composer-queue"].tap()
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 5), "First batched send did not clear the composer")
+        field.typeText(second)
+        app.buttons["composer-queue"].tap()
+
+        XCTAssertTrue(waitForPendingStatus("Queued", message: first, in: app, timeout: 10), "First batched message did not render")
+        XCTAssertTrue(waitForPendingStatus("Queued", message: second, in: app, timeout: 10), "Second batched message did not render")
+        let firstPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", first)).firstMatch
+        let secondPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", second)).firstMatch
+        XCTAssertTrue(waitForNonExistence(of: firstPending, timeout: 15), "First batched message did not reconcile")
+        XCTAssertTrue(waitForNonExistence(of: secondPending, timeout: 15), "Second batched message did not reconcile")
+    }
+
     func testSlashSuggestions() throws {
         let app = launchFixture()
         defer {

@@ -1022,10 +1022,11 @@ public func decisionText(_ entry: DecisionEntry, timeZone: TimeZone = .current, 
 }
 
 public func noteNeedsAttention(note: QueuedNote, sessionState: SessionState?, now: Date = .now) -> Bool {
-    guard note.state == .sent,
-          let sentAt = note.sentAt,
-          now.timeIntervalSince(sentAt) > 30 else { return false }
-    return sessionState != .working
+    guard note.state == .sent || note.state == .queued,
+          let sentAt = note.sentAt ?? (note.createdAt == .distantPast ? nil : note.createdAt) else { return false }
+    let elapsed = now.timeIntervalSince(sentAt)
+    guard elapsed >= 30 else { return false }
+    return sessionState != .working || elapsed >= 10 * 60
 }
 
 public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: TranscriptEntry, skew: TimeInterval = 5) -> [QueuedNote] {
@@ -1036,8 +1037,28 @@ public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: Tran
     return queuedEntries.filter { note in
         guard promptTime >= note.createdAt.addingTimeInterval(-skew) else { return true }
         let provisional = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return provisional.isEmpty || (transcriptText != provisional && !transcriptText.hasPrefix(provisional))
+        guard !provisional.isEmpty else { return false }
+        if transcriptText == provisional || transcriptText.hasPrefix(provisional) { return false }
+
+        let sentAt = note.sentAt ?? note.createdAt
+        guard promptTime >= sentAt else { return true }
+        return !containsWholePromptText(transcriptText, provisional)
     }
+}
+
+private func containsWholePromptText(_ prompt: String, _ note: String) -> Bool {
+    guard !note.isEmpty else { return false }
+    var searchStart = prompt.startIndex
+    while searchStart < prompt.endIndex,
+          let match = prompt.range(of: note, range: searchStart..<prompt.endIndex) {
+        let startsAtBoundary = match.lowerBound == prompt.startIndex
+            || prompt[prompt.index(before: match.lowerBound)].isWhitespace
+        let endsAtBoundary = match.upperBound == prompt.endIndex
+            || prompt[match.upperBound].isWhitespace
+        if startsAtBoundary && endsAtBoundary { return true }
+        searchStart = match.upperBound
+    }
+    return false
 }
 
 public func formatSize(_ size: Int) -> String {

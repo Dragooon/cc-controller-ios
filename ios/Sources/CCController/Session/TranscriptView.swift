@@ -166,6 +166,7 @@ struct SessionTranscriptView: View {
     let onRetryNote: (String) -> Void
     let onEditNote: (String) -> Void
     let onDeleteNote: (String) -> Void
+    let onCopyNote: (String) -> Void
     let onSendAgain: (String) -> Void
     let hasMoreEarlier: Bool
     let loadEarlier: (() async throws -> Void)?
@@ -206,6 +207,7 @@ struct SessionTranscriptView: View {
         onRetryNote: @escaping (String) -> Void = { _ in },
         onEditNote: @escaping (String) -> Void = { _ in },
         onDeleteNote: @escaping (String) -> Void = { _ in },
+        onCopyNote: @escaping (String) -> Void = { _ in },
         onSendAgain: @escaping (String) -> Void = { _ in },
         subagents: [Subagent] = [],
         hasMoreEarlier: Bool = false,
@@ -230,6 +232,7 @@ struct SessionTranscriptView: View {
         self.onRetryNote = onRetryNote
         self.onEditNote = onEditNote
         self.onDeleteNote = onDeleteNote
+        self.onCopyNote = onCopyNote
         self.onSendAgain = onSendAgain
         self.subagents = subagents
         _subagentIndex = State(initialValue: SubagentIndex(subagents))
@@ -831,6 +834,7 @@ struct SessionTranscriptView: View {
                 onRetry: onRetryNote,
                 onEdit: onEditNote,
                 onDelete: onDeleteNote,
+                onCopy: onCopyNote,
                 onSendAgain: onSendAgain
             )
             .onAppear {
@@ -926,6 +930,7 @@ private struct PendingPromptView: View {
     let onRetry: (String) -> Void
     let onEdit: (String) -> Void
     let onDelete: (String) -> Void
+    let onCopy: (String) -> Void
     let onSendAgain: (String) -> Void
     @State private var confirmationPresented = false
 
@@ -964,7 +969,7 @@ private struct PendingPromptView: View {
 
     @ViewBuilder
     var body: some View {
-        if note.state == .sent {
+        if note.state == .sent || note.state == .queued {
             TimelineView(.periodic(from: .now, by: 5)) { context in
                 content(now: context.date)
             }
@@ -975,7 +980,8 @@ private struct PendingPromptView: View {
 
     private func content(now: Date) -> some View {
         let needsAttention = noteNeedsAttention(note: note, sessionState: sessionState, now: now)
-        let actionable = needsAttention || isFailed
+        let isPendingActionable = note.state == .sent || note.state == .queued
+        let actionable = needsAttention || isPendingActionable || isFailed
         let text = needsAttention ? "Sent · not received yet" : statusText
         return VStack(alignment: .trailing, spacing: 4) {
             PromptBubble(
@@ -1014,22 +1020,30 @@ private struct PendingPromptView: View {
         .accessibilityHint(actionable ? "Shows options for this message" : "")
         .accessibilityAction { presentConfirmationIfNeeded(actionable: actionable) }
         .confirmationDialog(
-            failureMessage ?? "Message not received",
+            failureMessage ?? (needsAttention ? "Message not received" : "Message pending"),
             isPresented: $confirmationPresented,
             titleVisibility: .visible
         ) {
             if needsAttention {
+                Button("Copy") { onCopy(note.id) }
                 Button("Send again") { onSendAgain(note.id) }
+                Button("Edit message") { onEdit(note.id) }
                 Button("Dismiss") { onDelete(note.id) }
             } else if failureMessage != nil {
                 Button("Retry") { onRetry(note.id) }
                 Button("Edit message") { onEdit(note.id) }
                 Button("Delete", role: .destructive) { onDelete(note.id) }
+            } else if isPendingActionable {
+                Button("Copy") { onCopy(note.id) }
+                Button("Edit message") { onEdit(note.id) }
+                Button("Dismiss") { onDelete(note.id) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             if needsAttention {
-                Text("The session hasn't shown this message yet. Sending again may deliver it twice.")
+                Text("This only removes it from your screen. It may already be with Claude. Sending again may deliver it twice.")
+            } else if isPendingActionable {
+                Text("This only removes it from your screen. It may already be with Claude.")
             }
         }
     }

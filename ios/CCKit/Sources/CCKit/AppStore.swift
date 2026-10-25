@@ -510,7 +510,7 @@ public final class AppStore {
         setDraft(existingDraft.isEmpty ? note.text : "\(note.text)\n\n\(existingDraft)", for: sessionID)
         restoreAttachments(from: note, to: sessionID)
         draftRevisions[draftKey(sessionID: sessionID, agentID: nil), default: 0] += 1
-        persistQueuedNotes()
+        queuedNoteCache.saveNow(queuedNotes)
         return true
     }
 
@@ -519,7 +519,7 @@ public final class AppStore {
         guard queuedNotes[sessionID]?.contains(where: { $0.id == id }) == true else { return false }
         queuedNotes[sessionID]?.removeAll { $0.id == id }
         if queuedNotes[sessionID]?.isEmpty == true { queuedNotes.removeValue(forKey: sessionID) }
-        persistQueuedNotes()
+        queuedNoteCache.saveNow(queuedNotes)
         return true
     }
 

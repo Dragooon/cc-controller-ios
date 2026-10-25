@@ -151,6 +151,11 @@ struct SessionScreen: View {
                         onDeleteNote: { noteID in
                             _ = model.store.deleteNote(id: noteID, sessionID: sessionID)
                         },
+                        onCopyNote: { noteID in
+                            if let note = model.store.queuedNotes(for: sessionID).first(where: { $0.id == noteID }) {
+                                UIPasteboard.general.string = note.text
+                            }
+                        },
                         onSendAgain: { noteID in
                             _ = model.store.sendAgain(id: noteID, sessionID: sessionID)
                         },
