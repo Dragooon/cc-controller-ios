@@ -225,6 +225,35 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.openSession("session-1")?.entries.first?.id, "event-entry")
     }
 
+    func testTranscriptResetEventDecodes() throws {
+        let event = try XCTUnwrap(LiveEvent.decode(name: "transcript", data: "{\"sessionId\":\"session-1\",\"path\":null,\"entry\":null,\"entryCount\":7,\"reset\":true}"))
+        guard case .transcript(let transcript) = event else {
+            return XCTFail("Expected transcript event")
+        }
+        XCTAssertEqual(transcript.sessionId, "session-1")
+        XCTAssertNil(transcript.entry)
+        XCTAssertEqual(transcript.entryCount, 7)
+        XCTAssertEqual(transcript.reset, true)
+    }
+
+    func testTranscriptResetRefetchesOpenStoreWithoutMergingNullEntry() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/transcript") == true {
+                return URLProtocolStub.json(Self.entriesJSON([Self.entry(id: "fresh")]))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil { store.isLoaded }
+        store.merge([Self.entry(id: "stale")])
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entryCount: 1, reset: true)))
+        try await waitUntil { store.entries.map(\.id) == ["fresh"] }
+        XCTAssertEqual(store.entries.map(\.id), ["fresh"])
+        XCTAssertFalse(store.entries.contains(where: { $0.id == nil }))
+    }
+
     func testLoadedStoreSurvivesSessionMissingFromState() throws {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])))

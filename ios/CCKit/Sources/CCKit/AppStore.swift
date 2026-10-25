@@ -1202,8 +1202,19 @@ public final class AppStore {
     }
 
     private func applyTranscript(_ event: TranscriptEvent) {
-        guard let sessionID = event.sessionId, let entry = event.entry else { return }
-        guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return }
+        guard let sessionID = event.sessionId else { return }
+        let key = storeKey(sessionID: sessionID, agentID: nil)
+        if event.reset == true {
+            if let entryCount = event.entryCount { serverEntryCounts[sessionID] = entryCount }
+            cachedTranscripts.removeValue(forKey: key)
+            cacheChangedStoreKeys.remove(key)
+            if let store = openStores[key] {
+                Task { try? await store.refetchTail(reset: true) }
+            }
+            return
+        }
+        guard let entry = event.entry else { return }
+        guard let store = openStores[key] else { return }
         let countBefore = store.totalEntries
         let change = store.merge(
             [entry],
