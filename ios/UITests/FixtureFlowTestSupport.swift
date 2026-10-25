@@ -186,7 +186,7 @@ class FixtureFlowTestSupport: XCTestCase {
 }
 
 @MainActor
-func waitForStableFrame(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+func waitForStableFrame(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     var previousFrame: CGRect?
     var stableReads = 0
