@@ -183,7 +183,7 @@ final class AppModel {
         debugPairingExpirySeconds = Self.argumentValue("-CCPairingExpirySeconds", in: arguments).flatMap(TimeInterval.init)
         #endif
         fixtureMode = isFixture
-        #if CC_PERF
+        #if DEBUG || CC_PERF
         selectedSessionID = Self.argumentValue("-CCSession", in: arguments)
         #endif
 

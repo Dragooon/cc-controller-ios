@@ -6,4 +6,5 @@ enum CCMetrics {
     static let compactActionHeight: CGFloat = 32
     static let minTap: CGFloat = 44
     static let chipHeight: CGFloat = 30
+    static let readableContentWidth: CGFloat = 760
 }

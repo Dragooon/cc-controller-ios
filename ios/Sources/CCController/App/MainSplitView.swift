@@ -4,6 +4,8 @@ import UIKit
 
 struct MainSplitView: View {
     @Bindable var model: AppModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
@@ -12,9 +14,23 @@ struct MainSplitView: View {
     @State private var wakeError: String?
     @State private var sessionNotice: String?
 
+    init(model: AppModel) {
+        self.model = model
+        let hasSelectedSession = model.selectedSessionID != nil
+        _columnVisibility = State(initialValue: hasSelectedSession ? .detailOnly : .all)
+        _preferredCompactColumn = State(initialValue: hasSelectedSession ? .detail : .sidebar)
+    }
+
     var body: some View {
         ZStack(alignment: .top) {
             splitView()
+#if DEBUG
+            Text(horizontalSizeClass == .regular ? "regular" : "compact")
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityIdentifier("horizontal-size-class")
+                .accessibilityValue(columnVisibility == .detailOnly ? "detailOnly" : "not-detailOnly")
+#endif
             if let warning = model.relayIdentityWarning {
                 Button {
                     model.isRelayWarningPresented = true
@@ -97,8 +113,7 @@ struct MainSplitView: View {
         }
         .sheet(isPresented: $isNewSessionPresented) {
             NewSessionView(store: model.store) { id, appeared in
-                model.selectedSessionID = id
-                preferredCompactColumn = .detail
+                openSession(id)
                 if !appeared {
                     sessionNotice = "Session started; it will appear shortly."
                     Task { @MainActor in
@@ -108,10 +123,24 @@ struct MainSplitView: View {
                 }
             }
         }
+        .onAppear(perform: synchronizeColumnVisibility)
+        .onChange(of: model.selectedSessionID) { _, _ in
+            synchronizeColumnVisibility()
+        }
+        .onChange(of: horizontalSizeClass) { _, newSizeClass in
+            guard newSizeClass == .regular, model.selectedSessionID != nil else { return }
+            columnVisibility = .detailOnly
+        }
+        .task(id: model.selectedSessionID) {
+            synchronizeColumnVisibility()
+        }
     }
 
     private func splitView() -> some View {
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
+        NavigationSplitView(
+            columnVisibility: $columnVisibility,
+            preferredCompactColumn: $preferredCompactColumn
+        ) {
             SessionsListView(
                 sessions: model.store.sortedSessions,
                 sleeping: model.store.sleeping,
@@ -124,10 +153,7 @@ struct MainSplitView: View {
                 onSessionsLoaded: {
                     await model.requestNotificationAuthorizationAfterSessionsLoaded()
                 },
-                onOpen: {
-                    model.selectedSessionID = $0.id
-                    preferredCompactColumn = .detail
-                },
+                onOpen: { openSession($0.id) },
                 onAllow: { approval in
                     performApprovalDecision(approval, scope: .once)
                 },
@@ -157,8 +183,14 @@ struct MainSplitView: View {
             )
         } detail: {
             if let selectedSessionID = model.selectedSessionID {
-                SessionScreen(sessionID: selectedSessionID, model: model)
-                    .id(selectedSessionID)
+                SessionScreen(
+                    sessionID: selectedSessionID,
+                    model: model,
+                    approvalsElsewhereCount: approvalsElsewhereCount,
+                    onShowApprovalsElsewhere: { columnVisibility = .all }
+                )
+                .id(selectedSessionID)
+                .onAppear { columnVisibility = .detailOnly }
             } else {
                 ContentUnavailableView(
                     "No session selected",
@@ -168,9 +200,31 @@ struct MainSplitView: View {
                 .background(.ccBackground)
             }
         }
-        .navigationSplitViewStyle(.balanced)
+        .navigationSplitViewStyle(.prominentDetail)
         .tint(.ccAccent)
         .background(.ccBackground)
+    }
+
+    private func openSession(_ id: String?) {
+        guard let id else { return }
+        model.selectedSessionID = id
+        preferredCompactColumn = .detail
+        columnVisibility = .detailOnly
+    }
+
+    private func synchronizeColumnVisibility() {
+        let hasSelectedSession = model.selectedSessionID != nil
+        columnVisibility = hasSelectedSession ? .detailOnly : .all
+        preferredCompactColumn = hasSelectedSession ? .detail : .sidebar
+    }
+
+    private var approvalsElsewhereCount: Int {
+        guard horizontalSizeClass == .regular,
+              columnVisibility == .detailOnly,
+              let selectedSessionID = model.selectedSessionID else { return 0 }
+        let sessionIDs = model.store.approvals.compactMap(\.sessionId)
+            .filter { $0 != selectedSessionID }
+        return Set(sessionIDs).count
     }
 
     private var actionErrorTitle: String {
@@ -188,8 +242,7 @@ struct MainSplitView: View {
                     wakeError = "The session did not appear after waking."
                     return
                 }
-                model.selectedSessionID = sleeping.id
-                preferredCompactColumn = .detail
+                openSession(sleeping.id)
             } catch {
                 wakeError = (error as? APIError)?.daemonMessage ?? error.localizedDescription
             }

@@ -148,6 +148,7 @@ struct SessionsListView: View {
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+        .accessibilityIdentifier("sessions-list")
         .task(id: sessions.isEmpty) {
             guard !sessions.isEmpty else { return }
             await onSessionsLoaded()

@@ -28,7 +28,21 @@ struct SessionScreen: View {
 
     let sessionID: String
     @Bindable var model: AppModel
+    let approvalsElsewhereCount: Int
+    let onShowApprovalsElsewhere: () -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    init(
+        sessionID: String,
+        model: AppModel,
+        approvalsElsewhereCount: Int = 0,
+        onShowApprovalsElsewhere: @escaping () -> Void = {}
+    ) {
+        self.sessionID = sessionID
+        self.model = model
+        self.approvalsElsewhereCount = approvalsElsewhereCount
+        self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
+    }
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
@@ -507,6 +521,22 @@ struct SessionScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if approvalsElsewhereCount > 0 {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: onShowApprovalsElsewhere) {
+                            Text("\(approvalsElsewhereCount) need you")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.ccAmber)
+                                .padding(.horizontal, 10)
+                                .frame(height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .accessibilityIdentifier("approvals-elsewhere")
+                        .accessibilityLabel("\(approvalsElsewhereCount) sessions need you")
+                    }
+                }
                 ToolbarItem(placement: .principal) {
                     #if CC_PERF
                     let _ = PerfCounters.shared.hit(.sessionHeader)

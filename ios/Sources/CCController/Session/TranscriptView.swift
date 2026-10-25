@@ -176,6 +176,7 @@ struct SessionTranscriptView: View {
     let onCompaction: (CompactionEntry) -> Void
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
     let scrollAnchor: UnitPoint
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
     @State private var pagingRowIsVisible = false
@@ -278,6 +279,8 @@ struct SessionTranscriptView: View {
                 if showsComposer {
                     let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
                     BottomStackView(configuration: configuration.withTranscriptHeight(transcriptHeight))
+                        .frame(maxWidth: readableContentMaxWidth)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .alert(
@@ -321,6 +324,8 @@ struct SessionTranscriptView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 18)
+        .frame(maxWidth: readableContentMaxWidth)
+        .frame(maxWidth: .infinity)
         .scrollTargetLayout()
         #if DEBUG || CC_PERF
         .onAppear { TranscriptPerformance.shared.markFirstRows() }
@@ -775,6 +780,10 @@ struct SessionTranscriptView: View {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
         }
+    }
+
+    private var readableContentMaxWidth: CGFloat {
+        horizontalSizeClass == .regular ? CCMetrics.readableContentWidth : .infinity
     }
 
     private var displayRows: [TranscriptRow] {
