@@ -4,6 +4,7 @@ import SwiftUI
 struct LiveActivityFooterView: View {
     let footer: CCKit.ActivityFooter
     let session: Session?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(footer: CCKit.ActivityFooter, session: Session? = nil) {
         self.footer = footer
@@ -14,51 +15,67 @@ struct LiveActivityFooterView: View {
         #if CC_PERF
         let _ = PerfCounters.shared.hit(.activityFooter)
         #endif
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                SpinnerGlyph(active: session?.state == .working, frozen: false)
-                    .font(.footnote)
-                    .accessibilityHidden(true)
-                primary
-                    .font(.footnote)
-                    .foregroundStyle(.ccLabel)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        if footer.isWaiting {
+            content(footer)
+        } else {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                content(currentFooter(now: context.date))
             }
+        }
+    }
 
-            Text(footer.detail)
-                .font(.footnote.monospaced())
-                .foregroundStyle(.ccSecondary)
+    private func content(_ current: CCKit.ActivityFooter) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            ActivityGlyph(active: !current.isWaiting, reduceMotion: reduceMotion)
+                .font(.footnote)
+
+            Text(current.primary)
+                .font(.subheadline)
+                .foregroundStyle(current.isWaiting ? .ccAmber : .ccAccent)
                 .lineLimit(1)
                 .truncationMode(.tail)
+
+            if !current.detail.isEmpty {
+                Text("· \(current.detail)")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.ccSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(primaryText), \(footer.detail)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("live-activity-row")
+        .accessibilityLabel(accessibilityText(current))
     }
 
-    @ViewBuilder
-    private var primary: some View {
-        if let session, session.state == .working, session.startedAt != nil, let verb {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(displayPrimary(activityFooterText(session, now: context.date, verb: verb).primary))
+    private func currentFooter(now: Date) -> CCKit.ActivityFooter {
+        guard let session else { return footer }
+        let verb = footer.primary.components(separatedBy: "…").first ?? "Thinking"
+        return activityFooterText(session, now: now, verb: verb, startedAt: footer.startedAt)
+    }
+
+    private func accessibilityText(_ current: CCKit.ActivityFooter) -> String {
+        current.detail.isEmpty ? current.primary : "\(current.primary), \(current.detail)"
+    }
+}
+
+private struct ActivityGlyph: View {
+    let active: Bool
+    let reduceMotion: Bool
+    @State private var rotation = 0.0
+
+    var body: some View {
+        Text("✻")
+            .foregroundStyle(active ? .ccAccent : .ccAmber)
+            .rotationEffect(.degrees(rotation))
+            .animation(reduceMotion ? nil : .linear(duration: 8).repeatForever(autoreverses: false), value: rotation)
+            .onAppear {
+                guard active, !reduceMotion else { return }
+                rotation = 360
             }
-        } else {
-            Text(primaryText)
-        }
-    }
-
-    private var primaryText: String {
-        displayPrimary(footer.primary)
-    }
-
-    private func displayPrimary(_ value: String) -> String {
-        value.hasPrefix("✻ ") ? String(value.dropFirst(2)) : value
-    }
-
-    private var verb: String? {
-        guard let end = primaryText.firstIndex(of: "…") else { return nil }
-        return String(primaryText[..<end])
+            .accessibilityHidden(true)
     }
 }

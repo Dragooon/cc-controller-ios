@@ -280,8 +280,42 @@ final class NativePresentationTests: XCTestCase {
             ToolEntry(tool: "Bash", state: .done),
         ])
 
-        XCTAssertEqual(nativeToolRunLabel(running), "Running 2 tools")
+        XCTAssertEqual(nativeToolRunLabel(running), "Running 2 tools…")
         XCTAssertEqual(nativeToolRunLabel(finished), "Ran 2 tools")
+        XCTAssertFalse(nativeToolRunIsCollapsed(running))
+        XCTAssertFalse(nativeToolRunIsCollapsed(finished))
+    }
+
+    func testNativeToolRunCollapsesFourOrMoreEntries() {
+        let run = ToolRun(entries: (0..<4).map { _ in ToolEntry(tool: "Read", state: .done) })
+        XCTAssertTrue(nativeToolRunIsCollapsed(run))
+    }
+
+    func testToolPhrasesCoverEveryDesignedTool() {
+        let cases: [(String, JSONValue, String, String)] = [
+            ("Bash", .object(["description": .string("run tests"), "command": .string("npm test")]), "Running run tests…", "Ran run tests"),
+            ("Bash", .object(["command": .string("npm test")]), "Running npm test…", "Ran npm test"),
+            ("Read", .object(["file_path": .string("/workspace/notes.md")]), "Reading notes.md…", "Read notes.md"),
+            ("Edit", .object(["file_path": .string("/workspace/notes.md")]), "Editing notes.md…", "Edited notes.md"),
+            ("MultiEdit", .object(["file_path": .string("/workspace/notes.md")]), "Editing notes.md…", "Edited notes.md"),
+            ("NotebookEdit", .object(["file_path": .string("/workspace/notebook.ipynb")]), "Editing notebook.ipynb…", "Edited notebook.ipynb"),
+            ("Write", .object(["file_path": .string("/workspace/notes.md")]), "Writing notes.md…", "Wrote notes.md"),
+            ("Grep", .object(["pattern": .string("TODO")]), "Searching for TODO…", "Searched for TODO"),
+            ("Glob", .object(["pattern": .string("*.swift")]), "Finding *.swift…", "Found *.swift"),
+            ("WebFetch", .object(["url": .string("https://example.com/docs")]), "Fetching example.com…", "Fetched example.com"),
+            ("WebSearch", .object(["query": .string("iPhone release")]), "Searching the web for iPhone release…", "Searched the web for iPhone release"),
+            ("TodoWrite", .object([:]), "Updating the plan…", "Updated the plan"),
+            ("mcp__server__tool", .object([:]), "Using server tool…", "Used server tool"),
+            ("Custom", .object(["input": .string("value")]), "Using Custom value…", "Used Custom value"),
+        ]
+        for (tool, args, running, done) in cases {
+            XCTAssertEqual(toolPhrase(ToolEntry(tool: tool, args: args, state: .running)), running, tool)
+            XCTAssertEqual(toolPhrase(ToolEntry(tool: tool, args: args, state: .done)), done, tool)
+        }
+        XCTAssertEqual(
+            toolPhraseAccessibilityLabel(ToolEntry(tool: "Bash", args: .object(["command": .string("false")]), state: .unknown("failed"))),
+            "Ran false, failed"
+        )
     }
 
     func testToolEntryPreservesDurationForDetailPresentation() throws {

@@ -150,7 +150,11 @@ struct SessionScreen: View {
     private func screen() -> some View {
         let _ = store.attachmentRevision
         let _ = store.draftRevision(for: sessionID)
+        let _ = store.pendingTurnStarts
+        let _ = store.queuedNotes
+        let pendingTurnStart = store.pendingTurnStart(for: sessionID)
         if let sessionStore = store.openSession(sessionID) {
+            let currentSession = store.sessions[sessionID] ?? sessionStore.session
             contentNavigation(
                 name: sessionStore.session.name ?? "Session",
                 session: sessionStore.session
@@ -166,6 +170,7 @@ struct SessionScreen: View {
                             transcriptEntries: sessionStore.entries
                         ),
                         queuedNotes: store.queuedNotes(for: sessionID),
+                        activityFooter: activityFooter(for: currentSession, pendingTurnStart: pendingTurnStart),
                         liveSession: sessionStore.session,
                         sessionState: sessionStore.session.state,
                         onRetryNote: { noteID in
@@ -263,6 +268,11 @@ struct SessionScreen: View {
         }
     }
 
+    private func activityFooter(for session: Session, pendingTurnStart: Date?) -> CCKit.ActivityFooter? {
+        guard session.state == .working || session.state == .needsYou || pendingTurnStart != nil else { return nil }
+        return activityFooterText(session, verb: "Thinking", startedAt: pendingTurnStart)
+    }
+
     private func bottomStackConfiguration(
         for session: Session,
         liveSession: Session? = nil,
@@ -283,7 +293,7 @@ struct SessionScreen: View {
                     onChange: { text in store.setDraft(text, for: sessionID) }
                 ),
                 modelName: composerModelName(modelName),
-                placeholder: current.state == .working ? "Queue a message" : "Message",
+                placeholder: current.state == .working ? "Queue for after this turn…" : "Message",
                 isWorking: current.state == .working,
                 canInterrupt: current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"
             ),
@@ -340,6 +350,7 @@ struct SessionScreen: View {
 
     @MainActor
     private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<MessageResult, ActionError> {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = await store.sendComposer(text: text, to: sessionID, now: now)
         switch result {
         case .success(let message):
@@ -354,6 +365,7 @@ struct SessionScreen: View {
                 showCommandToast()
             }
         case .failure(let error):
+            clearOptimisticActivity()
             if shouldPresentSendError(error) {
                 model.actionError = error
             }

@@ -26,6 +26,7 @@ public final class AppStore {
     public private(set) var unknownEventCount = 0
     public private(set) var deciding: Set<String> = []
     public private(set) var queuedNotes: [String: [QueuedNote]] = [:]
+    public private(set) var pendingTurnStarts: [String: Date] = [:]
     public private(set) var attachments: [String: [AttachmentItem]] = [:]
     public private(set) var attachmentNotices: [String: String] = [:]
     public private(set) var attachmentRevision = 0
@@ -88,6 +89,7 @@ public final class AppStore {
     @ObservationIgnored private var eventCoalescingTask: Task<Void, Never>?
     @ObservationIgnored private var cacheWriteTask: Task<Void, Never>?
     @ObservationIgnored private var deliveryTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var pendingTurnExpiryTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var cacheWritePending = false
 
     public convenience init(
@@ -182,6 +184,8 @@ public final class AppStore {
         draftCache.saveNow(drafts)
         deliveryTasks.values.forEach { $0.cancel() }
         deliveryTasks.removeAll()
+        pendingTurnExpiryTasks.values.forEach { $0.cancel() }
+        pendingTurnExpiryTasks.removeAll()
         queuedNoteCache.saveNow(queuedNotes)
         started = false
         lifecycleTask?.cancel()
@@ -282,6 +286,10 @@ public final class AppStore {
         queuedNotes[sessionID] ?? []
     }
 
+    public func pendingTurnStart(for sessionID: String) -> Date? {
+        pendingTurnStarts[sessionID]
+    }
+
     public func draft(for sessionID: String, agentID: String? = nil) -> String {
         drafts[draftKey(sessionID: sessionID, agentID: agentID)] ?? ""
     }
@@ -361,9 +369,11 @@ public final class AppStore {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .failure(.invalid("Message text is required.")) }
         let createdAt = clock.now
+        let isCommand = attachments.isEmpty && isSlashCommand(trimmed)
+        let shouldMarkPendingTurn = !isCommand && sessions[sessionID]?.state != .working
+        if shouldMarkPendingTurn { markPendingTurnStart(for: sessionID, at: createdAt) }
         do {
             let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
-            let isCommand = attachments.isEmpty && isSlashCommand(trimmed)
             if !isCommand {
                 queuedNotes[sessionID, default: []].append(
                     QueuedNote(
@@ -383,8 +393,30 @@ public final class AppStore {
             }
             return .success(result)
         } catch {
+            if shouldMarkPendingTurn { clearPendingTurnStart(for: sessionID) }
             return .failure(actionError(for: error))
         }
+    }
+
+    private func markPendingTurnStart(for sessionID: String, at start: Date) {
+        pendingTurnExpiryTasks[sessionID]?.cancel()
+        pendingTurnStarts[sessionID] = start
+        pendingTurnExpiryTasks[sessionID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: .seconds(20))
+            } catch {
+                return
+            }
+            guard self.pendingTurnStarts[sessionID] == start else { return }
+            self.clearPendingTurnStart(for: sessionID)
+        }
+    }
+
+    private func clearPendingTurnStart(for sessionID: String) {
+        pendingTurnExpiryTasks[sessionID]?.cancel()
+        pendingTurnExpiryTasks.removeValue(forKey: sessionID)
+        pendingTurnStarts.removeValue(forKey: sessionID)
     }
 
     public func attachments(for sessionID: String) -> [AttachmentItem] {
@@ -513,6 +545,9 @@ public final class AppStore {
                   let name = file.name,
                   let data = item.thumbnailData else { return }
             result[name] = data
+        }
+        if sessions[sessionID]?.state != .working {
+            markPendingTurnStart(for: sessionID, at: clock.now)
         }
         let note = QueuedNote(
             text: trimmed.isEmpty ? "See attached." : trimmed,
@@ -661,6 +696,7 @@ public final class AppStore {
         }
         queuedNotes[sessionID] = notes
         persistQueuedNotes()
+        clearPendingTurnStart(for: sessionID)
     }
 
     private var uploadLimit: Int {
@@ -808,6 +844,9 @@ public final class AppStore {
         approvals.removeAll()
         deciding.removeAll()
         queuedNotes.removeAll()
+        pendingTurnExpiryTasks.values.forEach { $0.cancel() }
+        pendingTurnExpiryTasks.removeAll()
+        pendingTurnStarts.removeAll()
         attachments.removeAll()
         attachmentProgressDates.removeAll()
         attachmentNotices.removeAll()
@@ -1183,6 +1222,9 @@ public final class AppStore {
             previousSessionsForReplacementAt = clock.now
         }
         sessions = nextSessions
+        for session in nextSessions.values where session.state == .working {
+            if let id = session.id { clearPendingTurnStart(for: id) }
+        }
         sleeping = snapshot.sleeping ?? sleeping
         serverEntryCounts = snapshot.entries ?? [:]
         approvals = sessions.values.flatMap { $0.pending ?? [] }
@@ -1216,6 +1258,7 @@ public final class AppStore {
         if delta.rawObject["shells"] != nil { session.shells = delta.shells }
         if delta.rawObject["pending"] != nil { session.pending = delta.pending }
         sessions[id] = session
+        if session.state == .working { clearPendingTurnStart(for: id) }
         if delta.rawObject["entries"] != nil, let counts = delta.entries {
             serverEntryCounts.merge(counts) { _, new in new }
         }

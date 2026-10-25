@@ -506,6 +506,57 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(downloaded.mime, "text/csv")
     }
 
+    func testSendMarksPendingTurnUntilWorkingStateArrives() async throws {
+        URLProtocolStub.handler = { _ in
+            URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session(state: .idle)], entries: ["session-1": 0])))
+
+        guard case .success = await app.send(text: "start a turn", to: "session-1") else {
+            return XCTFail("Send failed")
+        }
+        XCTAssertNotNil(app.pendingTurnStart(for: "session-1"))
+
+        app.apply(.stateDelta(StateDelta(sessionId: "session-1", state: .working)))
+        try await settleCoalescedEvents()
+        XCTAssertNil(app.pendingTurnStart(for: "session-1"))
+    }
+
+    func testFailedSendClearsPendingTurn() async {
+        URLProtocolStub.handler = { _ in
+            URLProtocolStub.json(500, body: Data("{\"error\":\"send failed\"}".utf8))
+        }
+        let app = makeApp()
+
+        guard case .failure = await app.send(text: "failed turn", to: "session-1") else {
+            return XCTFail("Failed send unexpectedly succeeded")
+        }
+        XCTAssertNil(app.pendingTurnStart(for: "session-1"))
+    }
+
+    func testPendingTurnExpirySleepsForTwentySeconds() async throws {
+        URLProtocolStub.handler = { _ in
+            URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+        }
+        let clock = RecordingClock()
+        let app = AppStore(
+            serverURL: URL(string: "http://localhost:47832")!,
+            bearerProvider: { "test-token" },
+            session: URLProtocolStub.session,
+            clock: clock,
+            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+
+        _ = await app.send(text: "expiring turn", to: "session-1")
+        for _ in 0..<20 {
+            if await clock.values().contains(.seconds(20)) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let sleeps = await clock.values()
+        XCTAssertTrue(sleeps.contains(.seconds(20)))
+    }
+
     func testSendCarriesAttachmentNamesAndThumbnailsIntoPendingNote() async {
         URLProtocolStub.handler = { request in
             XCTAssertEqual(request.url?.path, "/api/sessions/session-1/message")

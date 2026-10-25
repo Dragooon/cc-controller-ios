@@ -794,7 +794,8 @@ struct SessionTranscriptView: View {
                 return false
             }
         }
-        if let activityFooter, let turnID = turns.last?.id {
+        if let activityFooter {
+            let turnID = turns.last?.id ?? "\(sessionID)-live"
             result.append(TranscriptRow(id: "\(turnID)-activity", turnID: turnID, kind: .liveActivityFooter(activityFooter)))
         }
         return result

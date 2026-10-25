@@ -443,10 +443,14 @@ public struct EntryFields: Codable, Sendable, Equatable {
 public struct ActivityFooter: Codable, Sendable, Equatable {
     public let primary: String
     public let detail: String
+    public let isWaiting: Bool
+    public let startedAt: Date?
 
-    public init(primary: String, detail: String) {
+    public init(primary: String, detail: String, isWaiting: Bool = false, startedAt: Date? = nil) {
         self.primary = primary
         self.detail = detail
+        self.isWaiting = isWaiting
+        self.startedAt = startedAt
     }
 }
 
@@ -825,8 +829,8 @@ public func toolArgument(_ tool: String?, args: JSONValue? = nil) -> String {
     if case .object(let object) = args { input = object } else { input = [:] }
     let preferred: [String]
     switch name {
-    case "Bash": preferred = ["command"]
-    case "Read", "Edit", "Write": preferred = ["file_path", "path"]
+    case "Bash": preferred = ["description", "command"]
+    case "Read", "Edit", "MultiEdit", "NotebookEdit", "Write": preferred = ["file_path", "path"]
     case "Grep", "Glob": preferred = ["pattern"]
     case "Agent", "Task": preferred = ["description"]
     case "WebFetch": preferred = ["url"]
@@ -836,6 +840,57 @@ public func toolArgument(_ tool: String?, args: JSONValue? = nil) -> String {
     for key in preferred where input[key]?.stringValue != nil { return input[key]?.stringValue ?? "" }
     if let value = input.values.first(where: { $0.stringValue != nil })?.stringValue { return value }
     return input.keys.first ?? ""
+}
+
+public func toolPhrase(_ entry: ToolEntry) -> String {
+    let tool = entry.tool ?? "Tool"
+    let argument = toolPhraseArgument(tool: tool, args: entry.args)
+    let running = entry.state == .running
+    let phrase: String
+    switch tool {
+    case "Bash": phrase = "\(running ? "Running" : "Ran") \(argument)"
+    case "Read": phrase = "\(running ? "Reading" : "Read") \(argument)"
+    case "Edit", "MultiEdit", "NotebookEdit": phrase = "\(running ? "Editing" : "Edited") \(argument)"
+    case "Write": phrase = "\(running ? "Writing" : "Wrote") \(argument)"
+    case "Grep": phrase = "\(running ? "Searching for" : "Searched for") \(argument)"
+    case "Glob": phrase = "\(running ? "Finding" : "Found") \(argument)"
+    case "WebFetch": phrase = "\(running ? "Fetching" : "Fetched") \(argument)"
+    case "WebSearch": phrase = "\(running ? "Searching the web for" : "Searched the web for") \(argument)"
+    case "TodoWrite": phrase = running ? "Updating the plan" : "Updated the plan"
+    default:
+        if tool.hasPrefix("mcp__") {
+            let parts = tool.split(separator: "__", omittingEmptySubsequences: true).map(String.init)
+            let mcpArgument = parts.dropFirst().joined(separator: " ")
+            phrase = "\(running ? "Using" : "Used") \(mcpArgument.isEmpty ? tool : mcpArgument)"
+        } else {
+            phrase = "\(running ? "Using" : "Used") \(tool)\(argument.isEmpty ? "" : " \(argument)")"
+        }
+    }
+    return phrase + (running ? "…" : "")
+}
+
+public func toolPhraseAccessibilityLabel(_ entry: ToolEntry) -> String {
+    let state: String
+    if case .unknown(let value) = entry.state, value == "failed" { state = "failed" }
+    else if entry.state == .running { state = "running" }
+    else { state = "done" }
+    return "\(toolPhrase(entry)), \(state)"
+}
+
+private func toolPhraseArgument(tool: String, args: JSONValue?) -> String {
+    let raw = toolArgument(tool, args: args)
+    switch tool {
+    case "Read", "Edit", "MultiEdit", "NotebookEdit", "Write":
+        return lastPathComponent(raw)
+    case "WebFetch":
+        return URL(string: raw)?.host ?? raw
+    default:
+        return firstMeaningfulLine(raw)
+    }
+}
+
+private func lastPathComponent(_ path: String) -> String {
+    path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
 }
 
 public func activityLineText(_ session: Session) -> String {
@@ -947,10 +1002,22 @@ public func liveFooterText(_ turn: Turn, verb: String) -> String {
     return "✻ \(verb)… (\(formatDuration(Double(turn.durationMs)))\(tokenText))"
 }
 
-public func activityFooterText(_ session: Session, now: Date = .now, verb: String) -> ActivityFooter {
-    let elapsed = elapsedMilliseconds(from: session.startedAt, to: now)
-    let tokenText = session.usage?.outputTokens.map { " · ↓ \(formatTokenCount($0)) tokens" } ?? ""
-    return ActivityFooter(primary: "✻ \(verb)… (\(formatDuration(elapsed))\(tokenText))", detail: activityLineText(session))
+public func activityFooterText(
+    _ session: Session,
+    now: Date = .now,
+    verb: String = "Thinking",
+    startedAt: Date? = nil
+) -> ActivityFooter {
+    let waiting = session.state == .needsYou || !(session.pending ?? []).isEmpty
+    let start = startedAt ?? session.startedAt
+    let elapsed = elapsedMilliseconds(from: start, to: now)
+    let detail = waiting ? "" : [formatDuration(elapsed), session.usage?.outputTokens.map { "↓ \(formatTokenCount($0))" }].compactMap { $0 }.joined(separator: " · ")
+    return ActivityFooter(
+        primary: waiting ? "Waiting for you" : "\(verb)…",
+        detail: detail,
+        isWaiting: waiting,
+        startedAt: start
+    )
 }
 
 public func permissionCopy(_ approval: Approval, timeZone: TimeZone = .current, locale: Locale = .current) -> PermissionCopy {

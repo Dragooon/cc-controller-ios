@@ -38,7 +38,13 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         let sentAt = Date()
         send.tap()
 
-        try await waitUntil(sentAt, hasElapsed: 0.2)
+        try await waitUntil(sentAt, hasElapsed: 1.0)
+        let initialRows = visibleTranscriptLabels(in: app)
+        XCTAssertTrue(initialRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row did not appear immediately after send")
+        let activityElapsed = Date().timeIntervalSince(sentAt)
+        let activityLine = "ACTIVITY_ROW_APPEARED elapsed=\(String(format: "%.3f", activityElapsed))"
+        observations.append(activityLine)
+        print(activityLine)
         capture("a", moment: "right-after-send", sentAt: sentAt, in: app, scheme: scheme)
         let turnStart = try await postLiveTurn(prompt: prompt)
         let workingButton = app.buttons["composer-queue"]
@@ -56,19 +62,19 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         capture("c", moment: "first-assistant", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 3.2)
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] 'Bash, Running'")).firstMatch.exists, "First Bash did not show as running")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running List IMAX sessions'")).firstMatch.exists, "First Bash did not show as running")
         capture("d", moment: "first-bash-running", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 6.2)
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] 'Bash, Done'")).firstMatch.exists, "First Bash did not show as done")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran List IMAX sessions'")).firstMatch.exists, "First Bash did not show as done")
         capture("e", moment: "first-bash-done", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 7.2)
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] 'Read, Running'")).firstMatch.exists, "Read did not show as running")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Reading dune-showtimes.md'")).firstMatch.exists, "Read did not show as running")
         capture("f", moment: "read-running", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 11.2)
-        XCTAssertGreaterThanOrEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] 'Bash, Done'")).count, 2, "Second Bash did not show as done")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran Check seat map'")).firstMatch.exists, "Second Bash did not show as done")
         capture("g", moment: "second-bash-done", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 12.2)
@@ -77,6 +83,19 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
         try await waitUntil(turnStart, hasElapsed: 13.3)
         XCTAssertFalse(app.buttons["composer-stop"].exists, "Stop button remained after Stop hook")
+        let stoppedRows = visibleTranscriptLabels(in: app)
+        XCTAssertFalse(stoppedRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row remained after turn stopped")
+        assertRowsAppearInOrder(
+            [
+                prompt,
+                "Let me check the showtimes.",
+                "Ran List IMAX sessions",
+                "Read dune-showtimes.md",
+                "Ran Check seat map",
+                "The 8:00 PM screening has the best remaining seats.",
+            ],
+            in: app
+        )
         capture("i", moment: "stopped", sentAt: sentAt, in: app, scheme: scheme)
     }
 
@@ -94,7 +113,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         add(screenshot)
 
         let rows = visibleTranscriptLabels(in: app)
-        let footer = rows.first { $0.contains("✻") && !$0.hasPrefix("✻ Worked for") } ?? "absent"
+        let footer = rows.first { ($0.contains("Thinking") || $0.contains("Waiting for you")) && !$0.hasPrefix("✻ Worked for") } ?? "absent"
         let line = "CAPTURE \(scheme)-\(letter)-\(moment) elapsed=\(String(format: "%.3f", elapsed)) rows=[\(rows.joined(separator: " | "))] footer=\(footer)"
         observations.append(line)
         print(line)
@@ -102,7 +121,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
     private func visibleTranscriptLabels(in app: XCUIApplication) -> [String] {
         guard app.scrollViews["transcript-scroll"].exists else { return [] }
-        let textLabels = [
+        let textLabels: Set<String> = [
             "Find three good seats for Dune Part Three IMAX.",
             "I found a short list of IMAX sessions and left the final choice to you.",
             "Find an IMAX screening for Dune Part Three tonight.",
@@ -111,21 +130,39 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             "I can keep looking if you want a different time.",
         ]
         var labels: [String] = []
-        let textPredicate = NSPredicate(format: "label IN %@", textLabels)
-        let textMatches = app.staticTexts.matching(textPredicate)
+        let textMatches = app.staticTexts.matching(NSPredicate(format: "label IN %@", Array(textLabels)))
         for index in 0..<textMatches.count {
             let label = textMatches.element(boundBy: index).label
             if !label.isEmpty, !labels.contains(label) { labels.append(label) }
         }
-        let toolPredicate = NSPredicate(format: "label BEGINSWITH[c] 'Bash,' OR label BEGINSWITH[c] 'Read,' OR label BEGINSWITH[c] 'Ran '")
-        let toolMatches = app.buttons.matching(toolPredicate)
+        let toolPredicate = NSPredicate(format: "label BEGINSWITH[c] 'Running ' OR label BEGINSWITH[c] 'Reading ' OR label BEGINSWITH[c] 'Read ' OR label BEGINSWITH[c] 'Ran ' OR label BEGINSWITH[c] 'Writing ' OR label BEGINSWITH[c] 'Wrote ' OR label BEGINSWITH[c] 'Editing ' OR label BEGINSWITH[c] 'Edited '")
+        let toolMatches = app.descendants(matching: .any).matching(toolPredicate)
         for index in 0..<toolMatches.count {
             let label = toolMatches.element(boundBy: index).label
+            if !label.isEmpty, !labels.contains(label) { labels.append(label) }
+        }
+        let activityMatches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Thinking' OR label BEGINSWITH[c] 'Waiting for you'"))
+        for index in 0..<activityMatches.count {
+            let label = activityMatches.element(boundBy: index).label
             if !label.isEmpty, !labels.contains(label) { labels.append(label) }
         }
         let worked = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] '✻ Worked for'")).firstMatch
         if worked.exists, !labels.contains(worked.label) { labels.append(worked.label) }
         return labels
+    }
+
+    private func assertRowsAppearInOrder(_ expected: [String], in app: XCUIApplication) {
+        var previousY: CGFloat = -.greatestFiniteMagnitude
+        for expectedRow in expected {
+            let match = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", expectedRow)).firstMatch
+            guard match.exists else {
+                XCTFail("Missing transcript row \(expectedRow)")
+                return
+            }
+            let y = match.frame.minY
+            XCTAssertGreaterThanOrEqual(y, previousY, "Transcript row \(expectedRow) was out of order")
+            previousY = y
+        }
     }
 
     private func waitUntil(_ start: Date, hasElapsed seconds: TimeInterval) async throws {

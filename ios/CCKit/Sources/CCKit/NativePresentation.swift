@@ -103,7 +103,11 @@ public func subagentSubtitle(_ subagent: Subagent, now: Date = .now) -> String {
 
 /// Names a native tool group according to whether any member is still running.
 public func nativeToolRunLabel(_ run: ToolRun) -> String {
-    run.isRunning ? "Running \(run.entries.count) tools" : "Ran \(run.entries.count) tools"
+    run.isRunning ? "Running \(run.entries.count) tools…" : "Ran \(run.entries.count) tools"
+}
+
+public func nativeToolRunIsCollapsed(_ run: ToolRun) -> Bool {
+    run.entries.count >= 4
 }
 
 /// Formats the fallback countdown shown on a remote approval card.

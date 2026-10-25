@@ -9,26 +9,35 @@ struct ToolRunCard: View {
     init(run: ToolRun, onTool: @escaping (ToolEntry) -> Void) {
         self.run = run
         self.onTool = onTool
-        _isExpanded = State(initialValue: run.isRunning)
+        _isExpanded = State(initialValue: run.entries.count < 4)
+    }
+
+    private var isCollapsedRun: Bool { nativeToolRunIsCollapsed(run) && !isExpanded }
+
+    private var collapsedEntries: [ToolEntry] {
+        guard let current = run.entries.last(where: { $0.state == .running }) else { return [] }
+        return [current]
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if run.entries.count >= 2 {
+        VStack(alignment: .leading, spacing: 8) {
+            if run.entries.count >= 4 {
                 Button { isExpanded.toggle() } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(nativeToolRunLabel(run))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.ccLabel)
-                            Text(run.tallyText)
-                                .font(.footnote)
-                                .foregroundStyle(.ccSecondary)
-                        }
+                        Text(nativeToolRunLabel(run))
+                            .font(.subheadline)
+                            .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(run.tallyText)
+                            .font(.caption)
+                            .foregroundStyle(.ccTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         Spacer(minLength: 4)
                         Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.ccSecondary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.ccTertiary)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     }
                     .contentShape(Rectangle())
@@ -36,60 +45,22 @@ struct ToolRunCard: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(nativeToolRunLabel(run))
                 .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
                 .animation(.snappy, value: isExpanded)
-
-                if isExpanded {
-                    Divider().overlay(.ccSeparator)
-                }
             }
 
-            if isExpanded || run.entries.count == 1 {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(run.entries.enumerated()), id: \.offset) { index, entry in
-                        ToolRow(entry: entry, onOpen: onTool)
-                        if index < run.entries.count - 1 {
-                            Divider().overlay(.ccSeparator)
-                                .padding(.horizontal, 0)
-                                .padding(.vertical, 8)
-                                .padding(.leading, 38)
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, run.entries.count == 1 ? 10 : 8)
+            let entries = isCollapsedRun ? collapsedEntries : run.entries
+            ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                ToolRow(entry: entry, onOpen: onTool)
+                    .id(entry.stableToolRowID + "-\(index)")
             }
         }
-        .background(.ccCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 private struct ToolRow: View {
     let entry: ToolEntry
     let onOpen: (ToolEntry) -> Void
-
-    private var state: ToolDisplayState {
-        switch entry.state {
-        case .running: .running
-        case .done, nil: .done
-        case .unknown(let value): value == "failed" ? .failed : .done
-        }
-    }
-
-    private var toolTitle: some View {
-        Text(entry.tool ?? "Tool")
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.ccLabel)
-            .lineLimit(1)
-            .truncationMode(.tail)
-    }
-
-    private var argumentView: some View {
-        Text(toolArgument(entry.tool, args: entry.args))
-            .font(.footnote.monospaced())
-            .foregroundStyle(.ccSecondary)
-    }
 
     var body: some View {
         Button { onOpen(entry) } label: {
@@ -102,74 +73,54 @@ private struct ToolRow: View {
                         dimensions[.bottom]
                     }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            toolTitle
-                            argumentView
-                                .fixedSize(horizontal: true, vertical: false)
-                            ToolStatusView(state: state)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                toolTitle
-                                Spacer(minLength: 0)
-                                ToolStatusView(state: state)
-                            }
-                            argumentView
-                                .lineLimit(2)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    Text(firstMeaningfulLine(entry.result))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.ccSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text(toolPhrase(entry))
+                    .font(.subheadline)
+                    .foregroundStyle(.ccSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                ToolRowStatus(entry: entry)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(entry.tool ?? "Tool"), \(stateAccessibilityLabel), \(toolArgument(entry.tool, args: entry.args))")
         .accessibilityElement(children: .ignore)
-    }
-
-    private var stateAccessibilityLabel: String {
-        switch state {
-        case .running: "Running"
-        case .done: "Done"
-        case .failed: "Failed"
-        }
+        .accessibilityLabel(toolPhraseAccessibilityLabel(entry))
     }
 }
 
-private enum ToolDisplayState { case running, done, failed }
-
-private struct ToolStatusView: View {
-    let state: ToolDisplayState
+private struct ToolRowStatus: View {
+    let entry: ToolEntry
 
     var body: some View {
-        switch state {
-        case .running:
-            HStack(spacing: 4) {
-                SpinnerGlyph(active: true, frozen: true)
-                    .accessibilityHidden(true)
-                Text(displayDuration(12_000))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.ccAccent)
-            }
-        case .done:
-            Image(systemName: "checkmark")
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(.ccGreen)
-        case .failed:
-            Image(systemName: "xmark")
-                .font(.footnote.weight(.bold))
+        if entry.state == .running {
+            ProgressView()
+                .controlSize(.mini)
+                .tint(.ccSecondary)
+                .accessibilityHidden(true)
+        } else if isFailed {
+            Image(systemName: "exclamationmark")
+                .font(.caption.weight(.bold))
                 .foregroundStyle(.ccRed)
+                .accessibilityHidden(true)
+        } else {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.ccTertiary)
+                .accessibilityHidden(true)
         }
+    }
+
+    private var isFailed: Bool {
+        if case .unknown(let value) = entry.state { return value == "failed" }
+        return false
+    }
+}
+
+private extension ToolEntry {
+    var stableToolRowID: String {
+        id ?? toolUseId ?? "tool"
     }
 }
