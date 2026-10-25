@@ -103,7 +103,13 @@ public actor InMemoryCredentialStore: CredentialStore {
 
 #if os(iOS)
 import LocalAuthentication
+import OSLog
 import Security
+
+private let credentialMigrationLogger = Logger(
+    subsystem: "com.example.cc-controller",
+    category: "credential-migration"
+)
 
 public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable {
     public let controllerID: ControllerID?
@@ -198,10 +204,14 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
         for name in ["deviceToken", "nativeSecret", "relayPin"] {
             let oldAccount = account(name)
             let newAccount = destination.account(name)
+            let context = LAContext()
+            context.interactionNotAllowed = true
             var oldQuery = baseQuery(account: oldAccount)
             oldQuery.removeValue(forKey: kSecReturnData as String)
+            oldQuery[kSecUseAuthenticationContext as String] = context
             var destinationQuery = destination.baseQuery(account: newAccount)
             destinationQuery[kSecReturnData as String] = false
+            destinationQuery[kSecUseAuthenticationContext as String] = context
             let destinationStatus = SecItemCopyMatching(destinationQuery as CFDictionary, nil)
             if destinationStatus == errSecSuccess || destinationStatus == errSecInteractionNotAllowed {
                 try remove(account: oldAccount)
@@ -211,6 +221,11 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
                 throw CredentialStoreError.systemStatus(destinationStatus, "Keychain lookup failed (\(destinationStatus)).")
             }
             let status = SecItemUpdate(oldQuery as CFDictionary, [kSecAttrAccount as String: newAccount] as CFDictionary)
+            if status == errSecInteractionNotAllowed, name == "nativeSecret" {
+                // Keep the legacy biometric item so the next launch can retry without losing the pairing.
+                credentialMigrationLogger.error("Native secret migration requires interaction; retaining legacy Keychain item.")
+                continue
+            }
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw CredentialStoreError.systemStatus(status, "Keychain migration failed (\(status)).")
             }

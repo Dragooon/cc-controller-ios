@@ -17,6 +17,82 @@ final class ControllerTests: XCTestCase {
         XCTAssertThrowsError(try ControllerID(String(repeating: "a", count: 33)))
     }
 
+    func testMigrationMovesRealNestedCacheLayoutAndIsIdempotent() async throws {
+        let root = temporaryDirectory()
+        let legacy = root.appendingPathComponent("cc-controller")
+        let mac = legacy.appendingPathComponent("mac")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        for name in ["state.json", "drafts.json", "queued-notes.json", "transcript-c2Vzc2lvbg.json"] {
+            try Data(name.utf8).write(to: legacy.appendingPathComponent(name))
+        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let old = InMemoryCredentialStore()
+        let current = InMemoryCredentialStore(controllerID: .mac)
+
+        try await ControllerMigration.migrate(
+            legacyCredentials: old,
+            macCredentials: current,
+            legacyCacheDirectory: legacy,
+            macCacheDirectory: mac,
+            defaults: defaults
+        )
+        let namesAfterMove = try FileManager.default.contentsOfDirectory(atPath: legacy.path)
+        XCTAssertEqual(namesAfterMove, ["mac"])
+        for name in ["state.json", "drafts.json", "queued-notes.json", "transcript-c2Vzc2lvbg.json"] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: mac.appendingPathComponent(name).path))
+        }
+
+        try await ControllerMigration.migrate(
+            legacyCredentials: old,
+            macCredentials: current,
+            legacyCacheDirectory: legacy,
+            macCacheDirectory: mac,
+            defaults: defaults
+        )
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: legacy.path), ["mac"])
+    }
+
+    func testNestedCacheMigrationRecoversAfterEntryCrash() async throws {
+        let root = temporaryDirectory()
+        let legacy = root.appendingPathComponent("cc-controller")
+        let mac = legacy.appendingPathComponent("mac")
+        try FileManager.default.createDirectory(at: legacy, withIntermediateDirectories: true)
+        let names = ["state.json", "drafts.json", "queued-notes.json", "transcript-c2Vzc2lvbg.json"]
+        for name in names {
+            try Data(name.utf8).write(to: legacy.appendingPathComponent(name))
+        }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let old = InMemoryCredentialStore()
+        let current = InMemoryCredentialStore(controllerID: .mac)
+
+        do {
+            try await ControllerMigration.migrate(
+                legacyCredentials: old,
+                macCredentials: current,
+                legacyCacheDirectory: legacy,
+                macCacheDirectory: mac,
+                defaults: defaults,
+                crashAfter: .afterCacheEntryMoved
+            )
+            XCTFail("Expected simulated crash")
+        } catch ControllerMigrationError.simulatedCrash(.afterCacheEntryMoved) {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: mac.path))
+            XCTAssertLessThan(try FileManager.default.contentsOfDirectory(atPath: legacy.path).count, names.count + 1)
+        }
+
+        try await ControllerMigration.migrate(
+            legacyCredentials: old,
+            macCredentials: current,
+            legacyCacheDirectory: legacy,
+            macCacheDirectory: mac,
+            defaults: defaults
+        )
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: legacy.path), ["mac"])
+        for name in names {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: mac.appendingPathComponent(name).path))
+        }
+    }
+
     func testMigrationMovesCredentialsCacheAndSettingsAndIsIdempotent() async throws {
         let root = temporaryDirectory()
         let legacy = root.appendingPathComponent("legacy")

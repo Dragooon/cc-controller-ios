@@ -31,6 +31,7 @@ public enum ControllerMigration {
     public enum CrashPoint: Sendable, Equatable {
         case afterCacheStaged
         case afterCacheMoved
+        case afterCacheEntryMoved
         case afterSettingsMoved
         case afterCredentialsMoved
     }
@@ -70,7 +71,7 @@ public enum ControllerMigration {
             crashAfter: crashAfter,
             fileManager: fileManager
         )
-        if crashAfter == .afterCacheStaged || crashAfter == .afterCacheMoved {
+        if crashAfter == .afterCacheStaged || crashAfter == .afterCacheMoved || crashAfter == .afterCacheEntryMoved {
             throw ControllerMigrationError.simulatedCrash(crashAfter!)
         }
         moveConnectionSettings(defaults: defaults)
@@ -151,9 +152,26 @@ public enum ControllerMigration {
         let sourceIsParent = macCacheDirectory.deletingLastPathComponent().standardizedFileURL == legacyCacheDirectory.standardizedFileURL
         let hasLegacyPayload = legacyPayloadExists(
             at: legacyCacheDirectory,
-            excluding: sourceIsParent ? [macCacheDirectory.lastPathComponent, staging.lastPathComponent] : []
+            excluding: sourceIsParent ? [macCacheDirectory.lastPathComponent, staging.lastPathComponent] : [],
+            fileManager: fileManager
         )
         guard hasLegacyPayload else { return }
+
+        if sourceIsParent {
+            try fileManager.createDirectory(at: macCacheDirectory, withIntermediateDirectories: true)
+            let names = try fileManager.contentsOfDirectory(atPath: legacyCacheDirectory.path).sorted()
+            for name in names where name != macCacheDirectory.lastPathComponent && name != staging.lastPathComponent {
+                let source = legacyCacheDirectory.appendingPathComponent(name)
+                let destination = macCacheDirectory.appendingPathComponent(name)
+                if !fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.moveItem(at: source, to: destination)
+                } else {
+                    try fileManager.removeItem(at: source)
+                }
+                if crashAfter == .afterCacheEntryMoved { return }
+            }
+            return
+        }
 
         if !targetExists {
             try fileManager.moveItem(at: legacyCacheDirectory, to: staging)
@@ -175,8 +193,12 @@ public enum ControllerMigration {
         }
     }
 
-    private static func legacyPayloadExists(at directory: URL, excluding names: [String]) -> Bool {
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory.path) else { return false }
+    private static func legacyPayloadExists(
+        at directory: URL,
+        excluding names: [String],
+        fileManager: FileManager
+    ) -> Bool {
+        guard let entries = try? fileManager.contentsOfDirectory(atPath: directory.path) else { return false }
         return entries.contains { !names.contains($0) }
     }
 }
