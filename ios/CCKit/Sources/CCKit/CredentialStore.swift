@@ -46,6 +46,15 @@ public protocol CredentialStore: Sendable {
     func hasNativeSecret() async throws -> Bool
     func setNativeSecret(_ value: String) async throws
     func deleteNativeSecret() async throws
+    func getRelayPin() async throws -> String?
+    func setRelayPin(_ value: String) async throws
+    func deleteRelayPin() async throws
+}
+
+public extension CredentialStore {
+    func getRelayPin() async throws -> String? { nil }
+    func setRelayPin(_ value: String) async throws { throw CredentialStoreError.unavailable }
+    func deleteRelayPin() async throws { }
 }
 
 public extension CredentialStore {
@@ -53,19 +62,24 @@ public extension CredentialStore {
     func saveDeviceToken(_ value: String) async throws { try await setDeviceToken(value) }
     func loadNativeSecret() async throws -> String? { try await getNativeSecret() }
     func saveNativeSecret(_ value: String) async throws { try await setNativeSecret(value) }
+    func loadRelayPin() async throws -> String? { try await getRelayPin() }
+    func saveRelayPin(_ value: String) async throws { try await setRelayPin(value) }
     func deleteAll() async throws {
         try await deleteDeviceToken()
         try await deleteNativeSecret()
+        try await deleteRelayPin()
     }
 }
 
 public actor InMemoryCredentialStore: CredentialStore {
     private var storedDeviceToken: String?
     private var storedNativeSecret: String?
+    private var storedRelayPin: String?
 
-    public init(deviceToken: String? = nil, nativeSecret: String? = nil) {
+    public init(deviceToken: String? = nil, nativeSecret: String? = nil, relayPin: String? = nil) {
         storedDeviceToken = deviceToken
         storedNativeSecret = nativeSecret
+        storedRelayPin = relayPin
     }
 
     public func getDeviceToken() async throws -> String? { storedDeviceToken }
@@ -75,6 +89,9 @@ public actor InMemoryCredentialStore: CredentialStore {
     public func hasNativeSecret() async throws -> Bool { storedNativeSecret != nil }
     public func setNativeSecret(_ value: String) async throws { storedNativeSecret = value }
     public func deleteNativeSecret() async throws { storedNativeSecret = nil }
+    public func getRelayPin() async throws -> String? { storedRelayPin }
+    public func setRelayPin(_ value: String) async throws { storedRelayPin = value }
+    public func deleteRelayPin() async throws { storedRelayPin = nil }
 }
 
 #if os(iOS)
@@ -100,6 +117,21 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
 
     public func deleteDeviceToken() async throws {
         try remove(account: "deviceToken")
+    }
+
+    public func getRelayPin() async throws -> String? {
+        guard let value = try read(account: "relayPin", context: nil) else { return nil }
+        guard (try? RelayPin(value)) != nil else { throw CredentialStoreError.invalidData }
+        return value
+    }
+
+    public func setRelayPin(_ value: String) async throws {
+        guard (try? RelayPin(value)) != nil else { throw CredentialStoreError.invalidData }
+        try write(value, account: "relayPin", access: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, control: nil)
+    }
+
+    public func deleteRelayPin() async throws {
+        try remove(account: "relayPin")
     }
 
     public func getNativeSecret() async throws -> String? {
