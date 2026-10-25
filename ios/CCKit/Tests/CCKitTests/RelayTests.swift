@@ -12,7 +12,7 @@ final class RelayTests: XCTestCase {
         XCTAssertEqual(pin, expectedP256Pin)
         let relayPin = try RelayPin(pin)
         XCTAssertEqual(relayPin.check, "41B9 C42A")
-        XCTAssertEqual(relayPin.grouped, "41b9 c42a c34d 8cd7 f634 91c5 9b84 05ae 5aa7 b6a3 015c 5367 e951 e836 afd6 5294")
+        XCTAssertEqual(relayPin.grouped, "41B9 C42A C34D 8CD7 F634 91C5 9B84 05AE 5AA7 B6A3 015C 5367 E951 E836 AFD6 5294")
     }
 
     func testRSACertificateIsRejected() throws {

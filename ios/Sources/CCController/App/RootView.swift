@@ -32,8 +32,7 @@ struct RootView: View {
         .tint(.ccAccent)
         .onAppear {
             model.scenePhaseDidChange(scenePhase)
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(100))
+            if scenePhase == .active {
                 model.startStoreIfNeeded()
             }
         }
@@ -42,6 +41,9 @@ struct RootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             model.scenePhaseDidChange(phase)
+            if phase == .active {
+                model.startStoreIfNeeded()
+            }
         }
     }
 

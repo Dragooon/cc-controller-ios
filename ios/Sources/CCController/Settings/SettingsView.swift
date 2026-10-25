@@ -174,14 +174,17 @@ struct SettingsView: View {
                             .font(.footnote)
                             .foregroundStyle(.ccAccent)
                     }
-                    Button("Save") {
-                        onSaveRelayAddresses(relayAddressDraft)
-                    }
-                    .disabled(parseRelayAddresses(relayAddressDraft) == nil)
-                    .accessibilityIdentifier("settings-relay-save")
-                    Button("Reset to default", action: onResetRelayAddresses)
+                    HStack {
+                        Button("Save") {
+                            onSaveRelayAddresses(relayAddressDraft)
+                        }
                         .font(.footnote.weight(.semibold))
-                        .accessibilityIdentifier("settings-relay-reset")
+                        .disabled(parseRelayAddresses(relayAddressDraft) == nil || relayAddressDraft == relayAddresses)
+                        .accessibilityIdentifier("settings-relay-save")
+                        Button("Reset to default", action: onResetRelayAddresses)
+                            .font(.footnote.weight(.semibold))
+                            .accessibilityIdentifier("settings-relay-reset")
+                    }
                 }
             } else {
                 LabeledContent("Address") {

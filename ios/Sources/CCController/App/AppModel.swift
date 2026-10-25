@@ -242,6 +242,7 @@ final class AppModel {
                 relayPin = try? await credentials.getRelayPin()
             }
         }
+        guard !fixtureMode else { return }
         Task { @MainActor [weak self, credentials] in
             guard let self else { return }
             if debugOnboarding {

@@ -63,7 +63,7 @@ public struct RelayPin: Sendable, Equatable, Hashable {
     }
 
     public var grouped: String {
-        value.chunked(every: 4).joined(separator: " ")
+        value.chunked(every: 4).joined(separator: " ").uppercased()
     }
 }
 
