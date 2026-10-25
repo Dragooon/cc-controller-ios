@@ -33,6 +33,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     case transcript
     case send
     case decide
+    case questions
     case interrupt
     case newSession
     case wake
@@ -48,6 +49,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case "transcript": self = .transcript
         case "send": self = .send
         case "decide": self = .decide
+        case "questions": self = .questions
         case "interrupt": self = .interrupt
         case "new_session": self = .newSession
         case "wake": self = .wake
@@ -74,6 +76,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case .transcript: "transcript"
         case .send: "send"
         case .decide: "decide"
+        case .questions: "questions"
         case .interrupt: "interrupt"
         case .newSession: "new_session"
         case .wake: "wake"
@@ -86,7 +89,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     }
 
     public static let all: Set<Self> = [
-        .list, .transcript, .send, .decide, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands,
+        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands,
     ]
 }
 
@@ -406,6 +409,7 @@ public struct Shell: Codable, Sendable, Equatable {
 public struct Approval: Codable, Sendable, Equatable {
     public var requestId: String?
     public var sessionId: String?
+    public var kind: ApprovalKind
     public var toolName: String?
     public var toolInput: JSONValue?
     public var toolUseId: String?
@@ -418,6 +422,27 @@ public struct Approval: Codable, Sendable, Equatable {
     public var timedOutAt: Date?
     public var permissionSuggestions: [JSONValue]?
     public var previousState: SessionState?
-    enum CodingKeys: String, CodingKey { case requestId, sessionId, toolName = "tool_name", toolInput = "tool_input", toolUseId = "tool_use_id", permissionMode = "permission_mode", agentType = "agent_type", receivedAt, holdLimitMs, mode, status, timedOutAt, permissionSuggestions = "permission_suggestions", previousState }
-    public init(requestId: String? = nil, sessionId: String? = nil, toolName: String? = nil, toolInput: JSONValue? = nil, toolUseId: String? = nil, permissionMode: String? = nil, agentType: String? = nil, receivedAt: Date? = nil, holdLimitMs: Int? = nil, mode: ApprovalMode? = nil, status: ApprovalStatus? = nil, timedOutAt: Date? = nil, permissionSuggestions: [JSONValue]? = nil, previousState: SessionState? = nil) { self.requestId = requestId; self.sessionId = sessionId; self.toolName = toolName; self.toolInput = toolInput; self.toolUseId = toolUseId; self.permissionMode = permissionMode; self.agentType = agentType; self.receivedAt = receivedAt; self.holdLimitMs = holdLimitMs; self.mode = mode; self.status = status; self.timedOutAt = timedOutAt; self.permissionSuggestions = permissionSuggestions; self.previousState = previousState }
+    enum CodingKeys: String, CodingKey { case requestId, sessionId, kind, toolName = "tool_name", toolInput = "tool_input", toolUseId = "tool_use_id", permissionMode = "permission_mode", agentType = "agent_type", receivedAt, holdLimitMs, mode, status, timedOutAt, permissionSuggestions = "permission_suggestions", previousState }
+    public init(requestId: String? = nil, sessionId: String? = nil, kind: ApprovalKind = .generic, toolName: String? = nil, toolInput: JSONValue? = nil, toolUseId: String? = nil, permissionMode: String? = nil, agentType: String? = nil, receivedAt: Date? = nil, holdLimitMs: Int? = nil, mode: ApprovalMode? = nil, status: ApprovalStatus? = nil, timedOutAt: Date? = nil, permissionSuggestions: [JSONValue]? = nil, previousState: SessionState? = nil) { self.requestId = requestId; self.sessionId = sessionId; self.kind = kind; self.toolName = toolName; self.toolInput = toolInput; self.toolUseId = toolUseId; self.permissionMode = permissionMode; self.agentType = agentType; self.receivedAt = receivedAt; self.holdLimitMs = holdLimitMs; self.mode = mode; self.status = status; self.timedOutAt = timedOutAt; self.permissionSuggestions = permissionSuggestions; self.previousState = previousState }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            requestId: try container.decodeIfPresent(String.self, forKey: .requestId),
+            sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId),
+            kind: try container.decodeIfPresent(ApprovalKind.self, forKey: .kind) ?? .generic,
+            toolName: try container.decodeIfPresent(String.self, forKey: .toolName),
+            toolInput: try container.decodeIfPresent(JSONValue.self, forKey: .toolInput),
+            toolUseId: try container.decodeIfPresent(String.self, forKey: .toolUseId),
+            permissionMode: try container.decodeIfPresent(String.self, forKey: .permissionMode),
+            agentType: try container.decodeIfPresent(String.self, forKey: .agentType),
+            receivedAt: try container.decodeIfPresent(Date.self, forKey: .receivedAt),
+            holdLimitMs: try container.decodeIfPresent(Int.self, forKey: .holdLimitMs),
+            mode: try container.decodeIfPresent(ApprovalMode.self, forKey: .mode),
+            status: try container.decodeIfPresent(ApprovalStatus.self, forKey: .status),
+            timedOutAt: try container.decodeIfPresent(Date.self, forKey: .timedOutAt),
+            permissionSuggestions: try container.decodeIfPresent([JSONValue].self, forKey: .permissionSuggestions),
+            previousState: try container.decodeIfPresent(SessionState.self, forKey: .previousState)
+        )
+    }
 }

@@ -119,7 +119,11 @@ public actor APIClient {
     public func escape(sessionID: String) async throws -> KeyResult { try await post("/api/sessions/\(pathComponent(sessionID))/keys", body: KeyRequest(key: "escape", text: nil)) }
     public func slash(sessionID: String, text: String) async throws -> KeyResult { try await post("/api/sessions/\(pathComponent(sessionID))/keys", body: KeyRequest(key: "slash", text: text)) }
     public func mode(sessionID: String, mode: ApprovalMode) async throws -> ModeResult { try await post("/api/sessions/\(pathComponent(sessionID))/mode", body: ModeRequest(mode: mode.rawValue)) }
-    public func decision(sessionID: String, requestID: String, behavior: DecisionBehavior) async throws -> Decision { try await post("/api/sessions/\(pathComponent(sessionID))/decision", body: DecisionRequest(requestId: requestID, behavior: behavior.rawValue), staleDecision: true) }
+    public func decision(sessionID: String, requestID: String, behavior: DecisionBehavior, answers: [String: String]? = nil) async throws -> Decision { try await post("/api/sessions/\(pathComponent(sessionID))/decision", body: DecisionRequest(requestId: requestID, behavior: behavior.rawValue, answers: answers), staleDecision: true) }
+
+    public func answerQuestion(sessionID: String, requestID: String, answers: [String: String]) async throws -> Decision {
+        try await decision(sessionID: sessionID, requestID: requestID, behavior: .allow, answers: answers)
+    }
 
     public func uploadFile(
         sessionID: String,
@@ -368,7 +372,20 @@ private struct MessageRequest: Encodable {
 }
 private struct KeyRequest: Encodable { let key: String; let text: String? }
 private struct ModeRequest: Encodable { let mode: String }
-private struct DecisionRequest: Encodable { let requestId: String; let behavior: String }
+private struct DecisionRequest: Encodable {
+    let requestId: String
+    let behavior: String
+    let answers: [String: String]?
+
+    enum CodingKeys: String, CodingKey { case requestId, behavior, answers }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(behavior, forKey: .behavior)
+        try container.encodeIfPresent(answers, forKey: .answers)
+    }
+}
 private struct PairStartRequest: Encodable { let deviceName: String; let publicKey: JSONValue? }
 private struct NativeEnrollRequest: Encodable { let deviceToken: String; let deviceName: String }
 private struct NativeLoginRequest: Encodable { let secret: String }

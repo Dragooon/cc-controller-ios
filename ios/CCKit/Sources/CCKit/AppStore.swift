@@ -320,6 +320,24 @@ public final class AppStore {
         await decide(approval, behavior: .deny)
     }
 
+    public func answerQuestion(_ approval: Approval, answers: [String: String]) async -> Result<Void, ActionError> {
+        guard approval.kind == .question, approval.questions != nil else {
+            return .failure(.invalid("This approval is not a question."))
+        }
+        return await decide(approval, behavior: .allow, answers: answers)
+    }
+
+    public func skipQuestion(_ approval: Approval) async -> Result<Void, ActionError> {
+        guard approval.kind == .question else {
+            return .failure(.invalid("This approval is not a question."))
+        }
+        return await decide(approval, behavior: .deny)
+    }
+
+    public var supportsQuestions: Bool {
+        controllerInfo.capabilities.contains(.questions)
+    }
+
     public func send(
         text: String,
         attachments: [String] = [],
@@ -914,14 +932,14 @@ public final class AppStore {
         #endif
     }
 
-    private func decide(_ approval: Approval, behavior: DecisionBehavior) async -> Result<Void, ActionError> {
+    private func decide(_ approval: Approval, behavior: DecisionBehavior, answers: [String: String]? = nil) async -> Result<Void, ActionError> {
         guard let sessionID = approval.sessionId, let requestID = approval.requestId, !requestID.isEmpty else { return .failure(.invalid("Approval is missing its request id.")) }
         let key = "\(sessionID):\(requestID)"
         deciding.insert(key)
         removePendingApproval(approval)
         defer { deciding.remove(key) }
         do {
-            _ = try await client.decision(sessionID: sessionID, requestID: requestID, behavior: behavior)
+            _ = try await client.decision(sessionID: sessionID, requestID: requestID, behavior: behavior, answers: answers)
             _ = await refreshStateAndOpenTranscripts()
             return .success(())
         } catch {
@@ -975,6 +993,7 @@ public final class AppStore {
             case .unauthorized: return .unauthorized
             case .stale: return .alreadyAnswered
             case .staleResponse(let status, let message, let code):
+                if code == "answer_in_terminal" { return .answerInTerminal }
                 if code == "terminal_no_pane" { return .waitingInTerminal }
                 if code == "already_answered" || status == 410 { return .alreadyAnswered }
                 if code == "no_pane" { return .noPane }
@@ -983,6 +1002,12 @@ public final class AppStore {
             case .transport(let urlError):
                 return urlError.code == .timedOut ? .timeout : .network(urlError.localizedDescription)
             case .http(let status, let message, let code):
+                if code == "answers_required" { return .answersRequired }
+                if code == "answers_invalid" { return .answersInvalid }
+                if code == "answers_keys" { return .answersKeys }
+                if code == "answer_empty" { return .answerEmpty }
+                if code == "answer_too_long" { return .answerTooLong }
+                if code == "answer_in_terminal" { return .answerInTerminal }
                 if code == "no_command_route" { return .commandsUnavailable(message) }
                 if code == "terminal_no_pane" { return .waitingInTerminal }
                 if code == "no_pane" { return .noPane }
@@ -1299,6 +1324,7 @@ public final class AppStore {
         let approval = Approval(
             requestId: requestID,
             sessionId: sessionID,
+            kind: event.kind,
             toolName: event.toolName,
             toolInput: event.toolInput,
             toolUseId: event.toolUseId,

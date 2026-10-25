@@ -8,6 +8,12 @@ public enum ApprovalScope: Sendable, Equatable {
 public enum ActionError: Error, Sendable, Equatable, LocalizedError {
     case unauthorized
     case alreadyAnswered
+    case answerInTerminal
+    case answersRequired
+    case answersInvalid
+    case answersKeys
+    case answerEmpty
+    case answerTooLong
     case waitingInTerminal
     case noPane
     case commandsUnavailable(String)
@@ -21,7 +27,13 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
     public var userMessage: String {
         switch self {
         case .unauthorized: "Your connection expired. Unlock or pair this device again."
-        case .alreadyAnswered: "This approval was already answered or has expired."
+        case .alreadyAnswered: "Already answered elsewhere"
+        case .answerInTerminal: "Answer in the terminal"
+        case .answersRequired: "Choose an answer for every question."
+        case .answersInvalid: "The answers could not be read."
+        case .answersKeys: "Answer every question once."
+        case .answerEmpty: "Answers cannot be empty."
+        case .answerTooLong: "Answers must be 2,000 characters or fewer."
         case .waitingInTerminal: "This approval is waiting in the terminal and cannot be answered here."
         case .noPane: "This session has no tmux pane for that action."
         case .commandsUnavailable(let message): message
