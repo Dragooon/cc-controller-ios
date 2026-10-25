@@ -20,14 +20,13 @@ final class AppModel {
         case unlocked
     }
 
-    let controllerConnection: ControllerConnection
+    let connections: [ControllerConnection]
     let auth: AuthSession
-    let store: AppStore
     private(set) var lockPolicy: LockPolicy
     let settings: SettingsStore
 
     var phase: Phase
-    var selectedSessionID: String?
+    var selectedSession: SessionRef?
     var isPrivacyCovered = false
     var colorScheme: ColorScheme?
     var isSettingsPresented = false
@@ -75,6 +74,14 @@ final class AppModel {
         )
     }
 
+    var primaryConnection: ControllerConnection { connections[0] }
+    var primaryStore: AppStore { primaryConnection.store }
+    private var stores: [AppStore] { connections.map(\.store) }
+
+    func connection(for controllerID: ControllerID) -> ControllerConnection? {
+        connections.first { $0.config.id == controllerID }
+    }
+
     private let credentials: any CredentialStore
     private let registry: ControllerRegistry
     private let fixtureMode: Bool
@@ -97,8 +104,8 @@ final class AppModel {
     private var hasAutoPromptedLockScreen = false
     private var deviceName = "iPhone"
     private var isSettingsVisible = false
-    private var observedSessions: [String: Session] = [:]
-    private var pendingSessionReplacement: (missingID: String, missingAt: Date)?
+    private var observedSessions: [ControllerID: [String: Session]] = [:]
+    private var pendingSessionReplacement: [ControllerID: (missingID: String, missingAt: Date)] = [:]
 
     init(
         arguments: [String] = ProcessInfo.processInfo.arguments,
@@ -112,18 +119,24 @@ final class AppModel {
         #if DEBUG || CC_PERF
         let bearer = environment["CCBearer"] ?? ""
         let serverOverride = Self.serverURL(arguments: arguments)
-        let configuredEndpoints = serverOverride == nil ? Self.relayEndpoints(arguments: arguments) : []
+        let relayArgument = Self.argumentValue("-CCRelayEndpoints", in: arguments)
         let serverURL = serverOverride ?? URL(string: "http://127.0.0.1:47832")!
         let isDebugOnboarding = arguments.contains("-CCOnboarding")
         let isFixture = Self.hasFixtureArguments(arguments: arguments, bearer: bearer) && !isDebugOnboarding
         debugAttachmentPaths = Self.argumentValues("-CCAttachFile", in: arguments).map { URL(fileURLWithPath: $0) }
+        #if DEBUG
+        let launchExtraConfigs = Self.argumentValue("-CCExtraControllers", in: arguments).flatMap { try? ControllerRegistry.extraControllers(from: $0) } ?? []
+        #else
+        let launchExtraConfigs: [ControllerConfig] = []
+        #endif
         #else
         let bearer = ""
         let serverOverride: URL? = nil
-        let configuredEndpoints = Self.relayEndpoints(arguments: [])
+        let relayArgument: String? = nil
         let serverURL = URL(string: "http://127.0.0.1:47832")!
         let isDebugOnboarding = false
         let isFixture = false
+        let launchExtraConfigs: [ControllerConfig] = []
         #endif
         #if DEBUG
         let initialTranscriptTail = isFixture
@@ -139,34 +152,61 @@ final class AppModel {
         let argumentPin: RelayPin? = nil
         #endif
         let seed = ControllerConfig.mac(
-            directBaseURL: serverURL,
-            relayEndpoints: configuredEndpoints
+            directBaseURL: URL(string: "http://127.0.0.1:47832")!,
+            relayEndpoints: Self.relayEndpoints(arguments: [])
         )
         let registry = ControllerRegistry(
             seed: seed,
             cacheRoot: cacheRoot,
             credentialStore: { id in KeychainCredentialStore(controllerID: id) }
         )
-        let selectedConfig: ControllerConfig
-        if serverOverride != nil || !configuredEndpoints.isEmpty {
-            selectedConfig = seed
-        } else {
-            selectedConfig = registry.controllers[0]
+        var selectedConfig = registry.controllers[0]
+        if let serverOverride {
+            selectedConfig.directBaseURL = serverOverride
+            selectedConfig.relayEndpoints = []
+        } else if let relayArgument {
+            selectedConfig.directBaseURL = nil
+            selectedConfig.relayEndpoints = relayArgument
+                .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+                .compactMap { URL(string: String($0)) }
+                .filter(isValidRelayAddress)
         }
-        let credentials = KeychainCredentialStore(controllerID: selectedConfig.id)
+        if selectedConfig != registry.controllers[0] {
+            _ = registry.update(selectedConfig, persist: false)
+        }
+        let extraConfigs = launchExtraConfigs.filter { config in
+            !registry.controllers.contains { $0.id == config.id }
+        }
+        let configs = registry.controllers + extraConfigs
+        let primaryCredentials = KeychainCredentialStore(controllerID: selectedConfig.id)
+        let connections = configs.map { config in
+            let credentials = config.id == selectedConfig.id
+                ? primaryCredentials
+                : KeychainCredentialStore(controllerID: config.id)
+            let fixtureBearer: String?
+            #if DEBUG || CC_PERF
+            fixtureBearer = config.id == selectedConfig.id
+                ? (isFixture ? bearer : nil)
+                : environment["CCExtraControllerBearer_\(config.id.rawValue)"]
+            #else
+            fixtureBearer = nil
+            #endif
+            return ControllerConnection(
+                config: config,
+                credentials: credentials,
+                cacheRoot: cacheRoot,
+                relayPin: config.id == selectedConfig.id ? argumentPin : nil,
+                fixtureBearer: fixtureBearer,
+                initialTranscriptTail: initialTranscriptTail ?? 100
+            )
+        }
+        let controller = connections[0]
+        let credentials = primaryCredentials
         #if os(iOS)
         try? KeychainCredentialStore().moveLegacyItems(to: credentials)
         #endif
-        let controller = ControllerConnection(
-            config: selectedConfig,
-            credentials: credentials,
-            cacheRoot: cacheRoot,
-            relayPin: argumentPin,
-            fixtureBearer: isFixture ? bearer : nil,
-            initialTranscriptTail: initialTranscriptTail ?? 100
-        )
         self.registry = registry
-        self.controllerConnection = controller
+        self.connections = connections
         self.credentials = credentials
         self.serverURL = selectedConfig.directBaseURL ?? serverURL
         self.transport = controller.router
@@ -184,7 +224,13 @@ final class AppModel {
         #endif
         fixtureMode = isFixture
         #if DEBUG || CC_PERF
-        selectedSessionID = Self.argumentValue("-CCSession", in: arguments)
+        selectedSession = Self.argumentValue("-CCSession", in: arguments).flatMap {
+            guard let reference = SessionRef.parse($0, primaryControllerID: selectedConfig.id),
+                  connections.contains(where: { $0.config.id == reference.controllerID }) else { return nil }
+            return reference
+        }
+        #else
+        selectedSession = nil
         #endif
 
         #if DEBUG
@@ -222,14 +268,13 @@ final class AppModel {
         #endif
         self.deviceName = UIDevice.current.name
         let store = controller.store
-        self.store = store
         self.settings = SettingsStore(
             probe: { try await auth.probeDaemon(timeout: 5) },
             whoAmI: { try await store.whoAmI() },
             devices: { try await store.pairedDevices() },
             interval: probeInterval
         )
-        observedSessions = store.sessions
+        observedSessions = Dictionary(uniqueKeysWithValues: connections.map { ($0.config.id, $0.store.sessions) })
         observeSessionReplacement()
         observeApprovalCount()
         Task { @MainActor [weak self] in
@@ -505,7 +550,7 @@ final class AppModel {
             if onboardingStep == .connect { startConnectionCheck() }
             else if onboardingStep == .pair { startPairingPoll() }
         } else if phase == .unlocked {
-            store.resume()
+            stores.forEach { $0.resume() }
             watchForIdentityChange()
         }
     }
@@ -517,7 +562,7 @@ final class AppModel {
         try? await credentials.deleteRelayPin()
         try? await credentials.deleteDeviceToken()
         try? await credentials.deleteNativeSecret()
-        await store.clearLocalState()
+        await primaryStore.clearLocalState()
         await transport.reconfigure(pin: nil)
         relayPin = nil
         identityChanged = false
@@ -622,7 +667,7 @@ final class AppModel {
             faceIDMessage = message
             auth.lock()
             if phase == .locked {
-                store.suspend()
+                stores.forEach { $0.suspend() }
             }
         case .rePair(let message):
             await beginRepair(message: message)
@@ -654,7 +699,7 @@ final class AppModel {
 
     private func transitionToLocked(suppressAutoPrompt: Bool = false) {
         auth.lock()
-        store.suspend()
+        stores.forEach { $0.suspend() }
         hasAutoPromptedLockScreen = suppressAutoPrompt
         phase = .locked
         updateSettingsProbing()
@@ -677,17 +722,18 @@ final class AppModel {
 
     func setRelayAddresses(_ text: String) {
         guard relayMode, let endpoints = parseRelayAddresses(text) else { return }
-        UserDefaults.standard.set(text, forKey: relayDefaultsKey)
-        Task { @MainActor [weak self, transport] in
-            guard let self else { return }
+        var config = registry.controllers[0]
+        config.directBaseURL = nil
+        config.relayEndpoints = endpoints
+        _ = registry.update(config)
+        UserDefaults.standard.removeObject(forKey: relayDefaultsKey)
+        Task { @MainActor [transport, relayPin] in
             await transport.updateEndpoints(endpoints, pin: relayPin.flatMap { try? RelayPin($0) })
         }
     }
 
     func resetRelayAddresses() {
-        let text = relayAddressesText(relayDefaultEndpoints)
-        UserDefaults.standard.removeObject(forKey: relayDefaultsKey)
-        setRelayAddresses(text)
+        setRelayAddresses(relayAddressesText(relayDefaultEndpoints))
     }
 
     func settingsDidAppear() {
@@ -719,13 +765,13 @@ final class AppModel {
         defer { isUnpairing = false }
         connectionTask?.cancel()
         pairingTask?.cancel()
-        store.suspend()
+        stores.forEach { $0.suspend() }
         // A failed daemon logout still leaves this iPhone unpaired: the Keychain items are deleted either way and the daemon session expires at its TTL.
         _ = await auth.unpair()
-        await store.clearLocalState()
+        await primaryStore.clearLocalState()
         settings.reset()
         isSettingsPresented = false
-        selectedSessionID = nil
+        selectedSession = nil
         onboarding = OnboardingFlowState()
         connectionMessage = nil
         faceIDMessage = nil
@@ -738,10 +784,10 @@ final class AppModel {
 
     func startStoreIfNeeded() {
         guard phase == .unlocked else {
-            store.suspend()
+            stores.forEach { $0.suspend() }
             return
         }
-        store.start()
+        stores.forEach { $0.start() }
         watchForIdentityChange()
         Task { @MainActor in
             await updateBadgeCount()
@@ -770,7 +816,7 @@ final class AppModel {
         case .background:
             connectionTask?.cancel()
             pairingTask?.cancel()
-            store.suspend()
+            stores.forEach { $0.suspend() }
         case .active:
             if phase == .onboarding {
                 switch onboardingStep {
@@ -791,7 +837,7 @@ final class AppModel {
                     await updateBadgeCount(0)
                 }
             } else {
-                store.resume()
+                stores.forEach { $0.resume() }
                 watchForIdentityChange()
             }
         default:
@@ -810,8 +856,8 @@ final class AppModel {
 
     private func observeSessionReplacement() {
         withObservationTracking {
-            _ = store.sessions
-            _ = selectedSessionID
+            for connection in connections { _ = connection.store.sessions }
+            _ = selectedSession
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -822,38 +868,42 @@ final class AppModel {
     }
 
     func reconcileSessionReplacement() {
-        defer { observedSessions = store.sessions }
-        guard let selectedSessionID else {
-            pendingSessionReplacement = nil
-            return
+        defer {
+            observedSessions = Dictionary(uniqueKeysWithValues: connections.map { ($0.config.id, $0.store.sessions) })
         }
-        guard store.sessions[selectedSessionID] == nil else {
-            pendingSessionReplacement = nil
-            return
-        }
-        if pendingSessionReplacement == nil,
-           observedSessions[selectedSessionID] != nil || store.previousSessionsForReplacement[selectedSessionID] != nil {
-            pendingSessionReplacement = (selectedSessionID, store.previousSessionsForReplacementAt ?? Date())
-        }
-        guard let pendingSessionReplacement else { return }
-        let previousSessions = store.previousSessionsForReplacement[pendingSessionReplacement.missingID] == nil
-            ? observedSessions
-            : store.previousSessionsForReplacement
-        if let replacement = AppStore.replacementSessionID(
-            missingSessionID: pendingSessionReplacement.missingID,
-            previousSessions: previousSessions,
-            currentSessions: store.sessions,
-            missingAt: pendingSessionReplacement.missingAt,
-            now: Date()
-        ) {
-            self.selectedSessionID = replacement
-            self.pendingSessionReplacement = nil
+        for connection in connections {
+            let controllerID = connection.config.id
+            guard selectedSession?.controllerID == controllerID,
+                  let selectedSessionID = selectedSession?.sessionID else { continue }
+            let store = connection.store
+            guard store.sessions[selectedSessionID] == nil else {
+                pendingSessionReplacement.removeValue(forKey: controllerID)
+                continue
+            }
+            if pendingSessionReplacement[controllerID] == nil,
+               observedSessions[controllerID]?[selectedSessionID] != nil || store.previousSessionsForReplacement[selectedSessionID] != nil {
+                pendingSessionReplacement[controllerID] = (selectedSessionID, store.previousSessionsForReplacementAt ?? Date())
+            }
+            guard let pending = pendingSessionReplacement[controllerID] else { continue }
+            let previousSessions = store.previousSessionsForReplacement[pending.missingID] == nil
+                ? observedSessions[controllerID, default: [:]]
+                : store.previousSessionsForReplacement
+            if let replacement = AppStore.replacementSessionID(
+                missingSessionID: pending.missingID,
+                previousSessions: previousSessions,
+                currentSessions: store.sessions,
+                missingAt: pending.missingAt,
+                now: Date()
+            ) {
+                selectedSession = SessionRef(controllerID: controllerID, sessionID: replacement)
+                pendingSessionReplacement.removeValue(forKey: controllerID)
+            }
         }
     }
 
     private func observeApprovalCount() {
         withObservationTracking {
-            _ = store.approvals.count
+            for connection in connections { _ = connection.store.approvals.count }
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -864,13 +914,14 @@ final class AppModel {
     }
 
     func requestNotificationAuthorizationAfterSessionsLoaded() async {
-        guard phase == .unlocked, !fixtureMode, !notificationAuthorizationRequested, !store.sessions.isEmpty else { return }
+        guard phase == .unlocked, !fixtureMode, !notificationAuthorizationRequested,
+              stores.contains(where: { !$0.sessions.isEmpty }) else { return }
         do {
             try await Task.sleep(for: .seconds(1))
         } catch {
             return
         }
-        guard phase == .unlocked, !store.sessions.isEmpty else { return }
+        guard phase == .unlocked, stores.contains(where: { !$0.sessions.isEmpty }) else { return }
         requestNotificationAuthorizationIfNeeded()
     }
 
@@ -887,7 +938,8 @@ final class AppModel {
     private func updateBadgeCount(_ count: Int? = nil) async {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         guard settings.authorizationStatus == .authorized, settings.badgeSetting == .enabled else { return }
-        try? await UNUserNotificationCenter.current().setBadgeCount(count ?? store.approvals.count)
+        let approvalCount = stores.reduce(0) { $0 + $1.approvals.count }
+        try? await UNUserNotificationCenter.current().setBadgeCount(count ?? approvalCount)
     }
 
     #if DEBUG || CC_PERF

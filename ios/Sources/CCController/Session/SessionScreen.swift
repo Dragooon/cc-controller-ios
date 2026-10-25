@@ -27,6 +27,7 @@ struct SubagentResultSelection: Identifiable {
 struct SessionScreen: View {
 
     let sessionID: String
+    let store: AppStore
     @Bindable var model: AppModel
     let approvalsElsewhereCount: Int
     let onShowApprovalsElsewhere: () -> Void
@@ -34,11 +35,13 @@ struct SessionScreen: View {
 
     init(
         sessionID: String,
+        store: AppStore,
         model: AppModel,
         approvalsElsewhereCount: Int = 0,
         onShowApprovalsElsewhere: @escaping () -> Void = {}
     ) {
         self.sessionID = sessionID
+        self.store = store
         self.model = model
         self.approvalsElsewhereCount = approvalsElsewhereCount
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
@@ -107,6 +110,7 @@ struct SessionScreen: View {
                     SubagentScreen(
                         sessionID: destination.sessionID,
                         agentID: destination.agentID,
+                        store: store,
                         model: model
                     )
                 }
@@ -118,35 +122,35 @@ struct SessionScreen: View {
         .task(id: sessionLoadKey) {
             let key = sessionLoadKey
             guard key.hasSession,
-                  let sessionStore = model.store.openSession(key.sessionID) else { return }
+                  let sessionStore = store.openSession(key.sessionID) else { return }
             #if DEBUG || CC_PERF
-            model.store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
+            store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
             #endif
             guard !sessionStore.isLoaded else { return }
             do {
                 try await sessionStore.loadInitial()
             } catch {
                 guard !isTranscriptCancellation(error) else { return }
-                model.actionError = model.store.actionError(for: error)
+                model.actionError = store.actionError(for: error)
             }
         }
         .onAppear {
             #if DEBUG || CC_PERF
             TranscriptPerformance.shared.beginScreenAppearance(sessionID: sessionID)
-            model.store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
+            store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
             #endif
         }
         .onDisappear {
             guard destination == nil else { return }
-            model.store.closeSession(sessionID)
+            store.closeSession(sessionID)
         }
     }
 
     @ViewBuilder
     private func screen() -> some View {
-        let _ = model.store.attachmentRevision
-        let _ = model.store.draftRevision(for: sessionID)
-        if let sessionStore = model.store.openSession(sessionID) {
+        let _ = store.attachmentRevision
+        let _ = store.draftRevision(for: sessionID)
+        if let sessionStore = store.openSession(sessionID) {
             contentNavigation(
                 name: sessionStore.session.name ?? "Session",
                 session: sessionStore.session
@@ -158,28 +162,28 @@ struct SessionScreen: View {
                         rows: sessionStore.rows,
                         bottomStackConfiguration: bottomStackConfiguration(
                             for: sessionStore.session,
-                            liveSession: model.store.sessions[sessionID],
+                            liveSession: store.sessions[sessionID],
                             transcriptEntries: sessionStore.entries
                         ),
-                        queuedNotes: model.store.queuedNotes(for: sessionID),
+                        queuedNotes: store.queuedNotes(for: sessionID),
                         liveSession: sessionStore.session,
                         sessionState: sessionStore.session.state,
                         onRetryNote: { noteID in
-                            _ = model.store.retryNote(id: noteID, sessionID: sessionID)
+                            _ = store.retryNote(id: noteID, sessionID: sessionID)
                         },
                         onEditNote: { noteID in
-                            _ = model.store.editNote(id: noteID, sessionID: sessionID)
+                            _ = store.editNote(id: noteID, sessionID: sessionID)
                         },
                         onDeleteNote: { noteID in
-                            _ = model.store.deleteNote(id: noteID, sessionID: sessionID)
+                            _ = store.deleteNote(id: noteID, sessionID: sessionID)
                         },
                         onCopyNote: { noteID in
-                            if let note = model.store.queuedNotes(for: sessionID).first(where: { $0.id == noteID }) {
+                            if let note = store.queuedNotes(for: sessionID).first(where: { $0.id == noteID }) {
                                 UIPasteboard.general.string = note.text
                             }
                         },
                         onSendAgain: { noteID in
-                            _ = model.store.sendAgain(id: noteID, sessionID: sessionID)
+                            _ = store.sendAgain(id: noteID, sessionID: sessionID)
                         },
                         subagents: sessionStore.session.subagents ?? [],
                         hasMoreEarlier: sessionStore.hasMoreEarlier,
@@ -229,17 +233,17 @@ struct SessionScreen: View {
                 .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $activityPresented, onDismiss: presentPendingActivityDestination) {
-                if let session = model.store.openSession(sessionID)?.session {
+                if let session = store.openSession(sessionID)?.session {
                     ActivitySheet(session: session, onSubagent: openSubagentFromActivity)
                 }
             }
             .sheet(isPresented: $modelSheetPresented) {
-                if let session = model.store.openSession(sessionID)?.session {
+                if let session = store.openSession(sessionID)?.session {
                     CommandModelSheet(
                         session: session,
-                        loadModels: { try await model.store.commandModelOptions() },
+                        loadModels: { try await store.commandModelOptions() },
                         onSelect: { id in
-                            await model.store.sendResult(text: "/model \(id)", attachments: [], to: sessionID)
+                            await store.sendResult(text: "/model \(id)", attachments: [], to: sessionID)
                         }
                     )
                 }
@@ -274,9 +278,9 @@ struct SessionScreen: View {
         return BottomStackConfiguration(
             composer: ComposerConfiguration(
                 draft: ComposerDraft(
-                    initialText: { model.store.draft(for: sessionID) },
-                    revision: model.store.draftRevision(for: sessionID),
-                    onChange: { [model] text in model.store.setDraft(text, for: sessionID) }
+                    initialText: { store.draft(for: sessionID) },
+                    revision: store.draftRevision(for: sessionID),
+                    onChange: { text in store.setDraft(text, for: sessionID) }
                 ),
                 modelName: composerModelName(modelName),
                 placeholder: current.state == .working ? "Queue a message" : "Message",
@@ -287,24 +291,24 @@ struct SessionScreen: View {
             activitySession: current,
             onActivity: { activityPresented = true },
             slashCommands: commands,
-            attachments: (model.store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
-            attachmentNotice: model.store.attachmentNotices[sessionID],
+            attachments: (store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
+            attachmentNotice: store.attachmentNotices[sessionID],
             approvals: pendingApprovals,
-            deciding: model.store.deciding,
+            deciding: store.deciding,
             onSend: { [model] text, now in
                 await send(text: text, to: session.id ?? sessionID, now: now, using: model)
             },
             onEnqueue: { [model] text, now in
                 await enqueue(text: text, to: session.id ?? sessionID, now: now, using: model)
             },
-            onAddAttachment: { [model] file in
-                model.store.addAttachment(file, to: sessionID)
+            onAddAttachment: { file in
+                store.addAttachment(file, to: sessionID)
             },
-            onRemoveAttachment: { [model] id in
-                model.store.removeAttachment(id: id, from: sessionID)
+            onRemoveAttachment: { id in
+                store.removeAttachment(id: id, from: sessionID)
             },
-            onRetryAttachment: { [model] id in
-                model.store.retryAttachment(id: id, sessionID: sessionID)
+            onRetryAttachment: { id in
+                store.retryAttachment(id: id, sessionID: sessionID)
             },
             onStop: { [model] in
                 await interrupt(sessionID: session.id ?? sessionID, using: model)
@@ -327,7 +331,7 @@ struct SessionScreen: View {
 
     @MainActor
     private func enqueue(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<QueuedNote, ActionError> {
-        let result = await model.store.enqueueMessage(text: text, to: sessionID, now: now)
+        let result = await store.enqueueMessage(text: text, to: sessionID, now: now)
         if case .failure(let error) = result, shouldPresentSendError(error) {
             model.actionError = error
         }
@@ -336,7 +340,7 @@ struct SessionScreen: View {
 
     @MainActor
     private func send(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<MessageResult, ActionError> {
-        let result = await model.store.sendComposer(text: text, to: sessionID, now: now)
+        let result = await store.sendComposer(text: text, to: sessionID, now: now)
         switch result {
         case .success(let message):
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -381,7 +385,7 @@ struct SessionScreen: View {
 
     @MainActor
     private func interrupt(sessionID: String, using model: AppModel) async -> Result<Void, ActionError> {
-        let result = await model.store.interrupt(sessionID: sessionID)
+        let result = await store.interrupt(sessionID: sessionID)
         if case .failure(let error) = result {
             model.actionError = error
         }
@@ -389,7 +393,7 @@ struct SessionScreen: View {
     }
 
     private var pendingApprovals: [Approval] {
-        model.store.approvals(for: sessionID).sorted {
+        store.approvals(for: sessionID).sorted {
             ($0.receivedAt ?? .distantPast) > ($1.receivedAt ?? .distantPast)
         }
     }
@@ -404,7 +408,7 @@ struct SessionScreen: View {
 
     private func performApprovalDecision(_ approval: Approval, scope: ApprovalScope) {
         Task { @MainActor in
-            let result = await model.store.allow(approval, scope: scope)
+            let result = await store.allow(approval, scope: scope)
             switch result {
             case .success:
                 allowFeedbackCount += 1
@@ -416,7 +420,7 @@ struct SessionScreen: View {
 
     private func performApprovalDeny(_ approval: Approval) {
         Task { @MainActor in
-            let result = await model.store.deny(approval)
+            let result = await store.deny(approval)
             switch result {
             case .success:
                 denyFeedbackCount += 1
@@ -451,8 +455,8 @@ struct SessionScreen: View {
     private var sessionLoadKey: SessionLoadKey {
         SessionLoadKey(
             sessionID: sessionID,
-            hasSession: model.store.sessions[sessionID] != nil,
-            isLive: model.store.sessions[sessionID]?.live == true
+            hasSession: store.sessions[sessionID] != nil,
+            isLive: store.sessions[sessionID]?.live == true
         )
     }
 
@@ -509,7 +513,7 @@ struct SessionScreen: View {
 
     @MainActor
     private func downloadFile(_ entry: FileEntry, sessionID: String) async throws -> URL {
-        let downloaded = try await model.store.downloadFile(
+        let downloaded = try await store.downloadFile(
             sessionID: sessionID,
             name: entry.name ?? "download"
         )
@@ -578,7 +582,7 @@ struct SessionScreen: View {
 
     @ViewBuilder
     private func inspectorContent() -> some View {
-        if let session = model.store.openSession(sessionID)?.session {
+        if let session = store.openSession(sessionID)?.session {
             InspectorView(
                 session: session,
                 onInterrupt: interrupt,
@@ -613,7 +617,7 @@ struct SessionScreen: View {
 
     private func setApprovalMode(_ mode: ApprovalMode) {
         Task { @MainActor in
-            let result = await model.store.setApprovalMode(sessionID: sessionID, mode: mode)
+            let result = await store.setApprovalMode(sessionID: sessionID, mode: mode)
             if case .failure(let error) = result {
                 model.actionError = error
             }
@@ -632,7 +636,7 @@ struct SessionScreen: View {
 
     private func interrupt() {
         Task { @MainActor in
-            let result = await model.store.interrupt(sessionID: sessionID)
+            let result = await store.interrupt(sessionID: sessionID)
             if case .failure(let error) = result {
                 model.actionError = error
             }

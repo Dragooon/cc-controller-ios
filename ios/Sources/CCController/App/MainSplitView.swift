@@ -16,7 +16,7 @@ struct MainSplitView: View {
 
     init(model: AppModel) {
         self.model = model
-        let hasSelectedSession = model.selectedSessionID != nil
+        let hasSelectedSession = model.selectedSession != nil
         _columnVisibility = State(initialValue: hasSelectedSession ? .detailOnly : .all)
         _preferredCompactColumn = State(initialValue: hasSelectedSession ? .detail : .sidebar)
     }
@@ -30,6 +30,11 @@ struct MainSplitView: View {
                 .opacity(0.01)
                 .accessibilityIdentifier("horizontal-size-class")
                 .accessibilityValue(columnVisibility == .detailOnly ? "detailOnly" : "not-detailOnly")
+            Text(" ")
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityIdentifier("controller-connections")
+                .accessibilityValue(model.connections.map { "\($0.config.id.rawValue)=\(connectionStateLabel($0.store.connection))" }.joined(separator: ","))
 #endif
             if let warning = model.relayIdentityWarning {
                 Button {
@@ -95,8 +100,8 @@ struct MainSplitView: View {
                 thisDevice: model.settings.thisDevice,
                 pairedDevices: model.settings.pairedDevices,
                 appVersion: model.appVersion,
-                daemon: model.store.daemon,
-                apiVersion: model.store.apiVersion,
+                daemon: model.primaryStore.daemon,
+                apiVersion: model.primaryStore.apiVersion,
                 isUnpairing: model.isUnpairing,
                 lockAfter: SettingsLockInterval(model.lockPolicy.interval),
                 onDone: { model.isSettingsPresented = false },
@@ -112,7 +117,7 @@ struct MainSplitView: View {
             .onDisappear { model.settingsDidDisappear() }
         }
         .sheet(isPresented: $isNewSessionPresented) {
-            NewSessionView(store: model.store) { id, appeared in
+            NewSessionView(store: model.primaryStore) { id, appeared in
                 openSession(id)
                 if !appeared {
                     sessionNotice = "Session started; it will appear shortly."
@@ -124,11 +129,11 @@ struct MainSplitView: View {
             }
         }
         .onAppear(perform: synchronizeColumnVisibility)
-        .onChange(of: model.selectedSessionID) { _, _ in
+        .onChange(of: model.selectedSession) { _, _ in
             synchronizeColumnVisibility()
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
-            guard newSizeClass == .regular, model.selectedSessionID != nil else { return }
+            guard newSizeClass == .regular, model.selectedSession != nil else { return }
             columnVisibility = .detailOnly
         }
     }
@@ -139,13 +144,13 @@ struct MainSplitView: View {
             preferredCompactColumn: $preferredCompactColumn
         ) {
             SessionsListView(
-                sessions: model.store.sortedSessions,
-                sleeping: model.store.sleeping,
+                sessions: model.primaryStore.sortedSessions,
+                sleeping: model.primaryStore.sleeping,
                 waking: wakingSessionIDs,
-                approvals: model.store.approvals,
-                deciding: model.store.deciding,
+                approvals: model.primaryStore.approvals,
+                deciding: model.primaryStore.deciding,
                 connection: connection,
-                subtitleOverride: model.selectedSessionID == nil ? nil : "",
+                subtitleOverride: model.selectedSession == nil ? nil : "",
                 notice: sessionNotice,
                 onSessionsLoaded: {
                     await model.requestNotificationAuthorizationAfterSessionsLoaded()
@@ -157,16 +162,16 @@ struct MainSplitView: View {
                 onDeny: { approval in
                     performApprovalDeny(approval)
                 },
-                onRetry: { model.store.resume() },
+                onRetry: { model.primaryStore.resume() },
                 onSettings: { model.isSettingsPresented = true },
-                onRefresh: { model.store.resume() },
+                onRefresh: { model.primaryStore.resume() },
                 onInterrupt: { session in
                     guard let id = session.id else { return }
-                    runAction { await model.store.interrupt(sessionID: id) }
+                    runAction { await model.primaryStore.interrupt(sessionID: id) }
                 },
                 onSetApprovalMode: { session, mode in
                     guard let id = session.id else { return }
-                    runAction { await model.store.setApprovalMode(sessionID: id, mode: mode) }
+                    runAction { await model.primaryStore.setApprovalMode(sessionID: id, mode: mode) }
                 },
                 onCopySessionID: { session in
                     guard let id = session.id else { return }
@@ -179,14 +184,16 @@ struct MainSplitView: View {
                 }
             )
         } detail: {
-            if let selectedSessionID = model.selectedSessionID {
+            if let selectedSession = model.selectedSession,
+               let selectedConnection = model.connection(for: selectedSession.controllerID) {
                 SessionScreen(
-                    sessionID: selectedSessionID,
+                    sessionID: selectedSession.sessionID,
+                    store: selectedConnection.store,
                     model: model,
                     approvalsElsewhereCount: approvalsElsewhereCount,
                     onShowApprovalsElsewhere: { columnVisibility = .all }
                 )
-                .id(selectedSessionID)
+                .id(selectedSession)
                 .onAppear { columnVisibility = .detailOnly }
             } else {
                 ContentUnavailableView(
@@ -204,13 +211,16 @@ struct MainSplitView: View {
 
     private func openSession(_ id: String?) {
         guard let id else { return }
-        model.selectedSessionID = id
+        model.selectedSession = SessionRef(
+            controllerID: model.primaryConnection.config.id,
+            sessionID: id
+        )
         preferredCompactColumn = .detail
         columnVisibility = .detailOnly
     }
 
     private func synchronizeColumnVisibility() {
-        guard model.selectedSessionID != nil else {
+        guard model.selectedSession != nil else {
             columnVisibility = .all
             preferredCompactColumn = .sidebar
             return
@@ -221,9 +231,9 @@ struct MainSplitView: View {
     private var approvalsElsewhereCount: Int {
         guard horizontalSizeClass == .regular,
               columnVisibility == .detailOnly,
-              let selectedSessionID = model.selectedSessionID else { return 0 }
-        let sessionIDs = model.store.approvals.compactMap(\.sessionId)
-            .filter { $0 != selectedSessionID }
+              let selectedSession = model.selectedSession else { return 0 }
+        let sessionIDs = model.primaryStore.approvals.compactMap(\.sessionId)
+            .filter { $0 != selectedSession.sessionID }
         return Set(sessionIDs).count
     }
 
@@ -237,7 +247,7 @@ struct MainSplitView: View {
         Task { @MainActor in
             defer { wakingSessionIDs.remove(sleeping.id) }
             do {
-                let appeared = try await model.store.wakeSession(id: sleeping.id)
+                let appeared = try await model.primaryStore.wakeSession(id: sleeping.id)
                 guard appeared else {
                     wakeError = "The session did not appear after waking."
                     return
@@ -250,23 +260,23 @@ struct MainSplitView: View {
     }
 
     private var connection: SessionsListView.Connection {
-        switch model.store.connection {
+        switch model.primaryStore.connection {
         case .live:
             return .live
         case .reconnecting, .connecting:
             return .reconnecting
         case .offline(let lastUpdated, _):
-            return .offline(updatedAt: lastUpdated ?? model.store.lastUpdated ?? .now)
+            return .offline(updatedAt: lastUpdated ?? model.primaryStore.lastUpdated ?? .now)
         case .offlineUnreadable(let lastUpdated, _):
-            return .unreadable(updatedAt: lastUpdated ?? model.store.lastUpdated ?? .now)
+            return .unreadable(updatedAt: lastUpdated ?? model.primaryStore.lastUpdated ?? .now)
         case .unauthorized:
-            return .offline(updatedAt: model.store.lastUpdated ?? .now)
+            return .offline(updatedAt: model.primaryStore.lastUpdated ?? .now)
         }
     }
 
     private func performApprovalDecision(_ approval: Approval, scope: ApprovalScope) {
         Task { @MainActor in
-            let result = await model.store.allow(approval, scope: scope)
+            let result = await model.primaryStore.allow(approval, scope: scope)
             switch result {
             case .success:
                 allowFeedbackCount += 1
@@ -278,7 +288,7 @@ struct MainSplitView: View {
 
     private func performApprovalDeny(_ approval: Approval) {
         Task { @MainActor in
-            let result = await model.store.deny(approval)
+            let result = await model.primaryStore.deny(approval)
             switch result {
             case .success:
                 denyFeedbackCount += 1
@@ -295,4 +305,17 @@ struct MainSplitView: View {
             }
         }
     }
+
+    #if DEBUG
+    private func connectionStateLabel(_ state: ConnectionState) -> String {
+        switch state {
+        case .live: "live"
+        case .connecting: "connecting"
+        case .reconnecting: "reconnecting"
+        case .offline: "offline"
+        case .offlineUnreadable: "offline"
+        case .unauthorized: "unauthorized"
+        }
+    }
+    #endif
 }

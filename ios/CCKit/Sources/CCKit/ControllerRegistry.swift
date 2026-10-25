@@ -1,5 +1,9 @@
 import Foundation
 
+public enum ControllerRegistryError: Error, Sendable, Equatable {
+    case duplicateExtraController
+}
+
 @MainActor
 public final class ControllerRegistry {
     public static let defaultDefaultsKey = "CCControllerRegistry"
@@ -39,6 +43,37 @@ public final class ControllerRegistry {
         controllers.append(config)
         persist()
         return true
+    }
+
+    /// Replaces a saved controller, or only the in-memory registry when
+    /// `persist` is false (for launch-argument overrides).
+    @discardableResult
+    public func update(_ config: ControllerConfig, persist: Bool = true) -> Bool {
+        guard let index = controllers.firstIndex(where: { $0.id == config.id }) else { return false }
+        controllers[index] = config
+        if persist { self.persist() }
+        return true
+    }
+
+    /// Decodes the test-only `-CCExtraControllers` payload without persisting it.
+    public static func extraControllers(from json: String) throws -> [ControllerConfig] {
+        struct ExtraController: Decodable {
+            let id: ControllerID
+            let name: String
+            let server: URL
+        }
+
+        let entries = try JSONDecoder().decode([ExtraController].self, from: Data(json.utf8))
+        guard Set(entries.map(\.id)).count == entries.count else {
+            throw ControllerRegistryError.duplicateExtraController
+        }
+        return entries.map { entry in
+            ControllerConfig(
+                id: entry.id,
+                displayName: entry.name,
+                directBaseURL: entry.server
+            )
+        }
     }
 
     public func remove(_ id: ControllerID) async {

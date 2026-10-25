@@ -4,12 +4,13 @@ import SwiftUI
 struct SubagentScreen: View {
     let sessionID: String
     let agentID: String
+    let store: AppStore
     @Bindable var model: AppModel
 
     var body: some View {
         screen()
         .task(id: "\(sessionID)|\(agentID)") {
-            guard let store = model.store.openSubagent(sessionID: sessionID, agentID: agentID) else { return }
+            guard let store = store.openSubagent(sessionID: sessionID, agentID: agentID) else { return }
             do {
                 try await store.loadInitial()
                 while !Task.isCancelled, subagentIsRunning(in: store) {
@@ -18,17 +19,17 @@ struct SubagentScreen: View {
                 }
             } catch {
                 guard !isTranscriptCancellation(error) else { return }
-                model.actionError = model.store.actionError(for: error)
+                model.actionError = self.store.actionError(for: error)
             }
         }
         .onDisappear {
-            model.store.closeSubagent(sessionID: sessionID, agentID: agentID)
+            store.closeSubagent(sessionID: sessionID, agentID: agentID)
         }
     }
 
     @ViewBuilder
     private func screen() -> some View {
-        if let store = model.store.openSubagent(sessionID: sessionID, agentID: agentID) {
+        if let store = store.openSubagent(sessionID: sessionID, agentID: agentID) {
             SessionTranscriptView(
                 turns: store.turns,
                 rows: store.rows,
@@ -65,7 +66,7 @@ struct SubagentScreen: View {
     }
 
     private var subagent: Subagent? {
-        model.store.sessions[sessionID]?.subagents?.first { $0.agentId == agentID }
+        store.sessions[sessionID]?.subagents?.first { $0.agentId == agentID }
     }
 
     private func subagentIsRunning(in store: SessionStore) -> Bool {

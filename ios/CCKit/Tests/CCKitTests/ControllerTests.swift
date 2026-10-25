@@ -248,6 +248,55 @@ final class ControllerTests: XCTestCase {
         stores.removeAll()
     }
 
+    func testSessionRefParsesPrimaryAndQualifiedArguments() throws {
+        let primary = try ControllerID("mac")
+        let qualified = try ControllerID("mustafar")
+
+        XCTAssertEqual(
+            SessionRef.parse("session-1", primaryControllerID: primary),
+            SessionRef(controllerID: primary, sessionID: "session-1")
+        )
+        XCTAssertEqual(
+            SessionRef.parse("mustafar:session-2", primaryControllerID: primary),
+            SessionRef(controllerID: qualified, sessionID: "session-2")
+        )
+        XCTAssertNil(SessionRef.parse("mustafar:", primaryControllerID: primary))
+    }
+
+    func testRegistrySavedEntryWinsOverSeedAndLaunchOverrideIsNotPersisted() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let savedURL = URL(string: "http://saved.example")!
+        let overrideURL = URL(string: "http://override.example")!
+        let saved = ControllerConfig(id: .mac, displayName: "Saved", directBaseURL: savedURL)
+        defaults.set(try JSONEncoder().encode([saved]), forKey: ControllerRegistry.defaultDefaultsKey)
+
+        let registry = ControllerRegistry(
+            defaults: defaults,
+            seed: ControllerConfig.mac(directBaseURL: URL(string: "http://seed.example")!)
+        )
+        XCTAssertEqual(registry.controllers[0], saved)
+
+        var launchOverride = registry.controllers[0]
+        launchOverride.directBaseURL = overrideURL
+        XCTAssertTrue(registry.update(launchOverride, persist: false))
+        XCTAssertEqual(registry.controllers[0].directBaseURL, overrideURL)
+        XCTAssertEqual(ControllerRegistry(defaults: defaults).controllers[0], saved)
+    }
+
+    func testExtraControllersDecodeWithoutPersistingRegistryEntries() throws {
+        let entries = try ControllerRegistry.extraControllers(from: """
+        [{"id":"mustafar","name":"Mustafar","server":"http://127.0.0.1:47834"}]
+        """)
+
+        XCTAssertEqual(entries, [
+            ControllerConfig(
+                id: try ControllerID("mustafar"),
+                displayName: "Mustafar",
+                directBaseURL: URL(string: "http://127.0.0.1:47834")!
+            )
+        ])
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     }
