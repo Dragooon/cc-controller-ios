@@ -13,16 +13,19 @@ public struct ConnectionTarget: @unchecked Sendable {
 
 public enum ConnectionRouterError: Error, Sendable, Equatable, LocalizedError {
     case noReachableEndpoint
+    case pinRequired
 
     public var errorDescription: String? {
-        "No relay endpoint is reachable."
+        switch self {
+        case .noReachableEndpoint: "No relay endpoint is reachable."
+        case .pinRequired: "A relay pin is required before authenticated traffic."
+        }
     }
 }
 
 /// Owns the transport selected for the daemon API and event stream.
 public final class ConnectionRouter: @unchecked Sendable {
     public let mode: Mode
-    public private(set) var configuredEndpoints: [URL]
 
     public enum Mode: Sendable, Equatable {
         case direct
@@ -31,11 +34,16 @@ public final class ConnectionRouter: @unchecked Sendable {
 
     private let directURL: URL?
     private let directSession: URLSession?
+    private let pinLoader: (@Sendable () async -> RelayPin?)?
     private let lock = NSLock()
+    private var endpoints: [URL]
     private var relaySession: RelaySession?
     private var selector: RelayEndpointSelector?
     private var selected: ConnectionTarget?
     private var pathMonitor: NWPathMonitor?
+    private var resolvedPin: RelayPin?
+    private var pinResolved: Bool
+    private var pinResolutionTask: Task<RelayPin?, Never>?
 
     private func withLock<T>(_ body: () -> T) -> T {
         lock.lock()
@@ -45,16 +53,25 @@ public final class ConnectionRouter: @unchecked Sendable {
 
     public init(baseURL: URL, session: URLSession = .shared) {
         mode = .direct
-        configuredEndpoints = [baseURL]
+        endpoints = [baseURL]
         directURL = baseURL
         directSession = session
+        pinLoader = nil
+        pinResolved = true
     }
 
-    public init(endpoints: [URL], pin: RelayPin? = nil) {
+    public init(
+        endpoints: [URL],
+        pin: RelayPin? = nil,
+        pinLoader: (@Sendable () async -> RelayPin?)? = nil
+    ) {
         mode = .relay
-        configuredEndpoints = endpoints
+        self.endpoints = endpoints
         directURL = nil
         directSession = nil
+        self.pinLoader = pinLoader
+        resolvedPin = pin
+        pinResolved = pin != nil || pinLoader == nil
         let relay = RelaySessionFactory.make(
             endpoints: endpoints,
             mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
@@ -66,6 +83,10 @@ public final class ConnectionRouter: @unchecked Sendable {
 
     deinit {
         pathMonitor?.cancel()
+    }
+
+    public var configuredEndpoints: [URL] {
+        withLock { endpoints }
     }
 
     public var configuredBaseURL: URL {
@@ -84,9 +105,18 @@ public final class ConnectionRouter: @unchecked Sendable {
         withLock { relaySession?.trustDelegate.lastFailure != nil }
     }
 
-    public func target() async throws -> ConnectionTarget {
+    public var usesPinnedTrust: Bool {
+        withLock { relaySession?.trustDelegate.isPinned == true }
+    }
+
+    public func target(allowTOFU: Bool = false) async throws -> ConnectionTarget {
         if mode == .direct {
             return ConnectionTarget(baseURL: directURL!, session: directSession!)
+        }
+        let pin = await resolvePin()
+        guard allowTOFU || pin != nil else { throw ConnectionRouterError.pinRequired }
+        if pin != nil && !usesPinnedTrust {
+            replaceRelaySession(endpoints: configuredEndpoints, pin: pin)
         }
         if let selected = withLock({ self.selected }) {
             return selected
@@ -111,6 +141,7 @@ public final class ConnectionRouter: @unchecked Sendable {
     }
 
     public func endpointOutcomes() async -> [URL: RelayEndpointOutcome] {
+        let selector = withLock { self.selector }
         guard let selector else { return [:] }
         return await selector.outcomes()
     }
@@ -121,35 +152,65 @@ public final class ConnectionRouter: @unchecked Sendable {
 
     public func reconfigure(pin: RelayPin?) async {
         guard mode == .relay else { return }
-        let relay = RelaySessionFactory.make(
-            endpoints: configuredEndpoints,
-            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
-        )
-        let nextSelector = RelayEndpointSelector(
-            endpoints: configuredEndpoints,
-            session: relay.session,
-            trustDelegate: relay.trustDelegate
-        )
         withLock {
-            relaySession = relay
-            selector = nextSelector
-            selected = nil
+            resolvedPin = pin
+            pinResolved = true
+            pinResolutionTask = nil
         }
+        replaceRelaySession(endpoints: configuredEndpoints, pin: pin)
     }
 
     public func updateEndpoints(_ endpoints: [URL], pin: RelayPin?) async {
         guard mode == .relay else { return }
+        withLock {
+            self.endpoints = endpoints
+            resolvedPin = pin
+            pinResolved = true
+            pinResolutionTask = nil
+        }
+        replaceRelaySession(endpoints: endpoints, pin: pin)
+    }
+
+    private func resolvePin() async -> RelayPin? {
+        guard mode == .relay else { return nil }
+        let task = withLock { () -> Task<RelayPin?, Never>? in
+            if pinResolved { return nil }
+            if let pinResolutionTask { return pinResolutionTask }
+            let task = Task { [pinLoader] in await pinLoader?() }
+            pinResolutionTask = task
+            return task
+        }
+        guard let task else { return withLock { resolvedPin } }
+        let pin = await task.value
+        let shouldReplace = withLock { () -> Bool in
+            resolvedPin = pin
+            pinResolved = true
+            pinResolutionTask = nil
+            return pin != nil && relaySession?.trustDelegate.isPinned != true
+        }
+        if shouldReplace { replaceRelaySession(endpoints: configuredEndpoints, pin: pin) }
+        return pin
+    }
+
+    private func replaceRelaySession(endpoints: [URL], pin: RelayPin?) {
         let relay = RelaySessionFactory.make(
             endpoints: endpoints,
             mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
         )
-        let nextSelector = RelayEndpointSelector(endpoints: endpoints, session: relay.session, trustDelegate: relay.trustDelegate)
-        withLock {
-            configuredEndpoints = endpoints
+        let nextSelector = RelayEndpointSelector(
+            endpoints: endpoints,
+            session: relay.session,
+            trustDelegate: relay.trustDelegate
+        )
+        let oldSession = withLock { () -> URLSession? in
+            let old = relaySession?.session
+            self.endpoints = endpoints
             relaySession = relay
             selector = nextSelector
             selected = nil
+            return old
         }
+        oldSession?.finishTasksAndInvalidate()
     }
 
     private func startPathMonitor() {

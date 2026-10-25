@@ -140,9 +140,8 @@ public actor RelayEndpointSelector {
         return selection
     }
 
-    private static func makeProber(session: URLSession, trustDelegate: PinnedTrustDelegate?) -> RelayEndpointProber {
+    static func makeProber(session: URLSession, trustDelegate: PinnedTrustDelegate?) -> RelayEndpointProber {
         { endpoint, timeout in
-            trustDelegate?.clearFailure(for: endpoint)
             var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
             let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             components.path = "/" + [basePath, "api/auth/whoami"].filter { !$0.isEmpty }.joined(separator: "/")
@@ -154,11 +153,11 @@ public actor RelayEndpointSelector {
                 guard response is HTTPURLResponse else { return .failed(code: -1) }
                 return .reachable
             } catch let error as URLError {
-                if trustDelegate?.failure(for: endpoint) != nil || (trustDelegate?.isPinned == true && error.code == .secureConnectionFailed) { return .pinMismatch }
+                if trustDelegate?.failure(for: endpoint) != nil { return .pinMismatch }
                 if error.code == .timedOut { return .timedOut }
                 return .failed(code: error.errorCode)
             } catch {
-                if trustDelegate?.failure(for: endpoint) != nil || trustDelegate?.isPinned == true { return .pinMismatch }
+                if trustDelegate?.failure(for: endpoint) != nil { return .pinMismatch }
                 return .failed(code: -1)
             }
         }

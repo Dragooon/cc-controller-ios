@@ -89,7 +89,7 @@ struct MainSplitView: View {
                 onUnpair: { Task { await model.unpair() } },
                 onLockInterval: { model.setLockInterval($0.lockInterval) },
                 onRetryDevices: { Task { await model.settings.loadPairedDevices() } },
-                onRelayAddressesChanged: model.setRelayAddresses,
+                onSaveRelayAddresses: model.setRelayAddresses,
                 onResetRelayAddresses: model.resetRelayAddresses
             )
             .onAppear { model.settingsDidAppear() }

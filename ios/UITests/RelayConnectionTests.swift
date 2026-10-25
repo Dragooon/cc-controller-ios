@@ -8,7 +8,7 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
     private var bearer: String { requiredRunnerVariable("TEST_RUNNER_BEARER") }
 
     func testLoadsSessionsThroughRelay() throws {
-        let app = launchRelay(bearer: bearer)
+        let app = launchRelay(pin: relayPin, bearer: bearer)
         defer {
             addScreenshot(named: "relay-sessions-loaded")
             app.terminate()

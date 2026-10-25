@@ -63,7 +63,7 @@ public final class AuthClient: Sendable {
     /// Probes whoami because it is the daemon's unauthenticated status route.
     /// HTTP 401 with a JSON whoami response still proves that the daemon is reachable.
     public func probeDaemon(timeout: TimeInterval? = nil) async throws -> DaemonProbe {
-        let target = try await connection.target()
+        let target = try await connection.target(allowTOFU: true)
         var components = URLComponents(url: target.baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [basePath, "api/auth/whoami"].filter { !$0.isEmpty }.joined(separator: "/")
@@ -82,6 +82,9 @@ public final class AuthClient: Sendable {
             return DaemonProbe(isReachable: true, latency: start.duration(to: clock.now))
         } catch let error as AuthError {
             throw error
+        } catch let error as URLError {
+            if isNetworkRelayError(error) { connection.invalidate() }
+            throw AuthError.network(error.localizedDescription)
         } catch {
             throw AuthError.network(error.localizedDescription)
         }
@@ -89,12 +92,12 @@ public final class AuthClient: Sendable {
 
     public func startPairing(deviceName: String) async throws -> PairStartResponse {
         guard !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AuthError.invalidDeviceName }
-        return try await post("/api/pair/start", body: PairingStartBody(deviceName: deviceName))
+        return try await post("/api/pair/start", body: PairingStartBody(deviceName: deviceName), allowTOFU: true)
     }
 
     public func pollPairing(code: String) async throws -> PairPollResponse {
         guard !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AuthError.invalidPairingCode }
-        return try await get("/api/pair/poll", query: [URLQueryItem(name: "code", value: code)])
+        return try await get("/api/pair/poll", query: [URLQueryItem(name: "code", value: code)], allowTOFU: true)
     }
 
     public func enroll(deviceToken: String, deviceName: String) async throws -> NativeEnrollResponse {
@@ -112,19 +115,19 @@ public final class AuthClient: Sendable {
         _ = try await request("/api/auth/logout", method: "POST", body: Data("{}".utf8), bearer: bearer, timeoutInterval: 5) as EmptyAuthResponse
     }
 
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem]) async throws -> T {
-        try await request(path, method: "GET", query: query)
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem], allowTOFU: Bool = false) async throws -> T {
+        try await request(path, method: "GET", query: query, allowTOFU: allowTOFU)
     }
 
-    private func post<T: Encodable, U: Decodable>(_ path: String, body: T) async throws -> U {
+    private func post<T: Encodable, U: Decodable>(_ path: String, body: T, allowTOFU: Bool = false) async throws -> U {
         let data: Data
         do { data = try JSONEncoder.ccKit().encode(body) }
         catch { throw AuthError.decoding(error.localizedDescription) }
-        return try await request(path, method: "POST", body: data, contentType: "application/json")
+        return try await request(path, method: "POST", body: data, contentType: "application/json", allowTOFU: allowTOFU)
     }
 
-    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, bearer: String? = nil, timeoutInterval: TimeInterval? = nil) async throws -> T {
-        let target = try await connection.target()
+    private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, bearer: String? = nil, timeoutInterval: TimeInterval? = nil, allowTOFU: Bool = false) async throws -> T {
+        let target = try await connection.target(allowTOFU: allowTOFU)
         var components = URLComponents(url: target.baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let suffix = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))

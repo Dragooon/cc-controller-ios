@@ -43,6 +43,17 @@ final class RelayTests: XCTestCase {
         XCTAssertEqual(observed, pin)
     }
 
+    func testPinnedFailureIsStickyUntilMatchingChallenge() throws {
+        let certificate = try certificate(named: "relay-p256")
+        let trust = try makeTrust(certificate)
+        let endpoint = URL(string: "https://192.0.2.1:47833")!
+        let delegate = PinnedTrustDelegate(endpoints: [endpoint], mode: .pinned(try RelayPin(String(repeating: "0", count: 64))))
+        XCTAssertEqual(disposition(delegate: delegate, challenge: challenge(trust: trust, host: "192.0.2.1")), .cancelAuthenticationChallenge)
+        delegate.clearFailure(for: endpoint)
+        XCTAssertNotNil(delegate.failure(for: endpoint))
+        XCTAssertEqual(delegate.failure(for: endpoint), delegate.lastFailure)
+    }
+
     func testTrustOnFirstUseRecordsPin() throws {
         let certificate = try certificate(named: "relay-p256")
         let trust = try makeTrust(certificate)
@@ -86,6 +97,31 @@ final class RelayTests: XCTestCase {
         XCTAssertEqual(selected.endpoint, endpoints[1])
         XCTAssertEqual(selected.outcomes[endpoints[1]], .reachable)
         XCTAssertTrue(clock.sleeps.contains(.milliseconds(300)))
+    }
+
+    func testRelayCredentialPolicyClearsCredentialsWithoutPin() {
+        XCTAssertEqual(relayCredentialPolicy(hasPin: false, hasCredentials: true), .clearAndPairAgain)
+        XCTAssertEqual(relayCredentialPolicy(hasPin: true, hasCredentials: true), .allow)
+        XCTAssertEqual(relayCredentialPolicy(hasPin: false, hasCredentials: false), .allow)
+    }
+
+    func testPinnedRouterUsesPinnedTrustImmediatelyAfterInit() throws {
+        let router = ConnectionRouter(
+            endpoints: [URL(string: "https://192.0.2.1:47833")!],
+            pin: try RelayPin(expectedP256Pin)
+        )
+        XCTAssertTrue(router.usesPinnedTrust)
+    }
+
+    func testPinnedProberSecureFailureWithoutDelegateMismatchIsFailed() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RelayFailingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = URL(string: "https://192.0.2.1:47833")!
+        let delegate = PinnedTrustDelegate(endpoints: [endpoint], mode: .pinned(try RelayPin(expectedP256Pin)))
+        let prober = RelayEndpointSelector.makeProber(session: session, trustDelegate: delegate)
+        let outcome = await prober(endpoint, 0.1)
+        XCTAssertEqual(outcome, .failed(code: URLError(.secureConnectionFailed).errorCode))
     }
 
     func testSelectorReportsPerEndpointOutcomes() async throws {
@@ -149,6 +185,15 @@ final class RelayTests: XCTestCase {
         delegate.urlSession(URLSession.shared, didReceive: challenge) { value, _ in disposition = value }
         return disposition!
     }
+}
+
+private final class RelayFailingURLProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.secureConnectionFailed))
+    }
+    override func stopLoading() {}
 }
 
 private final class TrustProtectionSpace: URLProtectionSpace, @unchecked Sendable {

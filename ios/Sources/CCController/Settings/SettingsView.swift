@@ -46,7 +46,7 @@ struct SettingsView: View {
     let onUnpair: () -> Void
     let onLockInterval: (SettingsLockInterval) -> Void
     let onRetryDevices: () -> Void
-    let onRelayAddressesChanged: (String) -> Void
+    let onSaveRelayAddresses: (String) -> Void
     let onResetRelayAddresses: () -> Void
     let lockAfter: SettingsLockInterval
 
@@ -75,7 +75,7 @@ struct SettingsView: View {
         onUnpair: @escaping () -> Void = {},
         onLockInterval: @escaping (SettingsLockInterval) -> Void = { _ in },
         onRetryDevices: @escaping () -> Void = {},
-        onRelayAddressesChanged: @escaping (String) -> Void = { _ in },
+        onSaveRelayAddresses: @escaping (String) -> Void = { _ in },
         onResetRelayAddresses: @escaping () -> Void = {}
     ) {
         self.address = address
@@ -98,7 +98,7 @@ struct SettingsView: View {
         self.onUnpair = onUnpair
         self.onLockInterval = onLockInterval
         self.onRetryDevices = onRetryDevices
-        self.onRelayAddressesChanged = onRelayAddressesChanged
+        self.onSaveRelayAddresses = onSaveRelayAddresses
         self.onResetRelayAddresses = onResetRelayAddresses
         _selectedLockInterval = State(initialValue: lockAfter)
         _relayAddressDraft = State(initialValue: relayAddresses)
@@ -153,9 +153,12 @@ struct SettingsView: View {
                     .settingsValue("Connected via", "\(connectedVia) (\(address))", id: "settings-address")
                 }
                 if let relayPin {
-                    LabeledContent("Mac identity", value: relayPin)
-                        .font(.footnote.monospaced())
-                        .settingsValue("Mac identity", relayPin, id: "settings-relay-pin")
+                    LabeledContent("Mac identity") {
+                        Text(relayPin)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.ccLabel)
+                    }
+                    .settingsValue("Mac identity", relayPin, id: "settings-relay-pin")
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Relay addresses")
@@ -163,14 +166,19 @@ struct SettingsView: View {
                         .font(.footnote.monospaced())
                         .frame(minHeight: 72)
                         .accessibilityIdentifier("settings-relay-addresses")
-                        .onChange(of: relayAddressDraft) { _, value in
-                            onRelayAddressesChanged(value)
+                        .onChange(of: relayAddresses) { _, value in
+                            relayAddressDraft = value
                         }
                     if parseRelayAddresses(relayAddressDraft) == nil {
                         Text("Use IP addresses only.")
                             .font(.footnote)
                             .foregroundStyle(.ccAccent)
                     }
+                    Button("Save") {
+                        onSaveRelayAddresses(relayAddressDraft)
+                    }
+                    .disabled(parseRelayAddresses(relayAddressDraft) == nil)
+                    .accessibilityIdentifier("settings-relay-save")
                     Button("Reset to default", action: onResetRelayAddresses)
                         .font(.footnote.weight(.semibold))
                         .accessibilityIdentifier("settings-relay-reset")

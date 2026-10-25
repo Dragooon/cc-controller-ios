@@ -113,7 +113,7 @@ final class AppModel {
         #else
         let bearer = ""
         let serverOverride: URL? = nil
-        let configuredEndpoints = Self.relayEndpoints(arguments: arguments)
+        let configuredEndpoints = Self.relayEndpoints(arguments: [])
         let serverURL = URL(string: "http://127.0.0.1:47832")!
         let isDebugOnboarding = false
         let isFixture = false
@@ -126,11 +126,24 @@ final class AppModel {
         let initialTranscriptTail: Int? = nil
         #endif
         self.serverURL = serverURL
+        let credentials = KeychainCredentialStore()
+        self.credentials = credentials
         let defaultEndpoints = Self.defaultRelayEndpoints()
+        #if DEBUG || CC_PERF
         let argumentPin = Self.argumentValue("-CCRelayPin", in: arguments).flatMap { try? RelayPin($0) }
+        #else
+        let argumentPin: RelayPin? = nil
+        #endif
         let transport: ConnectionRouter
         if serverOverride == nil, !configuredEndpoints.isEmpty {
-            transport = ConnectionRouter(endpoints: configuredEndpoints, pin: argumentPin)
+            transport = ConnectionRouter(
+                endpoints: configuredEndpoints,
+                pin: argumentPin,
+                pinLoader: { [credentials] in
+                    guard let value = try? await credentials.getRelayPin() else { return nil }
+                    return try? RelayPin(value)
+                }
+            )
         } else {
             transport = ConnectionRouter(baseURL: serverURL)
         }
@@ -148,8 +161,6 @@ final class AppModel {
         selectedSessionID = Self.argumentValue("-CCSession", in: arguments)
         #endif
 
-        let credentials = KeychainCredentialStore()
-        self.credentials = credentials
         let cacheDirectory = Self.cacheDirectory()
         #if DEBUG
         if arguments.contains("-CCResetCache"), FileManager.default.fileExists(atPath: cacheDirectory.path) {
@@ -225,15 +236,12 @@ final class AppModel {
         }
         #endif
 
-        if transport.mode == .relay, argumentPin == nil {
-            Task { @MainActor [weak self, credentials, transport] in
+        if transport.mode == .relay {
+            Task { @MainActor [weak self, credentials] in
                 guard let self else { return }
-                guard let stored = try? await credentials.getRelayPin(), let pin = try? RelayPin(stored) else { return }
-                relayPin = pin.value
-                await transport.reconfigure(pin: pin)
+                relayPin = try? await credentials.getRelayPin()
             }
         }
-        guard !fixtureMode else { return }
         Task { @MainActor [weak self, credentials] in
             guard let self else { return }
             if debugOnboarding {
@@ -244,7 +252,21 @@ final class AppModel {
                 return
             }
             let hasSecret = (try? await credentials.hasNativeSecret()) == true
+            let hasToken = (try? await credentials.getDeviceToken()) != nil
             guard phase != .unlocked else { return }
+            if transport.mode == .relay {
+                let hasPin = (try? await credentials.getRelayPin()).flatMap { try? RelayPin($0) } != nil
+                if relayCredentialPolicy(hasPin: hasPin, hasCredentials: hasSecret || hasToken) == .clearAndPairAgain {
+                    try? await credentials.deleteDeviceToken()
+                    try? await credentials.deleteNativeSecret()
+                    onboarding = OnboardingFlowState()
+                    onboarding.continueFromWelcome()
+                    connectionMessage = "Pair this iPhone again to connect through the relay."
+                    phase = .onboarding
+                    startConnectionCheck()
+                    return
+                }
+            }
             if hasSecret {
                 transitionToLocked()
             } else {
@@ -867,16 +889,20 @@ final class AppModel {
               !value.isEmpty else { return nil }
         return url
     }
+    #endif
+
+    private static func launchRelayEndpointsArgument(arguments: [String]) -> String? {
+        #if DEBUG || CC_PERF
+        argumentValue("-CCRelayEndpoints", in: arguments)
+        #else
+        nil
+        #endif
+    }
 
     private static func relayEndpoints(arguments: [String]) -> [URL] {
-        let value: String?
-        if let argument = argumentValue("-CCRelayEndpoints", in: arguments) {
-            value = argument
-        } else if let stored = UserDefaults.standard.string(forKey: "CCRelayEndpoints") {
-            value = stored.replacingOccurrences(of: "\n", with: " ")
-        } else {
-            value = Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String
-        }
+        let value = launchRelayEndpointsArgument(arguments: arguments)
+            ?? UserDefaults.standard.string(forKey: "CCRelayEndpoints")
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String)
         guard let value else { return [] }
         return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)
     }
@@ -886,6 +912,7 @@ final class AppModel {
         return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)
     }
 
+    #if DEBUG || CC_PERF
     private static func colorScheme(arguments: [String]) -> ColorScheme? {
         switch argumentValue("-CCColorScheme", in: arguments) {
         case "light": .light

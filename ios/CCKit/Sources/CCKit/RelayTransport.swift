@@ -47,12 +47,9 @@ public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSession
         return failures[host]
     }
 
+    /// Failures remain sticky until this host presents a matching key again.
     public func clearFailure(for endpoint: URL) {
-        guard let host = endpoint.host?.lowercased() else { return }
-        lock.lock()
-        failures.removeValue(forKey: host)
-        if failures.isEmpty { failure = nil }
-        lock.unlock()
+        // Kept for source compatibility; callers must not clear trust failures speculatively.
     }
 
     public func urlSession(
@@ -112,6 +109,11 @@ public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSession
                 pin = observed
                 lock.unlock()
             }
+            let host = challenge.protectionSpace.host.lowercased()
+            lock.lock()
+            failures.removeValue(forKey: host)
+            failure = failures.values.first
+            lock.unlock()
             completionHandler(.useCredential, URLCredential(trust: trust))
         } catch {
             completionHandler(.cancelAuthenticationChallenge, nil)
