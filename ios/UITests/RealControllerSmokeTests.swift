@@ -16,12 +16,29 @@ final class RealControllerSmokeTests: XCTestCase {
         let result: String
         let reveal: String
         let firstRowMilliseconds: Int?
+        let phases: String
+        let responseBytes: String
         let visibleRows: Int
         let barState: String
         let pinned: Bool
         let nonEmpty: Bool
         let warning: String?
     }
+
+    private struct PerformanceSnapshot {
+        let phases: String
+        let responseBytes: String
+    }
+
+    private let phaseNames = [
+        "request_sent",
+        "response_received",
+        "decode_done",
+        "merge_done",
+        "grouping_done",
+        "first_rows",
+        "usage_update",
+    ]
 
     func testRealSessions() throws {
         guard ProcessInfo.processInfo.environment["TEST_RUNNER_REAL_SMOKE"] == "1" else {
@@ -88,6 +105,8 @@ final class RealControllerSmokeTests: XCTestCase {
                 result: "FAIL",
                 reveal: reveal.path,
                 firstRowMilliseconds: nil,
+                phases: "none",
+                responseBytes: "none",
                 visibleRows: 0,
                 barState: "not-checked",
                 pinned: false,
@@ -103,6 +122,8 @@ final class RealControllerSmokeTests: XCTestCase {
         let bottomStack = app.descendants(matching: .any).matching(identifier: "bottom-stack").firstMatch
         let deadline = tapStarted.addingTimeInterval(10)
         var firstRowMilliseconds: Int?
+        var phases = "none"
+        var responseBytes = "none"
         var visibleRows = 0
         var nonEmpty = false
         var pinned = false
@@ -125,6 +146,12 @@ final class RealControllerSmokeTests: XCTestCase {
         if let firstRow = firstRowMilliseconds, firstRow > 10_000 {
             firstRowMilliseconds = nil
         }
+        let performance = app.staticTexts["transcript-performance"]
+        if performance.waitForExistence(timeout: 1) {
+            let snapshot = performanceSnapshot(from: performance.label)
+            phases = snapshot.phases
+            responseBytes = snapshot.responseBytes
+        }
 
         let subtitle = app.descendants(matching: .any).matching(identifier: "selected-session-subtitle").firstMatch
         let subtitleText = subtitle.exists ? subtitle.label : ""
@@ -143,6 +170,8 @@ final class RealControllerSmokeTests: XCTestCase {
             result: passed ? "PASS" : "FAIL",
             reveal: reveal.path,
             firstRowMilliseconds: firstRowMilliseconds,
+            phases: phases,
+            responseBytes: responseBytes,
             visibleRows: visibleRows,
             barState: barState,
             pinned: pinned,
@@ -190,6 +219,22 @@ final class RealControllerSmokeTests: XCTestCase {
 
     private func hasLabel(_ node: XCUIElementSnapshot) -> Bool {
         !node.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func performanceSnapshot(from label: String) -> PerformanceSnapshot {
+        var fields: [String: String] = [:]
+        for token in label.split(separator: " ") {
+            let parts = token.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            fields[parts[0]] = parts[1]
+        }
+        let phases = phaseNames
+            .map { "\($0):\(fields[$0] ?? "none")" }
+            .joined(separator: ",")
+        return PerformanceSnapshot(
+            phases: phases,
+            responseBytes: fields["response_bytes"] ?? "none"
+        )
     }
 
     private func navigateBackIfNeeded(in app: XCUIApplication) {
@@ -323,7 +368,7 @@ final class RealControllerSmokeTests: XCTestCase {
         let lines = results.map { result in
             let firstRow = result.firstRowMilliseconds.map(String.init) ?? "none"
             let warning = result.warning ?? "none"
-            return "pass=\(result.pass) session_id=\(result.session.id) session_name=\(result.session.name) expected_state=\(result.session.state) entry_count=\(result.session.entryCount) result=\(result.result) reveal=\(result.reveal) first_hittable_row_ms=\(firstRow) visible_rows=\(result.visibleRows) bar=\(result.barState) pinned=\(result.pinned) non_empty=\(result.nonEmpty) warning=\(warning)"
+            return "pass=\(result.pass) session_id=\(result.session.id) session_name=\(result.session.name) expected_state=\(result.session.state) entry_count=\(result.session.entryCount) result=\(result.result) reveal=\(result.reveal) first_hittable_row_ms=\(firstRow) visible_rows=\(result.visibleRows) bar=\(result.barState) pinned=\(result.pinned) non_empty=\(result.nonEmpty) warning=\(warning) phases=\(result.phases) response_bytes=\(result.responseBytes)"
         }
         let summary = lines.joined(separator: "\n") + "\n"
         print(summary, terminator: "")
