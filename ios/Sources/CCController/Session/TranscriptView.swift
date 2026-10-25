@@ -970,14 +970,8 @@ private struct PendingPromptView: View {
 
     @ViewBuilder
     var body: some View {
-        Group {
-            if note.state == .sent || note.state == .queued {
-                TimelineView(.periodic(from: .now, by: 5)) { context in
-                    content(now: context.date)
-                }
-            } else {
-                content(now: .now)
-            }
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            content(now: context.date)
         }
         .onAppear {
             if sessionState != .working { nonWorkingSince = .now }
@@ -1066,10 +1060,8 @@ private struct PendingPromptView: View {
             }
         }
 
-        if note.state == .sending {
-            view
-        } else {
-            view.contextMenu {
+        view.contextMenu {
+            if note.state != .sending {
                 contextMenuContent(needsAttention: needsAttention)
             }
         }

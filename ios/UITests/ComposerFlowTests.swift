@@ -118,9 +118,11 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not load for an idle session")
         send.tap()
 
-        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        let pending = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt")
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", marker))
+            .firstMatch
         XCTAssertTrue(pending.waitForExistence(timeout: 10), "Sent marker did not appear as a pending prompt")
-        XCTAssertTrue(pending.label.contains(marker), "Pending bubble did not contain the sent marker")
         XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 10), "Optimistic prompt did not reach Sent state")
 
         let resetField = composerField(in: app)
@@ -148,18 +150,26 @@ final class ComposerFlowTests: XCTestCase {
             app.terminate()
         }
         openSession(id: "session-long-session", in: app)
-        try await setMessageBehaviour(delayMs: 8_000)
+        try await postFixture("/fixture/delay-next-send")
         let field = composerField(in: app)
         let marker = "optimistic-held-\(UUID().uuidString)"
         field.tap()
         field.typeText(marker)
         app.buttons["composer-send"].tap()
 
-        let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
+        let pending = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", marker))
+            .firstMatch
         XCTAssertTrue(pending.waitForExistence(timeout: 3), "Held send did not show an optimistic bubble")
-        XCTAssertTrue(waitForPendingStatus("Sending…", in: app, timeout: 3), "Held send did not show Sending…")
+        XCTAssertTrue(waitForPendingStatus("Sending…", message: marker, in: app, timeout: 3), "Held send did not show Sending…")
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Composer did not clear while send was held")
-        XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 15), "Held send did not reconcile to Sent")
+        pending.press(forDuration: 1.0)
+        XCTAssertTrue(
+            waitForNoButtons(["Dismiss", "Retry", "Copy"], in: app, timeout: 2),
+            "Sending bubble exposed an action menu"
+        )
+        XCTAssertTrue(waitForPendingStatus("Sent", message: marker, in: app, timeout: 15), "Held send did not reconcile to Sent")
     }
 
     func testFailedSendRetryShowsSentState() async throws {
@@ -225,12 +235,18 @@ final class ComposerFlowTests: XCTestCase {
         field.typeText(second)
         app.buttons["composer-send"].tap()
 
+        let firstPending = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", first))
+            .firstMatch
+        let secondPending = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", second))
+            .firstMatch
         let deadline = Date().addingTimeInterval(3)
         while Date() < deadline {
-            let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").allElementsBoundByIndex
-            if pending.count >= 2 {
-                XCTAssertTrue(pending[0].label.contains(first), "First pending bubble moved behind the second")
-                XCTAssertTrue(pending[1].label.contains(second), "Second pending bubble did not follow the first")
+            if firstPending.exists && secondPending.exists {
+                XCTAssertLessThanOrEqual(firstPending.frame.minY, secondPending.frame.minY, "First pending bubble moved behind the second")
                 return
             }
             try await Task.sleep(for: .milliseconds(100))
@@ -615,15 +631,30 @@ final class ComposerFlowTests: XCTestCase {
     }
 
     private func waitForPendingStatus(_ text: String, message: String? = nil, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        var query = app.descendants(matching: .any).matching(identifier: "pending-prompt")
-        if let message { query = query.matching(NSPredicate(format: "label BEGINSWITH %@", message)) }
-        let pending = query.firstMatch
+        var predicates = [NSPredicate(format: "label CONTAINS %@", text)]
+        if let message {
+            predicates.append(NSPredicate(format: "label BEGINSWITH %@", message))
+        }
+        let pending = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt")
+            .matching(NSCompoundPredicate(andPredicateWithSubpredicates: predicates))
+            .firstMatch
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if pending.exists && pending.label.contains(text) { return true }
+            if pending.exists { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         return false
+    }
+
+    private func waitForNoButtons(_ labels: [String], in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let buttons = labels.map { app.buttons[$0] }
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if buttons.contains(where: \.exists) { return false }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return true
     }
 
     private func audit(app: XCUIApplication, name: String) {
