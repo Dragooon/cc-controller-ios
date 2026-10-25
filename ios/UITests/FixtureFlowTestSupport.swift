@@ -184,3 +184,30 @@ class FixtureFlowTestSupport: XCTestCase {
         return app
     }
 }
+
+@MainActor
+func waitForStableFrame(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    var previousFrame: CGRect?
+    var stableReads = 0
+
+    repeat {
+        guard element.exists, element.isHittable else {
+            previousFrame = nil
+            stableReads = 0
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            continue
+        }
+
+        let currentFrame = element.frame
+        if currentFrame == previousFrame {
+            stableReads += 1
+        } else {
+            previousFrame = currentFrame
+            stableReads = 1
+        }
+        if stableReads >= 3 { return true }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while Date() < deadline
+    return false
+}

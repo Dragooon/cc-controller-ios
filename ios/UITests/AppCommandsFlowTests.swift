@@ -12,6 +12,7 @@ final class AppCommandsFlowTests: XCTestCase {
         field.typeText("/re")
         let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/rename,'")).firstMatch
         XCTAssertTrue(rename.waitForExistence(timeout: 10), "Rename suggestion did not load")
+        XCTAssertTrue(waitForStableFrame(rename), "Rename suggestion frame did not stabilize before tap")
         rename.tap()
 
         XCTAssertEqual(field.value as? String, "/rename ")
@@ -27,6 +28,7 @@ final class AppCommandsFlowTests: XCTestCase {
         field.typeText("/mo")
         let modelSuggestion = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch
         XCTAssertTrue(modelSuggestion.waitForExistence(timeout: 10), "Model suggestion did not load")
+        XCTAssertTrue(waitForStableFrame(modelSuggestion), "Model suggestion frame did not stabilize before tap")
         modelSuggestion.tap()
 
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not open")
@@ -44,7 +46,9 @@ final class AppCommandsFlowTests: XCTestCase {
 
         field.tap()
         field.typeText("/mo")
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch.tap()
+        let reopenedModelSuggestion = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch
+        XCTAssertTrue(waitForStableFrame(reopenedModelSuggestion), "Reopened model suggestion frame did not stabilize before tap")
+        reopenedModelSuggestion.tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not reopen")
         XCTAssertTrue(app.images["current-model-claude-fable-5-2[1m]"].waitForExistence(timeout: 10), "Current model checkmark did not move to Fable 5.2")
         addScreenshot(named: "model-sheet-after-select")
@@ -59,7 +63,9 @@ final class AppCommandsFlowTests: XCTestCase {
         let field = composerField(in: app)
         field.tap()
         field.typeText("/mo")
-        app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch.tap()
+        let modelSuggestion = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch
+        XCTAssertTrue(waitForStableFrame(modelSuggestion), "Model suggestion frame did not stabilize before tap")
+        modelSuggestion.tap()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not open")
         app.buttons["model-option-claude-fable-5-2[1m]"].tap()
 

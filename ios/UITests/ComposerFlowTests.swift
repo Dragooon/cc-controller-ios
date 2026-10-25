@@ -373,6 +373,7 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(compact.waitForExistence(timeout: 10), "/compact suggestion did not load")
         XCTAssertTrue(cost.exists, "/cost suggestion did not load")
         XCTAssertFalse(clear.exists, "/clear must not match /co")
+        XCTAssertTrue(waitForStableFrame(compact), "/compact suggestion frame did not stabilize before tap")
 
         compact.tap()
         XCTAssertEqual(field.value as? String, "/compact ", "Suggestion did not replace composer text")
