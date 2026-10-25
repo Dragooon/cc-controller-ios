@@ -1169,28 +1169,8 @@ real_authenticate() {
 }
 
 real_select_sessions() {
-  local status_file=$1 output_file=$2 sessions_count=$3
-  node - -- "$status_file" "$output_file" "$sessions_count" <<'NODE'
-const fs = require('node:fs');
-const [statusFile, outputFile, countText] = process.argv.slice(3);
-const payload = JSON.parse(fs.readFileSync(statusFile, 'utf8'));
-const entries = payload.entries ?? {};
-const sessions = (payload.sessions ?? [])
-  .filter((session) => typeof session?.id === 'string' && session.id.length > 0)
-  .sort((left, right) => (Number(entries[right.id] ?? 0) - Number(entries[left.id] ?? 0)) || left.id.localeCompare(right.id))
-  .slice(0, Number(countText))
-  .map((session) => ({
-    id: session.id,
-    name: session.name ?? 'Untitled session',
-    state: session.state ?? 'unknown',
-    entryCount: Number(entries[session.id] ?? 0),
-  }));
-if (sessions.length === 0) {
-  console.error('real-smoke found no live sessions in cc-gateway status');
-  process.exit(1);
-}
-fs.writeFileSync(outputFile, JSON.stringify(sessions), { mode: 0o600 });
-NODE
+  local status_file=$1 output_file=$2 sessions_count=$3 skip_file=${4:-}
+  node "$ROOT/scripts/real-smoke-selection.mjs" "$status_file" "$output_file" "$sessions_count" "$skip_file"
 }
 
 cmd_real_smoke() {
@@ -1207,7 +1187,7 @@ cmd_real_smoke() {
   done
   REAL_SMOKE_RUN=1
   REAL_DEVICE_NAME="cc-real-smoke-$(date '+%Y%m%dT%H%M%S')-$$"
-  local timestamp output_base status_file session_file started=$SECONDS
+  local timestamp output_base status_file session_file skip_file started=$SECONDS
   timestamp=$(date '+%Y%m%dT%H%M%S')
   output_base="$HOME/Documents/dev/cc-controller-evidence/real-smoke/$timestamp"
   [[ ! -e "$output_base" ]] || output_base="${output_base}-$$"
@@ -1218,6 +1198,7 @@ cmd_real_smoke() {
   REAL_BEARER_FILE="$REAL_SECRET_DIR/bearer"
   status_file="$REAL_SECRET_DIR/status.json"
   session_file="$REAL_SECRET_DIR/sessions.json"
+  skip_file="$REAL_SECRET_DIR/skipped.txt"
 
   step 'real-smoke build-for-testing' cmd_generate
   xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator \
@@ -1235,7 +1216,10 @@ cmd_real_smoke() {
     printf '%s\n' 'real-smoke failed to read cc-gateway status' >&2
     return 1
   fi
-  if ! real_select_sessions "$status_file" "$session_file" "$sessions_count"; then return 1; fi
+  if ! real_select_sessions "$status_file" "$session_file" "$sessions_count" "$skip_file"; then
+    if [[ -s "$skip_file" ]]; then cp "$skip_file" "$REAL_OUTPUT_DIR/summary.txt"; fi
+    return 1
+  fi
 
   local bearer
   bearer=$(<"$REAL_BEARER_FILE")
@@ -1266,6 +1250,13 @@ cmd_real_smoke() {
     test_status=1
   else
     cp "$test_log" "$REAL_OUTPUT_DIR/xcodebuild.log" 2>/dev/null || true
+  fi
+  if [[ -s "$skip_file" ]]; then
+    if [[ -f "$REAL_OUTPUT_DIR/summary.txt" ]]; then
+      cat "$skip_file" >> "$REAL_OUTPUT_DIR/summary.txt"
+    else
+      cp "$skip_file" "$REAL_OUTPUT_DIR/summary.txt"
+    fi
   fi
   printf 'real-smoke wall-clock=%ss output=%s\n' "$((SECONDS - started))" "$REAL_OUTPUT_DIR"
   return "$test_status"
