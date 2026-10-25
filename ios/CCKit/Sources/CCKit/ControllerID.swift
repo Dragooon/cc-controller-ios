@@ -51,6 +51,22 @@ public enum ControllerIDError: Error, Sendable, Equatable, LocalizedError {
 }
 
 public struct ControllerConfig: Codable, Sendable, Equatable, Identifiable {
+    public struct Resolution: Sendable, Equatable {
+        public let config: ControllerConfig
+        public let shouldPersist: Bool
+        public let shouldRemoveLegacyRelayEndpoints: Bool
+
+        public init(
+            config: ControllerConfig,
+            shouldPersist: Bool,
+            shouldRemoveLegacyRelayEndpoints: Bool
+        ) {
+            self.config = config
+            self.shouldPersist = shouldPersist
+            self.shouldRemoveLegacyRelayEndpoints = shouldRemoveLegacyRelayEndpoints
+        }
+    }
+
     public let id: ControllerID
     public var displayName: String
     public var directBaseURL: URL?
@@ -78,6 +94,80 @@ public struct ControllerConfig: Codable, Sendable, Equatable, Identifiable {
             directBaseURL: relayEndpoints.isEmpty ? directBaseURL : nil,
             relayEndpoints: relayEndpoints
         )
+    }
+
+    public static func resolveMac(
+        saved: ControllerConfig,
+        legacyRelayEndpoints: String?,
+        bundleDefaultEndpoints: [URL],
+        hasLaunchOverride: Bool
+    ) -> Resolution {
+        guard !hasLaunchOverride else {
+            return Resolution(
+                config: saved,
+                shouldPersist: false,
+                shouldRemoveLegacyRelayEndpoints: false
+            )
+        }
+
+        if let legacyRelayEndpoints {
+            let endpoints = relayEndpoints(from: legacyRelayEndpoints)
+            if !endpoints.isEmpty {
+                var migrated = saved
+                migrated.directBaseURL = nil
+                migrated.relayEndpoints = endpoints
+                return Resolution(
+                    config: migrated,
+                    shouldPersist: true,
+                    shouldRemoveLegacyRelayEndpoints: true
+                )
+            }
+        }
+
+        let usesLoopback = saved.directBaseURL.map { url in
+            switch url.host?.lowercased() {
+            case "127.0.0.1", "localhost", "::1": true
+            default: false
+            }
+        } ?? true
+        guard saved.relayEndpoints.isEmpty, usesLoopback, !bundleDefaultEndpoints.isEmpty else {
+            return Resolution(
+                config: saved,
+                shouldPersist: false,
+                shouldRemoveLegacyRelayEndpoints: legacyRelayEndpoints != nil
+            )
+        }
+
+        var fallback = saved
+        fallback.directBaseURL = nil
+        fallback.relayEndpoints = bundleDefaultEndpoints
+        return Resolution(
+            config: fallback,
+            shouldPersist: false,
+            shouldRemoveLegacyRelayEndpoints: legacyRelayEndpoints != nil
+        )
+    }
+
+    public static func relayEndpoints(from value: String) -> [URL] {
+        value
+            .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+            .compactMap { URL(string: String($0)) }
+            .filter(isValidRelayAddress)
+    }
+
+    public static func isValidRelayAddress(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host,
+              url.user == nil,
+              url.password == nil,
+              url.port != nil,
+              url.path.isEmpty || url.path == "/",
+              url.query == nil,
+              url.fragment == nil else { return false }
+        let octets = host.split(separator: ".")
+        guard octets.count == 4,
+              octets.allSatisfy({ part in part.allSatisfy(\.isNumber) && (0...255).contains(Int(part) ?? -1) }) else { return false }
+        return true
     }
 }
 

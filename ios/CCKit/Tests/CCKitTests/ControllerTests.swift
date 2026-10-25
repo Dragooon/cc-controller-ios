@@ -283,6 +283,94 @@ final class ControllerTests: XCTestCase {
         XCTAssertEqual(ControllerRegistry(defaults: defaults).controllers[0], saved)
     }
 
+    func testResolveMacMigratesValidLegacyRelayEndpointsAndRequestsPersistence() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let legacyKey = ControllerStorage.namespacedKey(ControllerStorage.legacyRelayEndpointsKey, controllerID: .mac)
+        let saved = ControllerConfig.mac()
+        let endpoint = URL(string: "https://192.0.2.1:47833")!
+        defaults.set("invalid https://192.0.2.1:47833 https://192.0.2.2:47833", forKey: legacyKey)
+        let registry = ControllerRegistry(defaults: defaults, seed: saved)
+
+        let resolution = ControllerConfig.resolveMac(
+            saved: registry.controllers[0],
+            legacyRelayEndpoints: defaults.string(forKey: legacyKey),
+            bundleDefaultEndpoints: [],
+            hasLaunchOverride: false
+        )
+        if resolution.shouldPersist { _ = registry.update(resolution.config) }
+        if resolution.shouldRemoveLegacyRelayEndpoints { defaults.removeObject(forKey: legacyKey) }
+
+        XCTAssertEqual(resolution.config, ControllerConfig.mac(relayEndpoints: [endpoint, URL(string: "https://192.0.2.2:47833")!]))
+        XCTAssertTrue(resolution.shouldPersist)
+        XCTAssertTrue(resolution.shouldRemoveLegacyRelayEndpoints)
+        XCTAssertEqual(ControllerRegistry(defaults: defaults).controllers[0], resolution.config)
+        XCTAssertNil(defaults.string(forKey: legacyKey))
+    }
+
+    func testResolveMacIgnoresInvalidLegacyRelayEndpointsAndRemovesKey() {
+        let saved = ControllerConfig.mac()
+
+        let resolution = ControllerConfig.resolveMac(
+            saved: saved,
+            legacyRelayEndpoints: "http://192.0.2.1:47833 not-an-endpoint",
+            bundleDefaultEndpoints: [],
+            hasLaunchOverride: false
+        )
+
+        XCTAssertEqual(resolution.config, saved)
+        XCTAssertFalse(resolution.shouldPersist)
+        XCTAssertTrue(resolution.shouldRemoveLegacyRelayEndpoints)
+    }
+
+    func testResolveMacUsesBundleDefaultsForLoopbackEntryWithoutPersistence() throws {
+        let saved = ControllerConfig.mac(directBaseURL: URL(string: "http://localhost:47832")!)
+        let bundleEndpoint = URL(string: "https://192.0.2.1:47833")!
+
+        let resolution = ControllerConfig.resolveMac(
+            saved: saved,
+            legacyRelayEndpoints: nil,
+            bundleDefaultEndpoints: [bundleEndpoint],
+            hasLaunchOverride: false
+        )
+
+        XCTAssertEqual(resolution.config, ControllerConfig.mac(relayEndpoints: [bundleEndpoint]))
+        XCTAssertFalse(resolution.shouldPersist)
+        XCTAssertFalse(resolution.shouldRemoveLegacyRelayEndpoints)
+    }
+
+    func testResolveMacSavedRelayEndpointsWinOverBundleDefaults() throws {
+        let savedEndpoint = URL(string: "https://192.0.2.1:47833")!
+        let bundleEndpoint = URL(string: "https://192.0.2.2:47833")!
+        let saved = ControllerConfig.mac(relayEndpoints: [savedEndpoint])
+
+        let resolution = ControllerConfig.resolveMac(
+            saved: saved,
+            legacyRelayEndpoints: nil,
+            bundleDefaultEndpoints: [bundleEndpoint],
+            hasLaunchOverride: false
+        )
+
+        XCTAssertEqual(resolution.config, saved)
+        XCTAssertFalse(resolution.shouldPersist)
+        XCTAssertFalse(resolution.shouldRemoveLegacyRelayEndpoints)
+    }
+
+    func testResolveMacLaunchOverrideSkipsMigrationAndBundleFallback() throws {
+        let saved = ControllerConfig.mac()
+        let endpoint = URL(string: "https://192.0.2.1:47833")!
+
+        let resolution = ControllerConfig.resolveMac(
+            saved: saved,
+            legacyRelayEndpoints: "https://192.0.2.1:47833",
+            bundleDefaultEndpoints: [endpoint],
+            hasLaunchOverride: true
+        )
+
+        XCTAssertEqual(resolution.config, saved)
+        XCTAssertFalse(resolution.shouldPersist)
+        XCTAssertFalse(resolution.shouldRemoveLegacyRelayEndpoints)
+    }
+
     func testExtraControllersDecodeWithoutPersistingRegistryEntries() throws {
         let entries = try ControllerRegistry.extraControllers(from: """
         [{"id":"mustafar","name":"Mustafar","server":"http://127.0.0.1:47834"}]

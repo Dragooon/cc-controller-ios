@@ -151,25 +151,40 @@ final class AppModel {
         #else
         let argumentPin: RelayPin? = nil
         #endif
-        let seed = ControllerConfig.mac(
-            directBaseURL: URL(string: "http://127.0.0.1:47832")!,
-            relayEndpoints: Self.relayEndpoints(arguments: [])
-        )
+        let seed = ControllerConfig.mac(directBaseURL: URL(string: "http://127.0.0.1:47832")!)
         let registry = ControllerRegistry(
             seed: seed,
             cacheRoot: cacheRoot,
             credentialStore: { id in KeychainCredentialStore(controllerID: id) }
         )
-        var selectedConfig = registry.controllers[0]
+        let legacyRelayEndpoints = UserDefaults.standard.string(forKey: ControllerStorage.namespacedKey(
+            ControllerStorage.legacyRelayEndpointsKey,
+            controllerID: .mac
+        ))
+        let resolution = ControllerConfig.resolveMac(
+            saved: registry.controllers[0],
+            legacyRelayEndpoints: legacyRelayEndpoints,
+            bundleDefaultEndpoints: defaultEndpoints,
+            hasLaunchOverride: serverOverride != nil || relayArgument != nil
+        )
+        var selectedConfig = resolution.config
+        if resolution.shouldPersist {
+            _ = registry.update(selectedConfig)
+        } else if selectedConfig != registry.controllers[0] {
+            _ = registry.update(selectedConfig, persist: false)
+        }
+        if resolution.shouldRemoveLegacyRelayEndpoints {
+            UserDefaults.standard.removeObject(forKey: ControllerStorage.namespacedKey(
+                ControllerStorage.legacyRelayEndpointsKey,
+                controllerID: .mac
+            ))
+        }
         if let serverOverride {
             selectedConfig.directBaseURL = serverOverride
             selectedConfig.relayEndpoints = []
         } else if let relayArgument {
             selectedConfig.directBaseURL = nil
-            selectedConfig.relayEndpoints = relayArgument
-                .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
-                .compactMap { URL(string: String($0)) }
-                .filter(isValidRelayAddress)
+            selectedConfig.relayEndpoints = ControllerConfig.relayEndpoints(from: relayArgument)
         }
         if selectedConfig != registry.controllers[0] {
             _ = registry.update(selectedConfig, persist: false)
@@ -951,29 +966,9 @@ final class AppModel {
     }
     #endif
 
-    private static func launchRelayEndpointsArgument(arguments: [String]) -> String? {
-        #if DEBUG || CC_PERF
-        argumentValue("-CCRelayEndpoints", in: arguments)
-        #else
-        nil
-        #endif
-    }
-
-    private static func relayEndpoints(
-        arguments: [String],
-        defaults: UserDefaults = .standard,
-        controllerID: ControllerID = .mac
-    ) -> [URL] {
-        let value = launchRelayEndpointsArgument(arguments: arguments)
-            ?? defaults.string(forKey: ControllerStorage.namespacedKey(ControllerStorage.legacyRelayEndpointsKey, controllerID: controllerID))
-            ?? (Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String)
-        guard let value else { return [] }
-        return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)
-    }
-
     private static func defaultRelayEndpoints() -> [URL] {
         guard let value = Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String else { return [] }
-        return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)
+        return ControllerConfig.relayEndpoints(from: value)
     }
 
     #if DEBUG || CC_PERF

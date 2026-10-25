@@ -61,18 +61,7 @@ func parseRelayAddresses(_ text: String) -> [URL]? {
 }
 
 func isValidRelayAddress(_ url: URL) -> Bool {
-    guard url.scheme?.lowercased() == "https",
-          let host = url.host,
-          url.user == nil,
-          url.password == nil,
-          url.port != nil,
-          url.path.isEmpty || url.path == "/",
-          url.query == nil,
-          url.fragment == nil else { return false }
-    let octets = host.split(separator: ".")
-    guard octets.count == 4,
-          octets.allSatisfy({ part in part.allSatisfy(\.isNumber) && (0...255).contains(Int(part) ?? -1) }) else { return false }
-    return true
+    ControllerConfig.isValidRelayAddress(url)
 }
 
 func relayAddressesText(_ urls: [URL]) -> String {
