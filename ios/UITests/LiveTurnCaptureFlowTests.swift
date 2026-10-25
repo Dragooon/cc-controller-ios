@@ -43,6 +43,14 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         XCTAssertTrue(initialRows.contains(prompt), "User message did not appear before the transcript prompt")
         XCTAssertTrue(initialRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row did not appear immediately after send")
         XCTAssertFalse(initialRows.contains { $0.contains("↓") }, "Activity row showed output tokens before the live turn had assistant usage")
+        let pendingPrompt = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt-bubble")
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", prompt))
+            .firstMatch
+        let initialActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
+        XCTAssertTrue(pendingPrompt.exists, "The sent prompt bubble did not render")
+        XCTAssertTrue(initialActivity.exists, "The live activity row did not render")
+        XCTAssertLessThan(pendingPrompt.frame.maxY, initialActivity.frame.minY, "The activity row rendered above the note that started the turn")
         let activityElapsed = Date().timeIntervalSince(sentAt)
         XCTAssertLessThan(activityElapsed, 1.0, "User message and activity row did not appear within 1 s of send")
         let activityLine = "ACTIVITY_ROW_APPEARED elapsed=\(String(format: "%.3f", activityElapsed))"
@@ -62,6 +70,9 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
         try await waitUntil(turnStart, hasElapsed: 2.2)
         XCTAssertTrue(app.staticTexts["Let me check the showtimes."].exists, "First assistant text did not load")
+        let firstAssistantActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
+        XCTAssertTrue(firstAssistantActivity.label.contains("↓ 7"), "Activity row did not show the current turn's output tokens")
+        XCTAssertFalse(firstAssistantActivity.label.contains("↓ 1.2k"), "Activity row showed the session total instead of current-turn tokens")
         capture("c", moment: "first-assistant", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 3.2)
@@ -93,6 +104,8 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         XCTAssertFalse(app.buttons["composer-stop"].exists, "Stop button remained after Stop hook")
         let stoppedRows = visibleTranscriptLabels(in: app)
         XCTAssertFalse(stoppedRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row remained after turn stopped")
+        let finalPromptMatches = app.staticTexts.matching(NSPredicate(format: "label == %@", prompt))
+        XCTAssertEqual(finalPromptMatches.count, 1, "The sent prompt appeared more than once in the final transcript")
         assertRowsAppearInOrder(
             [
                 prompt,

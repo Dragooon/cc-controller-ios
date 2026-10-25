@@ -383,6 +383,7 @@ public final class AppStore {
                 now: now,
                 attachments: attachments,
                 attachmentThumbnails: attachmentThumbnails,
+                startsTurn: shouldMarkPendingTurn,
                 existingPromptIDs: existingPromptIDs(for: sessionID)
             )
             queuedNotes[sessionID, default: []].append(note)
@@ -558,7 +559,8 @@ public final class AppStore {
                   let data = item.thumbnailData else { return }
             result[name] = data
         }
-        if sessions[sessionID]?.state != .working {
+        let startsTurn = sessions[sessionID]?.state != .working
+        if startsTurn {
             markPendingTurnStart(for: sessionID, at: clock.now)
         }
         let note = QueuedNote(
@@ -568,6 +570,7 @@ public final class AppStore {
             now: now,
             attachments: names,
             attachmentThumbnails: thumbnails,
+            startsTurn: startsTurn,
             existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         queuedNotes[sessionID, default: []].append(note)
@@ -620,6 +623,10 @@ public final class AppStore {
     public func sendAgain(id: String, sessionID: String) -> QueuedNote? {
         guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == id }), notes[index].state == .sent else { return nil }
         let old = notes.remove(at: index)
+        let startsTurn = sessions[sessionID]?.state != .working
+        if startsTurn {
+            markPendingTurnStart(for: sessionID, at: clock.now)
+        }
         let note = QueuedNote(
             text: old.text,
             state: .sending,
@@ -628,6 +635,7 @@ public final class AppStore {
             now: old.now,
             attachments: old.attachments,
             attachmentThumbnails: old.attachmentThumbnails,
+            startsTurn: startsTurn,
             existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         notes.append(note)
@@ -707,10 +715,7 @@ public final class AppStore {
 
     private func existingPromptIDs(for sessionID: String) -> Set<String> {
         guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return [] }
-        return Set(store.entries.compactMap { entry in
-            guard case .prompt(let prompt) = entry else { return nil }
-            return promptEntryIdentity(prompt)
-        })
+        return promptEntryIdentities(store.entries)
     }
 
     private func markDeliveryFailed(noteID: String, sessionID: String, message: String) {

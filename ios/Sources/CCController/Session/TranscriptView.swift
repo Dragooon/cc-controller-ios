@@ -794,18 +794,40 @@ struct SessionTranscriptView: View {
                 return false
             }
         }
-        if let activityFooter {
-            let turnID = turns.last?.id ?? "\(sessionID)-live"
-            result.append(TranscriptRow(id: "\(turnID)-activity", turnID: turnID, kind: .liveActivityFooter(activityFooter)))
-        }
+        if let activityRow { result.append(activityRow) }
         return result
+    }
+
+    private var activityRow: TranscriptRow? {
+        guard let activityFooter else { return nil }
+        let turnID = turns.last?.id ?? "\(sessionID)-live"
+        return TranscriptRow(id: "\(turnID)-activity", turnID: turnID, kind: .liveActivityFooter(activityFooter))
+    }
+
+    private var transcriptContentRows: [TranscriptRow] {
+        displayRows.filter { row in
+            if case .liveActivityFooter = row.kind { return false }
+            return true
+        }
+    }
+
+    private var turnStartingNotes: [QueuedNote] {
+        queuedNotes.filter(\.startsTurn)
+    }
+
+    private var afterTurnNotes: [QueuedNote] {
+        queuedNotes.filter { !$0.startsTurn }
     }
 
     @ViewBuilder
     private var transcriptRows: some View {
-        let currentRows = displayRows
-        let currentNotes = queuedNotes
-        let _ = scrollState.updateRowIndices(displayRows: currentRows, queuedNotes: currentNotes)
+        let currentRows = transcriptContentRows
+        let currentActivityRow = activityRow
+        let startingNotes = turnStartingNotes
+        let queuedNotes = afterTurnNotes
+        let orderedNotes = startingNotes + queuedNotes
+        let indexRows = currentRows + (currentActivityRow.map { [$0] } ?? [])
+        let _ = scrollState.updateRowIndices(displayRows: indexRows, queuedNotes: orderedNotes)
 
         ForEach(currentRows) { row in
             TranscriptRowView(
@@ -835,25 +857,35 @@ struct SessionTranscriptView: View {
             #endif
         }
 
-        ForEach(currentNotes) { note in
-            PendingPromptView(
+        ForEach(startingNotes) { note in
+            pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: false)
+        }
+
+        if let currentActivityRow {
+            TranscriptRowView(
                 sessionID: sessionID,
-                note: note,
-                sessionState: sessionState,
-                downloadFile: downloadFile,
-                onRetry: onRetryNote,
-                onEdit: onEditNote,
-                onDelete: onDeleteNote,
-                onCopy: onCopyNote,
-                onSendAgain: onSendAgain
+                row: currentActivityRow,
+                subagents: rowSubagents(for: currentActivityRow),
+                liveSession: liveSession,
+                onTool: onTool,
+                onSubagent: onSubagent,
+                onSubagentResult: onSubagentResult,
+                onCompaction: onCompaction,
+                downloadFile: downloadFile
             )
+            .equatable()
+            .id(currentActivityRow.id)
             .onAppear {
-                let index = scrollState.queuedNoteIndex(for: note.id) ?? 0
-                builtRowDidAppear(id: note.id, index: currentRows.count + index)
+                let index = scrollState.displayRowIndex(for: currentActivityRow.id) ?? 0
+                builtRowDidAppear(id: currentActivityRow.id, index: index)
             }
             .onDisappear {
-                builtRowDidDisappear(id: note.id)
+                builtRowDidDisappear(id: currentActivityRow.id)
             }
+        }
+
+        ForEach(queuedNotes) { note in
+            pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: currentActivityRow != nil)
         }
 
         Color.clear
@@ -867,6 +899,33 @@ struct SessionTranscriptView: View {
                 }
             }
             #endif
+    }
+
+    @ViewBuilder
+    private func pendingNoteView(
+        _ note: QueuedNote,
+        displayRowCount: Int,
+        activityInserted: Bool
+    ) -> some View {
+        PendingPromptView(
+            sessionID: sessionID,
+            note: note,
+            sessionState: sessionState,
+            downloadFile: downloadFile,
+            onRetry: onRetryNote,
+            onEdit: onEditNote,
+            onDelete: onDeleteNote,
+            onCopy: onCopyNote,
+            onSendAgain: onSendAgain
+        )
+        .onAppear {
+            let index = scrollState.queuedNoteIndex(for: note.id) ?? 0
+            let activityOffset = note.startsTurn ? 0 : (activityInserted ? 1 : 0)
+            builtRowDidAppear(id: note.id, index: displayRowCount + index + activityOffset)
+        }
+        .onDisappear {
+            builtRowDidDisappear(id: note.id)
+        }
     }
 
     private func rowUsesLiveSession(_ row: TranscriptRow) -> Bool {

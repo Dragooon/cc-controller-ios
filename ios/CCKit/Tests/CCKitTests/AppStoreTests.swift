@@ -535,6 +535,32 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(app.pendingTurnStart(for: "session-1"))
     }
 
+    func testQueuedNoteStartsTurnOnlyWhenCreatedWhileIdle() async throws {
+        URLProtocolStub.handler = { _ in
+            URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session(state: .idle)], entries: ["session-1": 0])))
+
+        guard case .success = await app.enqueueMessage(text: "starts turn", to: "session-1") else {
+            return XCTFail("Idle enqueue failed")
+        }
+        XCTAssertEqual(app.queuedNotes(for: "session-1").first?.startsTurn, true)
+
+        app.apply(.stateDelta(StateDelta(sessionId: "session-1", state: .working)))
+        try await settleCoalescedEvents()
+        guard case .success = await app.enqueueMessage(text: "queues later", to: "session-1") else {
+            return XCTFail("Working enqueue failed")
+        }
+        XCTAssertEqual(app.queuedNotes(for: "session-1").last?.startsTurn, false)
+    }
+
+    func testOldQueuedNoteDecodesStartsTurnAsFalse() throws {
+        let data = Data("{\"id\":\"old\",\"text\":\"old\",\"queued\":false,\"forceSent\":false,\"createdAt\":\"1970-01-01T00:00:00.000Z\",\"now\":false}".utf8)
+        let note = try JSONDecoder.ccKit().decode(QueuedNote.self, from: data)
+        XCTAssertFalse(note.startsTurn)
+    }
+
     func testPendingTurnExpiryClearsAfterTwentySecondsOnInjectedClock() async throws {
         URLProtocolStub.handler = { _ in
             URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))

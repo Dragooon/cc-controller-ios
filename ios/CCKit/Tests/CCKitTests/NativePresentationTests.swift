@@ -341,6 +341,35 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertNil(footer.outputTokens)
     }
 
+    func testLiveTurnOutputTokensReverseScansLongTranscript() {
+        let startedAt = Date(timeIntervalSince1970: 10_000)
+        var entries = (0..<5_000).map { index in
+            TranscriptEntry.assistant(AssistantEntry(
+                ts: Date(timeIntervalSince1970: Double(index)),
+                usage: Usage(outputTokens: 1)
+            ))
+        }
+        entries.append(.prompt(PromptEntry(id: "current", ts: startedAt, text: "current")))
+        entries.append(.assistant(AssistantEntry(ts: startedAt.addingTimeInterval(1), usage: Usage(outputTokens: 12))))
+
+        let session = Session(state: .working, startedAt: startedAt)
+
+        XCTAssertEqual(liveTurnOutputTokens(session, entries: entries), 12)
+    }
+
+    func testPromptEntryIdentitiesKeepOnlyTheLastTwentyPrompts() {
+        let entries = (0..<25).map { index in
+            TranscriptEntry.prompt(PromptEntry(id: "prompt-\(index)", ts: Date(timeIntervalSince1970: Double(index)), text: "prompt \(index)"))
+        }
+
+        let identities = promptEntryIdentities(entries)
+
+        XCTAssertEqual(identities.count, 20)
+        XCTAssertFalse(identities.contains("prompt-4"))
+        XCTAssertTrue(identities.contains("prompt-5"))
+        XCTAssertTrue(identities.contains("prompt-24"))
+    }
+
     func testToolPhrasesCoverEveryDesignedTool() {
         let cases: [(String, JSONValue, String, String)] = [
             ("Bash", .object(["description": .string("run tests"), "command": .string("npm test")]), "Running run tests…", "Ran run tests"),
