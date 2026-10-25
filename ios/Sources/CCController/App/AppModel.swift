@@ -20,6 +20,7 @@ final class AppModel {
         case unlocked
     }
 
+    let controllerConnection: ControllerConnection
     let auth: AuthSession
     let store: AppStore
     private(set) var lockPolicy: LockPolicy
@@ -75,6 +76,7 @@ final class AppModel {
     }
 
     private let credentials: any CredentialStore
+    private let registry: ControllerRegistry
     private let fixtureMode: Bool
     private let debugOnboarding: Bool
     #if DEBUG
@@ -84,7 +86,7 @@ final class AppModel {
     private let transport: ConnectionRouter
     private var relayPin: String?
     private let relayDefaultEndpoints: [URL]
-    private let relayDefaultsKey = "CCRelayEndpoints"
+    private let relayDefaultsKey: String
     private let lockIntervalStore: LockIntervalStore
     private var lockTransitionPolicy: LockTransitionPolicy
     private(set) var currentScenePhase: ScenePhase = .background
@@ -102,10 +104,15 @@ final class AppModel {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        let cacheRoot = Self.cacheDirectory()
+        try? ControllerMigration.migrateLegacyCacheAndSettings(
+            legacyCacheDirectory: cacheRoot,
+            macCacheDirectory: ControllerStorage.cacheDirectory(root: cacheRoot, controllerID: .mac)
+        )
         #if DEBUG || CC_PERF
         let bearer = environment["CCBearer"] ?? ""
         let serverOverride = Self.serverURL(arguments: arguments)
-        let configuredEndpoints = Self.relayEndpoints(arguments: arguments)
+        let configuredEndpoints = serverOverride == nil ? Self.relayEndpoints(arguments: arguments) : []
         let serverURL = serverOverride ?? URL(string: "http://127.0.0.1:47832")!
         let isDebugOnboarding = arguments.contains("-CCOnboarding")
         let isFixture = Self.hasFixtureArguments(arguments: arguments, bearer: bearer) && !isDebugOnboarding
@@ -125,29 +132,48 @@ final class AppModel {
         #else
         let initialTranscriptTail: Int? = nil
         #endif
-        self.serverURL = serverURL
-        let credentials = KeychainCredentialStore()
-        self.credentials = credentials
         let defaultEndpoints = Self.defaultRelayEndpoints()
         #if DEBUG || CC_PERF
         let argumentPin = Self.argumentValue("-CCRelayPin", in: arguments).flatMap { try? RelayPin($0) }
         #else
         let argumentPin: RelayPin? = nil
         #endif
-        let transport: ConnectionRouter
-        if serverOverride == nil, !configuredEndpoints.isEmpty {
-            transport = ConnectionRouter(
-                endpoints: configuredEndpoints,
-                pin: argumentPin,
-                pinLoader: { [credentials] in
-                    guard let value = try? await credentials.getRelayPin() else { return nil }
-                    return try? RelayPin(value)
-                }
-            )
+        let seed = ControllerConfig.mac(
+            directBaseURL: serverURL,
+            relayEndpoints: configuredEndpoints
+        )
+        let registry = ControllerRegistry(
+            seed: seed,
+            cacheRoot: cacheRoot,
+            credentialStore: { id in KeychainCredentialStore(controllerID: id) }
+        )
+        let selectedConfig: ControllerConfig
+        if serverOverride != nil || !configuredEndpoints.isEmpty {
+            selectedConfig = seed
         } else {
-            transport = ConnectionRouter(baseURL: serverURL)
+            selectedConfig = registry.controllers[0]
         }
-        self.transport = transport
+        let credentials = KeychainCredentialStore(controllerID: selectedConfig.id)
+        #if os(iOS)
+        try? KeychainCredentialStore().moveLegacyItems(to: credentials)
+        #endif
+        let controller = ControllerConnection(
+            config: selectedConfig,
+            credentials: credentials,
+            cacheRoot: cacheRoot,
+            relayPin: argumentPin,
+            fixtureBearer: isFixture ? bearer : nil,
+            initialTranscriptTail: initialTranscriptTail ?? 100
+        )
+        self.registry = registry
+        self.controllerConnection = controller
+        self.credentials = credentials
+        self.serverURL = selectedConfig.directBaseURL ?? serverURL
+        self.transport = controller.router
+        self.relayDefaultsKey = ControllerStorage.namespacedKey(
+            ControllerStorage.legacyRelayEndpointsKey,
+            controllerID: selectedConfig.id
+        )
         self.relayPin = argumentPin?.value
         self.relayDefaultEndpoints = defaultEndpoints
         let lockIntervalStore = LockIntervalStore()
@@ -161,21 +187,17 @@ final class AppModel {
         selectedSessionID = Self.argumentValue("-CCSession", in: arguments)
         #endif
 
-        let cacheDirectory = Self.cacheDirectory()
         #if DEBUG
-        if arguments.contains("-CCResetCache"), FileManager.default.fileExists(atPath: cacheDirectory.path) {
+        let controllerCacheDirectory = ControllerStorage.cacheDirectory(root: cacheRoot, controllerID: selectedConfig.id)
+        if arguments.contains("-CCResetCache"), FileManager.default.fileExists(atPath: controllerCacheDirectory.path) {
             do {
-                try FileManager.default.removeItem(at: cacheDirectory)
+                try FileManager.default.removeItem(at: controllerCacheDirectory)
             } catch {
                 assertionFailure("Could not reset fixture cache: \(error)")
             }
         }
         #endif
-        let auth = AuthSession(
-            connection: transport,
-            credentials: credentials,
-            cacheDirectory: cacheDirectory
-        )
+        let auth = controller.auth
         self.auth = auth
         #if DEBUG
         let lockInterval = Self.argumentValue("-CCLockInterval", in: arguments)
@@ -199,22 +221,7 @@ final class AppModel {
         self.colorScheme = nil
         #endif
         self.deviceName = UIDevice.current.name
-        let store = AppStore(
-            connection: transport,
-            bearerProvider: {
-                #if DEBUG || CC_PERF
-                if isFixture {
-                    return bearer
-                }
-                #endif
-                return try await auth.bearer()
-            },
-            cacheDirectory: cacheDirectory,
-            authenticationFailureHandler: {
-                _ = await auth.handleUnauthorized()
-            },
-            initialTranscriptTail: initialTranscriptTail ?? 100
-        )
+        let store = controller.store
         self.store = store
         self.settings = SettingsStore(
             probe: { try await auth.probeDaemon(timeout: 5) },
@@ -900,9 +907,13 @@ final class AppModel {
         #endif
     }
 
-    private static func relayEndpoints(arguments: [String]) -> [URL] {
+    private static func relayEndpoints(
+        arguments: [String],
+        defaults: UserDefaults = .standard,
+        controllerID: ControllerID = .mac
+    ) -> [URL] {
         let value = launchRelayEndpointsArgument(arguments: arguments)
-            ?? UserDefaults.standard.string(forKey: "CCRelayEndpoints")
+            ?? defaults.string(forKey: ControllerStorage.namespacedKey(ControllerStorage.legacyRelayEndpointsKey, controllerID: controllerID))
             ?? (Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String)
         guard let value else { return [] }
         return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)

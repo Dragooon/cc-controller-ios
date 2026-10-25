@@ -72,11 +72,18 @@ public extension CredentialStore {
 }
 
 public actor InMemoryCredentialStore: CredentialStore {
+    public let controllerID: ControllerID?
     private var storedDeviceToken: String?
     private var storedNativeSecret: String?
     private var storedRelayPin: String?
 
-    public init(deviceToken: String? = nil, nativeSecret: String? = nil, relayPin: String? = nil) {
+    public init(
+        controllerID: ControllerID? = nil,
+        deviceToken: String? = nil,
+        nativeSecret: String? = nil,
+        relayPin: String? = nil
+    ) {
+        self.controllerID = controllerID
         storedDeviceToken = deviceToken
         storedNativeSecret = nativeSecret
         storedRelayPin = relayPin
@@ -99,39 +106,45 @@ import LocalAuthentication
 import Security
 
 public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable {
+    public let controllerID: ControllerID?
     private let service: String
     private let accessGroup: String?
 
-    public init(service: String = "com.cc-controller.native-auth", accessGroup: String? = nil) {
+    public init(
+        service: String = "com.cc-controller.native-auth",
+        accessGroup: String? = nil,
+        controllerID: ControllerID? = nil
+    ) {
         self.service = service
         self.accessGroup = accessGroup
+        self.controllerID = controllerID
     }
 
     public func getDeviceToken() async throws -> String? {
-        try read(account: "deviceToken", context: nil)
+        try read(account: account("deviceToken"), context: nil)
     }
 
     public func setDeviceToken(_ value: String) async throws {
-        try write(value, account: "deviceToken", access: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, control: nil)
+        try write(value, account: account("deviceToken"), access: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, control: nil)
     }
 
     public func deleteDeviceToken() async throws {
-        try remove(account: "deviceToken")
+        try remove(account: account("deviceToken"))
     }
 
     public func getRelayPin() async throws -> String? {
-        guard let value = try read(account: "relayPin", context: nil) else { return nil }
+        guard let value = try read(account: account("relayPin"), context: nil) else { return nil }
         guard (try? RelayPin(value)) != nil else { throw CredentialStoreError.invalidData }
         return value
     }
 
     public func setRelayPin(_ value: String) async throws {
         guard (try? RelayPin(value)) != nil else { throw CredentialStoreError.invalidData }
-        try write(value, account: "relayPin", access: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, control: nil)
+        try write(value, account: account("relayPin"), access: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, control: nil)
     }
 
     public func deleteRelayPin() async throws {
-        try remove(account: "relayPin")
+        try remove(account: account("relayPin"))
     }
 
     public func getNativeSecret() async throws -> String? {
@@ -144,13 +157,13 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
         } catch {
             throw CredentialStoreError.system(error.localizedDescription)
         }
-        return try read(account: "nativeSecret", context: context)
+        return try read(account: account("nativeSecret"), context: context)
     }
 
     public func hasNativeSecret() async throws -> Bool {
         let context = LAContext()
         context.interactionNotAllowed = true
-        var query = baseQuery(account: "nativeSecret")
+        var query = baseQuery(account: account("nativeSecret"))
         query[kSecUseAuthenticationContext as String] = context
         query[kSecReturnData as String] = false
         let status = SecItemCopyMatching(query as CFDictionary, nil)
@@ -166,11 +179,42 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
         guard let control = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly, .biometryCurrentSet, &error) else {
             throw CredentialStoreError.system((error?.takeRetainedValue() as Error?)?.localizedDescription ?? "Could not create secure storage policy.")
         }
-        try write(value, account: "nativeSecret", access: nil, control: control)
+        try write(value, account: account("nativeSecret"), access: nil, control: control)
     }
 
     public func deleteNativeSecret() async throws {
-        try remove(account: "nativeSecret")
+        try remove(account: account("nativeSecret"))
+    }
+
+    private func account(_ name: String) -> String {
+        controllerID.map { "\(name).\($0.rawValue)" } ?? name
+    }
+
+    /// Rekeys the legacy items without reading the biometric-protected secret.
+    public func moveLegacyItems(to destination: KeychainCredentialStore) throws {
+        guard service == destination.service, accessGroup == destination.accessGroup else {
+            throw CredentialStoreError.system("Credential stores must use the same Keychain service and access group.")
+        }
+        for name in ["deviceToken", "nativeSecret", "relayPin"] {
+            let oldAccount = account(name)
+            let newAccount = destination.account(name)
+            var oldQuery = baseQuery(account: oldAccount)
+            oldQuery.removeValue(forKey: kSecReturnData as String)
+            var destinationQuery = destination.baseQuery(account: newAccount)
+            destinationQuery[kSecReturnData as String] = false
+            let destinationStatus = SecItemCopyMatching(destinationQuery as CFDictionary, nil)
+            if destinationStatus == errSecSuccess || destinationStatus == errSecInteractionNotAllowed {
+                try remove(account: oldAccount)
+                continue
+            }
+            guard destinationStatus == errSecItemNotFound else {
+                throw CredentialStoreError.systemStatus(destinationStatus, "Keychain lookup failed (\(destinationStatus)).")
+            }
+            let status = SecItemUpdate(oldQuery as CFDictionary, [kSecAttrAccount as String: newAccount] as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw CredentialStoreError.systemStatus(status, "Keychain migration failed (\(status)).")
+            }
+        }
     }
 
     private func baseQuery(account: String) -> [String: Any] {

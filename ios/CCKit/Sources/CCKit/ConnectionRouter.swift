@@ -26,6 +26,7 @@ public enum ConnectionRouterError: Error, Sendable, Equatable, LocalizedError {
 /// Owns the transport selected for the daemon API and event stream.
 public final class ConnectionRouter: @unchecked Sendable {
     public let mode: Mode
+    public let relayHostID: ControllerID?
 
     public enum Mode: Sendable, Equatable {
         case direct
@@ -51,8 +52,9 @@ public final class ConnectionRouter: @unchecked Sendable {
         return body()
     }
 
-    public init(baseURL: URL, session: URLSession = .shared) {
+    public init(baseURL: URL, session: URLSession = .shared, relayHostID: ControllerID? = nil) {
         mode = .direct
+        self.relayHostID = relayHostID
         endpoints = [baseURL]
         directURL = baseURL
         directSession = session
@@ -63,9 +65,11 @@ public final class ConnectionRouter: @unchecked Sendable {
     public init(
         endpoints: [URL],
         pin: RelayPin? = nil,
-        pinLoader: (@Sendable () async -> RelayPin?)? = nil
+        pinLoader: (@Sendable () async -> RelayPin?)? = nil,
+        relayHostID: ControllerID? = nil
     ) {
         mode = .relay
+        self.relayHostID = relayHostID
         self.endpoints = endpoints
         directURL = nil
         directSession = nil

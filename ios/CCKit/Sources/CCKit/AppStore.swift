@@ -110,7 +110,7 @@ public final class AppStore {
         )
     }
 
-    public init(
+    public convenience init(
         connection: ConnectionRouter,
         bearerProvider: @escaping @Sendable () async throws -> String,
         clock: any CCKitClock = SystemCCKitClock(),
@@ -119,8 +119,28 @@ public final class AppStore {
         authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
         initialTranscriptTail: Int = 100
     ) {
-        self.transport = connection
-        self.client = APIClient(connection: connection)
+        self.init(
+            client: APIClient(connection: connection),
+            bearerProvider: bearerProvider,
+            clock: clock,
+            cacheDirectory: cacheDirectory,
+            uploadTimeout: uploadTimeout,
+            authenticationFailureHandler: authenticationFailureHandler,
+            initialTranscriptTail: initialTranscriptTail
+        )
+    }
+
+    public init(
+        client: APIClient,
+        bearerProvider: @escaping @Sendable () async throws -> String,
+        clock: any CCKitClock = SystemCCKitClock(),
+        cacheDirectory: URL,
+        uploadTimeout: TimeInterval = 30,
+        authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
+        initialTranscriptTail: Int = 100
+    ) {
+        self.transport = client.connection
+        self.client = client
         self.bearerProvider = bearerProvider
         self.clock = clock
         self.cache = DiskCache(directory: cacheDirectory, clock: clock)
