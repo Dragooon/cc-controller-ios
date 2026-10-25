@@ -179,10 +179,12 @@ struct SettingsView: View {
                             onSaveRelayAddresses(relayAddressDraft)
                         }
                         .font(.footnote.weight(.semibold))
+                        .buttonStyle(.borderless)
                         .disabled(parseRelayAddresses(relayAddressDraft) == nil || relayAddressDraft == relayAddresses)
                         .accessibilityIdentifier("settings-relay-save")
                         Button("Reset to default", action: onResetRelayAddresses)
                             .font(.footnote.weight(.semibold))
+                            .buttonStyle(.borderless)
                             .accessibilityIdentifier("settings-relay-reset")
                     }
                 }
