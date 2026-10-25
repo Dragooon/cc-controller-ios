@@ -379,6 +379,18 @@ final class ComposerFlowTests: XCTestCase {
         attach(named: "queued-actions-menu")
         app.buttons["Dismiss"].tap()
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 5), "Dismissed queued message bubble remained visible")
+
+        let longPressMarker = "queued-actions-long-press-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(longPressMarker)
+        app.buttons["composer-queue"].tap()
+        XCTAssertTrue(waitForPendingStatus("Queued", message: longPressMarker, in: app, timeout: 10), "Long-press queued message did not render")
+        let longPressPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", longPressMarker)).firstMatch
+        XCTAssertTrue(longPressPending.waitForExistence(timeout: 5), "Long-press queued message bubble was not found")
+        longPressPending.press(forDuration: 1.0)
+        XCTAssertTrue(app.buttons["Dismiss"].waitForExistence(timeout: 5), "Long-press queued message menu did not offer Dismiss")
+        app.buttons["Dismiss"].tap()
+        XCTAssertTrue(waitForNonExistence(of: longPressPending, timeout: 5), "Long-press dismissed queued message bubble remained visible")
         attach(named: "queued-actions-dismissed")
 
         app.terminate()
@@ -386,6 +398,8 @@ final class ComposerFlowTests: XCTestCase {
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let relaunchedPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", marker)).firstMatch
         XCTAssertFalse(relaunchedPending.waitForExistence(timeout: 5), "Dismissed queued message returned after relaunch")
+        let relaunchedLongPressPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", longPressMarker)).firstMatch
+        XCTAssertFalse(relaunchedLongPressPending.waitForExistence(timeout: 5), "Long-press dismissed queued message returned after relaunch")
         attach(named: "queued-actions-relaunch")
     }
 

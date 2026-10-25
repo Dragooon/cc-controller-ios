@@ -933,6 +933,7 @@ private struct PendingPromptView: View {
     let onCopy: (String) -> Void
     let onSendAgain: (String) -> Void
     @State private var confirmationPresented = false
+    @State private var nonWorkingSince: Date?
 
     private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
         guard let downloadFile else { return nil }
@@ -969,21 +970,39 @@ private struct PendingPromptView: View {
 
     @ViewBuilder
     var body: some View {
-        if note.state == .sent || note.state == .queued {
-            TimelineView(.periodic(from: .now, by: 5)) { context in
-                content(now: context.date)
+        Group {
+            if note.state == .sent || note.state == .queued {
+                TimelineView(.periodic(from: .now, by: 5)) { context in
+                    content(now: context.date)
+                }
+            } else {
+                content(now: .now)
             }
-        } else {
-            content(now: .now)
+        }
+        .onAppear {
+            if sessionState != .working { nonWorkingSince = .now }
+        }
+        .onChange(of: sessionState) { oldState, newState in
+            if newState == .working {
+                nonWorkingSince = nil
+            } else if oldState == .working {
+                nonWorkingSince = .now
+            }
         }
     }
 
+    @ViewBuilder
     private func content(now: Date) -> some View {
-        let needsAttention = noteNeedsAttention(note: note, sessionState: sessionState, now: now)
+        let needsAttention = noteNeedsAttention(
+            note: note,
+            sessionState: sessionState,
+            nonWorkingSince: nonWorkingSince,
+            now: now
+        )
         let isPendingActionable = note.state == .sent || note.state == .queued
         let actionable = needsAttention || isPendingActionable || isFailed
         let text = needsAttention ? "Sent · not received yet" : statusText
-        return VStack(alignment: .trailing, spacing: 4) {
+        let view = VStack(alignment: .trailing, spacing: 4) {
             PromptBubble(
                 prompt: PromptEntry(text: note.text, attachments: note.attachments),
                 sessionID: sessionID,
@@ -1041,9 +1060,55 @@ private struct PendingPromptView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if needsAttention {
-                Text("This only removes it from your screen. It may already be with Claude. Sending again may deliver it twice.")
+                Text("The session hasn't shown this message yet. Sending again may deliver it twice. Edit and Dismiss only change this screen.")
             } else if isPendingActionable {
-                Text("This only removes it from your screen. It may already be with Claude.")
+                Text("Edit and Dismiss only change this screen. The message may already be with Claude.")
+            }
+        }
+
+        if note.state == .sending {
+            view
+        } else {
+            view.contextMenu {
+                contextMenuContent(needsAttention: needsAttention)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func contextMenuContent(needsAttention: Bool) -> some View {
+        if needsAttention {
+            Button { onCopy(note.id) } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            Button { onSendAgain(note.id) } label: {
+                Label("Send again", systemImage: "arrow.clockwise")
+            }
+            Button { onEdit(note.id) } label: {
+                Label("Edit message", systemImage: "pencil")
+            }
+            Button { onDelete(note.id) } label: {
+                Label("Dismiss", systemImage: "xmark")
+            }
+        } else if isFailed {
+            Button { onRetry(note.id) } label: {
+                Label("Retry", systemImage: "arrow.clockwise")
+            }
+            Button { onEdit(note.id) } label: {
+                Label("Edit message", systemImage: "pencil")
+            }
+            Button(role: .destructive) { onDelete(note.id) } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        } else {
+            Button { onCopy(note.id) } label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }
+            Button { onEdit(note.id) } label: {
+                Label("Edit message", systemImage: "pencil")
+            }
+            Button { onDelete(note.id) } label: {
+                Label("Dismiss", systemImage: "xmark")
             }
         }
     }

@@ -1021,12 +1021,20 @@ public func decisionText(_ entry: DecisionEntry, timeZone: TimeZone = .current, 
     return time.isEmpty ? text : "\(text), \(time)"
 }
 
-public func noteNeedsAttention(note: QueuedNote, sessionState: SessionState?, now: Date = .now) -> Bool {
+public func noteNeedsAttention(
+    note: QueuedNote,
+    sessionState: SessionState?,
+    nonWorkingSince: Date? = nil,
+    now: Date = .now
+) -> Bool {
     guard note.state == .sent || note.state == .queued,
           let sentAt = note.sentAt ?? (note.createdAt == .distantPast ? nil : note.createdAt) else { return false }
     let elapsed = now.timeIntervalSince(sentAt)
-    guard elapsed >= 30 else { return false }
-    return sessionState != .working || elapsed >= 10 * 60
+    if elapsed >= 10 * 60 { return true }
+    guard sessionState != .working, elapsed >= 30 else { return false }
+    guard note.state == .queued else { return true }
+    let attentionSince = max(sentAt, nonWorkingSince ?? sentAt)
+    return now.timeIntervalSince(attentionSince) >= 30
 }
 
 public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: TranscriptEntry, skew: TimeInterval = 5) -> [QueuedNote] {
@@ -1037,11 +1045,9 @@ public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: Tran
     return queuedEntries.filter { note in
         guard promptTime >= note.createdAt.addingTimeInterval(-skew) else { return true }
         let provisional = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !provisional.isEmpty else { return false }
+        guard !provisional.isEmpty else { return true }
         if transcriptText == provisional || transcriptText.hasPrefix(provisional) { return false }
 
-        let sentAt = note.sentAt ?? note.createdAt
-        guard promptTime >= sentAt else { return true }
         return !containsWholePromptText(transcriptText, provisional)
     }
 }

@@ -626,12 +626,20 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reconcileQueuedNote([note], promptEntry: prompt).map(\.id), ["note"])
     }
 
-    func testContainmentRequiresPromptAfterNoteWasSent() {
-        let sentAt = Date(timeIntervalSince1970: 1_800_000_000)
-        let note = QueuedNote(id: "note", text: "same", state: .queued, createdAt: sentAt.addingTimeInterval(-1), sentAt: sentAt)
-        let prompt = TranscriptEntry.prompt(PromptEntry(ts: sentAt.addingTimeInterval(-1), text: "other\nsame"))
+    func testContainmentKeepsPromptOlderThanCreatedAtSkew() {
+        let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(id: "note", text: "same", state: .queued, createdAt: createdAt, sentAt: createdAt.addingTimeInterval(10))
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: createdAt.addingTimeInterval(-5.1), text: "other\nsame"))
 
         XCTAssertEqual(reconcileQueuedNote([note], promptEntry: prompt).map(\.id), ["note"])
+    }
+
+    func testContainmentMatchesPromptBetweenCreationAndSend() {
+        let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(id: "note", text: "same", state: .queued, createdAt: createdAt, sentAt: createdAt.addingTimeInterval(10))
+        let prompt = TranscriptEntry.prompt(PromptEntry(ts: createdAt.addingTimeInterval(5), text: "other\nsame"))
+
+        XCTAssertTrue(reconcileQueuedNote([note], promptEntry: prompt).isEmpty)
     }
 
     func testEditRestoresDraftAndDeleteRemovesNote() async throws {
@@ -695,6 +703,27 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(noteNeedsAttention(note: workingSent, sessionState: .working, now: now))
         let workingQueued = QueuedNote(text: "working queued", state: .queued, createdAt: now, sentAt: now.addingTimeInterval(-10 * 60))
         XCTAssertTrue(noteNeedsAttention(note: workingQueued, sessionState: .working, now: now))
+    }
+
+    func testQueuedNoteWaitsForNonWorkingGracePeriod() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(text: "queued", state: .queued, createdAt: now.addingTimeInterval(-5 * 60), sentAt: now.addingTimeInterval(-5 * 60))
+
+        XCTAssertFalse(noteNeedsAttention(note: note, sessionState: .idle, nonWorkingSince: now.addingTimeInterval(-5), now: now))
+    }
+
+    func testQueuedNoteNeedsAttentionAfterNonWorkingGracePeriod() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(text: "queued", state: .queued, createdAt: now.addingTimeInterval(-5 * 60), sentAt: now.addingTimeInterval(-5 * 60))
+
+        XCTAssertTrue(noteNeedsAttention(note: note, sessionState: .idle, nonWorkingSince: now.addingTimeInterval(-31), now: now))
+    }
+
+    func testQueuedNoteNeedsAttentionAfterTenMinutesWhileWorking() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let note = QueuedNote(text: "queued", state: .queued, createdAt: now.addingTimeInterval(-10 * 60), sentAt: now.addingTimeInterval(-10 * 60))
+
+        XCTAssertTrue(noteNeedsAttention(note: note, sessionState: .working, now: now))
     }
 
     func testDraftPersistsAndRestoresAcrossStoreRecreation() {
