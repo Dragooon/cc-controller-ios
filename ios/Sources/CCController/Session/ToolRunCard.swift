@@ -4,14 +4,15 @@ import SwiftUI
 struct ToolRunCard: View {
     let run: ToolRun
     let onTool: (ToolEntry) -> Void
-    @State private var isExpanded: Bool
+    @State private var userExpanded: Bool?
 
     init(run: ToolRun, onTool: @escaping (ToolEntry) -> Void) {
         self.run = run
         self.onTool = onTool
-        _isExpanded = State(initialValue: run.entries.count < 4)
+        _userExpanded = State(initialValue: nil)
     }
 
+    private var isExpanded: Bool { userExpanded ?? !nativeToolRunIsCollapsed(run) }
     private var isCollapsedRun: Bool { nativeToolRunIsCollapsed(run) && !isExpanded }
 
     private var collapsedEntries: [ToolEntry] {
@@ -22,7 +23,7 @@ struct ToolRunCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if run.entries.count >= 4 {
-                Button { isExpanded.toggle() } label: {
+                Button { userExpanded = !isExpanded } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(nativeToolRunLabel(run))
                             .font(.subheadline)

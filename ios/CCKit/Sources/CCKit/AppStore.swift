@@ -372,27 +372,33 @@ public final class AppStore {
         let isCommand = attachments.isEmpty && isSlashCommand(trimmed)
         let shouldMarkPendingTurn = !isCommand && sessions[sessionID]?.state != .working
         if shouldMarkPendingTurn { markPendingTurnStart(for: sessionID, at: createdAt) }
+        let optimisticNote: QueuedNote?
+        if isCommand {
+            optimisticNote = nil
+        } else {
+            let note = QueuedNote(
+                text: trimmed,
+                state: .sending,
+                createdAt: createdAt,
+                now: now,
+                attachments: attachments,
+                attachmentThumbnails: attachmentThumbnails,
+                existingPromptIDs: existingPromptIDs(for: sessionID)
+            )
+            queuedNotes[sessionID, default: []].append(note)
+            persistQueuedNotes()
+            optimisticNote = note
+        }
         do {
             let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
-            if !isCommand {
-                queuedNotes[sessionID, default: []].append(
-                    QueuedNote(
-                        text: trimmed,
-                        state: result.queued == true ? .queued : .sent,
-                        createdAt: createdAt,
-                        sentAt: clock.now,
-                        now: now,
-                        attachments: attachments,
-                        attachmentThumbnails: attachmentThumbnails
-                    )
-                )
-                persistQueuedNotes()
-                if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
-                    reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
-                }
+            if let optimisticNote {
+                markDeliverySucceeded(noteID: optimisticNote.id, sessionID: sessionID, queued: result.queued == true)
             }
             return .success(result)
         } catch {
+            if let optimisticNote {
+                removeQueuedNote(id: optimisticNote.id, sessionID: sessionID)
+            }
             if shouldMarkPendingTurn { clearPendingTurnStart(for: sessionID) }
             return .failure(actionError(for: error))
         }
@@ -496,6 +502,10 @@ public final class AppStore {
                   let data = item.thumbnailData else { return }
             result[name] = data
         }
+        let draftBeforeSend = draft(for: sessionID)
+        let shouldRestoreDraft = !draftBeforeSend.isEmpty
+            && draftBeforeSend.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+        if shouldRestoreDraft { clearDraft(for: sessionID, matching: trimmed) }
         let result = await sendResult(
             text: trimmed.isEmpty ? "See attached." : trimmed,
             attachments: names,
@@ -509,6 +519,8 @@ public final class AppStore {
             if attachments[sessionID]?.isEmpty == true { attachments.removeValue(forKey: sessionID) }
             attachmentRevision += 1
             clearDraft(for: sessionID, matching: trimmed)
+        } else if shouldRestoreDraft && draft(for: sessionID).isEmpty {
+            setDraft(draftBeforeSend, for: sessionID)
         }
         return result
     }
@@ -555,7 +567,8 @@ public final class AppStore {
             createdAt: clock.now,
             now: now,
             attachments: names,
-            attachmentThumbnails: thumbnails
+            attachmentThumbnails: thumbnails,
+            existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         queuedNotes[sessionID, default: []].append(note)
         queuedNotes[sessionID] = orderedNotes(queuedNotes[sessionID] ?? [])
@@ -614,7 +627,8 @@ public final class AppStore {
             createdAt: clock.now,
             now: old.now,
             attachments: old.attachments,
-            attachmentThumbnails: old.attachmentThumbnails
+            attachmentThumbnails: old.attachmentThumbnails,
+            existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         notes.append(note)
         notes = orderedNotes(notes)
@@ -683,6 +697,20 @@ public final class AppStore {
         if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
             reconcileQueuedNotes(for: sessionID, changedEntries: store.entries)
         }
+    }
+
+    private func removeQueuedNote(id: String, sessionID: String) {
+        queuedNotes[sessionID]?.removeAll { $0.id == id }
+        if queuedNotes[sessionID]?.isEmpty == true { queuedNotes.removeValue(forKey: sessionID) }
+        persistQueuedNotes()
+    }
+
+    private func existingPromptIDs(for sessionID: String) -> Set<String> {
+        guard let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] else { return [] }
+        return Set(store.entries.compactMap { entry in
+            guard case .prompt(let prompt) = entry else { return nil }
+            return promptEntryIdentity(prompt)
+        })
     }
 
     private func markDeliveryFailed(noteID: String, sessionID: String, message: String) {

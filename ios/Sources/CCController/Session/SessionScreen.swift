@@ -170,7 +170,11 @@ struct SessionScreen: View {
                             transcriptEntries: sessionStore.entries
                         ),
                         queuedNotes: store.queuedNotes(for: sessionID),
-                        activityFooter: activityFooter(for: currentSession, pendingTurnStart: pendingTurnStart),
+                        activityFooter: activityFooter(
+                            for: currentSession,
+                            transcriptEntries: sessionStore.entries,
+                            pendingTurnStart: pendingTurnStart
+                        ),
                         liveSession: sessionStore.session,
                         sessionState: sessionStore.session.state,
                         onRetryNote: { noteID in
@@ -268,9 +272,18 @@ struct SessionScreen: View {
         }
     }
 
-    private func activityFooter(for session: Session, pendingTurnStart: Date?) -> CCKit.ActivityFooter? {
+    private func activityFooter(
+        for session: Session,
+        transcriptEntries: [TranscriptEntry],
+        pendingTurnStart: Date?
+    ) -> CCKit.ActivityFooter? {
         guard session.state == .working || session.state == .needsYou || pendingTurnStart != nil else { return nil }
-        return activityFooterText(session, verb: "Thinking", startedAt: pendingTurnStart)
+        return activityFooterText(
+            session,
+            transcriptEntries: transcriptEntries,
+            verb: "Thinking",
+            startedAt: pendingTurnStart
+        )
     }
 
     private func bottomStackConfiguration(
@@ -365,7 +378,6 @@ struct SessionScreen: View {
                 showCommandToast()
             }
         case .failure(let error):
-            clearOptimisticActivity()
             if shouldPresentSendError(error) {
                 model.actionError = error
             }

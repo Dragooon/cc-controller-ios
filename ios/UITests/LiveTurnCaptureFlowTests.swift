@@ -18,6 +18,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         }
 
         try await postFixture("/fixture/disable-live-event")
+        try await postFixtureJSON("/fixture/message-behaviour", body: ["promptDelayMs": 2_000])
         let searchButton = app.buttons["Search"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
         searchButton.tap()
@@ -30,18 +31,20 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 20), "Composer did not load")
-        let prompt = "Find an IMAX screening for Dune Part Three tonight."
+        let prompt = "Find a late-night IMAX screening for Moonlight Duo tonight."
         composer.tap()
         composer.typeText(prompt)
         let send = app.buttons["composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not load")
-        let sentAt = Date()
         send.tap()
+        let sentAt = Date()
 
-        try await waitUntil(sentAt, hasElapsed: 1.0)
         let initialRows = visibleTranscriptLabels(in: app)
+        XCTAssertTrue(initialRows.contains(prompt), "User message did not appear before the transcript prompt")
         XCTAssertTrue(initialRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row did not appear immediately after send")
+        XCTAssertFalse(initialRows.contains { $0.contains("↓") }, "Activity row showed output tokens before the live turn had assistant usage")
         let activityElapsed = Date().timeIntervalSince(sentAt)
+        XCTAssertLessThan(activityElapsed, 1.0, "User message and activity row did not appear within 1 s of send")
         let activityLine = "ACTIVITY_ROW_APPEARED elapsed=\(String(format: "%.3f", activityElapsed))"
         observations.append(activityLine)
         print(activityLine)
@@ -73,9 +76,14 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Reading dune-showtimes.md'")).firstMatch.exists, "Read did not show as running")
         capture("f", moment: "read-running", sentAt: sentAt, in: app, scheme: scheme)
 
-        try await waitUntil(turnStart, hasElapsed: 11.2)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran Check seat map'")).firstMatch.exists, "Second Bash did not show as done")
-        capture("g", moment: "second-bash-done", sentAt: sentAt, in: app, scheme: scheme)
+        try await waitUntil(turnStart, hasElapsed: 10.2)
+        let runningSummary = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running 4 tools…'")).firstMatch
+        XCTAssertTrue(runningSummary.exists, "Four-tool run did not collapse to a running summary")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running Verify seat map…'")).firstMatch.exists, "Collapsed run did not retain the running tool row")
+        capture("g", moment: "four-tool-running-collapsed", sentAt: sentAt, in: app, scheme: scheme)
+
+        try await waitUntil(turnStart, hasElapsed: 12.0)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran 4 tools'")).firstMatch.exists, "Four-tool run did not show its collapsed done summary")
 
         try await waitUntil(turnStart, hasElapsed: 12.2)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "8:00 PM screening has the best remaining seats")).firstMatch.exists, "Final assistant text did not load")
@@ -89,9 +97,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             [
                 prompt,
                 "Let me check the showtimes.",
-                "Ran List IMAX sessions",
-                "Read dune-showtimes.md",
-                "Ran Check seat map",
+                "Ran 4 tools",
                 "The 8:00 PM screening has the best remaining seats.",
             ],
             in: app
@@ -125,6 +131,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             "Find three good seats for Dune Part Three IMAX.",
             "I found a short list of IMAX sessions and left the final choice to you.",
             "Find an IMAX screening for Dune Part Three tonight.",
+            "Find a late-night IMAX screening for Moonlight Duo tonight.",
             "Let me check the showtimes.",
             "The 8:00 PM screening has the best remaining seats.",
             "I can keep looking if you want a different time.",
@@ -204,6 +211,22 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "no response body"
             throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(body)"])
+        }
+    }
+
+    private func postFixtureJSON(_ path: String, body: [String: Any]) async throws {
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)\(path)") else {
+            throw XCTSkip("Fixture control URL was invalid")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            let responseBody = String(data: data, encoding: .utf8) ?? "no response body"
+            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(responseBody)"])
         }
     }
 

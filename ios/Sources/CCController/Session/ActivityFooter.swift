@@ -54,7 +54,16 @@ struct LiveActivityFooterView: View {
     private func currentFooter(now: Date) -> CCKit.ActivityFooter {
         guard let session else { return footer }
         let verb = footer.primary.components(separatedBy: "…").first ?? "Thinking"
-        return activityFooterText(session, now: now, verb: verb, startedAt: footer.startedAt)
+        let current = activityFooterText(session, now: now, verb: verb, startedAt: footer.startedAt)
+        guard let outputTokens = footer.outputTokens, !current.isWaiting else { return current }
+        let detail = current.detail.isEmpty ? "" : "\(current.detail) · ↓ \(formatTokenCount(outputTokens))"
+        return ActivityFooter(
+            primary: current.primary,
+            detail: detail,
+            isWaiting: current.isWaiting,
+            startedAt: current.startedAt,
+            outputTokens: outputTokens
+        )
     }
 
     private func accessibilityText(_ current: CCKit.ActivityFooter) -> String {

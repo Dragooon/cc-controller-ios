@@ -535,11 +535,11 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(app.pendingTurnStart(for: "session-1"))
     }
 
-    func testPendingTurnExpirySleepsForTwentySeconds() async throws {
+    func testPendingTurnExpiryClearsAfterTwentySecondsOnInjectedClock() async throws {
         URLProtocolStub.handler = { _ in
             URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
         }
-        let clock = RecordingClock()
+        let clock = ManualClock()
         let app = AppStore(
             serverURL: URL(string: "http://localhost:47832")!,
             bearerProvider: { "test-token" },
@@ -549,12 +549,77 @@ final class AppStoreTests: XCTestCase {
         )
 
         _ = await app.send(text: "expiring turn", to: "session-1")
-        for _ in 0..<20 {
-            if await clock.values().contains(.seconds(20)) { break }
-            try await Task.sleep(for: .milliseconds(10))
+        for _ in 0..<50 where clock.sleepCount == 0 { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(clock.sleepDurations.contains(.seconds(20)), "Expiry task did not reach the injected 20-second sleep")
+        XCTAssertNotNil(app.pendingTurnStart(for: "session-1"))
+        clock.resumeSleeps()
+        for _ in 0..<50 where app.pendingTurnStart(for: "session-1") != nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNil(app.pendingTurnStart(for: "session-1"), "Expiry task did not clear after injected 20-second sleep")
+    }
+
+    func testSendComposerShowsSendingNoteBeforeResponseAndUpdatesItInPlace() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                gate.wait()
+                return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
         }
-        let sleeps = await clock.values()
-        XCTAssertTrue(sleeps.contains(.seconds(20)))
+        let app = makeApp()
+        app.setDraft("send now", for: "session-1")
+        let sending = Task { @MainActor in await app.sendComposer(text: "send now", to: "session-1") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sending }
+        XCTAssertEqual(app.draft(for: "session-1"), "")
+        XCTAssertNil(app.queuedNotes(for: "session-1").first?.sentAt)
+        gate.signal()
+        guard case .success = await sending.value else { return XCTFail("Send was rejected") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sent }
+        XCTAssertNotNil(app.queuedNotes(for: "session-1").first?.sentAt)
+        XCTAssertEqual(app.queuedNotes(for: "session-1").count, 1)
+    }
+
+    func testSendComposerRemovesSendingNoteAndRestoresDraftOnFailure() async throws {
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                return URLProtocolStub.json(500, body: Data("{\"error\":\"send failed\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.setDraft("keep this", for: "session-1")
+        guard case .failure = await app.sendComposer(text: "keep this", to: "session-1") else {
+            return XCTFail("Failed send unexpectedly succeeded")
+        }
+        XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
+        XCTAssertEqual(app.draft(for: "session-1"), "keep this")
+    }
+
+    func testSendingNoteReconcilesNewPromptBeforeResponseButNotOlderIdenticalPrompt() async throws {
+        let gate = DispatchSemaphore(value: 0)
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                gate.wait()
+                return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session(state: .idle)], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        let old = TranscriptEntry.prompt(PromptEntry(id: "old-prompt", ts: Date(timeIntervalSince1970: 1_800_000_000), text: "same text"))
+        store.merge([old])
+
+        let sending = Task { @MainActor in await app.sendComposer(text: "same text", to: "session-1") }
+        try await waitUntil { app.queuedNotes(for: "session-1").first?.state == .sending }
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: old)))
+        XCTAssertEqual(app.queuedNotes(for: "session-1").map(\.text), ["same text"])
+
+        let new = TranscriptEntry.prompt(PromptEntry(id: "new-prompt", ts: Date(), text: "same text"))
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: new)))
+        XCTAssertTrue(app.queuedNotes(for: "session-1").isEmpty)
+        gate.signal()
+        _ = await sending.value
     }
 
     func testSendCarriesAttachmentNamesAndThumbnailsIntoPendingNote() async {
@@ -851,12 +916,16 @@ final class AppStoreTests: XCTestCase {
 
     func testQueuedNoteClearsViaRefetchGap() async throws {
         let createdAt = Date()
+        var transcriptCalls = 0
         URLProtocolStub.handler = { request in
             if request.url?.path.hasSuffix("/message") == true {
                 return URLProtocolStub.json(Data("{\"delivered\":false,\"queued\":true}".utf8))
             }
             if request.url?.path.hasSuffix("/transcript") == true {
-                return URLProtocolStub.json(Self.promptJSON(text: "gap delivery", timestamp: createdAt))
+                transcriptCalls += 1
+                return transcriptCalls == 1
+                    ? URLProtocolStub.json(Self.entriesJSON([]))
+                    : URLProtocolStub.json(Self.promptJSON(text: "gap delivery", timestamp: createdAt))
             }
             return URLProtocolStub.json(Data("{}".utf8))
         }
@@ -1175,6 +1244,43 @@ private struct FixedClock: CCKitClock {
 
     func sleep(for duration: Duration) async throws {
         try Task.checkCancellation()
+    }
+}
+
+private final class ManualClock: CCKitClock, @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiters: [CheckedContinuation<Void, Error>] = []
+    private var durations: [Duration] = []
+
+    var sleepCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.count
+    }
+
+    var sleepDurations: [Duration] {
+        lock.lock()
+        defer { lock.unlock() }
+        return durations
+    }
+
+    var now: Date { Date(timeIntervalSince1970: 1_800_000_000) }
+
+    func sleep(for duration: Duration) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            durations.append(duration)
+            waiters.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func resumeSleeps() {
+        lock.lock()
+        let current = waiters
+        waiters.removeAll()
+        lock.unlock()
+        current.forEach { $0.resume() }
     }
 }
 

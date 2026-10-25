@@ -291,6 +291,56 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertTrue(nativeToolRunIsCollapsed(run))
     }
 
+    func testActivityFooterUsesOnlyCurrentTurnOutputTokens() {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let session = Session(
+            state: .working,
+            usage: Usage(outputTokens: 999),
+            startedAt: startedAt
+        )
+        let entries: [TranscriptEntry] = [
+            .prompt(PromptEntry(id: "old-prompt", ts: startedAt.addingTimeInterval(-20), text: "old")),
+            .assistant(AssistantEntry(ts: startedAt.addingTimeInterval(-19), usage: Usage(outputTokens: 100))),
+            .prompt(PromptEntry(id: "live-prompt", ts: startedAt, text: "current")),
+            .assistant(AssistantEntry(ts: startedAt.addingTimeInterval(1), usage: Usage(outputTokens: 4))),
+            .assistant(AssistantEntry(ts: startedAt.addingTimeInterval(2), usage: Usage(outputTokens: 5))),
+        ]
+
+        let footer = activityFooterText(session, transcriptEntries: entries, now: startedAt.addingTimeInterval(3))
+
+        XCTAssertEqual(footer.detail, "3s · ↓ 9")
+        XCTAssertEqual(footer.outputTokens, 9)
+    }
+
+    func testActivityFooterHidesTokensWhilePendingOrWaiting() {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let entries: [TranscriptEntry] = [
+            .prompt(PromptEntry(id: "live-prompt", ts: startedAt, text: "current")),
+            .assistant(AssistantEntry(usage: Usage(outputTokens: 4))),
+        ]
+        let pending = Session(state: .idle, usage: Usage(outputTokens: 999))
+        let waiting = Session(state: .needsYou, pending: [Approval(requestId: "approval")], usage: Usage(outputTokens: 999))
+
+        let pendingFooter = activityFooterText(pending, transcriptEntries: entries, now: startedAt, startedAt: startedAt)
+        let waitingFooter = activityFooterText(waiting, transcriptEntries: entries, now: startedAt.addingTimeInterval(3), startedAt: startedAt)
+
+        XCTAssertFalse(pendingFooter.detail.contains("↓"))
+        XCTAssertEqual(waitingFooter.detail, "")
+        XCTAssertNil(pendingFooter.outputTokens)
+        XCTAssertNil(waitingFooter.outputTokens)
+    }
+
+    func testActivityFooterHidesTokensBeforeCurrentTurnHasAssistantUsage() {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let session = Session(state: .working, usage: Usage(outputTokens: 999), startedAt: startedAt)
+        let entries = [TranscriptEntry.prompt(PromptEntry(id: "live-prompt", ts: startedAt, text: "current"))]
+
+        let footer = activityFooterText(session, transcriptEntries: entries, now: startedAt.addingTimeInterval(1))
+
+        XCTAssertFalse(footer.detail.contains("↓"))
+        XCTAssertNil(footer.outputTokens)
+    }
+
     func testToolPhrasesCoverEveryDesignedTool() {
         let cases: [(String, JSONValue, String, String)] = [
             ("Bash", .object(["description": .string("run tests"), "command": .string("npm test")]), "Running run tests…", "Ran run tests"),

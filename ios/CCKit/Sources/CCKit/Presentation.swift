@@ -39,6 +39,8 @@ public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
     public var now: Bool
     public var attachments: [String]
     public var attachmentThumbnails: [String: Data]
+    /// Prompt identities present before this note was created; they cannot reconcile this note.
+    public var existingPromptIDs: Set<String>
     private var legacyEncoding: Bool
 
     public var queued: Bool {
@@ -56,7 +58,8 @@ public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
         sentAt: Date? = nil,
         now: Bool = false,
         attachments: [String] = [],
-        attachmentThumbnails: [String: Data] = [:]
+        attachmentThumbnails: [String: Data] = [:],
+        existingPromptIDs: Set<String> = []
     ) {
         self.id = id
         self.text = text
@@ -67,10 +70,11 @@ public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
         self.now = now
         self.attachments = attachments
         self.attachmentThumbnails = attachmentThumbnails
+        self.existingPromptIDs = existingPromptIDs
         self.legacyEncoding = false
     }
 
-    private enum CodingKeys: String, CodingKey { case id, text, state, queued, forceSent, createdAt, sentAt, now, attachments, attachmentThumbnails }
+    private enum CodingKeys: String, CodingKey { case id, text, state, queued, forceSent, createdAt, sentAt, now, attachments, attachmentThumbnails, existingPromptIDs }
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         legacyEncoding = !container.contains(.id) && !container.contains(.state) && !container.contains(.sentAt) && !container.contains(.now)
@@ -87,6 +91,7 @@ public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
         now = try container.decodeIfPresent(Bool.self, forKey: .now) ?? false
         attachments = try container.decodeIfPresent([String].self, forKey: .attachments) ?? []
         attachmentThumbnails = try container.decodeIfPresent([String: Data].self, forKey: .attachmentThumbnails) ?? [:]
+        existingPromptIDs = try container.decodeIfPresent(Set<String>.self, forKey: .existingPromptIDs) ?? []
     }
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -102,6 +107,7 @@ public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
             try container.encode(createdAt, forKey: .createdAt)
             try container.encodeIfPresent(sentAt, forKey: .sentAt)
             try container.encode(now, forKey: .now)
+            try container.encode(existingPromptIDs, forKey: .existingPromptIDs)
         }
         if !attachments.isEmpty { try container.encode(attachments, forKey: .attachments) }
         if !attachmentThumbnails.isEmpty { try container.encode(attachmentThumbnails, forKey: .attachmentThumbnails) }
@@ -115,6 +121,7 @@ public struct QueuedNote: Codable, Sendable, Equatable, Identifiable {
         lhs.id == rhs.id && lhs.text == rhs.text && lhs.state == rhs.state && lhs.forceSent == rhs.forceSent
             && lhs.createdAt == rhs.createdAt && lhs.sentAt == rhs.sentAt && lhs.now == rhs.now
             && lhs.attachments == rhs.attachments && lhs.attachmentThumbnails == rhs.attachmentThumbnails
+            && lhs.existingPromptIDs == rhs.existingPromptIDs
     }
 }
 
@@ -445,12 +452,14 @@ public struct ActivityFooter: Codable, Sendable, Equatable {
     public let detail: String
     public let isWaiting: Bool
     public let startedAt: Date?
+    public let outputTokens: Int?
 
-    public init(primary: String, detail: String, isWaiting: Bool = false, startedAt: Date? = nil) {
+    public init(primary: String, detail: String, isWaiting: Bool = false, startedAt: Date? = nil, outputTokens: Int? = nil) {
         self.primary = primary
         self.detail = detail
         self.isWaiting = isWaiting
         self.startedAt = startedAt
+        self.outputTokens = outputTokens
     }
 }
 
@@ -540,6 +549,21 @@ public func turnOutputTokens(_ entries: [TranscriptEntry]) -> Int? {
         found = true
     }
     return found ? total : nil
+}
+
+/// Returns output usage only for the prompt that started the current working turn.
+public func liveTurnOutputTokens(_ session: Session, entries: [TranscriptEntry], promptSkew: TimeInterval = 5) -> Int? {
+    guard session.state == .working, let startedAt = session.startedAt else { return nil }
+    let turns = groupTurns(entries: entries, working: true)
+    guard let turn = turns.last(where: { turn in
+        guard let promptTime = turn.prompts.first?.ts else { return false }
+        return promptTime >= startedAt.addingTimeInterval(-promptSkew)
+    }) else { return nil }
+    let assistantEntries = turn.items.compactMap { item -> TranscriptEntry? in
+        if case .assistant(let assistant) = item { return .assistant(assistant) }
+        return nil
+    }
+    return turnOutputTokens(assistantEntries)
 }
 
 public func formatDuration(_ milliseconds: Double) -> String {
@@ -1004,6 +1028,7 @@ public func liveFooterText(_ turn: Turn, verb: String) -> String {
 
 public func activityFooterText(
     _ session: Session,
+    transcriptEntries: [TranscriptEntry] = [],
     now: Date = .now,
     verb: String = "Thinking",
     startedAt: Date? = nil
@@ -1011,12 +1036,14 @@ public func activityFooterText(
     let waiting = session.state == .needsYou || !(session.pending ?? []).isEmpty
     let start = startedAt ?? session.startedAt
     let elapsed = elapsedMilliseconds(from: start, to: now)
-    let detail = waiting ? "" : [formatDuration(elapsed), session.usage?.outputTokens.map { "↓ \(formatTokenCount($0))" }].compactMap { $0 }.joined(separator: " · ")
+    let outputTokens = liveTurnOutputTokens(session, entries: transcriptEntries)
+    let detail = waiting ? "" : [formatDuration(elapsed), outputTokens.map { "↓ \(formatTokenCount($0))" }].compactMap { $0 }.joined(separator: " · ")
     return ActivityFooter(
         primary: waiting ? "Waiting for you" : "\(verb)…",
         detail: detail,
         isWaiting: waiting,
-        startedAt: start
+        startedAt: start,
+        outputTokens: waiting ? nil : outputTokens
     )
 }
 
@@ -1104,12 +1131,18 @@ public func noteNeedsAttention(
     return now.timeIntervalSince(attentionSince) >= 30
 }
 
+public func promptEntryIdentity(_ prompt: PromptEntry) -> String {
+    prompt.id ?? "prompt|\(prompt.ts.map(CCDateCoding.format) ?? "")|\(prompt.text ?? prompt.command ?? "")"
+}
+
 public func reconcileQueuedNote(_ queuedEntries: [QueuedNote], promptEntry: TranscriptEntry, skew: TimeInterval = 5) -> [QueuedNote] {
     guard case .prompt(let prompt) = promptEntry,
           let promptTime = prompt.ts else { return queuedEntries }
     let transcriptText = (normalisePromptText(prompt.text ?? prompt.command).text).trimmingCharacters(in: .whitespacesAndNewlines)
     guard !transcriptText.isEmpty else { return queuedEntries }
+    let promptID = promptEntryIdentity(prompt)
     return queuedEntries.filter { note in
+        guard !note.existingPromptIDs.contains(promptID) else { return true }
         guard promptTime >= note.createdAt.addingTimeInterval(-skew) else { return true }
         let provisional = note.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !provisional.isEmpty else { return true }

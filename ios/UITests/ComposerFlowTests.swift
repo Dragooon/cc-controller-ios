@@ -304,7 +304,7 @@ final class ComposerFlowTests: XCTestCase {
 
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let field = composerField(in: app)
-        XCTAssertTrue(field.waitForPlaceholder("Queue a message", timeout: 45), "Dune fixture session did not become working")
+        XCTAssertTrue(field.waitForPlaceholder("Queue for after this turn…", timeout: 45), "Dune fixture session did not become working")
 
         let stop = app.buttons["composer-stop"]
         XCTAssertTrue(stop.waitForExistence(timeout: 10), "Stop button did not load for a working mod session")
@@ -329,7 +329,7 @@ final class ComposerFlowTests: XCTestCase {
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let field = composerField(in: app)
         XCTAssertTrue(
-            field.waitForPlaceholder("Queue a message", timeout: 45),
+            field.waitForPlaceholder("Queue for after this turn…", timeout: 45),
             "Dune fixture session did not become working"
         )
         let initialHeight = field.frame.height
@@ -379,7 +379,7 @@ final class ComposerFlowTests: XCTestCase {
 
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let field = composerField(in: app)
-        XCTAssertTrue(field.waitForPlaceholder("Queue a message", timeout: 45), "Dune fixture session did not become working")
+        XCTAssertTrue(field.waitForPlaceholder("Queue for after this turn…", timeout: 45), "Dune fixture session did not become working")
         let marker = "queued-actions-\(UUID().uuidString)"
         field.tap()
         field.typeText(marker)
@@ -429,7 +429,7 @@ final class ComposerFlowTests: XCTestCase {
 
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let field = composerField(in: app)
-        XCTAssertTrue(field.waitForPlaceholder("Queue a message", timeout: 45), "Dune fixture session did not become working")
+        XCTAssertTrue(field.waitForPlaceholder("Queue for after this turn…", timeout: 45), "Dune fixture session did not become working")
         try await postFixture("/fixture/batch-next-prompts")
         let first = "batched-first-\(UUID().uuidString)"
         let second = "batched-second-\(UUID().uuidString)"
