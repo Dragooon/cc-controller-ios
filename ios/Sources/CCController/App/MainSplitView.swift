@@ -131,9 +131,6 @@ struct MainSplitView: View {
             guard newSizeClass == .regular, model.selectedSessionID != nil else { return }
             columnVisibility = .detailOnly
         }
-        .task(id: model.selectedSessionID) {
-            synchronizeColumnVisibility()
-        }
     }
 
     private func splitView() -> some View {
@@ -213,9 +210,12 @@ struct MainSplitView: View {
     }
 
     private func synchronizeColumnVisibility() {
-        let hasSelectedSession = model.selectedSessionID != nil
-        columnVisibility = hasSelectedSession ? .detailOnly : .all
-        preferredCompactColumn = hasSelectedSession ? .detail : .sidebar
+        guard model.selectedSessionID != nil else {
+            columnVisibility = .all
+            preferredCompactColumn = .sidebar
+            return
+        }
+        columnVisibility = .detailOnly
     }
 
     private var approvalsElsewhereCount: Int {

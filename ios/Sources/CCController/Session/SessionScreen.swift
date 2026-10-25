@@ -63,6 +63,14 @@ struct SessionScreen: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    private var approvalsElsewhereText: String {
+        approvalsElsewhereCount == 1 ? "1 needs you" : "\(approvalsElsewhereCount) need you"
+    }
+
+    private var approvalsElsewhereAccessibilityLabel: String {
+        approvalsElsewhereCount == 1 ? "1 session needs you" : "\(approvalsElsewhereCount) sessions need you"
+    }
+
     var body: some View {
         screen()
             .quickLookPreview($filePreviewURL)
@@ -524,7 +532,7 @@ struct SessionScreen: View {
                 if approvalsElsewhereCount > 0 {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: onShowApprovalsElsewhere) {
-                            Text("\(approvalsElsewhereCount) need you")
+                            Text(approvalsElsewhereText)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.ccAmber)
                                 .padding(.horizontal, 10)
@@ -534,7 +542,7 @@ struct SessionScreen: View {
                         .fixedSize(horizontal: true, vertical: false)
                         .glassEffect(.regular.interactive(), in: .capsule)
                         .accessibilityIdentifier("approvals-elsewhere")
-                        .accessibilityLabel("\(approvalsElsewhereCount) sessions need you")
+                        .accessibilityLabel(approvalsElsewhereAccessibilityLabel)
                     }
                 }
                 ToolbarItem(placement: .principal) {

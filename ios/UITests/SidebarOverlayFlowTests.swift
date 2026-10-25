@@ -46,7 +46,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         let capsule = app.buttons["approvals-elsewhere"]
         XCTAssertTrue(capsule.waitForExistence(timeout: 75), "Approvals-elsewhere capsule did not load")
-        XCTAssertEqual(capsule.label, "1 sessions need you")
+        XCTAssertEqual(capsule.label, "1 session needs you")
         addScreenshot(named: "sidebar-approvals-elsewhere")
 
         capsule.tap()
