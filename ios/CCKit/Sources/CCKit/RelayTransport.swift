@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Security
 
 public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSessionTaskDelegate, @unchecked Sendable {
@@ -124,25 +125,65 @@ public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSession
 public struct RelaySession: @unchecked Sendable {
     public let session: URLSession
     public let trustDelegate: PinnedTrustDelegate
+    public let openPreamble: Data
 
-    public init(session: URLSession, trustDelegate: PinnedTrustDelegate) {
+    public init(session: URLSession, trustDelegate: PinnedTrustDelegate, openPreamble: Data = Data()) {
         self.session = session
         self.trustDelegate = trustDelegate
+        self.openPreamble = openPreamble
+    }
+}
+
+public enum RelayTransportError: Error, Sendable, Equatable, LocalizedError {
+    case relayRejected(hostID: ControllerID, line: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .relayRejected(let hostID, let line):
+            "Relay host \(hostID.rawValue) rejected the connection: \(line)"
+        }
+    }
+}
+
+public enum RelayTransport {
+    public static func openPreamble(for hostID: ControllerID?) -> Data {
+        guard let hostID, hostID != .mac else { return Data() }
+        return Data("CCR1 OPEN \(hostID.rawValue)\n".utf8)
+    }
+
+    public static func writeOpen(
+        to connection: NWConnection,
+        hostID: ControllerID?,
+        completion: @escaping @Sendable (NWError?) -> Void
+    ) {
+        let preamble = openPreamble(for: hostID)
+        guard !preamble.isEmpty else {
+            completion(nil)
+            return
+        }
+        connection.send(content: preamble, completion: .contentProcessed(completion))
+    }
+
+    public static func rejection(in data: Data, hostID: ControllerID) -> RelayTransportError? {
+        guard let line = String(data: data, encoding: .utf8)?.split(separator: "\n", maxSplits: 1).first,
+              line.hasPrefix("ERR ") else { return nil }
+        return .relayRejected(hostID: hostID, line: String(line))
     }
 }
 
 public enum RelaySessionFactory {
-    public static func make(endpoints: [URL], mode: PinnedTrustDelegate.Mode) -> RelaySession {
+    public static func make(endpoints: [URL], mode: PinnedTrustDelegate.Mode, hostID: ControllerID? = nil) -> RelaySession {
         let delegate = PinnedTrustDelegate(endpoints: endpoints, mode: mode)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = false
         return RelaySession(
             session: URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil),
-            trustDelegate: delegate
+            trustDelegate: delegate,
+            openPreamble: RelayTransport.openPreamble(for: hostID)
         )
     }
 
-    public static func makeSession(endpoints: [URL], mode: PinnedTrustDelegate.Mode) -> URLSession {
-        make(endpoints: endpoints, mode: mode).session
+    public static func makeSession(endpoints: [URL], mode: PinnedTrustDelegate.Mode, hostID: ControllerID? = nil) -> URLSession {
+        make(endpoints: endpoints, mode: mode, hostID: hostID).session
     }
 }

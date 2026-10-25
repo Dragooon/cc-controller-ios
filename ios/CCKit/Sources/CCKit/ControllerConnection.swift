@@ -68,7 +68,13 @@ public final class ControllerConnection {
             authenticationFailureHandler: { [weak auth] in
                 _ = await auth?.handleUnauthorized()
             },
-            initialTranscriptTail: initialTranscriptTail
+            initialTranscriptTail: initialTranscriptTail,
+            controllerInfo: ControllerInfo(
+                id: config.id,
+                name: config.displayName,
+                kind: .claudeCode,
+                capabilities: ControllerCapability.all
+            )
         )
     }
 }

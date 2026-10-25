@@ -20,6 +20,7 @@ public final class AppStore {
     public private(set) var sleeping: [SleepingSession] = []
     public private(set) var approvals: [Approval] = []
     public private(set) var daemon: DaemonInfo?
+    public private(set) var controllerInfo: ControllerInfo
     public private(set) var apiVersion: Int?
     public private(set) var lastUpdated: Date?
     public private(set) var unknownEventCount = 0
@@ -97,7 +98,8 @@ public final class AppStore {
         cacheDirectory: URL,
         uploadTimeout: TimeInterval = 30,
         authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
-        initialTranscriptTail: Int = 100
+        initialTranscriptTail: Int = 100,
+        controllerInfo: ControllerInfo? = nil
     ) {
         self.init(
             connection: ConnectionRouter(baseURL: serverURL, session: session),
@@ -106,7 +108,8 @@ public final class AppStore {
             cacheDirectory: cacheDirectory,
             uploadTimeout: uploadTimeout,
             authenticationFailureHandler: authenticationFailureHandler,
-            initialTranscriptTail: initialTranscriptTail
+            initialTranscriptTail: initialTranscriptTail,
+            controllerInfo: controllerInfo
         )
     }
 
@@ -117,7 +120,8 @@ public final class AppStore {
         cacheDirectory: URL,
         uploadTimeout: TimeInterval = 30,
         authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
-        initialTranscriptTail: Int = 100
+        initialTranscriptTail: Int = 100,
+        controllerInfo: ControllerInfo? = nil
     ) {
         self.init(
             client: APIClient(connection: connection),
@@ -126,7 +130,8 @@ public final class AppStore {
             cacheDirectory: cacheDirectory,
             uploadTimeout: uploadTimeout,
             authenticationFailureHandler: authenticationFailureHandler,
-            initialTranscriptTail: initialTranscriptTail
+            initialTranscriptTail: initialTranscriptTail,
+            controllerInfo: controllerInfo
         )
     }
 
@@ -137,7 +142,8 @@ public final class AppStore {
         cacheDirectory: URL,
         uploadTimeout: TimeInterval = 30,
         authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
-        initialTranscriptTail: Int = 100
+        initialTranscriptTail: Int = 100,
+        controllerInfo: ControllerInfo? = nil
     ) {
         self.transport = client.connection
         self.client = client
@@ -151,6 +157,7 @@ public final class AppStore {
         self.uploadTimeout = uploadTimeout
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.authenticationFailureHandler = authenticationFailureHandler
+        self.controllerInfo = controllerInfo ?? ControllerInfo(id: .mac, name: "Mac", kind: .claudeCode, capabilities: ControllerCapability.all)
     }
 
     public func start() {
@@ -1112,6 +1119,7 @@ public final class AppStore {
         let startedAtChanged = resetTranscripts || hasDaemonRestarted(bootstrap.daemon)
         if startedAtChanged { resetOpenTranscripts() }
         latestBootstrap = bootstrap
+        if let controller = bootstrap.controller { controllerInfo = controller }
         daemon = bootstrap.daemon
         apiVersion = bootstrap.apiVersion
         if let state = bootstrap.state { applyState(state) }

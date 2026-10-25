@@ -78,7 +78,8 @@ public final class ConnectionRouter: @unchecked Sendable {
         pinResolved = pin != nil || pinLoader == nil
         let relay = RelaySessionFactory.make(
             endpoints: endpoints,
-            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
+            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse,
+            hostID: relayHostID
         )
         relaySession = relay
         selector = RelayEndpointSelector(endpoints: endpoints, session: relay.session, trustDelegate: relay.trustDelegate)
@@ -199,7 +200,8 @@ public final class ConnectionRouter: @unchecked Sendable {
     private func replaceRelaySession(endpoints: [URL], pin: RelayPin?) {
         let relay = RelaySessionFactory.make(
             endpoints: endpoints,
-            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse
+            mode: pin.map(PinnedTrustDelegate.Mode.pinned) ?? .trustOnFirstUse,
+            hostID: relayHostID
         )
         let nextSelector = RelayEndpointSelector(
             endpoints: endpoints,

@@ -4,6 +4,31 @@ import XCTest
 
 @MainActor
 final class ControllerTests: XCTestCase {
+    func testControllerInfoDecodesKnownAndUnknownValues() throws {
+        let data = Data("""
+        {"controller":{"id":"mustafar","name":"Mustafar","kind":"stockade","capabilities":["list","transcript","future_action"]}}
+        """.utf8)
+        let bootstrap = try JSONDecoder.ccKit().decode(Bootstrap.self, from: data)
+        let info = try XCTUnwrap(bootstrap.controller)
+        XCTAssertEqual(info.id, try ControllerID("mustafar"))
+        XCTAssertEqual(info.name, "Mustafar")
+        XCTAssertEqual(info.kind, .stockade)
+        XCTAssertEqual(info.capabilities, [.list, .transcript, .unknown("future_action")])
+    }
+
+    func testControllerInfoAbsentUsesConfiguredFallbackOnAppStore() throws {
+        let bootstrap = try JSONDecoder.ccKit().decode(Bootstrap.self, from: Data("{\"apiVersion\":2}".utf8))
+        XCTAssertNil(bootstrap.controller)
+        let fallback = ControllerInfo(id: try ControllerID("mustafar"), name: "Mustafar", kind: .claudeCode, capabilities: ControllerCapability.all)
+        let store = AppStore(
+            client: APIClient(baseURL: URL(string: "http://127.0.0.1:47832")!),
+            bearerProvider: { "fixture" },
+            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
+            controllerInfo: fallback
+        )
+        XCTAssertEqual(store.controllerInfo, fallback)
+    }
+
     func testControllerNamespacesDoNotCollide() throws {
         let mac = try ControllerID("mac")
         let mustafar = try ControllerID("mustafar")

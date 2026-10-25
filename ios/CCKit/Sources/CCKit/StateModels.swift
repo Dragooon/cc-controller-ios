@@ -1,13 +1,119 @@
 import Foundation
 
+public enum ControllerKind: Codable, Sendable, Equatable {
+    case claudeCode
+    case stockade
+    case unknown(String)
+
+    public init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        switch value {
+        case "claude-code": self = .claudeCode
+        case "stockade": self = .stockade
+        default: self = .unknown(value)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .claudeCode: "claude-code"
+        case .stockade: "stockade"
+        case .unknown(let value): value
+        }
+    }
+}
+
+public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable {
+    case list
+    case transcript
+    case send
+    case decide
+    case interrupt
+    case newSession
+    case wake
+    case keys
+    case mode
+    case files
+    case commands
+    case unknown(String)
+
+    public init(rawValue: String) {
+        switch rawValue {
+        case "list": self = .list
+        case "transcript": self = .transcript
+        case "send": self = .send
+        case "decide": self = .decide
+        case "interrupt": self = .interrupt
+        case "new_session": self = .newSession
+        case "wake": self = .wake
+        case "keys": self = .keys
+        case "mode": self = .mode
+        case "files": self = .files
+        case "commands": self = .commands
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .list: "list"
+        case .transcript: "transcript"
+        case .send: "send"
+        case .decide: "decide"
+        case .interrupt: "interrupt"
+        case .newSession: "new_session"
+        case .wake: "wake"
+        case .keys: "keys"
+        case .mode: "mode"
+        case .files: "files"
+        case .commands: "commands"
+        case .unknown(let value): value
+        }
+    }
+
+    public static let all: Set<Self> = [
+        .list, .transcript, .send, .decide, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands,
+    ]
+}
+
+public struct ControllerInfo: Codable, Sendable, Equatable {
+    public let id: ControllerID
+    public let name: String
+    public let kind: ControllerKind
+    public let capabilities: Set<ControllerCapability>
+
+    public init(id: ControllerID, name: String, kind: ControllerKind, capabilities: Set<ControllerCapability>) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.capabilities = capabilities
+    }
+}
+
 public struct Bootstrap: Codable, Sendable, Equatable {
+    public var controller: ControllerInfo?
     public var apiVersion: Int?
     public var daemon: DaemonInfo?
     public var capabilities: Capabilities?
     public var limits: Limits?
     public var state: StateSnapshot?
 
-    public init(apiVersion: Int? = nil, daemon: DaemonInfo? = nil, capabilities: Capabilities? = nil, limits: Limits? = nil, state: StateSnapshot? = nil) {
+    public init(controller: ControllerInfo? = nil, apiVersion: Int? = nil, daemon: DaemonInfo? = nil, capabilities: Capabilities? = nil, limits: Limits? = nil, state: StateSnapshot? = nil) {
+        self.controller = controller
         self.apiVersion = apiVersion
         self.daemon = daemon
         self.capabilities = capabilities

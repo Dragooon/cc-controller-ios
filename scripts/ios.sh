@@ -15,7 +15,9 @@ POOL_WAIT_SECONDS=$((60 * 60))
 POOL_SLOT=""
 POOL_OWNER_PID=""
 STARTED_DAEMON=""
+STARTED_SECOND_DAEMON=""
 FIXTURE_OUT=""
+FIXTURE_SECOND_OUT=""
 NODE_MODULES_LINKED=0
 NODE_MODULES_SOURCE=""
 REAL_SMOKE_RUN=0
@@ -132,16 +134,24 @@ stop_current_xcodebuild() {
 }
 
 stop_fixture_daemon() {
-  if [[ -n "$STARTED_DAEMON" ]] && kill -0 "$STARTED_DAEMON" 2>/dev/null; then
-    kill -TERM "$STARTED_DAEMON" 2>/dev/null || true
-    for _ in {1..50}; do kill -0 "$STARTED_DAEMON" 2>/dev/null || break; sleep 0.1; done
-    kill -KILL "$STARTED_DAEMON" 2>/dev/null || true
-    wait "$STARTED_DAEMON" 2>/dev/null || true
-  fi
+  local pid
+  for pid in "$STARTED_DAEMON" "$STARTED_SECOND_DAEMON"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+      for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+      kill -KILL "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
   STARTED_DAEMON=""
+  STARTED_SECOND_DAEMON=""
   if [[ -n "$FIXTURE_OUT" ]]; then
     rm -f "$FIXTURE_OUT"
     FIXTURE_OUT=""
+  fi
+  if [[ -n "$FIXTURE_SECOND_OUT" ]]; then
+    rm -f "$FIXTURE_SECOND_OUT"
+    FIXTURE_SECOND_OUT=""
   fi
 }
 
@@ -163,6 +173,23 @@ start_fixture_daemon() {
   if [[ ! -s "$FIXTURE_OUT" ]]; then
     printf '%s\n' 'fixture daemon did not become ready' >&2
     return 1
+  fi
+
+  FIXTURE_SECOND_OUT=$(mktemp -t cc-controller-fixture-mustafar.XXXXXX)
+  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" \
+    --scenario default --session-set mustafar --controller-id mustafar --controller-name Mustafar \
+    --controller-kind stockade --controller-capabilities list,transcript,send,decide --out "$FIXTURE_SECOND_OUT" \
+    >"$FIXTURE_LOG.mustafar" 2>&1 &
+  STARTED_SECOND_DAEMON=$!
+  for _ in {1..100}; do [[ -s "$FIXTURE_SECOND_OUT" ]] && break; sleep 0.1; done
+  if [[ ! -s "$FIXTURE_SECOND_OUT" ]]; then
+    printf '%s\n' 'second fixture daemon did not become ready' >&2
+    return 1
+  fi
+  if [[ -n "${CC_FIXTURE_SECOND_BOOTSTRAP_FILE:-}" ]]; then
+    curl -fsS -H "Authorization: Bearer $(json_value "$FIXTURE_SECOND_OUT" bearer)" \
+      "http://127.0.0.1:$(json_value "$FIXTURE_SECOND_OUT" webPort)/api/bootstrap" \
+      > "$CC_FIXTURE_SECOND_BOOTSTRAP_FILE"
   fi
   return 0
 }
@@ -419,10 +446,13 @@ configure_xctestrun() {
     printf 'xctestrun is missing CCControllerUITests.EnvironmentVariables: %s\n' "$destination" >&2
     return 1
   fi
-  local relay_port="" relay_pin=""
+  local relay_port="" relay_pin="" second_fixture_url=""
   if [[ -n "$FIXTURE_OUT" && -s "$FIXTURE_OUT" ]]; then
     relay_port=$(json_value "$FIXTURE_OUT" relayPort)
     relay_pin=$(json_value "$FIXTURE_OUT" relaySpkiSha256)
+  fi
+  if [[ -n "$FIXTURE_SECOND_OUT" && -s "$FIXTURE_SECOND_OUT" ]]; then
+    second_fixture_url="http://127.0.0.1:$(json_value "$FIXTURE_SECOND_OUT" webPort)"
   fi
   local entries=(
     TEST_RUNNER_SERVER_URL "$server"
@@ -430,6 +460,7 @@ configure_xctestrun() {
     TEST_RUNNER_RELAY_PORT "$relay_port"
     TEST_RUNNER_RELAY_PIN "$relay_pin"
     TEST_RUNNER_FIXTURE_CONTROL_URL "$control"
+    TEST_RUNNER_SECOND_FIXTURE_URL "$second_fixture_url"
     TEST_RUNNER_COLOR_SCHEME "$color"
     CC_FLOW_OUTPUT_DIR "$output_dir"
     TEST_RUNNER_REAL_SMOKE "$real_smoke"
@@ -490,6 +521,7 @@ cleanup_run() {
     mkdir -p "$DIAG_DIR"
     if [[ -n "$FIXTURE_LOG" ]]; then
       cp "$FIXTURE_LOG" "$DIAG_DIR/fixture-daemon.log" 2>/dev/null || true
+      cp "$FIXTURE_LOG.mustafar" "$DIAG_DIR/fixture-daemon-mustafar.log" 2>/dev/null || true
     fi
     while read -r udid; do
       [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true

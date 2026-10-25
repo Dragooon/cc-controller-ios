@@ -6,6 +6,20 @@ import XCTest
 final class RelayTests: XCTestCase {
     private let expectedP256Pin = "41b9c42ac34d8cd7f63491c59b8405ae5aa7b6a3015c5367e951e836afd65294"
 
+    func testRelayOpenPreambleNamesNonMacHost() throws {
+        let mustafar = try ControllerID("mustafar")
+        XCTAssertEqual(RelayTransport.openPreamble(for: mustafar), Data("CCR1 OPEN mustafar\n".utf8))
+        XCTAssertEqual(RelayTransport.openPreamble(for: .mac), Data())
+        XCTAssertEqual(RelayTransport.openPreamble(for: nil), Data())
+    }
+
+    func testRelayErrorBeforeTLSNamesHostID() throws {
+        let mustafar = try ControllerID("mustafar")
+        let error = try XCTUnwrap(RelayTransport.rejection(in: Data("ERR no-host\n".utf8), hostID: mustafar))
+        XCTAssertEqual(error, .relayRejected(hostID: mustafar, line: "ERR no-host"))
+        XCTAssertEqual(error.errorDescription, "Relay host mustafar rejected the connection: ERR no-host")
+    }
+
     func testP256CertificateMatchesOpenSSLSPKIVector() throws {
         let certificate = try certificate(named: "relay-p256")
         let pin = try RelayPin.spkiSHA256(of: certificate)
