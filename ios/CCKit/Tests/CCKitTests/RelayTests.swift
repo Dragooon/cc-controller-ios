@@ -97,6 +97,11 @@ final class RelayTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testHealthPathMappingReportsLocalNetworkDenied() {
+        XCTAssertEqual(relayHealthProbeError(for: .localNetworkDenied), .localNetworkDenied)
+        XCTAssertNil(relayHealthProbeError(for: .notAvailable))
+    }
+
     func testHealthLineParsing() throws {
         XCTAssertEqual(try parseRelayHealthLine("OK host=1 pending=3 streams=2\n"), RelayHealth(macConnected: true, pending: 3, streams: 2))
         XCTAssertEqual(try parseRelayHealthLine("OK host=0 pending=0 streams=0"), RelayHealth(macConnected: false, pending: 0, streams: 0))

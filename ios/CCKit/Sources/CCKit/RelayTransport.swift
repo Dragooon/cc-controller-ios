@@ -23,6 +23,11 @@ public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSession
         self.mode = mode
     }
 
+    public var isPinned: Bool {
+        if case .pinned = mode { return true }
+        return false
+    }
+
     public var lastFailure: Failure? {
         lock.lock()
         defer { lock.unlock() }
@@ -96,6 +101,14 @@ public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSession
                 }
             case .trustOnFirstUse:
                 lock.lock()
+                if let pin, pin != observed {
+                    let mismatch = Failure.pinMismatch(observed: observed)
+                    failure = mismatch
+                    failures[challenge.protectionSpace.host.lowercased()] = mismatch
+                    lock.unlock()
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                    return
+                }
                 pin = observed
                 lock.unlock()
             }

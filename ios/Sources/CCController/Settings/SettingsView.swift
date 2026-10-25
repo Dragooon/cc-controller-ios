@@ -28,6 +28,10 @@ enum SettingsLockInterval: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     let address: String
+    let relayMode: Bool
+    let relayAddresses: String
+    let relayPin: String?
+    let connectedVia: String?
     let latency: SettingsLatency
     let connectionTest: SettingsConnectionTest?
     let thisDevice: SettingsLoad<SettingsThisDevice>
@@ -42,13 +46,20 @@ struct SettingsView: View {
     let onUnpair: () -> Void
     let onLockInterval: (SettingsLockInterval) -> Void
     let onRetryDevices: () -> Void
+    let onRelayAddressesChanged: (String) -> Void
+    let onResetRelayAddresses: () -> Void
     let lockAfter: SettingsLockInterval
 
     @State private var selectedLockInterval: SettingsLockInterval
+    @State private var relayAddressDraft: String
     @State private var showingUnpairConfirmation = false
 
     init(
         address: String = "127.0.0.1:47832",
+        relayMode: Bool = false,
+        relayAddresses: String = "",
+        relayPin: String? = nil,
+        connectedVia: String? = nil,
         latency: SettingsLatency = .checking,
         connectionTest: SettingsConnectionTest? = nil,
         thisDevice: SettingsLoad<SettingsThisDevice> = .loading,
@@ -63,9 +74,15 @@ struct SettingsView: View {
         onLockNow: @escaping () -> Void = {},
         onUnpair: @escaping () -> Void = {},
         onLockInterval: @escaping (SettingsLockInterval) -> Void = { _ in },
-        onRetryDevices: @escaping () -> Void = {}
+        onRetryDevices: @escaping () -> Void = {},
+        onRelayAddressesChanged: @escaping (String) -> Void = { _ in },
+        onResetRelayAddresses: @escaping () -> Void = {}
     ) {
         self.address = address
+        self.relayMode = relayMode
+        self.relayAddresses = relayAddresses
+        self.relayPin = relayPin
+        self.connectedVia = connectedVia
         self.latency = latency
         self.connectionTest = connectionTest
         self.thisDevice = thisDevice
@@ -81,7 +98,10 @@ struct SettingsView: View {
         self.onUnpair = onUnpair
         self.onLockInterval = onLockInterval
         self.onRetryDevices = onRetryDevices
+        self.onRelayAddressesChanged = onRelayAddressesChanged
+        self.onResetRelayAddresses = onResetRelayAddresses
         _selectedLockInterval = State(initialValue: lockAfter)
+        _relayAddressDraft = State(initialValue: relayAddresses)
     }
 
     var body: some View {
@@ -122,12 +142,47 @@ struct SettingsView: View {
 
     private var connectionSection: some View {
         Section {
-            LabeledContent("Address") {
-                Text(address)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.ccLabel)
+            if relayMode {
+                if let connectedVia {
+                    LabeledContent("Connected via") {
+                        Text("\(connectedVia) (\(address))")
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(.ccLabel)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .settingsValue("Connected via", "\(connectedVia) (\(address))", id: "settings-address")
+                }
+                if let relayPin {
+                    LabeledContent("Mac identity", value: relayPin)
+                        .font(.footnote.monospaced())
+                        .settingsValue("Mac identity", relayPin, id: "settings-relay-pin")
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Relay addresses")
+                    TextEditor(text: $relayAddressDraft)
+                        .font(.footnote.monospaced())
+                        .frame(minHeight: 72)
+                        .accessibilityIdentifier("settings-relay-addresses")
+                        .onChange(of: relayAddressDraft) { _, value in
+                            onRelayAddressesChanged(value)
+                        }
+                    if parseRelayAddresses(relayAddressDraft) == nil {
+                        Text("Use IP addresses only.")
+                            .font(.footnote)
+                            .foregroundStyle(.ccAccent)
+                    }
+                    Button("Reset to default", action: onResetRelayAddresses)
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("settings-relay-reset")
+                }
+            } else {
+                LabeledContent("Address") {
+                    Text(address)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.ccLabel)
+                }
+                .settingsValue("Address", address, id: "settings-address")
             }
-            .settingsValue("Address", address, id: "settings-address")
 
             HStack {
                 Text("Latency")

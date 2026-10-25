@@ -46,6 +46,7 @@ public actor RelayEndpointSelector {
     private let prober: RelayEndpointProber
     private let clock: any CCKitClock
     private var cachedSelection: RelayEndpointSelection?
+    private var latestOutcomes: [URL: RelayEndpointOutcome] = [:]
 
     public init(
         endpoints: [URL],
@@ -73,6 +74,7 @@ public actor RelayEndpointSelector {
     public func select() async -> RelayEndpointSelection? {
         if let cachedSelection { return cachedSelection }
         guard !endpoints.isEmpty else { return nil }
+        latestOutcomes = [:]
 
         let state = CompletionState()
         let (stream, continuation) = AsyncStream<Completion>.makeStream()
@@ -97,6 +99,7 @@ public actor RelayEndpointSelector {
             guard let completion = await iterator.next() else { break }
             completed += 1
             outcomes[endpoints[completion.index]] = completion.outcome
+            latestOutcomes = outcomes
             if case .reachable = completion.outcome {
                 successes.insert(completion.index)
                 if completion.index == 0 || allEarlierEndpointsHaveFinished(before: completion.index, outcomes: outcomes) {
@@ -123,6 +126,10 @@ public actor RelayEndpointSelector {
         cachedSelection = nil
     }
 
+    public func outcomes() -> [URL: RelayEndpointOutcome] {
+        latestOutcomes
+    }
+
     private func allEarlierEndpointsHaveFinished(before index: Int, outcomes: [URL: RelayEndpointOutcome]) -> Bool {
         endpoints[..<index].allSatisfy { outcomes[$0] != nil }
     }
@@ -147,11 +154,11 @@ public actor RelayEndpointSelector {
                 guard response is HTTPURLResponse else { return .failed(code: -1) }
                 return .reachable
             } catch let error as URLError {
-                if trustDelegate?.failure(for: endpoint) != nil { return .pinMismatch }
+                if trustDelegate?.failure(for: endpoint) != nil || (trustDelegate?.isPinned == true && error.code == .secureConnectionFailed) { return .pinMismatch }
                 if error.code == .timedOut { return .timedOut }
                 return .failed(code: error.errorCode)
             } catch {
-                if trustDelegate?.failure(for: endpoint) != nil { return .pinMismatch }
+                if trustDelegate?.failure(for: endpoint) != nil || trustDelegate?.isPinned == true { return .pinMismatch }
                 return .failed(code: -1)
             }
         }

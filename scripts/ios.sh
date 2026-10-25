@@ -152,11 +152,11 @@ start_fixture_daemon() {
   local private_fixture=${4:-}
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
   if [[ "$scenario" == 'perf' && -n "$private_fixture" ]]; then
-    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" CC_FIXTURE_LONG_SESSION_PATH="$private_fixture" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" CC_FIXTURE_LONG_SESSION_PATH="$private_fixture" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
   elif [[ "$scenario" == 'perf' ]]; then
-    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
   else
-    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" >"$FIXTURE_LOG" 2>&1 &
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
   fi
   STARTED_DAEMON=$!
   for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
@@ -419,9 +419,16 @@ configure_xctestrun() {
     printf 'xctestrun is missing CCControllerUITests.EnvironmentVariables: %s\n' "$destination" >&2
     return 1
   fi
+  local relay_port="" relay_pin=""
+  if [[ -n "$FIXTURE_OUT" && -s "$FIXTURE_OUT" ]]; then
+    relay_port=$(json_value "$FIXTURE_OUT" relayPort)
+    relay_pin=$(json_value "$FIXTURE_OUT" relaySpkiSha256)
+  fi
   local entries=(
     TEST_RUNNER_SERVER_URL "$server"
     TEST_RUNNER_BEARER "$bearer"
+    TEST_RUNNER_RELAY_PORT "$relay_port"
+    TEST_RUNNER_RELAY_PIN "$relay_pin"
     TEST_RUNNER_FIXTURE_CONTROL_URL "$control"
     TEST_RUNNER_COLOR_SCHEME "$color"
     CC_FLOW_OUTPUT_DIR "$output_dir"
@@ -854,7 +861,7 @@ cmd_flows() {
       flow_method_classes+=("$flow_class")
       flow_methods+=("$flow_method")
     done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
-  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' -o -name 'RealControllerSmokeTests.swift' \) -print | sort)
+  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' -o -name 'RealControllerSmokeTests.swift' -o -name 'RelayConnectionTests.swift' \) -print | sort)
   if [[ ${#flow_files[@]} -eq 0 ]]; then
     printf '%s\n' 'no flow tests found'
     return 0

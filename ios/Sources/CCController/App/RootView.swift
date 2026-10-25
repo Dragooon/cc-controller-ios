@@ -20,7 +20,12 @@ struct RootView: View {
             content
             #endif
 
-            if model.isPrivacyCovered {
+            if model.identityChanged {
+                IdentityChangedView(
+                    onRetry: model.retryConnection,
+                    onPairAgain: { Task { await model.pairAgain() } }
+                )
+            } else if model.isPrivacyCovered {
                 PrivacyCoverView()
             }
         }
@@ -60,8 +65,10 @@ struct RootView: View {
                 connection: model.connection,
                 address: model.connectionAddress,
                 message: model.connectionMessage,
+                diagnostics: model.relayDiagnostics,
                 onBack: model.goBackFromConnect,
-                onContinue: model.continueFromConnect
+                onContinue: model.continueFromConnect,
+                onRetry: model.retryConnection
             )
         case .pair:
             OnboardingPairView(
@@ -69,6 +76,8 @@ struct RootView: View {
                 expiresAt: model.pairingExpiresAt ?? .now,
                 isExpired: model.onboarding.isPairingExpired(at: .now),
                 copied: model.copiedPairingCommand,
+                relayCheck: model.relayMode ? model.relayPairingCheck : nil,
+                relayPin: model.relayMode ? (model.relayPinGrouped ?? "") : nil,
                 message: model.connectionMessage,
                 onBack: model.goBackToConnect,
                 onCopyCode: model.copyPairingCommand,

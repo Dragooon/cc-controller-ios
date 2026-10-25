@@ -6,7 +6,6 @@ public actor EventStream {
     public nonisolated let unknownEvents: AsyncStream<String>
 
     private let client: APIClient
-    private let session: URLSession
     private let clock: any CCKitClock
     private let beforeReconnect: (@Sendable (Int) async -> Bool)?
     private let eventContinuation: AsyncStream<LiveEvent>.Continuation
@@ -21,7 +20,6 @@ public actor EventStream {
         beforeReconnect: (@Sendable (Int) async -> Bool)? = nil
     ) {
         self.client = client
-        self.session = session
         self.clock = clock
         self.beforeReconnect = beforeReconnect
         var eventContinuation: AsyncStream<LiveEvent>.Continuation!
@@ -61,7 +59,8 @@ public actor EventStream {
             do {
                 var request = await client.eventRequest()
                 request.timeoutInterval = 45
-                let (bytes, response) = try await session.bytes(for: request)
+                let target = try await client.connection.target()
+                let (bytes, response) = try await target.session.bytes(for: request)
                 guard let response = response as? HTTPURLResponse else {
                     throw APIError.decoding("Event response was not HTTP")
                 }
@@ -77,6 +76,11 @@ public actor EventStream {
                 throw APIError.http(status: 599, message: "Event stream ended", code: nil)
             } catch is CancellationError {
                 break
+            } catch let error as URLError {
+                if isNetworkRelayError(error) { client.connection.invalidate() }
+                statusContinuation.yield(.offline)
+                if Task.isCancelled { break }
+                attempt += 1
             } catch {
                 statusContinuation.yield(.offline)
                 if Task.isCancelled { break }

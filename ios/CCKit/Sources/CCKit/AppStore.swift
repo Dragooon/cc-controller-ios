@@ -61,7 +61,7 @@ public final class AppStore {
     public var idleSessions: [Session] { sortedSessions.filter { sessionActivity($0) == .idle } }
 
     @ObservationIgnored private let client: APIClient
-    @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private let transport: ConnectionRouter
     @ObservationIgnored private let bearerProvider: @Sendable () async throws -> String
     @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let cache: DiskCache
@@ -89,7 +89,7 @@ public final class AppStore {
     @ObservationIgnored private var deliveryTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var cacheWritePending = false
 
-    public init(
+    public convenience init(
         serverURL: URL,
         bearerProvider: @escaping @Sendable () async throws -> String,
         session: URLSession = .shared,
@@ -99,8 +99,28 @@ public final class AppStore {
         authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
         initialTranscriptTail: Int = 100
     ) {
-        self.client = APIClient(baseURL: serverURL, session: session)
-        self.session = session
+        self.init(
+            connection: ConnectionRouter(baseURL: serverURL, session: session),
+            bearerProvider: bearerProvider,
+            clock: clock,
+            cacheDirectory: cacheDirectory,
+            uploadTimeout: uploadTimeout,
+            authenticationFailureHandler: authenticationFailureHandler,
+            initialTranscriptTail: initialTranscriptTail
+        )
+    }
+
+    public init(
+        connection: ConnectionRouter,
+        bearerProvider: @escaping @Sendable () async throws -> String,
+        clock: any CCKitClock = SystemCCKitClock(),
+        cacheDirectory: URL,
+        uploadTimeout: TimeInterval = 30,
+        authenticationFailureHandler: (@Sendable () async -> Void)? = nil,
+        initialTranscriptTail: Int = 100
+    ) {
+        self.transport = connection
+        self.client = APIClient(connection: connection)
         self.bearerProvider = bearerProvider
         self.clock = clock
         self.cache = DiskCache(directory: cacheDirectory, clock: clock)
@@ -983,7 +1003,6 @@ public final class AppStore {
     private func openEventStream() {
         let stream = EventStream(
             client: client,
-            session: session,
             clock: clock,
             beforeReconnect: { [weak self] attempt in
                 guard let self else { return false }

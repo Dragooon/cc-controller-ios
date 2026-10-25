@@ -15,6 +15,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "$(DEVELOPMENT_TEAM)"
+    CC_RELAY_ENDPOINTS: "https://192.0.2.10:47833 https://100.64.0.10:47833"
 targets:
   CCController:
     type: application
@@ -52,6 +53,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: cc-controller connects to the relay on your home network to reach your Mac.
+        CCRelayEndpoints: "$(CC_RELAY_ENDPOINTS)"
         NSFaceIDUsageDescription: Unlock cc-controller
         NSCameraUsageDescription: Take a photo to send to a session.
         UILaunchScreen: {}

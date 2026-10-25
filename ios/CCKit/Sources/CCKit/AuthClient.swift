@@ -49,18 +49,22 @@ public struct DaemonProbe: Sendable, Equatable {
 }
 
 public final class AuthClient: Sendable {
-    public let baseURL: URL
-    private let session: URLSession
+    public var baseURL: URL { connection.configuredBaseURL }
+    public let connection: ConnectionRouter
 
     public init(baseURL: URL, session: URLSession = .shared) {
-        self.baseURL = baseURL
-        self.session = session
+        connection = ConnectionRouter(baseURL: baseURL, session: session)
+    }
+
+    public init(connection: ConnectionRouter) {
+        self.connection = connection
     }
 
     /// Probes whoami because it is the daemon's unauthenticated status route.
     /// HTTP 401 with a JSON whoami response still proves that the daemon is reachable.
     public func probeDaemon(timeout: TimeInterval? = nil) async throws -> DaemonProbe {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        let target = try await connection.target()
+        var components = URLComponents(url: target.baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [basePath, "api/auth/whoami"].filter { !$0.isEmpty }.joined(separator: "/")
         var request = URLRequest(url: components.url!)
@@ -70,7 +74,7 @@ public final class AuthClient: Sendable {
         let clock = ContinuousClock()
         let start = clock.now
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await target.session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw AuthError.decoding("Response was not HTTP") }
             guard http.statusCode == 401 || (200..<300).contains(http.statusCode) else {
                 throw mapError(status: http.statusCode, data: data)
@@ -120,7 +124,8 @@ public final class AuthClient: Sendable {
     }
 
     private func request<T: Decodable>(_ path: String, method: String, query: [URLQueryItem] = [], body: Data? = nil, contentType: String? = nil, bearer: String? = nil, timeoutInterval: TimeInterval? = nil) async throws -> T {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        let target = try await connection.target()
+        var components = URLComponents(url: target.baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let suffix = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [basePath, suffix].filter { !$0.isEmpty }.joined(separator: "/")
@@ -133,13 +138,16 @@ public final class AuthClient: Sendable {
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let timeoutInterval { request.timeoutInterval = timeoutInterval }
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await target.session.data(for: request)
             guard let http = response as? HTTPURLResponse else { throw AuthError.decoding("Response was not HTTP") }
             guard (200..<300).contains(http.statusCode) else { throw mapError(status: http.statusCode, data: data) }
             do { return try JSONDecoder.ccKit().decode(T.self, from: data) }
             catch { throw AuthError.decoding(error.localizedDescription) }
         } catch let error as AuthError { throw error }
-        catch let error as URLError { throw AuthError.network(error.localizedDescription) }
+        catch let error as URLError {
+            if isNetworkRelayError(error) { connection.invalidate() }
+            throw AuthError.network(error.localizedDescription)
+        }
         catch { throw AuthError.network(error.localizedDescription) }
     }
 

@@ -1,0 +1,2 @@
+// Shared app defaults. Local signing remains in Signing.local.xcconfig.
+CC_RELAY_ENDPOINTS = https://192.0.2.10:47833 https://100.64.0.10:47833

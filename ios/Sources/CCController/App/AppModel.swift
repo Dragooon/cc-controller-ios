@@ -38,6 +38,10 @@ final class AppModel {
     var onboarding = OnboardingFlowState()
     var connectionMessage: String?
     var copiedPairingCommand = false
+    var identityChanged = false
+    var relayDiagnostics: RelayDiagnostics?
+    var relayIdentityWarning: RelayEndpointDiagnostic?
+    var isRelayWarningPresented = false
     var faceIDMessage: String?
     private(set) var isAuthenticating = false
     private(set) var isUnpairing = false
@@ -45,8 +49,23 @@ final class AppModel {
     var onboardingStep: OnboardingStep { onboarding.step }
     var pairingCode: String? { onboarding.pairingCode }
     var pairingExpiresAt: Date? { onboarding.pairingExpiresAt }
-    var connectionAddress: String { serverURL.absoluteString.replacingOccurrences(of: "http://", with: "") }
+    var connectionAddress: String {
+        if relayMode, let endpoint = transport.selectedEndpoint ?? relayEndpoints.first {
+            return endpoint.host.map { "\($0):\(endpoint.port ?? 0)" } ?? endpoint.absoluteString
+        }
+        return serverURL.absoluteString.replacingOccurrences(of: "http://", with: "")
+    }
+    var connectionLabel: String {
+        guard relayMode, let endpoint = transport.selectedEndpoint ?? relayEndpoints.first else { return "" }
+        return relayEndpointLabel(for: endpoint)
+    }
     var connection: OnboardingConnection { onboarding.connection }
+    var relayMode: Bool { transport.mode == .relay }
+    var relayEndpoints: [URL] { transport.configuredEndpoints }
+    var relayPinGrouped: String? {
+        (relayPin ?? transport.observedPin).flatMap { (try? RelayPin($0))?.grouped }
+    }
+    var relayPairingCheck: String? { transport.observedPin.flatMap { try? RelayPin($0).check } }
     var appVersion: String {
         let info = Bundle.main.infoDictionary
         return appVersionText(
@@ -62,6 +81,10 @@ final class AppModel {
     private var debugPairingExpirySeconds: TimeInterval?
     #endif
     private let serverURL: URL
+    private let transport: ConnectionRouter
+    private var relayPin: String?
+    private let relayDefaultEndpoints: [URL]
+    private let relayDefaultsKey = "CCRelayEndpoints"
     private let lockIntervalStore: LockIntervalStore
     private var lockTransitionPolicy: LockTransitionPolicy
     private(set) var currentScenePhase: ScenePhase = .background
@@ -81,11 +104,16 @@ final class AppModel {
     ) {
         #if DEBUG || CC_PERF
         let bearer = environment["CCBearer"] ?? ""
-        let serverURL = Self.serverURL(arguments: arguments)
+        let serverOverride = Self.serverURL(arguments: arguments)
+        let configuredEndpoints = Self.relayEndpoints(arguments: arguments)
+        let serverURL = serverOverride ?? URL(string: "http://127.0.0.1:47832")!
         let isDebugOnboarding = arguments.contains("-CCOnboarding")
         let isFixture = Self.hasFixtureArguments(arguments: arguments, bearer: bearer) && !isDebugOnboarding
         debugAttachmentPaths = Self.argumentValues("-CCAttachFile", in: arguments).map { URL(fileURLWithPath: $0) }
         #else
+        let bearer = ""
+        let serverOverride: URL? = nil
+        let configuredEndpoints = Self.relayEndpoints(arguments: arguments)
         let serverURL = URL(string: "http://127.0.0.1:47832")!
         let isDebugOnboarding = false
         let isFixture = false
@@ -98,6 +126,17 @@ final class AppModel {
         let initialTranscriptTail: Int? = nil
         #endif
         self.serverURL = serverURL
+        let defaultEndpoints = Self.defaultRelayEndpoints()
+        let argumentPin = Self.argumentValue("-CCRelayPin", in: arguments).flatMap { try? RelayPin($0) }
+        let transport: ConnectionRouter
+        if serverOverride == nil, !configuredEndpoints.isEmpty {
+            transport = ConnectionRouter(endpoints: configuredEndpoints, pin: argumentPin)
+        } else {
+            transport = ConnectionRouter(baseURL: serverURL)
+        }
+        self.transport = transport
+        self.relayPin = argumentPin?.value
+        self.relayDefaultEndpoints = defaultEndpoints
         let lockIntervalStore = LockIntervalStore()
         self.lockIntervalStore = lockIntervalStore
         debugOnboarding = isDebugOnboarding
@@ -122,7 +161,7 @@ final class AppModel {
         }
         #endif
         let auth = AuthSession(
-            serverURL: serverURL,
+            connection: transport,
             credentials: credentials,
             cacheDirectory: cacheDirectory
         )
@@ -150,7 +189,7 @@ final class AppModel {
         #endif
         self.deviceName = UIDevice.current.name
         let store = AppStore(
-            serverURL: serverURL,
+            connection: transport,
             bearerProvider: {
                 #if DEBUG || CC_PERF
                 if isFixture {
@@ -186,6 +225,14 @@ final class AppModel {
         }
         #endif
 
+        if transport.mode == .relay, argumentPin == nil {
+            Task { @MainActor [weak self, credentials, transport] in
+                guard let self else { return }
+                guard let stored = try? await credentials.getRelayPin(), let pin = try? RelayPin(stored) else { return }
+                relayPin = pin.value
+                await transport.reconfigure(pin: pin)
+            }
+        }
         guard !fixtureMode else { return }
         Task { @MainActor [weak self, credentials] in
             guard let self else { return }
@@ -271,11 +318,13 @@ final class AppModel {
                     let probe = try await auth.probeDaemon()
                     failedSince = nil
                     onboarding.markConnectionConnected(latency: probe.latency)
+                    if relayMode { await updateRelayIdentityWarning() }
                 } catch {
                     let now = Date()
                     failedSince = failedSince ?? now
                     if now.timeIntervalSince(failedSince ?? now) >= 3 {
                         onboarding.markConnectionUnreachable(since: failedSince ?? now)
+                        if relayMode { await refreshRelayDiagnostics() }
                     }
                 }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
@@ -330,18 +379,147 @@ final class AppModel {
                 switch await auth.pollPairing() {
                 case .success:
                     if case .enrolling = auth.state {
+                        if relayMode, let observed = transport.observedPin { relayPin = observed }
                         pairingTask = nil
                         onboarding.markPairingConfirmed(at: Date())
                         faceIDMessage = nil
                         return
                     }
                 case .failure(let error):
+                    if relayMode, transport.hasPinMismatch {
+                        await showIdentityChanged()
+                        return
+                    }
                     handlePairingError(error)
                     return
                 }
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
         }
+    }
+
+    private func updateRelayIdentityWarning() async {
+        guard relayMode else { return }
+        let outcomes = await transport.endpointOutcomes()
+        guard let mismatch = transport.configuredEndpoints.first(where: { outcomes[$0] == .pinMismatch }) else {
+            relayIdentityWarning = nil
+            return
+        }
+        guard transport.selectedEndpoint != nil else { return }
+        relayIdentityWarning = RelayEndpointDiagnostic(
+            id: mismatch.absoluteString,
+            endpoint: mismatch,
+            label: relayEndpointLabel(for: mismatch),
+            status: .identityChanged
+        )
+    }
+
+    private func refreshRelayDiagnostics() async {
+        guard relayMode else { return }
+        let outcomes = await transport.endpointOutcomes()
+        var rows: [RelayEndpointDiagnostic] = []
+        for endpoint in transport.configuredEndpoints {
+            let status: RelayEndpointDiagnostic.Status
+            if outcomes[endpoint] == .pinMismatch {
+                status = .identityChanged
+            } else {
+                do {
+                    let health = try await RelayHealthProbe(endpoint: endpoint).probe()
+                    status = health.macConnected ? .relayReachable : .macNotConnected
+                } catch let error as RelayHealthProbeError {
+                    switch error {
+                    case .localNetworkDenied: status = .localNetworkDenied
+                    default: status = .notReachable
+                    }
+                } catch {
+                    status = .notReachable
+                }
+            }
+            rows.append(RelayEndpointDiagnostic(
+                id: endpoint.absoluteString,
+                endpoint: endpoint,
+                label: relayEndpointLabel(for: endpoint),
+                status: status
+            ))
+        }
+        let identity = rows.contains { $0.status == .identityChanged }
+        let macOffline = rows.contains { $0.status == .macNotConnected }
+        let localDenied = rows.contains { $0.status == .localNetworkDenied }
+        let summary: String
+        if identity { summary = "Your Mac's identity changed." }
+        else if macOffline { summary = "Your Mac isn't connected to the relay. Check it's awake and online." }
+        else if localDenied { summary = "Allow Local Network access for cc-controller in Settings." }
+        else { summary = "Can't reach the relay. Away from home? Turn on Tailscale." }
+        let diagnostics = RelayDiagnostics(endpoints: rows, summary: summary)
+        relayDiagnostics = diagnostics
+        if rows.allSatisfy({ $0.status == .identityChanged || $0.status == .notReachable }) && identity {
+            await showIdentityChanged()
+        }
+    }
+
+    private func showIdentityChanged() async {
+        identityChanged = true
+        if relayDiagnostics == nil {
+            let rows = transport.configuredEndpoints.map { endpoint in
+                RelayEndpointDiagnostic(id: endpoint.absoluteString, endpoint: endpoint, label: relayEndpointLabel(for: endpoint), status: .identityChanged)
+            }
+            relayDiagnostics = RelayDiagnostics(endpoints: rows, summary: "Your Mac's identity changed.")
+        }
+    }
+
+    func retryConnection() {
+        identityChanged = false
+        relayDiagnostics = nil
+        transport.invalidate()
+        if phase == .onboarding {
+            if onboardingStep == .connect { startConnectionCheck() }
+            else if onboardingStep == .pair { startPairingPoll() }
+        } else if phase == .unlocked {
+            store.resume()
+            watchForIdentityChange()
+        }
+    }
+
+    func pairAgain() async {
+        connectionTask?.cancel()
+        pairingTask?.cancel()
+        _ = await auth.unpair()
+        try? await credentials.deleteRelayPin()
+        try? await credentials.deleteDeviceToken()
+        try? await credentials.deleteNativeSecret()
+        await store.clearLocalState()
+        await transport.reconfigure(pin: nil)
+        relayPin = nil
+        identityChanged = false
+        relayDiagnostics = nil
+        relayIdentityWarning = nil
+        isRelayWarningPresented = false
+        onboarding = OnboardingFlowState()
+        connectionMessage = nil
+        faceIDMessage = nil
+        nativeSecretEnrolledForOnboarding = false
+        phase = .onboarding
+    }
+
+    private func watchForIdentityChange() {
+        guard relayMode else { return }
+        Task { @MainActor [weak self] in
+            for _ in 0..<20 {
+                guard let self, !identityChanged else { return }
+                await updateRelayIdentityWarning()
+                if await allRelayEndpointsMismatched() {
+                    await showIdentityChanged()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    private func allRelayEndpointsMismatched() async -> Bool {
+        let outcomes = await transport.endpointOutcomes()
+        guard !transport.configuredEndpoints.isEmpty else { return false }
+        return transport.selectedEndpoint == nil && (transport.hasPinMismatch || transport.configuredEndpoints.allSatisfy { outcomes[$0] == .pinMismatch })
     }
 
     func getNewPairingCode() {
@@ -356,7 +534,8 @@ final class AppModel {
 
     func copyPairingCommand() {
         guard let pairingCode else { return }
-        UIPasteboard.general.string = "cc-gateway pair \(pairingCode)"
+        let check = relayMode ? " \(relayPairingCheck ?? "")" : ""
+        UIPasteboard.general.string = "cc-gateway pair \(pairingCode)\(check)"
         copiedPairingCommand = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
@@ -464,6 +643,23 @@ final class AppModel {
         lockTransitionPolicy.setInterval(interval)
     }
 
+    var relayAddressesDraft: String { relayAddressesText(relayEndpoints) }
+
+    func setRelayAddresses(_ text: String) {
+        guard relayMode, let endpoints = parseRelayAddresses(text) else { return }
+        UserDefaults.standard.set(text, forKey: relayDefaultsKey)
+        Task { @MainActor [weak self, transport] in
+            guard let self else { return }
+            await transport.updateEndpoints(endpoints, pin: relayPin.flatMap { try? RelayPin($0) })
+        }
+    }
+
+    func resetRelayAddresses() {
+        let text = relayAddressesText(relayDefaultEndpoints)
+        UserDefaults.standard.removeObject(forKey: relayDefaultsKey)
+        setRelayAddresses(text)
+    }
+
     func settingsDidAppear() {
         isSettingsVisible = true
         settings.reset()
@@ -516,6 +712,7 @@ final class AppModel {
             return
         }
         store.start()
+        watchForIdentityChange()
         Task { @MainActor in
             await updateBadgeCount()
         }
@@ -565,6 +762,7 @@ final class AppModel {
                 }
             } else {
                 store.resume()
+                watchForIdentityChange()
             }
         default:
             break
@@ -663,13 +861,29 @@ final class AppModel {
     }
 
     #if DEBUG || CC_PERF
-    private static func serverURL(arguments: [String]) -> URL {
+    private static func serverURL(arguments: [String]) -> URL? {
         guard let value = argumentValue("-CCServer", in: arguments),
               let url = URL(string: value),
-              !value.isEmpty else {
-            return URL(string: "http://127.0.0.1:47832")!
-        }
+              !value.isEmpty else { return nil }
         return url
+    }
+
+    private static func relayEndpoints(arguments: [String]) -> [URL] {
+        let value: String?
+        if let argument = argumentValue("-CCRelayEndpoints", in: arguments) {
+            value = argument
+        } else if let stored = UserDefaults.standard.string(forKey: "CCRelayEndpoints") {
+            value = stored.replacingOccurrences(of: "\n", with: " ")
+        } else {
+            value = Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String
+        }
+        guard let value else { return [] }
+        return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)
+    }
+
+    private static func defaultRelayEndpoints() -> [URL] {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "CCRelayEndpoints") as? String else { return [] }
+        return value.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).compactMap { URL(string: String($0)) }.filter(isValidRelayAddress)
     }
 
     private static func colorScheme(arguments: [String]) -> ColorScheme? {
@@ -681,7 +895,7 @@ final class AppModel {
     }
 
     private static func hasFixtureArguments(arguments: [String], bearer: String) -> Bool {
-        argumentValue("-CCServer", in: arguments)?.isEmpty == false && !bearer.isEmpty
+        (argumentValue("-CCServer", in: arguments)?.isEmpty == false || argumentValue("-CCRelayEndpoints", in: arguments)?.isEmpty == false) && !bearer.isEmpty
     }
 
     private static func argumentValue(_ name: String, in arguments: [String]) -> String? {

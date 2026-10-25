@@ -20,6 +20,7 @@ public final class AuthSession {
     @ObservationIgnored private let credentials: any CredentialStore
     @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let cache: DiskCache?
+    @ObservationIgnored private let connection: ConnectionRouter
     @ObservationIgnored private var bearerToken: String?
     @ObservationIgnored private var pairingCode: String?
     @ObservationIgnored private var pairedDeviceToken: String?
@@ -36,6 +37,7 @@ public final class AuthSession {
     ) {
         self.client = client
         self.credentials = credentials
+        self.connection = client.connection
         self.clock = clock
         self.cache = cacheDirectory.map { DiskCache(directory: $0, clock: clock) }
     }
@@ -48,6 +50,15 @@ public final class AuthSession {
         cacheDirectory: URL? = nil
     ) {
         self.init(client: AuthClient(baseURL: serverURL, session: session), credentials: credentials, clock: clock, cacheDirectory: cacheDirectory)
+    }
+
+    public convenience init(
+        connection: ConnectionRouter,
+        credentials: any CredentialStore,
+        clock: any CCKitClock = SystemCCKitClock(),
+        cacheDirectory: URL? = nil
+    ) {
+        self.init(client: AuthClient(connection: connection), credentials: credentials, clock: clock, cacheDirectory: cacheDirectory)
     }
 
     public var bearerProvider: @Sendable () async throws -> String {
@@ -102,6 +113,10 @@ public final class AuthSession {
                 guard let token = response.deviceToken, !token.isEmpty else { throw AuthError.decoding("Pairing response did not contain a device token.") }
                 pairedDeviceToken = token
                 try await credentials.setDeviceToken(token)
+                if connection.mode == .relay, let observed = connection.observedPin {
+                    try await credentials.setRelayPin(observed)
+                    try await connection.reconfigure(pin: RelayPin(observed))
+                }
                 state = .enrolling
                 return .success(())
             case .expired, .none:
@@ -210,6 +225,7 @@ public final class AuthSession {
     private func clearCredentials() async {
         try? await credentials.deleteDeviceToken()
         try? await credentials.deleteNativeSecret()
+        try? await credentials.deleteRelayPin()
         try? await cache?.clear()
         bearerToken = nil
     }

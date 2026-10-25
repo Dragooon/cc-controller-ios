@@ -16,6 +16,7 @@ public struct RelayHealth: Sendable, Equatable {
 public enum RelayHealthProbeError: Error, Sendable, Equatable, LocalizedError {
     case invalidEndpoint
     case timedOut
+    case localNetworkDenied
     case malformedReply(String)
     case network(String)
 
@@ -23,10 +24,15 @@ public enum RelayHealthProbeError: Error, Sendable, Equatable, LocalizedError {
         switch self {
         case .invalidEndpoint: "Relay health probe requires an IP endpoint with a port."
         case .timedOut: "Relay health probe timed out."
+        case .localNetworkDenied: "Local Network access is off."
         case .malformedReply(let reply): "Relay returned a malformed health reply: \(reply)"
         case .network(let message): "Relay health probe failed: \(message)"
         }
     }
+}
+
+public func relayHealthProbeError(for reason: NWPath.UnsatisfiedReason?) -> RelayHealthProbeError? {
+    reason == .localNetworkDenied ? .localNetworkDenied : nil
 }
 
 public func parseRelayHealthLine(_ line: String) throws -> RelayHealth {
@@ -106,6 +112,10 @@ private final class HealthOperation: @unchecked Sendable {
                     switch state {
                     case .ready:
                         self.sendHealthRequest()
+                    case .waiting:
+                        if let denied = relayHealthProbeError(for: self.connection.currentPath?.unsatisfiedReason) {
+                            self.finish(.failure(denied))
+                        }
                     case .failed(let error):
                         self.finish(.failure(.network(error.localizedDescription)))
                     case .cancelled:

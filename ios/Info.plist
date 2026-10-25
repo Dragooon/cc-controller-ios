@@ -29,6 +29,10 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to send to a session.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>cc-controller connects to the relay on your home network to reach your Mac.</string>
+	<key>CCRelayEndpoints</key>
+	<string>$(CC_RELAY_ENDPOINTS)</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Unlock cc-controller</string>
 	<key>UILaunchScreen</key>

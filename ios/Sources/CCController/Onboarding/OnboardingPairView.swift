@@ -5,6 +5,8 @@ struct OnboardingPairView: View {
     let expiresAt: Date
     let isExpired: Bool
     let copied: Bool
+    let relayCheck: String?
+    let relayPin: String?
     let message: String?
     let onBack: () -> Void
     let onCopyCode: () -> Void
@@ -15,6 +17,8 @@ struct OnboardingPairView: View {
         expiresAt: Date = .now,
         isExpired: Bool = false,
         copied: Bool = false,
+        relayCheck: String? = nil,
+        relayPin: String? = nil,
         message: String? = nil,
         onBack: @escaping () -> Void = {},
         onCopyCode: @escaping () -> Void = {},
@@ -24,6 +28,8 @@ struct OnboardingPairView: View {
         self.expiresAt = expiresAt
         self.isExpired = isExpired
         self.copied = copied
+        self.relayCheck = relayCheck
+        self.relayPin = relayPin
         self.message = message
         self.onBack = onBack
         self.onCopyCode = onCopyCode
@@ -100,11 +106,23 @@ struct OnboardingPairView: View {
 
     private var stackedCommand: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("cc-gateway pair \(code)")
+            Text(commandText)
                 .font(.body.monospaced())
                 .foregroundStyle(.ccLabel)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("pairing-command")
+            if let relayPin {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Mac identity")
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                    Text(relayPin)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(.ccSecondary)
+                        .textSelection(.enabled)
+                }
+            }
             HStack {
                 Spacer()
                 Button(action: onCopyCode) {
@@ -116,6 +134,11 @@ struct OnboardingPairView: View {
                 .accessibilityLabel(copied ? "Pairing command copied" : "Copy pairing command")
             }
         }
+    }
+
+    private var commandText: String {
+        guard let relayCheck, !relayCheck.isEmpty else { return "cc-gateway pair \(code)" }
+        return "cc-gateway pair \(code) \(relayCheck)"
     }
 
     private func expiryText(at date: Date) -> String {

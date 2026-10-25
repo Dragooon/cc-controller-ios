@@ -13,7 +13,23 @@ struct MainSplitView: View {
     @State private var sessionNotice: String?
 
     var body: some View {
-        splitView()
+        ZStack(alignment: .top) {
+            splitView()
+            if let warning = model.relayIdentityWarning {
+                Button {
+                    model.isRelayWarningPresented = true
+                } label: {
+                    Label("\(warning.label) presented a different Mac identity.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(.ccAmber)
+                        .foregroundStyle(.black)
+                }
+                .accessibilityIdentifier("relay-identity-warning")
+            }
+        }
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .alert(
@@ -28,6 +44,14 @@ struct MainSplitView: View {
             Button("OK") { wakeError = nil }
         } message: {
             Text(wakeError ?? "The session could not be woken.")
+        }
+        .alert(
+            "Mac identity changed",
+            isPresented: $model.isRelayWarningPresented
+        ) {
+            Button("OK", role: .cancel) { model.isRelayWarningPresented = false }
+        } message: {
+            Text("\(model.relayIdentityWarning?.label ?? "This endpoint") presented a different Mac identity. cc-controller is using the matching endpoint.")
         }
         .alert(
             actionErrorTitle,
@@ -46,6 +70,10 @@ struct MainSplitView: View {
         .sheet(isPresented: $model.isSettingsPresented) {
             SettingsView(
                 address: model.connectionAddress,
+                relayMode: model.relayMode,
+                relayAddresses: model.relayAddressesDraft,
+                relayPin: model.relayPinGrouped,
+                connectedVia: model.relayMode ? model.connectionLabel : nil,
                 latency: model.settings.latency,
                 connectionTest: model.settings.connectionTest,
                 thisDevice: model.settings.thisDevice,
@@ -60,7 +88,9 @@ struct MainSplitView: View {
                 onLockNow: model.lockNow,
                 onUnpair: { Task { await model.unpair() } },
                 onLockInterval: { model.setLockInterval($0.lockInterval) },
-                onRetryDevices: { Task { await model.settings.loadPairedDevices() } }
+                onRetryDevices: { Task { await model.settings.loadPairedDevices() } },
+                onRelayAddressesChanged: model.setRelayAddresses,
+                onResetRelayAddresses: model.resetRelayAddresses
             )
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }

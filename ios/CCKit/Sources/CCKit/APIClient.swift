@@ -22,18 +22,25 @@ public enum APIError: Error, Sendable, Equatable, LocalizedError {
 }
 
 public actor APIClient {
-    public let baseURL: URL
+    public var baseURL: URL { connection.configuredBaseURL }
     public private(set) var bearerToken: String?
     public let authenticationFailures: AsyncStream<Void>
+    public nonisolated let connection: ConnectionRouter
 
-    private let session: URLSession
     private var authenticationContinuation: AsyncStream<Void>.Continuation
     private var lastCapabilities: Capabilities?
 
     public init(baseURL: URL, bearerToken: String? = nil, session: URLSession = .shared) {
-        self.baseURL = baseURL
+        self.connection = ConnectionRouter(baseURL: baseURL, session: session)
         self.bearerToken = bearerToken
-        self.session = session
+        var continuation: AsyncStream<Void>.Continuation!
+        self.authenticationFailures = AsyncStream { continuation = $0 }
+        self.authenticationContinuation = continuation
+    }
+
+    public init(connection: ConnectionRouter, bearerToken: String? = nil) {
+        self.connection = connection
+        self.bearerToken = bearerToken
         var continuation: AsyncStream<Void>.Continuation!
         self.authenticationFailures = AsyncStream { continuation = $0 }
         self.authenticationContinuation = continuation
@@ -158,12 +165,13 @@ public actor APIClient {
         return response
     }
 
-    public func eventRequest() -> URLRequest {
+    public func eventRequest() async -> URLRequest {
         var query: [URLQueryItem] = []
         if lastCapabilities?.subagentUpsert == true {
             query.append(URLQueryItem(name: "subagentUpsert", value: "true"))
         }
-        var request = URLRequest(url: endpoint("/api/events", query: query))
+        let target = (try? await connection.target()) ?? ConnectionTarget(baseURL: connection.configuredBaseURL, session: .shared)
+        var request = URLRequest(url: endpoint("/api/events", baseURL: target.baseURL, query: query))
         request.httpMethod = "GET"
         applyHeaders(to: &request)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -238,7 +246,8 @@ public actor APIClient {
         timeoutInterval: TimeInterval? = nil,
         delegate: (any URLSessionTaskDelegate)? = nil
     ) async throws -> (Data, HTTPURLResponse) {
-        var request = URLRequest(url: endpoint(path, query: query))
+        let target = try await connection.target()
+        var request = URLRequest(url: endpoint(path, baseURL: target.baseURL, query: query))
         request.httpMethod = method
         request.httpBody = body
         if let timeoutInterval { request.timeoutInterval = timeoutInterval }
@@ -247,9 +256,9 @@ public actor APIClient {
         do {
             let (data, response): (Data, URLResponse)
             if let delegate, let body {
-                (data, response) = try await session.upload(for: request, from: body, delegate: delegate)
+                (data, response) = try await target.session.upload(for: request, from: body, delegate: delegate)
             } else {
-                (data, response) = try await session.data(for: request)
+                (data, response) = try await target.session.data(for: request)
             }
             guard let http = response as? HTTPURLResponse else { throw APIError.decoding("Response was not HTTP") }
             guard (200..<300).contains(http.statusCode) else { throw await mappedError(status: http.statusCode, data: data, staleDecision: staleDecision) }
@@ -260,7 +269,10 @@ public actor APIClient {
             #endif
             return (data, http)
         } catch let error as APIError { throw error }
-        catch let error as URLError { throw APIError.transport(error) }
+        catch let error as URLError {
+            if isNetworkRelayError(error) { connection.invalidate() }
+            throw APIError.transport(error)
+        }
         catch { throw APIError.decoding(decodingErrorDetail(error)) }
     }
 
@@ -274,7 +286,7 @@ public actor APIClient {
         return .http(status: status, message: message, code: code)
     }
 
-    private func endpoint(_ path: String, query: [URLQueryItem] = []) -> URL {
+    private func endpoint(_ path: String, baseURL: URL, query: [URLQueryItem] = []) -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let suffix = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
