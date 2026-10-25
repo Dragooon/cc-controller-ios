@@ -557,31 +557,6 @@ public func turnOutputTokens(_ entries: [TranscriptEntry]) -> Int? {
     return found ? total : nil
 }
 
-/// Returns output usage only for the prompt that started the current working turn.
-public func liveTurnOutputTokens(_ session: Session, entries: [TranscriptEntry], promptSkew: TimeInterval = 5) -> Int? {
-    guard session.state == .working, let startedAt = session.startedAt else { return nil }
-    let cutoff = startedAt.addingTimeInterval(-promptSkew)
-    var total = 0
-    var foundPrompt = false
-    var foundUsage = false
-
-    for entry in entries.reversed() {
-        if let timestamp = entry.ts, timestamp < cutoff { break }
-        if case .prompt(let prompt) = entry,
-           let timestamp = prompt.ts,
-           timestamp >= cutoff {
-            foundPrompt = true
-        }
-        guard case .assistant(let assistant) = entry else { continue }
-        let value = assistant.usage?.outputTokens ?? assistant.usage?.outputTokensSnake ?? assistant.outputTokensSnake
-        guard let value else { continue }
-        total += value
-        foundUsage = true
-    }
-
-    return foundPrompt && foundUsage ? total : nil
-}
-
 public func formatDuration(_ milliseconds: Double) -> String {
     let seconds = max(0, Int((milliseconds / 1000).rounded()))
     if seconds < 60 { return "\(seconds)s" }
@@ -1044,15 +1019,26 @@ public func liveFooterText(_ turn: Turn, verb: String) -> String {
 
 public func activityFooterText(
     _ session: Session,
-    transcriptEntries: [TranscriptEntry] = [],
     now: Date = .now,
     verb: String = "Thinking",
-    startedAt: Date? = nil
+    startedAt: Date? = nil,
+    pendingTurnStart: Date? = nil
 ) -> ActivityFooter {
     let waiting = session.state == .needsYou || !(session.pending ?? []).isEmpty
     let start = startedAt ?? session.startedAt
     let elapsed = elapsedMilliseconds(from: start, to: now)
-    let outputTokens = liveTurnOutputTokens(session, entries: transcriptEntries)
+    let outputTokens: Int?
+    if session.state == .working,
+       pendingTurnStart == nil,
+       let sessionStartedAt = session.startedAt,
+       let turnStartedAt = session.usage?.turnStartedAt,
+       turnStartedAt >= sessionStartedAt.addingTimeInterval(-5),
+       let turnOutputTokens = session.usage?.turnOutputTokens,
+       turnOutputTokens > 0 {
+        outputTokens = turnOutputTokens
+    } else {
+        outputTokens = nil
+    }
     let detail = waiting ? "" : [formatDuration(elapsed), outputTokens.map { "↓ \(formatTokenCount($0))" }].compactMap { $0 }.joined(separator: " · ")
     return ActivityFooter(
         primary: waiting ? "Waiting for you" : "\(verb)…",

@@ -363,12 +363,14 @@ public struct Usage: Codable, Sendable, Equatable {
     public var totalInputTokens: Int?
     public var outputTokens: Int?
     public var outputTokensSnake: Int?
+    public var turnOutputTokens: Int?
+    public var turnStartedAt: Date?
     public var cacheReadTokens: Int?
     public var cacheWriteTokens: Int?
     public var cacheHitRate: Double?
     public var messages: Int?
-    private enum CodingKeys: String, CodingKey { case model, contextTokens, contextWindow, contextPercent, inputTokens, totalInputTokens, outputTokens, outputTokensSnake = "output_tokens", cacheReadTokens, cacheWriteTokens, cacheHitRate, messages }
-    public init(model: String? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil, contextPercent: Double? = nil, inputTokens: Int? = nil, totalInputTokens: Int? = nil, outputTokens: Int? = nil, outputTokensSnake: Int? = nil, cacheReadTokens: Int? = nil, cacheWriteTokens: Int? = nil, cacheHitRate: Double? = nil, messages: Int? = nil) { self.model = model; self.contextTokens = contextTokens; self.contextWindow = contextWindow; self.contextPercent = contextPercent; self.inputTokens = inputTokens; self.totalInputTokens = totalInputTokens; self.outputTokens = outputTokens; self.outputTokensSnake = outputTokensSnake; self.cacheReadTokens = cacheReadTokens; self.cacheWriteTokens = cacheWriteTokens; self.cacheHitRate = cacheHitRate; self.messages = messages }
+    private enum CodingKeys: String, CodingKey { case model, contextTokens, contextWindow, contextPercent, inputTokens, totalInputTokens, outputTokens, outputTokensSnake = "output_tokens", turnOutputTokens, turnStartedAt, cacheReadTokens, cacheWriteTokens, cacheHitRate, messages }
+    public init(model: String? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil, contextPercent: Double? = nil, inputTokens: Int? = nil, totalInputTokens: Int? = nil, outputTokens: Int? = nil, outputTokensSnake: Int? = nil, turnOutputTokens: Int? = nil, turnStartedAt: Date? = nil, cacheReadTokens: Int? = nil, cacheWriteTokens: Int? = nil, cacheHitRate: Double? = nil, messages: Int? = nil) { self.model = model; self.contextTokens = contextTokens; self.contextWindow = contextWindow; self.contextPercent = contextPercent; self.inputTokens = inputTokens; self.totalInputTokens = totalInputTokens; self.outputTokens = outputTokens; self.outputTokensSnake = outputTokensSnake; self.turnOutputTokens = turnOutputTokens; self.turnStartedAt = turnStartedAt; self.cacheReadTokens = cacheReadTokens; self.cacheWriteTokens = cacheWriteTokens; self.cacheHitRate = cacheHitRate; self.messages = messages }
 }
 
 public enum ApprovalMode: Codable, Sendable, Equatable { case auto, remote, terminal, unknown(String); public init(from d: Decoder) throws { let s = try d.singleValueContainer().decode(String.self); switch s { case "auto":self = .auto; case "remote":self = .remote; case "terminal":self = .terminal; default:self = .unknown(s) } }; public func encode(to e: Encoder) throws { var c = e.singleValueContainer(); try c.encode(rawValue) }; public var rawValue:String { switch self { case .auto:"auto"; case .remote:"remote"; case .terminal:"terminal"; case .unknown(let s):s } } }

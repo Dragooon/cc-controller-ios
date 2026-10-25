@@ -98,6 +98,8 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
         try await waitUntil(turnStart, hasElapsed: 12.2)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "8:00 PM screening has the best remaining seats")).firstMatch.exists, "Final assistant text did not load")
+        let finalAssistantActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
+        XCTAssertTrue(finalAssistantActivity.label.contains("↓ 23"), "Activity row did not include usage from the tool-only assistant record")
         capture("h", moment: "final-text", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 13.3)

@@ -172,7 +172,6 @@ struct SessionScreen: View {
                         queuedNotes: store.queuedNotes(for: sessionID),
                         activityFooter: activityFooter(
                             for: currentSession,
-                            transcriptEntries: sessionStore.entries,
                             pendingTurnStart: pendingTurnStart
                         ),
                         liveSession: sessionStore.session,
@@ -274,15 +273,14 @@ struct SessionScreen: View {
 
     private func activityFooter(
         for session: Session,
-        transcriptEntries: [TranscriptEntry],
         pendingTurnStart: Date?
     ) -> CCKit.ActivityFooter? {
         guard session.state == .working || session.state == .needsYou || pendingTurnStart != nil else { return nil }
         return activityFooterText(
             session,
-            transcriptEntries: transcriptEntries,
             verb: "Thinking",
-            startedAt: pendingTurnStart
+            startedAt: pendingTurnStart,
+            pendingTurnStart: pendingTurnStart
         )
     }
 

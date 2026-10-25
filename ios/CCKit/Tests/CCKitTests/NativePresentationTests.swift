@@ -291,38 +291,33 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertTrue(nativeToolRunIsCollapsed(run))
     }
 
-    func testActivityFooterUsesOnlyCurrentTurnOutputTokens() {
+    func testActivityFooterUsesDaemonTurnOutputTokensForCurrentWorkingTurn() {
         let startedAt = Date(timeIntervalSince1970: 1_000)
         let session = Session(
             state: .working,
-            usage: Usage(outputTokens: 999),
+            usage: Usage(outputTokens: 999, turnOutputTokens: 18, turnStartedAt: startedAt.addingTimeInterval(1)),
             startedAt: startedAt
         )
-        let entries: [TranscriptEntry] = [
-            .prompt(PromptEntry(id: "old-prompt", ts: startedAt.addingTimeInterval(-20), text: "old")),
-            .assistant(AssistantEntry(ts: startedAt.addingTimeInterval(-19), usage: Usage(outputTokens: 100))),
-            .prompt(PromptEntry(id: "live-prompt", ts: startedAt, text: "current")),
-            .assistant(AssistantEntry(ts: startedAt.addingTimeInterval(1), usage: Usage(outputTokens: 4))),
-            .assistant(AssistantEntry(ts: startedAt.addingTimeInterval(2), usage: Usage(outputTokens: 5))),
-        ]
 
-        let footer = activityFooterText(session, transcriptEntries: entries, now: startedAt.addingTimeInterval(3))
+        let footer = activityFooterText(session, now: startedAt.addingTimeInterval(3))
 
-        XCTAssertEqual(footer.detail, "3s · ↓ 9")
-        XCTAssertEqual(footer.outputTokens, 9)
+        XCTAssertEqual(footer.detail, "3s · ↓ 18")
+        XCTAssertEqual(footer.outputTokens, 18)
     }
 
-    func testActivityFooterHidesTokensWhilePendingOrWaiting() {
+    func testActivityFooterHidesDaemonTurnTokensWhilePendingOrWaiting() {
         let startedAt = Date(timeIntervalSince1970: 1_000)
-        let entries: [TranscriptEntry] = [
-            .prompt(PromptEntry(id: "live-prompt", ts: startedAt, text: "current")),
-            .assistant(AssistantEntry(usage: Usage(outputTokens: 4))),
-        ]
-        let pending = Session(state: .idle, usage: Usage(outputTokens: 999))
-        let waiting = Session(state: .needsYou, pending: [Approval(requestId: "approval")], usage: Usage(outputTokens: 999))
+        let usage = Usage(turnOutputTokens: 18, turnStartedAt: startedAt)
+        let pending = Session(state: .idle, usage: usage)
+        let waiting = Session(state: .needsYou, pending: [Approval(requestId: "approval")], usage: usage)
 
-        let pendingFooter = activityFooterText(pending, transcriptEntries: entries, now: startedAt, startedAt: startedAt)
-        let waitingFooter = activityFooterText(waiting, transcriptEntries: entries, now: startedAt.addingTimeInterval(3), startedAt: startedAt)
+        let pendingFooter = activityFooterText(
+            pending,
+            now: startedAt,
+            startedAt: startedAt,
+            pendingTurnStart: startedAt
+        )
+        let waitingFooter = activityFooterText(waiting, now: startedAt.addingTimeInterval(3), startedAt: startedAt)
 
         XCTAssertFalse(pendingFooter.detail.contains("↓"))
         XCTAssertEqual(waitingFooter.detail, "")
@@ -330,31 +325,21 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertNil(waitingFooter.outputTokens)
     }
 
-    func testActivityFooterHidesTokensBeforeCurrentTurnHasAssistantUsage() {
+    func testActivityFooterHidesDaemonTurnTokensOutsideCurrentTurnWindowOrWhenZero() {
         let startedAt = Date(timeIntervalSince1970: 1_000)
-        let session = Session(state: .working, usage: Usage(outputTokens: 999), startedAt: startedAt)
-        let entries = [TranscriptEntry.prompt(PromptEntry(id: "live-prompt", ts: startedAt, text: "current"))]
+        let stale = Session(
+            state: .working,
+            usage: Usage(turnOutputTokens: 18, turnStartedAt: startedAt.addingTimeInterval(-5.1)),
+            startedAt: startedAt
+        )
+        let zero = Session(
+            state: .working,
+            usage: Usage(turnOutputTokens: 0, turnStartedAt: startedAt),
+            startedAt: startedAt
+        )
 
-        let footer = activityFooterText(session, transcriptEntries: entries, now: startedAt.addingTimeInterval(1))
-
-        XCTAssertFalse(footer.detail.contains("↓"))
-        XCTAssertNil(footer.outputTokens)
-    }
-
-    func testLiveTurnOutputTokensReverseScansLongTranscript() {
-        let startedAt = Date(timeIntervalSince1970: 10_000)
-        var entries = (0..<5_000).map { index in
-            TranscriptEntry.assistant(AssistantEntry(
-                ts: Date(timeIntervalSince1970: Double(index)),
-                usage: Usage(outputTokens: 1)
-            ))
-        }
-        entries.append(.prompt(PromptEntry(id: "current", ts: startedAt, text: "current")))
-        entries.append(.assistant(AssistantEntry(ts: startedAt.addingTimeInterval(1), usage: Usage(outputTokens: 12))))
-
-        let session = Session(state: .working, startedAt: startedAt)
-
-        XCTAssertEqual(liveTurnOutputTokens(session, entries: entries), 12)
+        XCTAssertNil(activityFooterText(stale, now: startedAt).outputTokens)
+        XCTAssertNil(activityFooterText(zero, now: startedAt).outputTokens)
     }
 
     func testPromptEntryIdentitiesKeepOnlyTheLastTwentyPrompts() {
