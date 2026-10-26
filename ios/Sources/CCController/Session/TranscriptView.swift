@@ -1,8 +1,9 @@
 import CCKit
 import SwiftUI
+import UIKit
 
 #if DEBUG
-import UIKit
+import OSLog
 #endif
 
 private struct TranscriptScrollMetrics: Equatable {
@@ -191,6 +192,9 @@ struct SessionTranscriptView: View {
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
     @State private var userIsScrolling = false
+    @State private var rowsMounted = false
+    @State private var transcriptIsVisible = false
+    @State private var transcriptAppearDate: Date?
     @State private var scrollState: TranscriptScrollState
     @State private var diagnosticWrittenCount = 0
     @State private var diagnosticStatus = "count=0"
@@ -343,7 +347,14 @@ struct SessionTranscriptView: View {
 
     private func transcriptScrollView(using proxy: ScrollViewProxy) -> some View {
         let scrollView = ScrollView {
-            transcriptStack
+            if rowsMounted {
+                transcriptStack
+            } else {
+                Color.clear
+                    .frame(height: 1)
+                    .id("transcript-bottom")
+                    .accessibilityHidden(true)
+            }
         }
         let configuredScrollView = scrollView
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .initialOffset)
@@ -360,10 +371,32 @@ struct SessionTranscriptView: View {
                 scrollToNewest(using: proxy)
             }
             // Rows present at creation do not trigger the change handlers, so estimated heights can leave the viewport past every built row.
+            .background {
+                TranscriptMountReader { source in
+                    mountRows(source: source, using: proxy)
+                }
+            }
             .onAppear {
+                transcriptIsVisible = true
+                transcriptAppearDate = Date()
+                rowsMounted = false
+                contentFitsViewport = false
                 handleTranscriptAppear(using: proxy)
             }
+            .task {
+                do {
+                    try await Task.sleep(for: .milliseconds(700))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                mountRows(source: .cap, using: proxy)
+            }
             .onDisappear {
+                transcriptIsVisible = false
+                rowsMounted = false
+                contentFitsViewport = false
+                transcriptAppearDate = nil
                 scrollState.cancelBlankCheck()
                 rebuildScrollTask?.cancel()
                 rebuildScrollTask = nil
@@ -410,7 +443,7 @@ struct SessionTranscriptView: View {
                 subagentIndex = SubagentIndex(newSubagents)
             }
             .onChange(of: sessionID) { _, newSessionID in
-                handleSessionChange(to: newSessionID)
+                handleSessionChange(to: newSessionID, using: proxy)
             }
         return withSession
     }
@@ -439,7 +472,8 @@ struct SessionTranscriptView: View {
     }
 
     private func loadEarlierIfNeeded() {
-        guard hasMoreEarlier,
+        guard rowsMounted,
+              hasMoreEarlier,
               !isLoadingEarlier,
               !didTriggerPaging,
               userHasScrolled || contentFitsViewport,
@@ -520,9 +554,11 @@ struct SessionTranscriptView: View {
         )
     }
 
-    private func handleSessionChange(to newSessionID: String) {
+    private func handleSessionChange(to newSessionID: String, using proxy: ScrollViewProxy) {
         rebuildScrollTask?.cancel()
         rebuildScrollTask = nil
+        rowsMounted = false
+        scrollState.cancelBlankCheck()
         scrollState.sessionChanged(to: newSessionID)
         subagentIndex = SubagentIndex(subagents)
         userHasScrolled = false
@@ -530,6 +566,11 @@ struct SessionTranscriptView: View {
         isPinnedToBottom = true
         userIsScrolling = false
         pagingAnchorEntryID = nil
+        Task { @MainActor in
+            await Task.yield()
+            guard transcriptIsVisible else { return }
+            mountRows(source: .session, using: proxy)
+        }
     }
 
     private func handleTranscriptAppear(using proxy: ScrollViewProxy) {
@@ -542,8 +583,21 @@ struct SessionTranscriptView: View {
         }
         scrollState.recordEvent(name: "rows", newValue: Double(displayRows.count))
         scrollState.recordEvent(name: "notes", newValue: Double(queuedNotes.count))
-        scrollToNewest(using: proxy)
+    }
+
+    private func mountRows(source: TranscriptMountSource, using proxy: ScrollViewProxy) {
+        guard transcriptIsVisible, !rowsMounted else { return }
+        let elapsed = max(0, Int(Date().timeIntervalSince(transcriptAppearDate ?? Date()) * 1000))
+        withTransaction(Transaction(animation: nil)) {
+            rowsMounted = true
+        }
+        if isPinnedToBottom {
+            scrollToNewest(using: proxy)
+        }
         evaluateBlankIfNeeded(using: proxy)
+        #if DEBUG
+        transcriptLogger.notice("transcript-mount source=\(source.rawValue, privacy: .public) ms=\(elapsed, privacy: .public)")
+        #endif
     }
 
     private func handleQueuedNotesChange(using proxy: ScrollViewProxy) {
@@ -552,7 +606,8 @@ struct SessionTranscriptView: View {
     }
 
     private func evaluateBlankIfNeeded(using proxy: ScrollViewProxy) {
-        guard scrollState.builtRowIndices.isEmpty,
+        guard rowsMounted,
+              scrollState.builtRowIndices.isEmpty,
               !displayRows.isEmpty || !queuedNotes.isEmpty else { return }
         evaluateBlankState(using: proxy)
     }
@@ -574,7 +629,9 @@ struct SessionTranscriptView: View {
         to metrics: TranscriptScrollMetrics,
         using proxy: ScrollViewProxy
     ) {
-        contentFitsViewport = metrics.contentFitsViewport
+        if rowsMounted {
+            contentFitsViewport = metrics.contentFitsViewport
+        }
         recordGeometryChanges(from: oldMetrics, to: metrics)
         if let geometry = metrics.overshootGeometry {
             scrollState.lastScrollGeometry = geometry
@@ -663,7 +720,8 @@ struct SessionTranscriptView: View {
     }
 
     private func evaluateBlankState(using proxy: ScrollViewProxy, mayCorrect: Bool = false) {
-        guard scrollState.scrollPhaseIsIdle,
+        guard rowsMounted,
+              scrollState.scrollPhaseIsIdle,
               let geometry = scrollState.lastScrollGeometry else { return }
         let kind = ScrollBlankCondition.kind(
             geometry: geometry,
@@ -698,7 +756,7 @@ struct SessionTranscriptView: View {
     }
 
     private func scheduleBlankCheck(using proxy: ScrollViewProxy, delay: Duration = .milliseconds(250)) {
-        guard scrollState.blankCheckTask == nil else { return }
+        guard rowsMounted, scrollState.blankCheckTask == nil else { return }
         scrollState.blankCheckTask = Task { @MainActor in
             do {
                 try await Task.sleep(for: delay)
@@ -965,7 +1023,77 @@ struct SessionTranscriptView: View {
     }
 }
 
+private enum TranscriptMountSource: String {
+    case coordinator
+    case immediate
+    case cap
+    case session
+}
+
+private struct TranscriptMountReader: UIViewRepresentable {
+    let onSettled: (TranscriptMountSource) -> Void
+
+    func makeUIView(context: Context) -> ReaderView {
+        ReaderView(onSettled: onSettled)
+    }
+
+    func updateUIView(_ uiView: ReaderView, context: Context) {
+        uiView.onSettled = onSettled
+    }
+
+    final class ReaderView: UIView {
+        var onSettled: ((TranscriptMountSource) -> Void)?
+        private var didSchedule = false
+
+        init(onSettled: @escaping (TranscriptMountSource) -> Void) {
+            self.onSettled = onSettled
+            super.init(frame: .zero)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard window != nil else {
+                didSchedule = false
+                return
+            }
+            guard !didSchedule else { return }
+            didSchedule = true
+
+            var responder: UIResponder? = self
+            while let current = responder {
+                if let viewController = current as? UIViewController {
+                    if let coordinator = viewController.transitionCoordinator {
+                        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+                            self?.onSettled?(.coordinator)
+                        }
+                    } else {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSettled?(.immediate)
+                        }
+                    }
+                    return
+                }
+                responder = current.next
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                self?.onSettled?(.immediate)
+            }
+        }
+    }
+}
+
 #if DEBUG
+private let transcriptLogger = Logger(
+    subsystem: "com.example.cc-controller",
+    category: "transcript"
+)
+
 private struct ScrollGuardDebugOvershootHook: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
