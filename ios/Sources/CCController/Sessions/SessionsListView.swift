@@ -341,7 +341,7 @@ private struct SessionRow: View {
             .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
             .accessibilityValue(activityStateLabel)
 
-            if let approval {
+            if let approval, approval.questions == nil {
                 ApprovalCard(
                     approval: approval,
                     style: .compact,
@@ -481,8 +481,8 @@ private struct SessionText: View {
 
             if !activity.isEmpty {
                 Text(activity)
-                    .font(.footnote.weight(session.state == .needsYou ? .semibold : .regular))
-                    .foregroundStyle(session.state == .needsYou ? Color.ccAccent : Color.ccSecondary)
+                    .font(.footnote.weight(isAsking || session.state == .needsYou ? .semibold : .regular))
+                    .foregroundStyle(isAsking || session.state == .needsYou ? Color.ccAccent : Color.ccSecondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -519,11 +519,16 @@ private struct SessionText: View {
 
 
 
+    private var isAsking: Bool {
+        approval?.questions != nil
+    }
+
     private var shouldWrapMeta: Bool {
         (session.project ?? "").count > 10 || dynamicTypeSize >= .accessibility1
     }
 
     private var activity: String {
+        if let approval, approval.questions != nil { return approvalCaption(approval) }
         if session.state == .needsYou, approval != nil { return "" }
         if session.state == .needsYou {
             return "\(session.lastTool ?? "Tool") command waiting"
