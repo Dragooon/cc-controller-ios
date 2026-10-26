@@ -223,6 +223,7 @@ public actor ScrollDiagnosticsFileStore {
 @MainActor
 public final class ScrollDiagnosticsRecorder {
     private static let logger = Logger(subsystem: "com.example.cc-controller", category: "scroll-guard")
+    private static let timestampFormatter = ISO8601DateFormatter()
 
     private let fileStore: ScrollDiagnosticsFileStore
     private var sessionIDPrefix: String
@@ -272,9 +273,8 @@ public final class ScrollDiagnosticsRecorder {
         now: Date = Date(),
         completion: (@MainActor (Bool) -> Void)? = nil
     ) {
-        let formatter = ISO8601DateFormatter()
         let entry = ScrollDiagnosticEntry(
-            timestamp: formatter.string(from: now),
+            timestamp: Self.timestampFormatter.string(from: now),
             appVersion: appVersion,
             build: build,
             sessionIDPrefix: sessionIDPrefix,
@@ -326,9 +326,8 @@ public final class ScrollDiagnosticsRecorder {
         now: Date = Date(),
         completion: (@MainActor (Bool) -> Void)? = nil
     ) {
-        let formatter = ISO8601DateFormatter()
         let entry = ScrollDiagnosticEntry(
-            timestamp: formatter.string(from: now),
+            timestamp: Self.timestampFormatter.string(from: now),
             appVersion: appVersion,
             build: build,
             sessionIDPrefix: TranscriptLifecycleLog.sessionPrefix(trigger.sessionID) ?? "",

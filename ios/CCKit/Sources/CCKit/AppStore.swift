@@ -1508,7 +1508,6 @@ public final class AppStore {
     private func openStore(sessionID: String, agentID: String?) -> SessionStore? {
         let key = storeKey(sessionID: sessionID, agentID: agentID)
         if let store = openStores[key] {
-            TranscriptLifecycleLog.shared.record(name: "store-open", sessionID: sessionID, detail: "existing")
             return store
         }
         guard let session = sessions[sessionID], session.live == true else { return nil }

@@ -18,6 +18,12 @@ public struct TranscriptLifecycleEvent: Codable, Equatable, Sendable {
 public final class TranscriptLifecycleLog {
     public static let shared = TranscriptLifecycleLog()
     public static let capacity = 64
+    private static let timestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private let clock: () -> Date
     private var storage: [TranscriptLifecycleEvent] = []
@@ -33,12 +39,9 @@ public final class TranscriptLifecycleLog {
         sessionID: String? = nil,
         detail: String? = nil
     ) {
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         storage.append(
             TranscriptLifecycleEvent(
-                at: formatter.string(from: clock()),
+                at: Self.timestampFormatter.string(from: clock()),
                 name: name,
                 session: Self.sessionPrefix(sessionID),
                 detail: detail.map { String($0.prefix(39)) }
