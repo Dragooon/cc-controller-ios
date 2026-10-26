@@ -11,7 +11,6 @@ private struct TranscriptScrollMetrics: Equatable {
     let containerHeight: CGFloat
     let insetTop: CGFloat
     let insetBottom: CGFloat
-    let contentFitsViewport: Bool
     let overshoot: Bool
     let overshootGeometry: ScrollGuardGeometry?
 }
@@ -29,6 +28,8 @@ private final class TranscriptScrollState {
     var highestBuiltRowIndex = -1
     var lastBuiltRowID: String?
     var lastScrollGeometry: ScrollGuardGeometry?
+    var latestUIKitMetrics: UIKitScrollMetrics?
+    let bridgeHandle = TranscriptScrollBridgeHandle()
     var blankCandidate: ScrollBlankKind?
     var blankCandidateStartedAt: Date?
     var blankCheckTask: Task<Void, Never>?
@@ -80,6 +81,7 @@ private final class TranscriptScrollState {
         highestBuiltRowIndex = -1
         lastBuiltRowID = nil
         lastScrollGeometry = nil
+        latestUIKitMetrics = nil
     }
 
     func cancelBlankCheck() {
@@ -328,7 +330,7 @@ struct SessionTranscriptView: View {
         }
     }
 
-    private var transcriptStack: some View {
+    private func transcriptStack(using proxy: ScrollViewProxy) -> some View {
         LazyVStack(alignment: .leading, spacing: 20) {
             pagingRow
             transcriptRows
@@ -340,20 +342,32 @@ struct SessionTranscriptView: View {
         .frame(maxWidth: readableContentMaxWidth)
         .frame(maxWidth: .infinity)
         .scrollTargetLayout()
+        .background {
+            transcriptScrollBridge(using: proxy)
+        }
         #if DEBUG || CC_PERF
         .onAppear { TranscriptPerformance.shared.markFirstRows() }
         #endif
     }
 
+    private func transcriptScrollBridge(using proxy: ScrollViewProxy) -> some View {
+        TranscriptScrollBridge(handle: scrollState.bridgeHandle) { metrics in
+            handleUIKitScrollMetrics(metrics, using: proxy)
+        }
+    }
+
     private func transcriptScrollView(using proxy: ScrollViewProxy) -> some View {
         let scrollView = ScrollView {
             if rowsMounted {
-                transcriptStack
+                transcriptStack(using: proxy)
             } else {
                 Color.clear
                     .frame(height: 1)
                     .id("transcript-bottom")
                     .accessibilityHidden(true)
+                    .background {
+                        transcriptScrollBridge(using: proxy)
+                    }
             }
         }
         let configuredScrollView = scrollView
@@ -381,6 +395,7 @@ struct SessionTranscriptView: View {
                 transcriptAppearDate = Date()
                 rowsMounted = false
                 contentFitsViewport = false
+                scrollState.latestUIKitMetrics = nil
                 handleTranscriptAppear(using: proxy)
             }
             .task {
@@ -396,6 +411,7 @@ struct SessionTranscriptView: View {
                 transcriptIsVisible = false
                 rowsMounted = false
                 contentFitsViewport = false
+                scrollState.latestUIKitMetrics = nil
                 transcriptAppearDate = nil
                 scrollState.cancelBlankCheck()
                 rebuildScrollTask?.cancel()
@@ -427,7 +443,6 @@ struct SessionTranscriptView: View {
                     containerHeight: geometry.visibleRect.height,
                     insetTop: geometry.contentInsets.top,
                     insetBottom: geometry.contentInsets.bottom,
-                    contentFitsViewport: geometry.contentSize.height <= geometry.visibleRect.height,
                     overshoot: overshoot,
                     overshootGeometry: overshootGeometry
                 )
@@ -563,6 +578,7 @@ struct SessionTranscriptView: View {
         subagentIndex = SubagentIndex(subagents)
         userHasScrolled = false
         contentFitsViewport = false
+        scrollState.latestUIKitMetrics = nil
         isPinnedToBottom = true
         userIsScrolling = false
         pagingAnchorEntryID = nil
@@ -629,18 +645,12 @@ struct SessionTranscriptView: View {
         to metrics: TranscriptScrollMetrics,
         using proxy: ScrollViewProxy
     ) {
-        if rowsMounted {
-            contentFitsViewport = metrics.contentFitsViewport
-        }
         recordGeometryChanges(from: oldMetrics, to: metrics)
         if let geometry = metrics.overshootGeometry {
             scrollState.lastScrollGeometry = geometry
             evaluateBlankState(using: proxy)
         } else if oldMetrics.overshoot, scrollState.blankOccurrence != nil {
             finishBlankOccurrence(recovered: true)
-        }
-        if metrics.contentFitsViewport {
-            loadEarlierIfNeeded()
         }
         if isPinnedToBottom,
            !userIsScrolling,
@@ -649,6 +659,31 @@ struct SessionTranscriptView: View {
             scrollToNewest(using: proxy)
         }
         evaluateBlankIfNeeded(using: proxy)
+    }
+
+    private func handleUIKitScrollMetrics(_ metrics: UIKitScrollMetrics, using proxy: ScrollViewProxy) {
+        scrollState.latestUIKitMetrics = metrics
+        guard rowsMounted else { return }
+
+        let viewportHeight = metrics.boundsHeight - metrics.insetTop - metrics.insetBottom
+        contentFitsViewport = metrics.contentHeight <= viewportHeight
+        if contentFitsViewport {
+            loadEarlierIfNeeded()
+        }
+
+        guard isPinnedToBottom,
+              !userIsScrolling,
+              !metrics.userInteracting,
+              pagingAnchorEntryID == nil,
+              pagingRestoreTask == nil,
+              metrics.contentHeight > viewportHeight,
+              metrics.maxOffsetY - metrics.offsetY > 1 else { return }
+        scrollState.bridgeHandle.pinToBottom()
+        #if DEBUG
+        transcriptLogger.notice(
+            "transcript-pin from=\(metrics.offsetY, privacy: .public) to=\(metrics.maxOffsetY, privacy: .public)"
+        )
+        #endif
     }
 
     private func recordGeometryChanges(from old: TranscriptScrollMetrics, to new: TranscriptScrollMetrics) {
@@ -835,6 +870,9 @@ struct SessionTranscriptView: View {
     }
 
     private func isAtBottom(in geometry: ScrollGeometry) -> Bool {
+        if let metrics = scrollState.latestUIKitMetrics {
+            return metrics.offsetY >= metrics.maxOffsetY - 36
+        }
         let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
         return visibleBottom >= geometry.contentSize.height - 36
     }
