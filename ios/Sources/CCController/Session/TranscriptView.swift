@@ -338,7 +338,7 @@ struct SessionTranscriptView: View {
         .id(stackGeneration)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
-        .padding(.vertical, 18)
+        .padding(.top, 18)
         .frame(maxWidth: readableContentMaxWidth)
         .frame(maxWidth: .infinity)
         .scrollTargetLayout()
@@ -1012,6 +1012,7 @@ struct SessionTranscriptView: View {
 
         Color.clear
             .frame(height: 1)
+            .padding(.bottom, 18)
             .id("transcript-bottom")
             .accessibilityHidden(true)
             #if DEBUG
