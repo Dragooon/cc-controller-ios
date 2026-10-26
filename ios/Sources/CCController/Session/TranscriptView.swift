@@ -184,7 +184,7 @@ struct SessionTranscriptView: View {
     @State private var pagingRestoreTask: Task<Void, Never>?
     @State private var newestScrollTask: Task<Void, Never>?
     @State private var pagingError: String?
-    @State private var transcriptHeight: CGFloat = 0
+    @State private var availableHeight: CGFloat = 0
     @State private var userHasScrolled = false
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
@@ -278,7 +278,7 @@ struct SessionTranscriptView: View {
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if showsComposer {
                     let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
-                    BottomStackView(configuration: configuration.withTranscriptHeight(transcriptHeight))
+                    BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
                         .frame(maxWidth: readableContentMaxWidth)
                         .frame(maxWidth: .infinity)
                 }
@@ -314,6 +314,12 @@ struct SessionTranscriptView: View {
             }
             #endif
         }
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.height
+        } action: { _, height in
+            guard abs(height - availableHeight) >= 1 else { return }
+            availableHeight = height
+        }
     }
 
     private var transcriptStack: some View {
@@ -342,13 +348,7 @@ struct SessionTranscriptView: View {
             .defaultScrollAnchor(showsComposer ? .bottom : scrollAnchor, for: .sizeChanges)
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("transcript-scroll")
-        let withGeometry = configuredScrollView
-            .onGeometryChange(for: CGFloat.self) { geometry in
-                geometry.size.height
-            } action: { _, height in
-                transcriptHeight = height
-            }
-        let withPaging = withGeometry
+        let withPaging = configuredScrollView
             .onChange(of: turns.first?.id) { _, newID in
                 handleFirstTurnChange(newID: newID, using: proxy)
             }

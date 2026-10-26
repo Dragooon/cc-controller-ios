@@ -18,7 +18,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let attachmentNotice: String?
     let approvals: [Approval]
     let deciding: Set<String>
-    let transcriptHeight: CGFloat
+    let availableHeight: CGFloat
     let onSend: @MainActor @Sendable (String, Bool) async -> Result<MessageResult, ActionError>
     let onEnqueue: @MainActor @Sendable (String, Bool) async -> Result<QueuedNote, ActionError>
     let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
@@ -40,7 +40,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         attachmentNotice: String? = nil,
         approvals: [Approval] = [],
         deciding: Set<String> = [],
-        transcriptHeight: CGFloat = 0,
+        availableHeight: CGFloat = 0,
         onSend: @escaping @MainActor @Sendable (String, Bool) async -> Result<MessageResult, ActionError> = { _, _ in .success(MessageResult()) },
         onEnqueue: @escaping @MainActor @Sendable (String, Bool) async -> Result<QueuedNote, ActionError> = { text, _ in .success(QueuedNote(text: text)) },
         onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
@@ -61,7 +61,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.attachmentNotice = attachmentNotice
         self.approvals = approvals
         self.deciding = deciding
-        self.transcriptHeight = transcriptHeight
+        self.availableHeight = availableHeight
         self.onSend = onSend
         self.onEnqueue = onEnqueue
         self.onAddAttachment = onAddAttachment
@@ -74,7 +74,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.onDeny = onDeny
     }
 
-    func withTranscriptHeight(_ height: CGFloat) -> Self {
+    func withAvailableHeight(_ height: CGFloat) -> Self {
         Self(
             composer: composer,
             statusSegments: statusSegments,
@@ -85,7 +85,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
             attachmentNotice: attachmentNotice,
             approvals: approvals,
             deciding: deciding,
-            transcriptHeight: height,
+            availableHeight: height,
             onSend: onSend,
             onEnqueue: onEnqueue,
             onAddAttachment: onAddAttachment,
@@ -154,7 +154,7 @@ struct BottomStackView: View {
                     ApprovalBottomStackView(
                         approvals: configuration.approvals,
                         deciding: configuration.deciding,
-                        maxHeight: max(0, configuration.transcriptHeight - 180),
+                        maxHeight: max(160, configuration.availableHeight * 0.35),
                         onAllow: configuration.onAllow,
                         onAllowSession: configuration.onAllowSession,
                         onDeny: configuration.onDeny,
