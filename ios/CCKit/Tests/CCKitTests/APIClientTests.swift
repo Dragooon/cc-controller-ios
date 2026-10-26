@@ -116,6 +116,19 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(paths, ["/api/sessions", "/api/sessions/sleep-123/wake"])
     }
 
+    func testCreateAgentSessionPostsAgentAndPrompt() async throws {
+        var bodies: [Data] = []
+        StubURLProtocol.handler = { request in
+            if let body = APIClientTests.bodyData(for: request) { bodies.append(body) }
+            return StubURLProtocol.response(status: 200, body: Data("{\"id\":\"created-1\",\"shortId\":\"create\",\"name\":\"Check the build\"}".utf8))
+        }
+        let client = makeClient()
+        let created = try await client.createAgentSession(agentId: "main", prompt: "Check the build")
+        XCTAssertEqual(created, CreatedSession(id: "created-1", shortId: "create", name: "Check the build"))
+        let body = try XCTUnwrap(bodies.first.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: String] })
+        XCTAssertEqual(body, ["agentId": "main", "prompt": "Check the build"])
+    }
+
     func testMessageNowAndMultipartUpload() async throws {
         var bodies: [Data] = []
         var contentTypes: [String?] = []

@@ -88,6 +88,7 @@ struct QuestionCard: View {
 
     /// Nil while the card can be answered here; otherwise the read-only line that replaces its buttons.
     private var readOnlyReason: String? {
+        if let answerIn = answerInLabel(for: approval) { return answerIn }
         if !canAnswer { return "Answer in Discord" }
         if approval.mode == .terminal || approval.status == .terminal { return "Answer in the terminal" }
         return state.readOnlyReason(for: approval)

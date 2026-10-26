@@ -41,6 +41,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     case mode
     case files
     case commands
+    /// Stockade only: /sudo toggles sudo mode on a writable session.
+    case sudo
     case unknown(String)
 
     public init(rawValue: String) {
@@ -57,6 +59,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case "mode": self = .mode
         case "files": self = .files
         case "commands": self = .commands
+        case "sudo": self = .sudo
         default: self = .unknown(rawValue)
         }
     }
@@ -84,6 +87,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case .mode: "mode"
         case .files: "files"
         case .commands: "commands"
+        case .sudo: "sudo"
         case .unknown(let value): value
         }
     }
@@ -188,13 +192,24 @@ public struct ModelOption: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+public struct NewSessionAgent: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+
+    public init(id: String, name: String) {
+        self.id = id; self.name = name
+    }
+}
+
 public struct NewSessionOptions: Codable, Sendable, Equatable {
     public var folders: [NewSessionFolder]
     public var models: [ModelOption]
     public var defaultModel: String
+    /// Stockade: the agents a new session can start with. Nil on the Mac, which starts sessions in folders.
+    public var agents: [NewSessionAgent]?
 
-    public init(folders: [NewSessionFolder] = [], models: [ModelOption] = [], defaultModel: String = "default") {
-        self.folders = folders; self.models = models; self.defaultModel = defaultModel
+    public init(folders: [NewSessionFolder] = [], models: [ModelOption] = [], defaultModel: String = "default", agents: [NewSessionAgent]? = nil) {
+        self.folders = folders; self.models = models; self.defaultModel = defaultModel; self.agents = agents
     }
 }
 
@@ -351,7 +366,36 @@ public struct Session: Codable, Sendable, Equatable {
     public var startedAt: Date?
     public var idleSince: Date?
     public var background: BackgroundSession?
-    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background }
+    /// Stockade (D3b): where the session started: discord, app, peer or terminal.
+    public var origin: String?
+    public var startedBy: SessionStarter?
+    public var participants: [SessionParticipant]?
+    /// Stockade (D3b): false for scopes the app may only read, such as Discord threads.
+    public var writable: Bool?
+    /// Stockade (D3b): discord, terminal or agent when `writable` is false.
+    public var readOnlyReason: String?
+    public var sudo: Bool?
+    public var agent: SessionAgent?
+    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
+}
+
+public struct SessionStarter: Codable, Sendable, Equatable {
+    /// person or agent.
+    public var kind: String
+    public var name: String
+    public init(kind: String, name: String) { self.kind = kind; self.name = name }
+}
+
+public struct SessionParticipant: Codable, Sendable, Equatable {
+    public var name: String
+    public var platform: String?
+    public init(name: String, platform: String? = nil) { self.name = name; self.platform = platform }
+}
+
+public struct SessionAgent: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String?
+    public init(id: String, name: String? = nil) { self.id = id; self.name = name }
 }
 
 public struct Usage: Codable, Sendable, Equatable {
@@ -424,8 +468,10 @@ public struct Approval: Codable, Sendable, Equatable {
     public var timedOutAt: Date?
     public var permissionSuggestions: [JSONValue]?
     public var previousState: SessionState?
-    enum CodingKeys: String, CodingKey { case requestId, sessionId, kind, toolName = "tool_name", toolInput = "tool_input", toolUseId = "tool_use_id", permissionMode = "permission_mode", agentType = "agent_type", receivedAt, holdLimitMs, mode, status, timedOutAt, permissionSuggestions = "permission_suggestions", previousState }
-    public init(requestId: String? = nil, sessionId: String? = nil, kind: ApprovalKind = .generic, toolName: String? = nil, toolInput: JSONValue? = nil, toolUseId: String? = nil, permissionMode: String? = nil, agentType: String? = nil, receivedAt: Date? = nil, holdLimitMs: Int? = nil, mode: ApprovalMode? = nil, status: ApprovalStatus? = nil, timedOutAt: Date? = nil, permissionSuggestions: [JSONValue]? = nil, previousState: SessionState? = nil) { self.requestId = requestId; self.sessionId = sessionId; self.kind = kind; self.toolName = toolName; self.toolInput = toolInput; self.toolUseId = toolUseId; self.permissionMode = permissionMode; self.agentType = agentType; self.receivedAt = receivedAt; self.holdLimitMs = holdLimitMs; self.mode = mode; self.status = status; self.timedOutAt = timedOutAt; self.permissionSuggestions = permissionSuggestions; self.previousState = previousState }
+    /// Stockade (D3b): set on read-only scopes to where the approval must be answered (discord, terminal or agent).
+    public var answerIn: String?
+    enum CodingKeys: String, CodingKey { case requestId, sessionId, kind, toolName = "tool_name", toolInput = "tool_input", toolUseId = "tool_use_id", permissionMode = "permission_mode", agentType = "agent_type", receivedAt, holdLimitMs, mode, status, timedOutAt, permissionSuggestions = "permission_suggestions", previousState, answerIn }
+    public init(requestId: String? = nil, sessionId: String? = nil, kind: ApprovalKind = .generic, toolName: String? = nil, toolInput: JSONValue? = nil, toolUseId: String? = nil, permissionMode: String? = nil, agentType: String? = nil, receivedAt: Date? = nil, holdLimitMs: Int? = nil, mode: ApprovalMode? = nil, status: ApprovalStatus? = nil, timedOutAt: Date? = nil, permissionSuggestions: [JSONValue]? = nil, previousState: SessionState? = nil, answerIn: String? = nil) { self.requestId = requestId; self.sessionId = sessionId; self.kind = kind; self.toolName = toolName; self.toolInput = toolInput; self.toolUseId = toolUseId; self.permissionMode = permissionMode; self.agentType = agentType; self.receivedAt = receivedAt; self.holdLimitMs = holdLimitMs; self.mode = mode; self.status = status; self.timedOutAt = timedOutAt; self.permissionSuggestions = permissionSuggestions; self.previousState = previousState; self.answerIn = answerIn }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -444,7 +490,8 @@ public struct Approval: Codable, Sendable, Equatable {
             status: try container.decodeIfPresent(ApprovalStatus.self, forKey: .status),
             timedOutAt: try container.decodeIfPresent(Date.self, forKey: .timedOutAt),
             permissionSuggestions: try container.decodeIfPresent([JSONValue].self, forKey: .permissionSuggestions),
-            previousState: try container.decodeIfPresent(SessionState.self, forKey: .previousState)
+            previousState: try container.decodeIfPresent(SessionState.self, forKey: .previousState),
+            answerIn: try container.decodeIfPresent(String.self, forKey: .answerIn)
         )
     }
 }

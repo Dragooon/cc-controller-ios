@@ -304,7 +304,29 @@ struct ApprovalCard: View {
         }
     }
 
+    @ViewBuilder
     private var fullActions: some View {
+        if let answerIn {
+            answerInText(answerIn)
+        } else {
+            fullDecisionActions
+        }
+    }
+
+    /// Stockade approvals on read-only scopes show where to answer in place of the buttons.
+    private var answerIn: String? {
+        answerInLabel(for: approval)
+    }
+
+    private func answerInText(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.ccSecondary)
+            .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+            .accessibilityIdentifier("\(actionIdentifierPrefix)-answer-in")
+    }
+
+    private var fullDecisionActions: some View {
         VStack(spacing: 8) {
             ViewThatFits(in: .horizontal) {
                 if dynamicTypeSize < .accessibility1 {
@@ -398,7 +420,9 @@ struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: 10) {
             compactContent
 
-            if dynamicTypeSize >= .accessibility1 {
+            if let answerIn {
+                answerInText(answerIn)
+            } else if dynamicTypeSize >= .accessibility1 {
                 VStack(spacing: 12) {
                     allowButton
                     denyButton

@@ -294,6 +294,7 @@ struct MainSplitView: View {
 
     private var actionErrorTitle: String {
         if case .commandsUnavailable = model.actionError { return "Commands unavailable" }
+        if case .readOnly = model.actionError { return "Read-only" }
         return "Action failed"
     }
 

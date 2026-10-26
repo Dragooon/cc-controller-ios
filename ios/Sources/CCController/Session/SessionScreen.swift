@@ -321,7 +321,7 @@ struct SessionScreen: View {
             statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
             onActivity: { activityPresented = true },
-            slashCommands: store.supports(.commands) ? commands : [],
+            slashCommands: slashCommands(commands, for: current),
             attachments: (store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
             attachmentNotice: store.attachmentNotices[sessionID],
             approvals: pendingApprovals,
@@ -366,8 +366,19 @@ struct SessionScreen: View {
                 performQuestionSkip(approval)
             },
             approvalControllerName: model.controllerName(for: store),
-            allowsSessionScope: store.controllerInfo.kind != .stockade
+            allowsSessionScope: store.controllerInfo.kind != .stockade,
+            readOnlyLabel: readOnlyLabel(for: current)
         )
+    }
+
+    /// The controller's commands, plus `/sudo` on a writable Stockade session that advertises it.
+    private func slashCommands(_ commands: [SlashCommand], for session: Session) -> [SlashCommand] {
+        var available = store.supports(.commands) ? commands : []
+        if acceptsSudo(session, capabilities: store.controllerInfo.capabilities),
+           !available.contains(where: { $0.command == "/sudo" }) {
+            available.append(SlashCommand(command: "/sudo", description: "Toggle sudo mode"))
+        }
+        return available
     }
 
     /// Nil when the owning controller does not advertise `files`, which hides the download actions.
@@ -402,6 +413,9 @@ struct SessionScreen: View {
             }
             if isSlashCommand(trimmed), message.queued == true {
                 showCommandToast()
+            }
+            if let sudo = message.sudo {
+                showToast(sudoToastText(sudo))
             }
         case .failure(let error):
             if shouldPresentSendError(error) {

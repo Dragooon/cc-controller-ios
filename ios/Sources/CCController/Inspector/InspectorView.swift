@@ -67,6 +67,7 @@ struct InspectorView: View {
                 if canSetApprovalMode {
                     approvalsSection
                 }
+                conversationSection
                 locationSection
                 openOnMacSection
                 actionsSection
@@ -281,6 +282,55 @@ struct InspectorView: View {
             }
         } header: {
             sectionHeader("Approvals")
+        }
+    }
+
+    /// Stockade sessions: who started it, who's in it, and whether the app can write.
+    @ViewBuilder
+    private var conversationSection: some View {
+        if session.origin != nil || session.writable != nil {
+            Section {
+                if let agent = session.agent {
+                    LabeledContent("Agent") {
+                        Text(agent.name ?? agent.id)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                if let origin = sessionOriginLabel(session.origin) {
+                    LabeledContent("Started in") {
+                        Text(origin)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                if let starter = session.startedBy {
+                    LabeledContent("Started by") {
+                        Text(starter.name)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                if let participants = session.participants, !participants.isEmpty {
+                    LabeledContent("People") {
+                        Text(participants.map(\.name).joined(separator: ", "))
+                            .foregroundStyle(.ccSecondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .accessibilityIdentifier("inspector-participants")
+                }
+                LabeledContent("Access") {
+                    Text(readOnlyLabel(for: session) ?? "Read and write")
+                        .foregroundStyle(.ccSecondary)
+                }
+                .accessibilityIdentifier("inspector-access")
+                if session.sudo == true {
+                    LabeledContent("Sudo") {
+                        Text("On")
+                            .foregroundStyle(.ccAmber)
+                    }
+                    .accessibilityIdentifier("inspector-sudo")
+                }
+            } header: {
+                sectionHeader("Conversation")
+            }
         }
     }
 

@@ -731,7 +731,18 @@ private struct SessionText: View {
 
     private var meta: some View {
         Group {
-            if shouldWrapMeta {
+            if let stockadeMeta = stockadeSessionMeta(for: session) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(stockadeMeta)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityIdentifier("session-meta-\(session.id ?? "")")
+                    Text("·")
+                    SessionStateSegmentView(session: session)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if shouldWrapMeta {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.project ?? "unknown project")
                         .lineLimit(1)

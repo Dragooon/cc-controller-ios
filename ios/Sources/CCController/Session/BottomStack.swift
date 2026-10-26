@@ -36,6 +36,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
     /// The owning controller's name, set only when two or more controllers are paired.
     let approvalControllerName: String?
     let allowsSessionScope: Bool
+    /// Set on sessions the app may only read, such as "Read-only · Discord". It replaces the composer.
+    let readOnlyLabel: String?
 
     init(
         composer: ComposerConfiguration = ComposerConfiguration(),
@@ -63,7 +65,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
         onAnswer: @escaping (Approval, [String: String]) -> Void = { _, _ in },
         onSkip: @escaping (Approval) -> Void = { _ in },
         approvalControllerName: String? = nil,
-        allowsSessionScope: Bool = true
+        allowsSessionScope: Bool = true,
+        readOnlyLabel: String? = nil
     ) {
         self.composer = composer
         self.statusSegments = statusSegments
@@ -91,6 +94,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.onSkip = onSkip
         self.approvalControllerName = approvalControllerName
         self.allowsSessionScope = allowsSessionScope
+        self.readOnlyLabel = readOnlyLabel
     }
 
     func withTranscriptHeight(_ height: CGFloat) -> Self {
@@ -120,7 +124,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
             onAnswer: onAnswer,
             onSkip: onSkip,
             approvalControllerName: approvalControllerName,
-            allowsSessionScope: allowsSessionScope
+            allowsSessionScope: allowsSessionScope,
+            readOnlyLabel: readOnlyLabel
         )
     }
 }
@@ -203,7 +208,9 @@ struct BottomStackView: View {
                         .transition(.opacity)
                 }
 
-                if configuration.approvals.isEmpty {
+                if configuration.approvals.isEmpty, let readOnlyLabel = configuration.readOnlyLabel {
+                    ReadOnlyBar(label: readOnlyLabel)
+                } else if configuration.approvals.isEmpty {
                     ComposerView(
                         text: $text,
                         isFocused: $composerFocused,
@@ -343,6 +350,22 @@ struct BottomStackView: View {
         Task { @MainActor in
             _ = await configuration.onStop()
         }
+    }
+}
+
+/// Takes the composer's place on a session the app may only read.
+private struct ReadOnlyBar: View {
+    let label: String
+
+    var body: some View {
+        Label(label, systemImage: "lock")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.ccSecondary)
+            .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+            .glassEffect(.regular, in: .capsule)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("read-only-bar")
+            .accessibilityLabel(label)
     }
 }
 

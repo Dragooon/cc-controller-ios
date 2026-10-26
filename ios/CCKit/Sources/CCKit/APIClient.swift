@@ -64,6 +64,11 @@ public actor APIClient {
         try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt))
     }
 
+    /// Stockade: starts a session with an agent instead of in a folder.
+    public func createAgentSession(agentId: String, prompt: String) async throws -> CreatedSession {
+        try await post("/api/sessions", body: CreateAgentSessionRequest(agentId: agentId, prompt: prompt))
+    }
+
     public func wakeSession(id: String) async throws -> WokenSession {
         try await post("/api/sessions/\(pathComponent(id))/wake", body: EmptyBody())
     }
@@ -353,6 +358,10 @@ private struct CreateSessionRequest: Encodable {
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(prompt, forKey: .prompt)
     }
+}
+private struct CreateAgentSessionRequest: Encodable {
+    let agentId: String
+    let prompt: String
 }
 private struct MessageRequest: Encodable {
     let text: String

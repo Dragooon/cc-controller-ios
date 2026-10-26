@@ -50,8 +50,9 @@ struct SessionSubtitleView: View {
     }
 
     private func prefixed(_ subtitle: String) -> String {
-        guard let controllerName else { return subtitle }
-        return subtitle.isEmpty ? controllerName : "\(controllerName) · \(subtitle)"
+        let marked = session.sudo == true ? (subtitle.isEmpty ? "sudo" : "\(subtitle) · sudo") : subtitle
+        guard let controllerName else { return marked }
+        return marked.isEmpty ? controllerName : "\(controllerName) · \(marked)"
     }
 
     private var isLive: Bool {

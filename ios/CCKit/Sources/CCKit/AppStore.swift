@@ -244,6 +244,10 @@ public final class AppStore {
         )
     }
 
+    public func createAgentSession(agentId: String, prompt: String) async throws -> CreatedSession {
+        try await client.createAgentSession(agentId: agentId, prompt: prompt)
+    }
+
     public func waitForSession(_ id: String, timeout: Duration = .seconds(10)) async -> Bool {
         guard !id.isEmpty else { return false }
         if sessions[id] != nil { return true }
@@ -1086,6 +1090,7 @@ public final class AppStore {
                 if code == "answer_too_long" { return .answerTooLong }
                 if code == "answer_in_terminal" { return .answerInTerminal }
                 if code == "no_command_route" { return .commandsUnavailable(message) }
+                if code == "read_only" { return .readOnly(message) }
                 if code == "terminal_no_pane" { return .waitingInTerminal }
                 if code == "no_pane" { return .noPane }
                 if code == "already_answered" { return .alreadyAnswered }
