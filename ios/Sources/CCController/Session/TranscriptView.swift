@@ -183,6 +183,8 @@ struct SessionTranscriptView: View {
     @State private var pagingAnchorEntryID: String?
     @State private var pagingRestoreTask: Task<Void, Never>?
     @State private var newestScrollTask: Task<Void, Never>?
+    @State private var stackGeneration = 0
+    @State private var rebuildScrollTask: Task<Void, Never>?
     @State private var pagingError: String?
     @State private var availableHeight: CGFloat = 0
     @State private var userHasScrolled = false
@@ -327,6 +329,7 @@ struct SessionTranscriptView: View {
             pagingRow
             transcriptRows
         }
+        .id(stackGeneration)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 18)
@@ -362,6 +365,8 @@ struct SessionTranscriptView: View {
             }
             .onDisappear {
                 scrollState.cancelBlankCheck()
+                rebuildScrollTask?.cancel()
+                rebuildScrollTask = nil
                 scrollState.onBuiltRowsEmpty = nil
             }
             .onChange(of: displayRows.count) { oldCount, newCount in
@@ -516,6 +521,8 @@ struct SessionTranscriptView: View {
     }
 
     private func handleSessionChange(to newSessionID: String) {
+        rebuildScrollTask?.cancel()
+        rebuildScrollTask = nil
         scrollState.sessionChanged(to: newSessionID)
         subagentIndex = SubagentIndex(subagents)
         userHasScrolled = false
@@ -722,7 +729,15 @@ struct SessionTranscriptView: View {
         }
         occurrence.corrections += 1
         scrollState.blankOccurrence = occurrence
-        if kind == .overshoot || isPinnedToBottom {
+        if kind == .unbuilt {
+            withTransaction(Transaction(animation: nil)) {
+                stackGeneration += 1
+            }
+            scrollState.recordEvent(name: "rebuild", newValue: Double(stackGeneration))
+            if isPinnedToBottom {
+                scheduleRebuildScroll(using: proxy)
+            }
+        } else if kind == .overshoot || isPinnedToBottom {
             isPinnedToBottom = true
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
@@ -764,6 +779,17 @@ struct SessionTranscriptView: View {
     private func isAtBottom(in geometry: ScrollGeometry) -> Bool {
         let visibleBottom = geometry.visibleRect.maxY - geometry.contentInsets.bottom
         return visibleBottom >= geometry.contentSize.height - 36
+    }
+
+    private func scheduleRebuildScroll(using proxy: ScrollViewProxy) {
+        rebuildScrollTask?.cancel()
+        rebuildScrollTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled, isPinnedToBottom else { return }
+            withTransaction(Transaction(animation: nil)) {
+                proxy.scrollTo("transcript-bottom", anchor: .bottom)
+            }
+        }
     }
 
     private func scrollToNewest(using proxy: ScrollViewProxy) {
