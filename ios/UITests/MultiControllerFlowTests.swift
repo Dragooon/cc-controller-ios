@@ -221,8 +221,8 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertTrue(toast.waitForExistence(timeout: 20), "No toast after /sudo")
         XCTAssertEqual(toast.label, "Sudo on")
         let subtitle = app.descendants(matching: .any).matching(identifier: "selected-session-subtitle").firstMatch
-        expectation(for: NSPredicate(format: "label ENDSWITH %@", "· sudo"), evaluatedWith: subtitle)
-        waitForExpectations(timeout: 20)
+        let sudoSubtitle = expectation(for: NSPredicate(format: "label ENDSWITH %@", "· sudo"), evaluatedWith: subtitle)
+        await fulfillment(of: [sudoSubtitle], timeout: 20)
 
         let stockade = try await stockadeFixture()
         let sudo = try XCTUnwrap(stockade["sudoRequests"] as? [[String: Any]])
