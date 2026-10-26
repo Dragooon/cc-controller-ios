@@ -20,7 +20,7 @@ final class AppModel {
         case unlocked
     }
 
-    let connections: [ControllerConnection]
+    private(set) var connections: [ControllerConnection]
     let auth: AuthSession
     private(set) var lockPolicy: LockPolicy
     let settings: SettingsStore
@@ -82,6 +82,28 @@ final class AppModel {
         connections.first { $0.config.id == controllerID }
     }
 
+    /// The saved config, which Settings may have edited since the connection was built.
+    func config(for controllerID: ControllerID) -> ControllerConfig? {
+        registry.controllers.first { $0.id == controllerID } ?? connection(for: controllerID)?.config
+    }
+
+    var controllerIDs: [ControllerID] { connections.map(\.config.id) }
+
+    var controllerRows: [SettingsControllerRow] {
+        connections.map { connection in
+            let config = config(for: connection.config.id) ?? connection.config
+            let address = connection.router.selectedEndpoint ?? config.relayEndpoints.first ?? config.directBaseURL
+            return SettingsControllerRow(
+                id: config.id,
+                name: config.displayName,
+                kind: controllerKindText(connection.store.controllerInfo.kind),
+                status: SettingsControllerStatus(connection.store.connection),
+                address: controllerAddressText(address),
+                isPrimary: config.id == primaryConnection.config.id
+            )
+        }
+    }
+
     private let credentials: any CredentialStore
     private let registry: ControllerRegistry
     private let fixtureMode: Bool
@@ -105,6 +127,8 @@ final class AppModel {
     private var deviceName = "iPhone"
     private var isSettingsVisible = false
     private var observedSessions: [ControllerID: [String: Session]] = [:]
+    /// Built lazily while a detail view renders, so it must not invalidate that view. Each store is observable itself.
+    @ObservationIgnored private var controllerSettings: [ControllerID: SettingsStore] = [:]
     private var pendingSessionReplacement: [ControllerID: (missingID: String, missingAt: Date)] = [:]
 
     init(
@@ -150,6 +174,11 @@ final class AppModel {
         let argumentPin = Self.argumentValue("-CCRelayPin", in: arguments).flatMap { try? RelayPin($0) }
         #else
         let argumentPin: RelayPin? = nil
+        #endif
+        #if DEBUG
+        if arguments.contains("-CCResetControllers") {
+            Self.resetAddedControllers(cacheRoot: cacheRoot)
+        }
         #endif
         let seed = ControllerConfig.mac(directBaseURL: URL(string: "http://127.0.0.1:47832")!)
         let registry = ControllerRegistry(
@@ -360,8 +389,22 @@ final class AppModel {
         case .success:
             faceIDMessage = nil
             phase = .unlocked
+            await unlockOtherControllers()
         case .failure(let error):
             await handleUnlockFailure(error)
+        }
+    }
+
+    /// Signs in to every paired controller after the primary. Each keeps its own native secret, so each may ask for
+    /// Face ID; one that fails stays at "Sign in needed" without affecting the others.
+    private func unlockOtherControllers() async {
+        guard !fixtureMode else { return }
+        for connection in connections.dropFirst() {
+            guard phase == .unlocked else { return }
+            guard (try? await connection.credentials.hasNativeSecret()) == true else { continue }
+            if case .success = await connection.auth.unlock() {
+                connection.store.resume()
+            }
         }
     }
 
@@ -671,6 +714,7 @@ final class AppModel {
         case .success:
             onboarding.finish()
             phase = .unlocked
+            await unlockOtherControllers()
         case .failure(let error):
             await handleUnlockFailure(error)
         }
@@ -713,7 +757,7 @@ final class AppModel {
     }
 
     private func transitionToLocked(suppressAutoPrompt: Bool = false) {
-        auth.lock()
+        connections.forEach { $0.auth.lock() }
         stores.forEach { $0.suspend() }
         hasAutoPromptedLockScreen = suppressAutoPrompt
         phase = .locked
@@ -749,6 +793,96 @@ final class AppModel {
 
     func resetRelayAddresses() {
         setRelayAddresses(relayAddressesText(relayDefaultEndpoints))
+    }
+
+    func relayAddresses(for controllerID: ControllerID) -> String {
+        guard controllerID != primaryConnection.config.id else { return relayAddressesDraft }
+        return relayAddressesText(config(for: controllerID)?.relayEndpoints ?? [])
+    }
+
+    func setRelayAddresses(_ text: String, for controllerID: ControllerID) {
+        guard controllerID != primaryConnection.config.id else {
+            setRelayAddresses(text)
+            return
+        }
+        guard let connection = connection(for: controllerID),
+              var config = config(for: controllerID),
+              config.directBaseURL == nil,
+              let endpoints = parseRelayAddresses(text) else { return }
+        config.relayEndpoints = endpoints
+        _ = registry.update(config)
+        Task { @MainActor in
+            let pin = (try? await connection.credentials.getRelayPin()).flatMap { try? RelayPin($0) }
+            await connection.router.updateEndpoints(endpoints, pin: pin)
+        }
+    }
+
+    func relayPinGrouped(for controllerID: ControllerID) async -> String? {
+        guard controllerID != primaryConnection.config.id else { return relayPinGrouped }
+        guard let connection = connection(for: controllerID) else { return nil }
+        let saved = try? await connection.credentials.getRelayPin()
+        return (saved ?? connection.router.observedPin).flatMap { (try? RelayPin($0))?.grouped }
+    }
+
+    /// The primary uses the Settings screen's own store; every other controller gets one for its detail screen.
+    func settingsStore(for controllerID: ControllerID) -> SettingsStore? {
+        guard controllerID != primaryConnection.config.id else { return settings }
+        if let existing = controllerSettings[controllerID] { return existing }
+        guard let connection = connection(for: controllerID) else { return nil }
+        let auth = connection.auth
+        let store = connection.store
+        let settingsStore = SettingsStore(
+            probe: { try await auth.probeDaemon(timeout: 5) },
+            whoAmI: { try await store.whoAmI() },
+            devices: { try await store.pairedDevices() }
+        )
+        controllerSettings[controllerID] = settingsStore
+        return settingsStore
+    }
+
+    func makeAddControllerModel() -> AddControllerModel {
+        let cacheRoot = Self.cacheDirectory()
+        return AddControllerModel(
+            deviceName: deviceName,
+            existingIDs: { [weak self] in self?.controllerIDs ?? [] },
+            makeConnection: { config in
+                ControllerConnection(
+                    config: config,
+                    credentials: KeychainCredentialStore(controllerID: config.id),
+                    cacheRoot: cacheRoot
+                )
+            },
+            adopt: { [weak self] connection in self?.adoptController(connection) }
+        )
+    }
+
+    /// Keeps a controller that Add controller paired and signed in to: saves it and starts its connection.
+    func adoptController(_ connection: ControllerConnection) {
+        guard self.connection(for: connection.config.id) == nil else { return }
+        _ = registry.add(connection.config)
+        connections.append(connection)
+        observedSessions[connection.config.id] = connection.store.sessions
+        if phase == .unlocked {
+            connection.store.start()
+        }
+    }
+
+    /// Signs out of a controller other than the primary and deletes its Keychain items, caches and settings.
+    func removeController(_ controllerID: ControllerID) async {
+        guard controllerID != primaryConnection.config.id, let connection = connection(for: controllerID) else { return }
+        connection.store.suspend()
+        // As with unpair, a failed logout still removes the controller: its credentials are deleted either way.
+        _ = await connection.auth.unpair()
+        await connection.store.clearLocalState()
+        await registry.remove(controllerID)
+        connections.removeAll { $0.config.id == controllerID }
+        controllerSettings.removeValue(forKey: controllerID)
+        observedSessions.removeValue(forKey: controllerID)
+        pendingSessionReplacement.removeValue(forKey: controllerID)
+        if selectedSession?.controllerID == controllerID {
+            selectedSession = nil
+        }
+        await updateBadgeCount()
     }
 
     func settingsDidAppear() {
@@ -998,6 +1132,24 @@ final class AppModel {
     }
 
     private struct KeychainSelfTestMismatch: Error {}
+
+    /// Test-only: forgets every saved controller except the Mac, with its Keychain items and cache.
+    private static func resetAddedControllers(cacheRoot: URL, defaults: UserDefaults = .standard) {
+        let key = ControllerRegistry.defaultDefaultsKey
+        let saved = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([ControllerConfig].self, from: $0) } ?? []
+        let kept = saved.filter { $0.id == .mac }
+        for config in saved where config.id != .mac {
+            try? FileManager.default.removeItem(at: ControllerStorage.cacheDirectory(root: cacheRoot, controllerID: config.id))
+            defaults.removeObject(forKey: ControllerStorage.namespacedKey(ControllerStorage.legacyRelayEndpointsKey, controllerID: config.id))
+            let credentials = KeychainCredentialStore(controllerID: config.id)
+            Task { try? await credentials.deleteAll() }
+        }
+        if kept.isEmpty {
+            defaults.removeObject(forKey: key)
+        } else if let data = try? JSONEncoder().encode(kept) {
+            defaults.set(data, forKey: key)
+        }
+    }
 
     private static func runKeychainSelfTest() async -> String {
         let store = KeychainCredentialStore(service: "com.cc-controller.native-auth.self-test")

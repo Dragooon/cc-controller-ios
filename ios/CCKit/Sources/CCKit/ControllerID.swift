@@ -29,6 +29,34 @@ public struct ControllerID: Codable, Hashable, Sendable, Equatable, Identifiable
 
     public static let mac = try! ControllerID("mac")
 
+    /// A new controller's id from its display name: lowercase [a-z0-9-], at most 32 characters,
+    /// made unique against `existing` with a numeric suffix ("mustafar", "mustafar-2", …).
+    public static func make(fromName name: String, existing: [ControllerID]) -> ControllerID {
+        var slug = ""
+        for scalar in name.lowercased().unicodeScalars {
+            let isAllowed = (scalar.value >= 97 && scalar.value <= 122) || (scalar.value >= 48 && scalar.value <= 57)
+            if isAllowed {
+                slug.unicodeScalars.append(scalar)
+            } else if !slug.isEmpty && !slug.hasSuffix("-") {
+                slug.append("-")
+            }
+        }
+        while slug.hasSuffix("-") { slug.removeLast() }
+        if slug.isEmpty { slug = "controller" }
+        let base = String(slug.prefix(32))
+        let taken = Set(existing.map(\.rawValue))
+        var candidate = base
+        var number = 2
+        while taken.contains(candidate) {
+            let suffix = "-\(number)"
+            var trimmed = String(base.prefix(32 - suffix.count))
+            while trimmed.hasSuffix("-") { trimmed.removeLast() }
+            candidate = trimmed + suffix
+            number += 1
+        }
+        return ControllerID(rawValue: candidate) ?? .mac
+    }
+
     private static func isValid(_ value: String) -> Bool {
         guard (1...32).contains(value.count) else { return false }
         return value.unicodeScalars.allSatisfy { scalar in
@@ -153,6 +181,22 @@ public struct ControllerConfig: Codable, Sendable, Equatable, Identifiable {
             .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
             .compactMap { URL(string: String($0)) }
             .filter(isValidRelayAddress)
+    }
+
+    /// Parses Add controller's address field: one pinned-TLS address per line or space, written
+    /// as `IP:port` (or a full `https://IP:port`). Nil when empty or when any entry is invalid.
+    public static func addressEndpoints(from text: String) -> [URL]? {
+        let entries = text
+            .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" || $0 == "," })
+            .map(String.init)
+        guard !entries.isEmpty else { return nil }
+        var endpoints: [URL] = []
+        for entry in entries {
+            let text = entry.contains("://") ? entry : "https://\(entry)"
+            guard let url = URL(string: text), isValidRelayAddress(url) else { return nil }
+            if !endpoints.contains(url) { endpoints.append(url) }
+        }
+        return endpoints
     }
 
     public static func isValidRelayAddress(_ url: URL) -> Bool {

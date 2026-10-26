@@ -111,7 +111,14 @@ struct MainSplitView: View {
                 onLockInterval: { model.setLockInterval($0.lockInterval) },
                 onRetryDevices: { Task { await model.settings.loadPairedDevices() } },
                 onSaveRelayAddresses: model.setRelayAddresses,
-                onResetRelayAddresses: model.resetRelayAddresses
+                onResetRelayAddresses: model.resetRelayAddresses,
+                controllers: model.controllerRows,
+                controllerDetail: { id, onRemoved in
+                    AnyView(ControllerDetailView(model: model, controllerID: id, onRemoved: onRemoved))
+                },
+                addController: { onDone in
+                    AnyView(AddControllerView(appModel: model, onDone: onDone))
+                }
             )
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }

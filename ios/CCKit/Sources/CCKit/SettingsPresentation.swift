@@ -173,6 +173,107 @@ public func settingsUnreachableGuidance(address: String) -> String {
     "cc-controller can't reach \(address). Check that Termius is forwarding \(address) and the Mac is awake."
 }
 
+/// The status dot on a Settings > Controllers row and the controller detail screen.
+public enum SettingsControllerStatus: Sendable, Equatable {
+    case live
+    case connecting
+    case offline
+    case signInNeeded
+
+    public init(_ state: ConnectionState) {
+        switch state {
+        case .live: self = .live
+        case .connecting, .reconnecting: self = .connecting
+        case .offline, .offlineUnreadable: self = .offline
+        case .unauthorized: self = .signInNeeded
+        }
+    }
+
+    public var text: String {
+        switch self {
+        case .live: "Live"
+        case .connecting: "Connecting"
+        case .offline: "Offline"
+        case .signInNeeded: "Sign in needed"
+        }
+    }
+}
+
+/// One row of Settings > Controllers: name, kind, status dot, and the address in use.
+public struct SettingsControllerRow: Sendable, Equatable, Identifiable {
+    public let id: ControllerID
+    public let name: String
+    public let kind: String
+    public let status: SettingsControllerStatus
+    public let address: String
+    public let isPrimary: Bool
+
+    public init(id: ControllerID, name: String, kind: String, status: SettingsControllerStatus, address: String, isPrimary: Bool) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.status = status
+        self.address = address
+        self.isPrimary = isPrimary
+    }
+}
+
+public func controllerKindText(_ kind: ControllerKind) -> String {
+    switch kind {
+    case .claudeCode: return "Claude Code"
+    case .stockade: return "Stockade"
+    case .unknown(let value): return nonEmpty(value) ?? "Unknown"
+    }
+}
+
+/// "host:port" for an endpoint, or the full URL when it has no host.
+public func controllerAddressText(_ url: URL?) -> String {
+    guard let url else { return "No address" }
+    guard let host = url.host else { return url.absoluteString }
+    return url.port.map { "\(host):\($0)" } ?? host
+}
+
+/// Add controller's form: a display name and the controller's pinned-TLS addresses.
+public struct AddControllerDraft: Sendable, Equatable {
+    public enum Problem: Sendable, Equatable {
+        case nameMissing
+        case addressesInvalid
+
+        public var text: String {
+            switch self {
+            case .nameMissing: "Give the controller a name."
+            case .addressesInvalid: "Use IP:port addresses only, such as 192.0.2.10:47834."
+            }
+        }
+    }
+
+    public var name: String
+    public var addresses: String
+
+    public init(name: String = "", addresses: String = "") {
+        self.name = name
+        self.addresses = addresses
+    }
+
+    public var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    public var problem: Problem? {
+        if trimmedName.isEmpty { return .nameMissing }
+        if ControllerConfig.addressEndpoints(from: addresses) == nil { return .addressesInvalid }
+        return nil
+    }
+
+    /// The controller to pair, with an id made unique against `existing`; nil while the form has a problem.
+    public func config(existing: [ControllerID]) -> ControllerConfig? {
+        guard problem == nil, let endpoints = ControllerConfig.addressEndpoints(from: addresses) else { return nil }
+        return ControllerConfig(
+            id: .make(fromName: trimmedName, existing: existing),
+            displayName: trimmedName,
+            relayEndpoints: endpoints
+        )
+    }
+}
+
 private func nonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
     return trimmed

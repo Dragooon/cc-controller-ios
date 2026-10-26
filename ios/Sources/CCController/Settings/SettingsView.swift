@@ -49,10 +49,15 @@ struct SettingsView: View {
     let onSaveRelayAddresses: (String) -> Void
     let onResetRelayAddresses: () -> Void
     let lockAfter: SettingsLockInterval
+    let controllers: [SettingsControllerRow]
+    let controllerDetail: (ControllerID, @escaping () -> Void) -> AnyView
+    let addController: (@escaping () -> Void) -> AnyView
 
     @State private var selectedLockInterval: SettingsLockInterval
     @State private var relayAddressDraft: String
     @State private var showingUnpairConfirmation = false
+    @State private var controllerPath: [ControllerID] = []
+    @State private var showingAddController = false
 
     init(
         address: String = "127.0.0.1:47832",
@@ -76,7 +81,10 @@ struct SettingsView: View {
         onLockInterval: @escaping (SettingsLockInterval) -> Void = { _ in },
         onRetryDevices: @escaping () -> Void = {},
         onSaveRelayAddresses: @escaping (String) -> Void = { _ in },
-        onResetRelayAddresses: @escaping () -> Void = {}
+        onResetRelayAddresses: @escaping () -> Void = {},
+        controllers: [SettingsControllerRow] = [],
+        controllerDetail: @escaping (ControllerID, @escaping () -> Void) -> AnyView = { _, _ in AnyView(EmptyView()) },
+        addController: @escaping (@escaping () -> Void) -> AnyView = { _ in AnyView(EmptyView()) }
     ) {
         self.address = address
         self.relayMode = relayMode
@@ -100,17 +108,23 @@ struct SettingsView: View {
         self.onRetryDevices = onRetryDevices
         self.onSaveRelayAddresses = onSaveRelayAddresses
         self.onResetRelayAddresses = onResetRelayAddresses
+        self.controllers = controllers
+        self.controllerDetail = controllerDetail
+        self.addController = addController
         _selectedLockInterval = State(initialValue: lockAfter)
         _relayAddressDraft = State(initialValue: relayAddresses)
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $controllerPath) {
             Form {
                 connectionSection
                 securitySection
                 deviceSection
                 pairedDevicesSection
+                if !controllers.isEmpty {
+                    controllersSection
+                }
                 aboutSection
             }
             .formStyle(.grouped)
@@ -125,6 +139,12 @@ struct SettingsView: View {
             }
             .tint(.ccAccent)
             .accessibilityIdentifier("settings-scroll")
+            .navigationDestination(for: ControllerID.self) { id in
+                controllerDetail(id) { controllerPath.removeAll { $0 == id } }
+            }
+            .navigationDestination(isPresented: $showingAddController) {
+                addController { showingAddController = false }
+            }
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -392,6 +412,53 @@ struct SettingsView: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(device.isThisDevice ? "settings-paired-this-device" : "settings-paired-device")
+    }
+
+    private var controllersSection: some View {
+        Section {
+            ForEach(controllers) { row in
+                NavigationLink(value: row.id) {
+                    controllerRow(row)
+                }
+                .accessibilityIdentifier("settings-controller-\(row.id.rawValue)")
+                .accessibilityValue(row.status.text)
+            }
+            Button {
+                showingAddController = true
+            } label: {
+                Label("Add controller", systemImage: "plus")
+            }
+            .accessibilityIdentifier("settings-add-controller")
+        } header: {
+            Text("Controllers")
+        }
+    }
+
+    private func controllerRow(_ row: SettingsControllerRow) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Circle()
+                .fill(controllerStatusColor(row.status))
+                .frame(width: 8, height: 8)
+                .alignmentGuide(.firstTextBaseline) { dimensions in dimensions[.bottom] }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccLabel)
+                Text("\(row.kind) · \(row.address)")
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            if row.isPrimary {
+                Text("Primary")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 
     private var aboutSection: some View {
