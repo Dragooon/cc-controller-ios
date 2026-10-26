@@ -1,6 +1,51 @@
 import CCKit
 import SwiftUI
 
+/// One controller's slice of the sessions list.
+struct SessionsListController: Identifiable {
+    let id: ControllerID
+    let name: String
+    let connection: SessionsListView.Connection
+    let signInNeeded: Bool
+    let sessions: [Session]
+    let sleeping: [SleepingSession]
+    let approvals: [Approval]
+    let deciding: Set<String>
+    let capabilities: Set<ControllerCapability>
+
+    init(
+        id: ControllerID,
+        name: String,
+        connection: SessionsListView.Connection = .live,
+        signInNeeded: Bool = false,
+        sessions: [Session],
+        sleeping: [SleepingSession] = [],
+        approvals: [Approval] = [],
+        deciding: Set<String> = [],
+        capabilities: Set<ControllerCapability> = ControllerCapability.all
+    ) {
+        self.id = id
+        self.name = name
+        self.connection = connection
+        self.signInNeeded = signInNeeded
+        self.sessions = sessions
+        self.sleeping = sleeping
+        self.approvals = approvals
+        self.deciding = deciding
+        self.capabilities = capabilities
+    }
+
+    func approval(for session: Session) -> Approval? {
+        if let pending = session.pending?.first { return pending }
+        return approvals.first { $0.sessionId == session.id }
+    }
+}
+
+/// A key for a sleeping session that is unique across controllers.
+func sleepingSessionKey(controllerID: ControllerID, sessionID: String) -> String {
+    "\(controllerID.rawValue)/\(sessionID)"
+}
+
 struct SessionsListView: View {
     enum Connection: Equatable {
         case live
@@ -16,66 +61,61 @@ struct SessionsListView: View {
         }
     }
 
-    let sessions: [Session]
-    let sleeping: [SleepingSession]
+    let controllers: [SessionsListController]
+    /// Keys from `sleepingSessionKey(controllerID:sessionID:)`.
     let waking: Set<String>
-    let approvals: [Approval]
-    let deciding: Set<String>
-    let connection: Connection
     let subtitleOverride: String?
     let notice: String?
+    let canCreateSession: Bool
     let onSessionsLoaded: () async -> Void
-    let onOpen: (Session) -> Void
-    let onAllow: (Approval) -> Void
-    let onDeny: (Approval) -> Void
-    let onRetry: () -> Void
+    let onOpen: (ControllerID, Session) -> Void
+    let onAllow: (ControllerID, Approval) -> Void
+    let onDeny: (ControllerID, Approval) -> Void
+    let onRetry: (ControllerID) -> Void
+    let onSignIn: (ControllerID) -> Void
     let onSettings: () -> Void
     let onRefresh: () async -> Void
-    let onInterrupt: (Session) -> Void
-    let onSetApprovalMode: (Session, ApprovalMode) -> Void
+    let onInterrupt: (ControllerID, Session) -> Void
+    let onSetApprovalMode: (ControllerID, Session, ApprovalMode) -> Void
     let onCopySessionID: (Session) -> Void
     let onNewSession: () -> Void
-    let onWake: (SleepingSession) -> Void
+    let onWake: (ControllerID, SleepingSession) -> Void
     let onCopyAttachCommand: (SleepingSession) -> Void
 
     @State private var searchText = ""
 
     init(
-        sessions: [Session],
-        sleeping: [SleepingSession] = [],
+        controllers: [SessionsListController],
         waking: Set<String> = [],
-        approvals: [Approval] = [],
-        deciding: Set<String> = [],
-        connection: Connection = .live,
         subtitleOverride: String? = nil,
         notice: String? = nil,
+        canCreateSession: Bool = true,
         onSessionsLoaded: @escaping () async -> Void = {},
-        onOpen: @escaping (Session) -> Void = { _ in },
-        onAllow: @escaping (Approval) -> Void = { _ in },
-        onDeny: @escaping (Approval) -> Void = { _ in },
-        onRetry: @escaping () -> Void = {},
+        onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
+        onAllow: @escaping (ControllerID, Approval) -> Void = { _, _ in },
+        onDeny: @escaping (ControllerID, Approval) -> Void = { _, _ in },
+        onRetry: @escaping (ControllerID) -> Void = { _ in },
+        onSignIn: @escaping (ControllerID) -> Void = { _ in },
         onSettings: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {},
-        onInterrupt: @escaping (Session) -> Void = { _ in },
-        onSetApprovalMode: @escaping (Session, ApprovalMode) -> Void = { _, _ in },
+        onInterrupt: @escaping (ControllerID, Session) -> Void = { _, _ in },
+        onSetApprovalMode: @escaping (ControllerID, Session, ApprovalMode) -> Void = { _, _, _ in },
         onCopySessionID: @escaping (Session) -> Void = { _ in },
         onNewSession: @escaping () -> Void = {},
-        onWake: @escaping (SleepingSession) -> Void = { _ in },
+        onWake: @escaping (ControllerID, SleepingSession) -> Void = { _, _ in },
         onCopyAttachCommand: @escaping (SleepingSession) -> Void = { _ in }
     ) {
-        self.sessions = sessions
-        self.sleeping = sleeping
+        self.controllers = controllers
         self.waking = waking
-        self.approvals = approvals
-        self.deciding = deciding
-        self.connection = connection
         self.subtitleOverride = subtitleOverride
         self.notice = notice
+        self.canCreateSession = canCreateSession
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onRetry = onRetry
+        self.onSignIn = onSignIn
         self.onSettings = onSettings
         self.onRefresh = onRefresh
         self.onInterrupt = onInterrupt
@@ -86,34 +126,77 @@ struct SessionsListView: View {
         self.onCopyAttachCommand = onCopyAttachCommand
     }
 
-    private var filteredSessions: [Session] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return sessions }
-        return sessions.filter {
+    /// The single-controller form, used by the mocks.
+    init(
+        sessions: [Session],
+        sleeping: [SleepingSession] = [],
+        approvals: [Approval] = [],
+        deciding: Set<String> = [],
+        connection: Connection = .live,
+        subtitleOverride: String? = nil,
+        notice: String? = nil
+    ) {
+        self.init(
+            controllers: [
+                SessionsListController(
+                    id: .mac,
+                    name: "Mac",
+                    connection: connection,
+                    sessions: sessions,
+                    sleeping: sleeping,
+                    approvals: approvals,
+                    deciding: deciding
+                ),
+            ],
+            subtitleOverride: subtitleOverride,
+            notice: notice
+        )
+    }
+
+    private var isMultiController: Bool { controllers.count >= 2 }
+    private var allSessions: [Session] { controllers.flatMap(\.sessions) }
+    private var hasAnySessions: Bool { controllers.contains { !$0.sessions.isEmpty || !$0.sleeping.isEmpty } }
+
+    private var query: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private func filteredSessions(_ controller: SessionsListController) -> [Session] {
+        guard !query.isEmpty else { return controller.sessions }
+        return controller.sessions.filter {
             ($0.name ?? "").localizedCaseInsensitiveContains(query)
                 || ($0.project ?? "").localizedCaseInsensitiveContains(query)
         }
     }
 
-    private var filteredSleeping: [SleepingSession] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return sleeping }
-        return sleeping.filter {
+    private func filteredSleeping(_ controller: SessionsListController) -> [SleepingSession] {
+        guard !query.isEmpty else { return controller.sleeping }
+        return controller.sleeping.filter {
             ($0.name ?? "").localizedCaseInsensitiveContains(query)
                 || $0.project.localizedCaseInsensitiveContains(query)
         }
     }
 
-    private var needsYou: [Session] { filteredSessions.filter { sessionActivity($0) == .needsYou } }
-    private var working: [Session] {
-        filteredSessions.filter {
+    private func needsYou(_ controller: SessionsListController) -> [Session] {
+        filteredSessions(controller).filter { sessionActivity($0) == .needsYou }
+    }
+
+    private func working(_ controller: SessionsListController) -> [Session] {
+        filteredSessions(controller).filter {
             switch sessionActivity($0) {
             case .working, .background: true
             case .needsYou, .idle: false
             }
         }
     }
-    private var idle: [Session] { filteredSessions.filter { sessionActivity($0) == .idle } }
+
+    private func idle(_ controller: SessionsListController) -> [Session] {
+        filteredSessions(controller).filter { sessionActivity($0) == .idle }
+    }
+
+    /// The single-controller capsule. With several controllers each section header carries its own status.
+    private var capsuleConnection: Connection {
+        guard !isMultiController, let controller = controllers.first else { return .live }
+        return controller.connection
+    }
 
     var body: some View {
         NavigationStack {
@@ -121,12 +204,14 @@ struct SessionsListView: View {
                 .navigationTitle("Sessions")
                 .navigationSubtitle(subtitle ?? "")
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(action: onNewSession) {
-                            Image(systemName: "plus")
+                    if canCreateSession {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(action: onNewSession) {
+                                Image(systemName: "plus")
+                            }
+                            .accessibilityLabel("New session")
+                            .accessibilityIdentifier("new-session")
                         }
-                        .accessibilityLabel("New session")
-                        .accessibilityIdentifier("new-session")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(action: onSettings) {
@@ -139,10 +224,10 @@ struct SessionsListView: View {
                 .searchToolbarBehavior(.minimize)
                 .refreshable { await onRefresh() }
                 .safeAreaBar(edge: .top, spacing: 8) {
-                    if case .live = connection {
+                    if case .live = capsuleConnection {
                         EmptyView()
-                    } else {
-                        ConnectionCapsule(connection: connection, onRetry: onRetry)
+                    } else if let controller = controllers.first {
+                        ConnectionCapsule(connection: capsuleConnection, onRetry: { onRetry(controller.id) })
                     }
                 }
         }
@@ -150,22 +235,24 @@ struct SessionsListView: View {
         .background(.ccBackground)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("sessions-list")
-        .task(id: sessions.isEmpty) {
-            guard !sessions.isEmpty else { return }
+        .task(id: allSessions.isEmpty) {
+            guard !allSessions.isEmpty else { return }
             await onSessionsLoaded()
         }
     }
 
     @ViewBuilder
     private var list: some View {
-        if sessions.isEmpty && sleeping.isEmpty {
+        if !isMultiController && !hasAnySessions {
             ContentUnavailableView {
                 Label("No sessions", systemImage: "terminal")
             } description: {
                 Text("No Claude Code sessions are running on this Mac.")
             } actions: {
-                Button("New session", action: onNewSession)
-                    .accessibilityIdentifier("empty-new-session")
+                if canCreateSession {
+                    Button("New session", action: onNewSession)
+                        .accessibilityIdentifier("empty-new-session")
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.ccBackground)
@@ -178,10 +265,14 @@ struct SessionsListView: View {
                             .foregroundStyle(.ccSecondary)
                     }
                 }
-                sessionSection("Needs you", sessions: needsYou)
-                sessionSection("Working", sessions: working)
-                sessionSection("Idle", sessions: idle)
-                sleepingSection
+                if isMultiController {
+                    multiControllerSections
+                } else if let controller = controllers.first {
+                    sessionSection("Needs you", controller: controller, sessions: needsYou(controller))
+                    sessionSection("Working", controller: controller, sessions: working(controller))
+                    sessionSection("Idle", controller: controller, sessions: idle(controller))
+                    sleepingSection(controller)
+                }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -190,64 +281,198 @@ struct SessionsListView: View {
         }
     }
 
+    // MARK: Multi-controller layout
+
     @ViewBuilder
-    private var sleepingSection: some View {
-        if !filteredSleeping.isEmpty {
+    private var multiControllerSections: some View {
+        let merged = controllers.flatMap { controller in
+            needsYou(controller).map { NeedsYouItem(controller: controller, session: $0) }
+        }
+        if !merged.isEmpty {
+            Section("Needs you") {
+                ForEach(merged) { item in
+                    sessionRow(item.session, controller: item.controller, showsControllerName: true)
+                }
+            }
+        }
+        ForEach(controllers) { controller in
+            let rows = working(controller) + idle(controller)
+            let sleeping = filteredSleeping(controller)
+            Section {
+                if rows.isEmpty && sleeping.isEmpty {
+                    Text(query.isEmpty ? "No other sessions" : "No matches")
+                        .font(.subheadline)
+                        .foregroundStyle(.ccTertiary)
+                        .listRowBackground(Color.ccCard)
+                        .accessibilityIdentifier("controller-empty-\(controller.id.rawValue)")
+                }
+                ForEach(rows, id: \.id) { session in
+                    sessionRow(session, controller: controller, showsControllerName: false)
+                }
+                ForEach(sleeping) { session in
+                    sleepingRow(session, controller: controller)
+                }
+            } header: {
+                ControllerSectionHeader(controller: controller, onSignIn: { onSignIn(controller.id) })
+            }
+        }
+    }
+
+    // MARK: Shared rows
+
+    @ViewBuilder
+    private func sleepingSection(_ controller: SessionsListController) -> some View {
+        let sleeping = filteredSleeping(controller)
+        if !sleeping.isEmpty {
             Section("Asleep") {
-                ForEach(filteredSleeping) { session in
-                    SleepingSessionRow(
-                        session: session,
-                        isWaking: waking.contains(session.id),
-                        onWake: { onWake(session) },
-                        onCopyAttachCommand: { onCopyAttachCommand(session) }
-                    )
-                    .listRowBackground(Color.ccCard)
-                    .listRowSeparatorTint(.ccSeparator)
+                ForEach(sleeping) { session in
+                    sleepingRow(session, controller: controller)
                 }
             }
         }
     }
 
+    private func sleepingRow(_ session: SleepingSession, controller: SessionsListController) -> some View {
+        SleepingSessionRow(
+            session: session,
+            isWaking: waking.contains(sleepingSessionKey(controllerID: controller.id, sessionID: session.id)),
+            canWake: controller.capabilities.contains(.wake),
+            onWake: { onWake(controller.id, session) },
+            onCopyAttachCommand: { onCopyAttachCommand(session) }
+        )
+        .listRowBackground(Color.ccCard)
+        .listRowSeparatorTint(.ccSeparator)
+    }
+
     @ViewBuilder
-    private func sessionSection(_ title: String, sessions: [Session]) -> some View {
+    private func sessionSection(_ title: String, controller: SessionsListController, sessions: [Session]) -> some View {
         Section(title) {
             ForEach(sessions, id: \.id) { session in
-                SessionRow(
-                    session: session,
-                    approval: approval(for: session),
-                    deciding: deciding,
-                    frozen: connection.isFrozen,
-                    dimmed: connection.isFrozen,
-                    onOpen: { onOpen(session) },
-                    onAllow: onAllow,
-                    onDeny: onDeny,
-                    onInterrupt: { onInterrupt(session) },
-                    onSetApprovalMode: { mode in onSetApprovalMode(session, mode) },
-                    onCopySessionID: { onCopySessionID(session) }
-                )
-                .listRowBackground(Color.ccCard)
-                .listRowSeparatorTint(.ccSeparator)
+                sessionRow(session, controller: controller, showsControllerName: false)
             }
         }
     }
 
+    private func sessionRow(_ session: Session, controller: SessionsListController, showsControllerName: Bool) -> some View {
+        SessionRow(
+            session: session,
+            approval: controller.approval(for: session),
+            deciding: controller.deciding,
+            frozen: controller.connection.isFrozen,
+            dimmed: controller.connection.isFrozen,
+            controllerName: showsControllerName ? controller.name : nil,
+            canInterrupt: controller.capabilities.contains(.interrupt),
+            canSetApprovalMode: controller.capabilities.contains(.mode),
+            onOpen: { onOpen(controller.id, session) },
+            onAllow: { onAllow(controller.id, $0) },
+            onDeny: { onDeny(controller.id, $0) },
+            onInterrupt: { onInterrupt(controller.id, session) },
+            onSetApprovalMode: { mode in onSetApprovalMode(controller.id, session, mode) },
+            onCopySessionID: { onCopySessionID(session) }
+        )
+        .opacity(isMultiController && controller.connection.isFrozen ? 0.6 : 1)
+        .listRowBackground(Color.ccCard)
+        .listRowSeparatorTint(.ccSeparator)
+    }
+
     private var subtitle: String? {
-        subtitleOverride ?? sessionsSubtitle(sessions)
+        subtitleOverride ?? sessionsSubtitle(allSessions)
     }
 
     private var listAnimationKey: [String] {
-        filteredSessions.map { session in
-            [
-                session.id ?? "",
-                session.state?.rawValue ?? "",
-                approval(for: session)?.requestId ?? "",
-            ].joined(separator: ":")
-        } + filteredSleeping.map { "sleeping:\($0.id):\(waking.contains($0.id))" }
+        var keys: [String] = []
+        for controller in controllers {
+            for session in filteredSessions(controller) {
+                let parts = [
+                    controller.id.rawValue,
+                    session.id ?? "",
+                    session.state?.rawValue ?? "",
+                    controller.approval(for: session)?.requestId ?? "",
+                ]
+                keys.append(parts.joined(separator: ":"))
+            }
+            for session in filteredSleeping(controller) {
+                let key = sleepingSessionKey(controllerID: controller.id, sessionID: session.id)
+                keys.append("sleeping:\(key):\(waking.contains(key))")
+            }
+            keys.append("controller:\(controller.id.rawValue):\(controller.signInNeeded):\(controller.connection.isFrozen)")
+        }
+        return keys
+    }
+}
+
+/// A "Needs you" row in the merged multi-controller section.
+private struct NeedsYouItem: Identifiable {
+    let controller: SessionsListController
+    let session: Session
+
+    var id: String { "\(controller.id.rawValue)/\(session.id ?? "")" }
+}
+
+/// A controller section header: name, status dot, and the status text.
+private struct ControllerSectionHeader: View {
+    let controller: SessionsListController
+    let onSignIn: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
+            Text(controller.name)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.ccLabel)
+                .textCase(nil)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if controller.signInNeeded {
+                Button("Sign in needed", action: onSignIn)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.ccRed)
+                    .buttonStyle(.plain)
+                    .textCase(nil)
+                    .accessibilityIdentifier("controller-sign-in-\(controller.id.rawValue)")
+            } else if let statusText {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(.ccSecondary)
+                    .textCase(nil)
+                    .lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("controller-section-\(controller.id.rawValue)")
+        .accessibilityLabel(controller.name)
+        .accessibilityValue(statusValue)
     }
 
-    private func approval(for session: Session) -> Approval? {
-        if let pending = session.pending?.first { return pending }
-        return approvals.first { $0.sessionId == session.id }
+    private var dotColor: Color {
+        if controller.signInNeeded { return .ccRed }
+        switch controller.connection {
+        case .live: return .ccGreen
+        case .reconnecting: return .ccAmber
+        case .offline, .unreadable: return .ccTertiary
+        }
+    }
+
+    private var statusText: String? {
+        switch controller.connection {
+        case .live: return nil
+        case .reconnecting: return "Reconnecting…"
+        case .offline(let updatedAt), .unreadable(let updatedAt):
+            let elapsed = max(0, Date().timeIntervalSince(updatedAt) * 1000)
+            return "updated \(formatListDuration(elapsed)) ago"
+        }
+    }
+
+    private var statusValue: String {
+        if controller.signInNeeded { return "signInNeeded" }
+        switch controller.connection {
+        case .live: return "live"
+        case .reconnecting: return "reconnecting"
+        case .offline, .unreadable: return "offline"
+        }
     }
 }
 
@@ -317,6 +542,9 @@ private struct SessionRow: View {
     let deciding: Set<String>
     let frozen: Bool
     let dimmed: Bool
+    let controllerName: String?
+    let canInterrupt: Bool
+    let canSetApprovalMode: Bool
     let onOpen: () -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -332,7 +560,7 @@ private struct SessionRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     SessionGlyph(session: session, frozen: frozen, dimmed: dimmed)
                         .frame(width: glyphWidth, alignment: .center)
-                    SessionText(session: session, approval: approval)
+                    SessionText(session: session, approval: approval, controllerName: controllerName)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -356,13 +584,15 @@ private struct SessionRow: View {
         .padding(.vertical, 7)
         .contextMenu {
             Button("Open", action: onOpen)
-            if session.tmuxPane != nil {
+            if canInterrupt, session.tmuxPane != nil {
                 Button("Interrupt", role: .destructive, action: onInterrupt)
             }
-            Menu("Approvals mode") {
-                Button("Auto") { onSetApprovalMode(.auto) }
-                Button("Remote") { onSetApprovalMode(.remote) }
-                Button("Terminal") { onSetApprovalMode(.terminal) }
+            if canSetApprovalMode {
+                Menu("Approvals mode") {
+                    Button("Auto") { onSetApprovalMode(.auto) }
+                    Button("Remote") { onSetApprovalMode(.remote) }
+                    Button("Terminal") { onSetApprovalMode(.terminal) }
+                }
             }
             Button("Copy session ID", action: onCopySessionID)
         }
@@ -386,6 +616,7 @@ private struct SessionRow: View {
 private struct SleepingSessionRow: View {
     let session: SleepingSession
     let isWaking: Bool
+    let canWake: Bool
     let onWake: () -> Void
     let onCopyAttachCommand: () -> Void
 
@@ -418,6 +649,7 @@ private struct SleepingSessionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!canWake)
         .accessibilityIdentifier("sleeping-session-\(session.id)")
         .accessibilityValue(isWaking ? "Waking" : "asleep")
         .contextMenu {
@@ -465,11 +697,18 @@ private struct SessionGlyph: View {
 private struct SessionText: View {
     let session: Session
     let approval: Approval?
+    let controllerName: String?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
+            if let controllerName {
+                Label(controllerName, systemImage: "desktopcomputer")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.ccSecondary)
+                    .lineLimit(1)
+            }
             Text(session.name ?? "Untitled session")
                 .font(.headline)
                 .foregroundStyle(.ccLabel)
@@ -516,8 +755,6 @@ private struct SessionText: View {
         .font(.subheadline)
         .foregroundStyle(.ccSecondary)
     }
-
-
 
     private var isAsking: Bool {
         approval?.questions != nil

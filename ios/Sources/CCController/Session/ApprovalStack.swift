@@ -12,6 +12,8 @@ struct ApprovalBottomStackView: View {
     let canAnswerQuestions: Bool
     let onAnswer: (Approval, [String: String]) -> Void
     let onSkip: (Approval) -> Void
+    let controllerName: String?
+    let allowsSessionScope: Bool
     let glassNamespace: Namespace.ID?
     let inGlassContainer: Bool
 
@@ -31,6 +33,8 @@ struct ApprovalBottomStackView: View {
         canAnswerQuestions: Bool = true,
         onAnswer: @escaping (Approval, [String: String]) -> Void = { _, _ in },
         onSkip: @escaping (Approval) -> Void = { _ in },
+        controllerName: String? = nil,
+        allowsSessionScope: Bool = true,
         glassNamespace: Namespace.ID? = nil,
         inGlassContainer: Bool = true
     ) {
@@ -44,6 +48,8 @@ struct ApprovalBottomStackView: View {
         self.canAnswerQuestions = canAnswerQuestions
         self.onAnswer = onAnswer
         self.onSkip = onSkip
+        self.controllerName = controllerName
+        self.allowsSessionScope = allowsSessionScope
         self.glassNamespace = glassNamespace
         self.inGlassContainer = inGlassContainer
     }
@@ -80,7 +86,9 @@ struct ApprovalBottomStackView: View {
                             onAllow: { onAllow(approval) },
                             onAllowSession: { onAllowSession(approval) },
                             onDeny: { onDeny(approval) },
-                            glassNamespace: index == 0 ? effectiveGlassNamespace : nil
+                            glassNamespace: index == 0 ? effectiveGlassNamespace : nil,
+                            controllerName: controllerName,
+                            allowsSessionScope: allowsSessionScope
                         )
                         .disabled(isDeciding(approval))
                     }

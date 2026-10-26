@@ -10,6 +10,10 @@ struct InspectorView: View {
     let onCopySessionID: () -> Void
     let onApprovalMode: (ApprovalMode) -> Void
     let onSubagent: (Subagent) -> Void
+    /// False when the owning controller does not advertise `interrupt`.
+    let canInterrupt: Bool
+    /// False when the owning controller does not advertise `mode`.
+    let canSetApprovalMode: Bool
 
     @State private var isInterruptConfirmationPresented = false
     @State private var attachCommandCopied = false
@@ -27,7 +31,9 @@ struct InspectorView: View {
         onInterrupt: @escaping () -> Void = {},
         onCopySessionID: @escaping () -> Void = {},
         onApprovalMode: @escaping (ApprovalMode) -> Void = { _ in },
-        onSubagent: @escaping (Subagent) -> Void = { _ in }
+        onSubagent: @escaping (Subagent) -> Void = { _ in },
+        canInterrupt: Bool = true,
+        canSetApprovalMode: Bool = true
     ) {
         self.session = session
         self.elapsed = elapsed
@@ -36,6 +42,8 @@ struct InspectorView: View {
         self.onCopySessionID = onCopySessionID
         self.onApprovalMode = onApprovalMode
         self.onSubagent = onSubagent
+        self.canInterrupt = canInterrupt
+        self.canSetApprovalMode = canSetApprovalMode
     }
 
     private var usage: Usage? { session.usage }
@@ -56,7 +64,9 @@ struct InspectorView: View {
                 contextSection
                 usageSection
                 subagentsSection
-                approvalsSection
+                if canSetApprovalMode {
+                    approvalsSection
+                }
                 locationSection
                 openOnMacSection
                 actionsSection
@@ -339,7 +349,7 @@ struct InspectorView: View {
     @ViewBuilder
     private var actionsSection: some View {
         Section {
-            if nonEmpty(session.tmuxPane) != nil {
+            if canInterrupt, nonEmpty(session.tmuxPane) != nil {
                 Button {
                     isInterruptConfirmationPresented = true
                 } label: {

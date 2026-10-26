@@ -3,6 +3,9 @@ import Foundation
 import SwiftUI
 
 private struct PromptBubbleLayout: Layout {
+    /// Device and terminal prompts sit on the trailing edge; peer messages sit on the leading edge.
+    var leading = false
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         guard let subview = subviews.first else { return .zero }
         let idealSize = subview.sizeThatFits(.unspecified)
@@ -18,7 +21,7 @@ private struct PromptBubbleLayout: Layout {
         let bubbleWidth = min(idealSize.width, bounds.width * 0.85)
         let bubbleSize = subview.sizeThatFits(ProposedViewSize(width: bubbleWidth, height: bounds.height))
         subview.place(
-            at: CGPoint(x: bounds.maxX - bubbleSize.width, y: bounds.minY),
+            at: CGPoint(x: leading ? bounds.minX : bounds.maxX - bubbleSize.width, y: bounds.minY),
             anchor: .topLeading,
             proposal: ProposedViewSize(bubbleSize)
         )
@@ -55,13 +58,23 @@ struct PromptBubble: View {
         promptCollapse(promptText, hasPaste: prompt.paste != nil)
     }
 
+    private var peer: PeerSender? { prompt.peerSender }
+
     private var attachmentNames: [String] {
         prompt.attachments ?? CCKit.normalisePromptText(prompt.text ?? prompt.command).attachments
     }
 
     var body: some View {
-        PromptBubbleLayout {
+        PromptBubbleLayout(leading: peer != nil) {
             VStack(alignment: .leading, spacing: 8) {
+                if let peer {
+                    Label(peer.headerText, systemImage: "arrow.left.arrow.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.ccSecondary)
+                        .lineLimit(2)
+                        .accessibilityIdentifier("peer-message-header")
+                }
+
                 if !attachmentNames.isEmpty {
                     PromptAttachmentFlow(rowSpacing: 8) {
                         ForEach(attachmentNames, id: \.self) { name in
@@ -107,10 +120,17 @@ struct PromptBubble: View {
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 16)
-            .background(.ccBubble, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+                if peer != nil {
+                    shape.strokeBorder(Color.ccSeparator, lineWidth: 1)
+                } else {
+                    shape.fill(Color.ccBubble)
+                }
+            }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(promptText)
-        .accessibilityIdentifier(bubbleAccessibilityIdentifier)
+        .accessibilityLabel(peer.map { "\($0.headerText). \(promptText)" } ?? promptText)
+        .accessibilityIdentifier(peer == nil ? bubbleAccessibilityIdentifier : "peer-message")
     }
 }

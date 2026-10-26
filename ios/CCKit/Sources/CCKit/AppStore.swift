@@ -346,6 +346,11 @@ public final class AppStore {
         controllerInfo.capabilities.contains(.questions)
     }
 
+    /// Whether the controller advertises a capability. Before bootstrap supplies `controller`, every capability is assumed.
+    public func supports(_ capability: ControllerCapability) -> Bool {
+        controllerInfo.capabilities.contains(capability)
+    }
+
     public func send(
         text: String,
         attachments: [String] = [],

@@ -33,6 +33,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let canAnswerQuestions: Bool
     let onAnswer: (Approval, [String: String]) -> Void
     let onSkip: (Approval) -> Void
+    /// The owning controller's name, set only when two or more controllers are paired.
+    let approvalControllerName: String?
+    let allowsSessionScope: Bool
 
     init(
         composer: ComposerConfiguration = ComposerConfiguration(),
@@ -58,7 +61,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
         questionState: QuestionCardState? = nil,
         canAnswerQuestions: Bool = true,
         onAnswer: @escaping (Approval, [String: String]) -> Void = { _, _ in },
-        onSkip: @escaping (Approval) -> Void = { _ in }
+        onSkip: @escaping (Approval) -> Void = { _ in },
+        approvalControllerName: String? = nil,
+        allowsSessionScope: Bool = true
     ) {
         self.composer = composer
         self.statusSegments = statusSegments
@@ -84,6 +89,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.canAnswerQuestions = canAnswerQuestions
         self.onAnswer = onAnswer
         self.onSkip = onSkip
+        self.approvalControllerName = approvalControllerName
+        self.allowsSessionScope = allowsSessionScope
     }
 
     func withTranscriptHeight(_ height: CGFloat) -> Self {
@@ -111,7 +118,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
             questionState: questionState,
             canAnswerQuestions: canAnswerQuestions,
             onAnswer: onAnswer,
-            onSkip: onSkip
+            onSkip: onSkip,
+            approvalControllerName: approvalControllerName,
+            allowsSessionScope: allowsSessionScope
         )
     }
 }
@@ -178,6 +187,8 @@ struct BottomStackView: View {
                         canAnswerQuestions: configuration.canAnswerQuestions,
                         onAnswer: configuration.onAnswer,
                         onSkip: configuration.onSkip,
+                        controllerName: configuration.approvalControllerName,
+                        allowsSessionScope: configuration.allowsSessionScope,
                         glassNamespace: glassNamespace,
                         inGlassContainer: false
                     )

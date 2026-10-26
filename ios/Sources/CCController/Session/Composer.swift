@@ -28,6 +28,10 @@ struct ComposerConfiguration: Equatable {
     let placeholder: String
     let isWorking: Bool
     let canInterrupt: Bool
+    /// False when the owning controller does not advertise `files`.
+    let canAttach: Bool
+    /// False when the owning controller does not advertise `commands`; hides the model chip.
+    let canRunCommands: Bool
     let focusesOnAppear: Bool
     var isSending: Bool
     var hasAttachments: Bool
@@ -37,6 +41,8 @@ struct ComposerConfiguration: Equatable {
             && lhs.placeholder == rhs.placeholder
             && lhs.isWorking == rhs.isWorking
             && lhs.canInterrupt == rhs.canInterrupt
+            && lhs.canAttach == rhs.canAttach
+            && lhs.canRunCommands == rhs.canRunCommands
             && lhs.isSending == rhs.isSending
             && lhs.hasAttachments == rhs.hasAttachments
     }
@@ -48,6 +54,8 @@ struct ComposerConfiguration: Equatable {
         placeholder: String = "Message",
         isWorking: Bool = false,
         canInterrupt: Bool = false,
+        canAttach: Bool = true,
+        canRunCommands: Bool = true,
         focusesOnAppear: Bool = false,
         isSending: Bool = false,
         hasAttachments: Bool = false
@@ -58,6 +66,8 @@ struct ComposerConfiguration: Equatable {
         self.placeholder = placeholder
         self.isWorking = isWorking
         self.canInterrupt = canInterrupt
+        self.canAttach = canAttach
+        self.canRunCommands = canRunCommands
         self.focusesOnAppear = focusesOnAppear
         self.isSending = isSending
         self.hasAttachments = hasAttachments
@@ -209,8 +219,10 @@ struct ComposerView: View, Equatable {
                 .accessibilityIdentifier("composer-text")
 
             HStack(spacing: 8) {
-                attachmentMenu
-                if configuration.modelName != nil {
+                if configuration.canAttach {
+                    attachmentMenu
+                }
+                if configuration.modelName != nil, configuration.canRunCommands {
                     modelButton
                 }
                 Spacer(minLength: 0)

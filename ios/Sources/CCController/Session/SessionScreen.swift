@@ -205,9 +205,7 @@ struct SessionScreen: View {
                             selectedSubagentResult = SubagentResultSelection(entry: entry, subagent: subagent)
                         },
                         onCompaction: { selectedCompaction = $0 },
-                        downloadFile: { entry in
-                            try await downloadFile(entry, sessionID: sessionID)
-                        }
+                        downloadFile: transcriptDownload
                     )
                     .environment(\.openInspector, { inspectorPresented = true })
                     .environment(\.openFilePreview, { filePreviewURL = $0 })
@@ -315,12 +313,15 @@ struct SessionScreen: View {
                 modelName: composerModelName(modelName),
                 placeholder: current.state == .working ? "Queue for after this turn…" : "Message",
                 isWorking: current.state == .working,
-                canInterrupt: current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"
+                canInterrupt: store.supports(.interrupt)
+                    && (current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"),
+                canAttach: store.supports(.files),
+                canRunCommands: store.supports(.commands)
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
             onActivity: { activityPresented = true },
-            slashCommands: commands,
+            slashCommands: store.supports(.commands) ? commands : [],
             attachments: (store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
             attachmentNotice: store.attachmentNotices[sessionID],
             approvals: pendingApprovals,
@@ -363,8 +364,18 @@ struct SessionScreen: View {
             },
             onSkip: { approval in
                 performQuestionSkip(approval)
-            }
+            },
+            approvalControllerName: model.controllerName(for: store),
+            allowsSessionScope: store.controllerInfo.kind != .stockade
         )
+    }
+
+    /// Nil when the owning controller does not advertise `files`, which hides the download actions.
+    private var transcriptDownload: (@MainActor @Sendable (FileEntry) async throws -> URL)? {
+        guard store.supports(.files) else { return nil }
+        return { entry in
+            try await downloadFile(entry, sessionID: sessionID)
+        }
     }
 
     @MainActor
@@ -650,7 +661,7 @@ struct SessionScreen: View {
                             .lineLimit(1)
                             .accessibilityIdentifier("selected-session-name")
                             .accessibilityValue(session.id ?? sessionID)
-                        SessionSubtitleView(session: session)
+                        SessionSubtitleView(session: session, controllerName: model.controllerName(for: store))
                             .font(.caption)
                             .foregroundStyle(.ccSecondary)
                             .lineLimit(1)
@@ -679,7 +690,9 @@ struct SessionScreen: View {
                 onInterrupt: interrupt,
                 onCopySessionID: { UIPasteboard.general.string = sessionID },
                 onApprovalMode: setApprovalMode,
-                onSubagent: openSubagentFromInspector
+                onSubagent: openSubagentFromInspector,
+                canInterrupt: store.supports(.interrupt),
+                canSetApprovalMode: store.supports(.mode)
             )
         } else {
             ProgressView()

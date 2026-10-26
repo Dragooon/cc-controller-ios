@@ -1,8 +1,17 @@
 import CCKit
 import SwiftUI
 
+/// A controller the New Session sheet can start a session on.
+struct NewSessionControllerChoice: Identifiable, Equatable {
+    let id: ControllerID
+    let name: String
+}
+
 struct NewSessionView: View {
     let store: AppStore
+    /// With two or more choices the form starts with a controller picker bound to `selectedControllerID`.
+    var controllerChoices: [NewSessionControllerChoice] = []
+    var selectedControllerID: Binding<ControllerID>? = nil
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -21,6 +30,17 @@ struct NewSessionView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let selectedControllerID, controllerChoices.count >= 2 {
+                    Section("Controller") {
+                        Picker("Run on", selection: selectedControllerID) {
+                            ForEach(controllerChoices) { choice in
+                                Text(choice.name).tag(choice.id)
+                            }
+                        }
+                        .accessibilityIdentifier("new-session-controller")
+                    }
+                }
+
                 if let createError {
                     Section {
                         Text(createError)

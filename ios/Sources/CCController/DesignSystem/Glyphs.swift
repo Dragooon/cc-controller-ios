@@ -110,6 +110,10 @@ struct ApprovalCard: View {
     let onAllowSession: () -> Void
     let onDeny: () -> Void
     let glassNamespace: Namespace.ID?
+    /// Shown as a caption when two or more controllers are paired.
+    let controllerName: String?
+    /// False on controllers that cannot remember an allow for the rest of a session, such as Stockade.
+    let allowsSessionScope: Bool
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var fullActionHeight = CCMetrics.actionHeight
@@ -122,7 +126,9 @@ struct ApprovalCard: View {
         onAllow: @escaping () -> Void = {},
         onAllowSession: @escaping () -> Void = {},
         onDeny: @escaping () -> Void = {},
-        glassNamespace: Namespace.ID? = nil
+        glassNamespace: Namespace.ID? = nil,
+        controllerName: String? = nil,
+        allowsSessionScope: Bool = true
     ) {
         self.approval = approval
         self.style = style
@@ -131,6 +137,19 @@ struct ApprovalCard: View {
         self.onAllowSession = onAllowSession
         self.onDeny = onDeny
         self.glassNamespace = glassNamespace
+        self.controllerName = controllerName
+        self.allowsSessionScope = allowsSessionScope
+    }
+
+    @ViewBuilder
+    private var controllerCaption: some View {
+        if let controllerName {
+            Label(controllerName, systemImage: "desktopcomputer")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.ccSecondary)
+                .lineLimit(1)
+                .accessibilityIdentifier("approval-controller-\(approval.sessionId ?? "")")
+        }
     }
 
     private var copy: PermissionCopy {
@@ -191,6 +210,7 @@ struct ApprovalCard: View {
 
     private var fullCardBody: some View {
         VStack(alignment: .leading, spacing: 12) {
+            controllerCaption
             fullHeader
 
             if !copy.command.isEmpty {
@@ -304,7 +324,7 @@ struct ApprovalCard: View {
                     .font(.caption)
                     .foregroundStyle(.ccSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
-            } else if approval.mode == .remote {
+            } else if approval.mode == .remote, allowsSessionScope {
                 Button(action: onAllowSession) {
                     Text("Allow for this session")
                         .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
@@ -409,6 +429,7 @@ struct ApprovalCard: View {
 
     private var compactContent: some View {
         VStack(alignment: .leading, spacing: 10) {
+            controllerCaption
             if dynamicTypeSize >= .accessibility1 {
                 stackedHeader
             } else {

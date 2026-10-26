@@ -89,6 +89,43 @@ final class AppModel {
 
     var controllerIDs: [ControllerID] { connections.map(\.config.id) }
 
+    /// The multi-controller UI (list sections, controller captions, subtitle prefix) shows only with two or more.
+    var hasMultipleControllers: Bool { connections.count >= 2 }
+
+    /// The saved display name, or nil with a single controller, where names stay hidden.
+    func controllerName(for controllerID: ControllerID) -> String? {
+        guard hasMultipleControllers else { return nil }
+        return config(for: controllerID)?.displayName ?? connection(for: controllerID)?.config.displayName
+    }
+
+    func controllerName(for store: AppStore) -> String? {
+        guard let connection = connections.first(where: { $0.store === store }) else { return nil }
+        return controllerName(for: connection.config.id)
+    }
+
+    /// Starts one controller's sign-in from its "Sign in needed" header. The primary goes through the app unlock;
+    /// another controller signs in with its own native secret, or opens Settings when it has none.
+    func signIn(controllerID: ControllerID) {
+        guard let connection = connection(for: controllerID) else { return }
+        if controllerID == primaryConnection.config.id {
+            Task { @MainActor [weak self] in await self?.unlock() }
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard (try? await connection.credentials.hasNativeSecret()) == true else {
+                self.isSettingsPresented = true
+                return
+            }
+            switch await connection.auth.unlock() {
+            case .success:
+                connection.store.resume()
+            case .failure:
+                self.isSettingsPresented = true
+            }
+        }
+    }
+
     var controllerRows: [SettingsControllerRow] {
         connections.map { connection in
             let config = config(for: connection.config.id) ?? connection.config
