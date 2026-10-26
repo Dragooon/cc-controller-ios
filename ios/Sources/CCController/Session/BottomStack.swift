@@ -29,6 +29,10 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let onAllow: (Approval) -> Void
     let onAllowSession: (Approval) -> Void
     let onDeny: (Approval) -> Void
+    let questionState: QuestionCardState?
+    let canAnswerQuestions: Bool
+    let onAnswer: (Approval, [String: String]) -> Void
+    let onSkip: (Approval) -> Void
 
     init(
         composer: ComposerConfiguration = ComposerConfiguration(),
@@ -50,7 +54,11 @@ struct BottomStackConfiguration: @unchecked Sendable {
         onModel: @escaping @MainActor @Sendable () -> Void = {},
         onAllow: @escaping (Approval) -> Void = { _ in },
         onAllowSession: @escaping (Approval) -> Void = { _ in },
-        onDeny: @escaping (Approval) -> Void = { _ in }
+        onDeny: @escaping (Approval) -> Void = { _ in },
+        questionState: QuestionCardState? = nil,
+        canAnswerQuestions: Bool = true,
+        onAnswer: @escaping (Approval, [String: String]) -> Void = { _, _ in },
+        onSkip: @escaping (Approval) -> Void = { _ in }
     ) {
         self.composer = composer
         self.statusSegments = statusSegments
@@ -72,6 +80,10 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.onAllow = onAllow
         self.onAllowSession = onAllowSession
         self.onDeny = onDeny
+        self.questionState = questionState
+        self.canAnswerQuestions = canAnswerQuestions
+        self.onAnswer = onAnswer
+        self.onSkip = onSkip
     }
 
     func withTranscriptHeight(_ height: CGFloat) -> Self {
@@ -95,7 +107,11 @@ struct BottomStackConfiguration: @unchecked Sendable {
             onModel: onModel,
             onAllow: onAllow,
             onAllowSession: onAllowSession,
-            onDeny: onDeny
+            onDeny: onDeny,
+            questionState: questionState,
+            canAnswerQuestions: canAnswerQuestions,
+            onAnswer: onAnswer,
+            onSkip: onSkip
         )
     }
 }
@@ -158,6 +174,10 @@ struct BottomStackView: View {
                         onAllow: configuration.onAllow,
                         onAllowSession: configuration.onAllowSession,
                         onDeny: configuration.onDeny,
+                        questionState: configuration.questionState,
+                        canAnswerQuestions: configuration.canAnswerQuestions,
+                        onAnswer: configuration.onAnswer,
+                        onSkip: configuration.onSkip,
                         glassNamespace: glassNamespace,
                         inGlassContainer: false
                     )

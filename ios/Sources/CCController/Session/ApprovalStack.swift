@@ -8,12 +8,17 @@ struct ApprovalBottomStackView: View {
     let onAllow: (Approval) -> Void
     let onAllowSession: (Approval) -> Void
     let onDeny: (Approval) -> Void
+    let questionState: QuestionCardState?
+    let canAnswerQuestions: Bool
+    let onAnswer: (Approval, [String: String]) -> Void
+    let onSkip: (Approval) -> Void
     let glassNamespace: Namespace.ID?
     let inGlassContainer: Bool
 
     @Namespace private var fallbackGlassNamespace
     @ScaledMetric(relativeTo: .body) private var waitingRowHeight = 36
     @State private var isExpanded = false
+    @State private var fallbackQuestionState = QuestionCardState()
 
     init(
         approvals: [Approval],
@@ -22,6 +27,10 @@ struct ApprovalBottomStackView: View {
         onAllow: @escaping (Approval) -> Void = { _ in },
         onAllowSession: @escaping (Approval) -> Void = { _ in },
         onDeny: @escaping (Approval) -> Void = { _ in },
+        questionState: QuestionCardState? = nil,
+        canAnswerQuestions: Bool = true,
+        onAnswer: @escaping (Approval, [String: String]) -> Void = { _, _ in },
+        onSkip: @escaping (Approval) -> Void = { _ in },
         glassNamespace: Namespace.ID? = nil,
         inGlassContainer: Bool = true
     ) {
@@ -31,6 +40,10 @@ struct ApprovalBottomStackView: View {
         self.onAllow = onAllow
         self.onAllowSession = onAllowSession
         self.onDeny = onDeny
+        self.questionState = questionState
+        self.canAnswerQuestions = canAnswerQuestions
+        self.onAnswer = onAnswer
+        self.onSkip = onSkip
         self.glassNamespace = glassNamespace
         self.inGlassContainer = inGlassContainer
     }
@@ -49,15 +62,28 @@ struct ApprovalBottomStackView: View {
         VStack(spacing: 8) {
             ForEach(Array(displayedApprovals.enumerated()), id: \.offset) { index, approval in
                 CappedHeightLayout(cap: cardMaxHeight) {
-                    ApprovalCard(
-                        approval: approval,
-                        style: .full,
-                        onAllow: { onAllow(approval) },
-                        onAllowSession: { onAllowSession(approval) },
-                        onDeny: { onDeny(approval) },
-                        glassNamespace: index == 0 ? effectiveGlassNamespace : nil
-                    )
-                    .disabled(isDeciding(approval))
+                    if let questions = approval.questions {
+                        QuestionCard(
+                            approval: approval,
+                            questions: questions,
+                            state: questionState ?? fallbackQuestionState,
+                            canAnswer: canAnswerQuestions,
+                            onSend: { answers in onAnswer(approval, answers) },
+                            onSkip: { onSkip(approval) },
+                            glassNamespace: index == 0 ? effectiveGlassNamespace : nil
+                        )
+                        .disabled(isDeciding(approval))
+                    } else {
+                        ApprovalCard(
+                            approval: approval,
+                            style: .full,
+                            onAllow: { onAllow(approval) },
+                            onAllowSession: { onAllowSession(approval) },
+                            onDeny: { onDeny(approval) },
+                            glassNamespace: index == 0 ? effectiveGlassNamespace : nil
+                        )
+                        .disabled(isDeciding(approval))
+                    }
                 }
             }
 

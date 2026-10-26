@@ -64,6 +64,14 @@ private struct ToolRow: View {
     let onOpen: (ToolEntry) -> Void
 
     var body: some View {
+        if let questionRow = questionTranscriptRow(for: entry) {
+            QuestionRow(entry: entry, row: questionRow, onOpen: onOpen)
+        } else {
+            toolRow
+        }
+    }
+
+    private var toolRow: some View {
         Button { onOpen(entry) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 ToolSymbol(tool: entry.tool ?? "Tool")
@@ -89,6 +97,42 @@ private struct ToolRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(toolPhraseAccessibilityLabel(entry))
+    }
+}
+
+private struct QuestionRow: View {
+    let entry: ToolEntry
+    let row: QuestionTranscriptRow
+    let onOpen: (ToolEntry) -> Void
+
+    var body: some View {
+        Button { onOpen(entry) } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "questionmark.bubble")
+                    .font(.footnote)
+                    .foregroundStyle(row.pending ? .ccAccent : .ccSecondary)
+                    .frame(width: 20, height: 20)
+                    .alignmentGuide(.firstTextBaseline) { dimensions in
+                        dimensions[.bottom]
+                    }
+
+                Text(row.text)
+                    .font(.subheadline)
+                    .foregroundStyle(.ccSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                ToolRowStatus(entry: entry)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("question-row")
+        .accessibilityLabel("Question")
+        .accessibilityValue(row.text)
     }
 }
 

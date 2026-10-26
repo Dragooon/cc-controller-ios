@@ -58,6 +58,8 @@ struct SessionScreen: View {
     @State private var pendingActivityDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
+    @State private var answeredFeedbackCount = 0
+    @State private var questionState = QuestionCardState()
     @State private var knownApprovalIDs: Set<String> = []
     @State private var modelSheetPresented = false
     @State private var commandOutput: CommandOutput?
@@ -79,6 +81,7 @@ struct SessionScreen: View {
             .quickLookPreview($filePreviewURL)
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
+        .sensoryFeedback(.impact(weight: .light), trigger: answeredFeedbackCount)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: pendingApprovalCount) { oldCount, newCount in
             newCount > oldCount
         }
@@ -217,9 +220,15 @@ struct SessionScreen: View {
             }
             .sheet(isPresented: toolSheetPresented) {
                 if let selectedTool {
-                    ToolDetailSheet(tool: selectedTool)
-                        .presentationDetents([.large])
-                        .presentationDragIndicator(.visible)
+                    if let questionModel = questionSheetModel(for: selectedTool) {
+                        QuestionAnswerSheet(model: questionModel)
+                            .presentationDetents([.medium, .large])
+                            .presentationDragIndicator(.visible)
+                    } else {
+                        ToolDetailSheet(tool: selectedTool)
+                            .presentationDetents([.large])
+                            .presentationDragIndicator(.visible)
+                    }
                 }
             }
             .sheet(isPresented: compactionSheetPresented) {
@@ -346,6 +355,14 @@ struct SessionScreen: View {
             },
             onDeny: { approval in
                 performApprovalDeny(approval)
+            },
+            questionState: questionState,
+            canAnswerQuestions: store.supportsQuestions,
+            onAnswer: { approval, answers in
+                performQuestionAnswer(approval, answers: answers)
+            },
+            onSkip: { approval in
+                performQuestionSkip(approval)
             }
         )
     }
@@ -390,8 +407,13 @@ struct SessionScreen: View {
 
     @MainActor
     private func showCommandToast() {
+        showToast("Runs when the current turn ends.")
+    }
+
+    @MainActor
+    private func showToast(_ message: String) {
         commandToastTask?.cancel()
-        commandToast = "Runs when the current turn ends."
+        commandToast = message
         commandToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
@@ -452,12 +474,59 @@ struct SessionScreen: View {
         }
     }
 
+    private func performQuestionAnswer(_ approval: Approval, answers: [String: String]) {
+        questionState.setError(nil, for: approval)
+        Task { @MainActor in
+            let result = await store.answerQuestion(approval, answers: answers)
+            switch result {
+            case .success:
+                questionState.forget(approval)
+                answeredFeedbackCount += 1
+                showToast("Answered")
+            case .failure(let error):
+                handleQuestionFailure(error, for: approval)
+            }
+        }
+    }
+
+    private func performQuestionSkip(_ approval: Approval) {
+        questionState.setError(nil, for: approval)
+        Task { @MainActor in
+            let result = await store.skipQuestion(approval)
+            switch result {
+            case .success:
+                questionState.forget(approval)
+                denyFeedbackCount += 1
+            case .failure(let error):
+                handleQuestionFailure(error, for: approval)
+            }
+        }
+    }
+
+    // A stale answer (410, hold expired) drops the card and refreshes state, so only a card that comes back can show an inline message.
+    @MainActor
+    private func handleQuestionFailure(_ error: ActionError, for approval: Approval) {
+        switch error {
+        case .answerInTerminal:
+            questionState.setReadOnly(error.userMessage, for: approval)
+        case .alreadyAnswered:
+            questionState.forget(approval)
+            model.actionError = error
+        default:
+            questionState.setError(error.userMessage, for: approval)
+        }
+    }
+
     private func announceNewApprovals(_ requestIDs: [String]) {
         let previousIDs = knownApprovalIDs
         knownApprovalIDs = Set(requestIDs)
         guard let newID = requestIDs.first(where: { !previousIDs.contains($0) }),
               let approval = pendingApprovals.first(where: { $0.requestId == newID }) else { return }
-        AccessibilityNotification.Announcement("Approval needed: \(approval.toolName ?? "Tool")").post()
+        if let header = approval.questions?.first?.header {
+            AccessibilityNotification.Announcement("Question: \(header)").post()
+        } else {
+            AccessibilityNotification.Announcement("Approval needed: \(approval.toolName ?? "Tool")").post()
+        }
     }
 
     private var toolSheetPresented: Binding<Bool> {
