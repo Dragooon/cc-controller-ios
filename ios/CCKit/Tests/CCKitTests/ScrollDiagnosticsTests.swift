@@ -45,6 +45,20 @@ final class ScrollDiagnosticsTests: XCTestCase {
         )
     }
 
+    func testBlankConditionIgnoresOffscreenGeometry() {
+        for containerHeight in [CGFloat.zero, -1] {
+            XCTAssertNil(
+                ScrollBlankCondition.kind(
+                    geometry: geometry(contentHeight: 36, containerHeight: containerHeight, visibleMinY: 35),
+                    builtRowCount: 0,
+                    displayRowCount: 10,
+                    queuedNoteCount: 0
+                ),
+                "Offscreen geometry should not start a blank candidate"
+            )
+        }
+    }
+
     func testUnbuiltConditionRequiresRowsOrNotesAndNoBuiltRows() {
         let geometry = geometry(contentHeight: 0)
         XCTAssertEqual(

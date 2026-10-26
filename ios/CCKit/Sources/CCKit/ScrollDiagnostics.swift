@@ -49,6 +49,7 @@ public enum ScrollBlankCondition {
         displayRowCount: Int,
         queuedNoteCount: Int
     ) -> ScrollBlankKind? {
+        guard geometry.containerHeight > 0 else { return nil }
         if isOvershoot(
             contentHeight: geometry.contentHeight,
             visibleMinY: geometry.visibleMinY,
