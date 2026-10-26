@@ -10,6 +10,10 @@ struct InspectorView: View {
     let onCopySessionID: () -> Void
     let onApprovalMode: (ApprovalMode) -> Void
     let onSubagent: (Subagent) -> Void
+    /// False when the owning controller does not advertise `interrupt`.
+    let canInterrupt: Bool
+    /// False when the owning controller does not advertise `mode`.
+    let canSetApprovalMode: Bool
 
     @State private var isInterruptConfirmationPresented = false
     @State private var attachCommandCopied = false
@@ -27,7 +31,9 @@ struct InspectorView: View {
         onInterrupt: @escaping () -> Void = {},
         onCopySessionID: @escaping () -> Void = {},
         onApprovalMode: @escaping (ApprovalMode) -> Void = { _ in },
-        onSubagent: @escaping (Subagent) -> Void = { _ in }
+        onSubagent: @escaping (Subagent) -> Void = { _ in },
+        canInterrupt: Bool = true,
+        canSetApprovalMode: Bool = true
     ) {
         self.session = session
         self.elapsed = elapsed
@@ -36,6 +42,8 @@ struct InspectorView: View {
         self.onCopySessionID = onCopySessionID
         self.onApprovalMode = onApprovalMode
         self.onSubagent = onSubagent
+        self.canInterrupt = canInterrupt
+        self.canSetApprovalMode = canSetApprovalMode
     }
 
     private var usage: Usage? { session.usage }
@@ -56,7 +64,10 @@ struct InspectorView: View {
                 contextSection
                 usageSection
                 subagentsSection
-                approvalsSection
+                if canSetApprovalMode {
+                    approvalsSection
+                }
+                conversationSection
                 locationSection
                 openOnMacSection
                 actionsSection
@@ -274,6 +285,55 @@ struct InspectorView: View {
         }
     }
 
+    /// Stockade sessions: who started it, who's in it, and whether the app can write.
+    @ViewBuilder
+    private var conversationSection: some View {
+        if session.origin != nil || session.writable != nil {
+            Section {
+                if let agent = session.agent {
+                    LabeledContent("Agent") {
+                        Text(agent.name ?? agent.id)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                if let origin = sessionOriginLabel(session.origin) {
+                    LabeledContent("Started in") {
+                        Text(origin)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                if let starter = session.startedBy {
+                    LabeledContent("Started by") {
+                        Text(starter.name)
+                            .foregroundStyle(.ccSecondary)
+                    }
+                }
+                if let participants = session.participants, !participants.isEmpty {
+                    LabeledContent("People") {
+                        Text(participants.map(\.name).joined(separator: ", "))
+                            .foregroundStyle(.ccSecondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    .accessibilityIdentifier("inspector-participants")
+                }
+                LabeledContent("Access") {
+                    Text(readOnlyLabel(for: session) ?? "Read and write")
+                        .foregroundStyle(.ccSecondary)
+                }
+                .accessibilityIdentifier("inspector-access")
+                if session.sudo == true {
+                    LabeledContent("Sudo") {
+                        Text("On")
+                            .foregroundStyle(.ccAmber)
+                    }
+                    .accessibilityIdentifier("inspector-sudo")
+                }
+            } header: {
+                sectionHeader("Conversation")
+            }
+        }
+    }
+
     @ViewBuilder
     private var locationSection: some View {
         if hasLocationData {
@@ -339,7 +399,7 @@ struct InspectorView: View {
     @ViewBuilder
     private var actionsSection: some View {
         Section {
-            if nonEmpty(session.tmuxPane) != nil {
+            if canInterrupt, nonEmpty(session.tmuxPane) != nil {
                 Button {
                     isInterruptConfirmationPresented = true
                 } label: {

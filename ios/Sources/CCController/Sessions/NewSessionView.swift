@@ -1,8 +1,17 @@
 import CCKit
 import SwiftUI
 
+/// A controller the New Session sheet can start a session on.
+struct NewSessionControllerChoice: Identifiable, Equatable {
+    let id: ControllerID
+    let name: String
+}
+
 struct NewSessionView: View {
     let store: AppStore
+    /// With two or more choices the form starts with a controller picker bound to `selectedControllerID`.
+    var controllerChoices: [NewSessionControllerChoice] = []
+    var selectedControllerID: Binding<ControllerID>? = nil
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -16,11 +25,29 @@ struct NewSessionView: View {
     @State private var name = ""
     @State private var selectedModel = ""
     @State private var firstMessage = ""
+    @State private var selectedAgentID = ""
     @State private var isCreating = false
+
+    /// Stockade starts sessions with an agent and a first message, not in a folder.
+    private var agents: [NewSessionAgent]? {
+        guard let agents = options?.agents, !agents.isEmpty else { return nil }
+        return agents
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                if let selectedControllerID, controllerChoices.count >= 2 {
+                    Section("Controller") {
+                        Picker("Run on", selection: selectedControllerID) {
+                            ForEach(controllerChoices) { choice in
+                                Text(choice.name).tag(choice.id)
+                            }
+                        }
+                        .accessibilityIdentifier("new-session-controller")
+                    }
+                }
+
                 if let createError {
                     Section {
                         Text(createError)
@@ -46,6 +73,14 @@ struct NewSessionView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Retry", action: loadOptions)
                             .accessibilityIdentifier("new-session-retry")
+                    }
+                } else if let agents {
+                    agentSection(agents)
+                    agentMessageSection
+                    Section {
+                        EmptyView()
+                    } footer: {
+                        Text("Starts a new app session with this agent. Its approvals come to this app.")
                     }
                 } else if let options {
                     folderRow(options)
@@ -158,7 +193,39 @@ struct NewSessionView: View {
         }
     }
 
+    private func agentSection(_ agents: [NewSessionAgent]) -> some View {
+        Section("Agent") {
+            Picker("Agent", selection: $selectedAgentID) {
+                ForEach(agents) { agent in
+                    Text(agent.name).tag(agent.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("new-session-agent")
+        }
+    }
+
+    private var agentMessageSection: some View {
+        Section("First message") {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $firstMessage)
+                    .frame(minHeight: 90)
+                    .accessibilityIdentifier("new-session-first-message")
+                if firstMessage.isEmpty {
+                    Text("What should it do?")
+                        .foregroundStyle(.ccTertiary)
+                        .padding(.top, 8)
+                        .padding(.leading, 4)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
     private var canCreate: Bool {
+        if agents != nil {
+            return !selectedAgentID.isEmpty && !firstMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         if !isOtherFolder { return selectedFolderPath != nil }
         return !otherPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -198,6 +265,7 @@ struct NewSessionView: View {
                 selectedFolderPath = loaded.folders.first?.path
                 isOtherFolder = false
                 selectedModel = loaded.models.first(where: { $0.id == loaded.defaultModel })?.id ?? loaded.models.first?.id ?? ""
+                selectedAgentID = loaded.agents?.first?.id ?? ""
                 loading = false
             } catch {
                 loading = false
@@ -211,6 +279,10 @@ struct NewSessionView: View {
         isCreating = true
         createError = nil
         defer { isCreating = false }
+        if agents != nil {
+            await createWithAgent()
+            return
+        }
         let cwd = selectedFolderPath ?? otherPath.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             let created = try await store.createSession(
@@ -219,6 +291,20 @@ struct NewSessionView: View {
                 model: selectedModel.isEmpty ? nil : selectedModel,
                 defaultModel: options.defaultModel,
                 prompt: firstMessage.isEmpty ? nil : firstMessage
+            )
+            let appeared = await store.waitForSession(created.id)
+            dismiss()
+            onCreated(created.id, appeared)
+        } catch {
+            createError = errorMessage(error)
+        }
+    }
+
+    private func createWithAgent() async {
+        do {
+            let created = try await store.createAgentSession(
+                agentId: selectedAgentID,
+                prompt: firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             let appeared = await store.waitForSession(created.id)
             dismiss()

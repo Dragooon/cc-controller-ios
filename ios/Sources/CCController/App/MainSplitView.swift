@@ -10,6 +10,8 @@ struct MainSplitView: View {
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
     @State private var isNewSessionPresented = false
+    @State private var newSessionControllerID: ControllerID = .mac
+    /// Keys from `sleepingSessionKey(controllerID:sessionID:)`.
     @State private var wakingSessionIDs: Set<String> = []
     @State private var wakeError: String?
     @State private var sessionNotice: String?
@@ -111,14 +113,27 @@ struct MainSplitView: View {
                 onLockInterval: { model.setLockInterval($0.lockInterval) },
                 onRetryDevices: { Task { await model.settings.loadPairedDevices() } },
                 onSaveRelayAddresses: model.setRelayAddresses,
-                onResetRelayAddresses: model.resetRelayAddresses
+                onResetRelayAddresses: model.resetRelayAddresses,
+                controllers: model.controllerRows,
+                controllerDetail: { id, onRemoved in
+                    AnyView(ControllerDetailView(model: model, controllerID: id, onRemoved: onRemoved))
+                },
+                addController: { onDone in
+                    AnyView(AddControllerView(appModel: model, onDone: onDone))
+                }
             )
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }
         }
         .sheet(isPresented: $isNewSessionPresented) {
-            NewSessionView(store: model.primaryStore) { id, appeared in
-                openSession(id)
+            let store = model.connection(for: newSessionControllerID)?.store ?? model.primaryStore
+            let controllerID = newSessionControllerID
+            NewSessionView(
+                store: store,
+                controllerChoices: newSessionChoices,
+                selectedControllerID: $newSessionControllerID
+            ) { id, appeared in
+                openSession(controllerID, id)
                 if !appeared {
                     sessionNotice = "Session started; it will appear shortly."
                     Task { @MainActor in
@@ -127,6 +142,7 @@ struct MainSplitView: View {
                     }
                 }
             }
+            .id(newSessionControllerID)
         }
         .onAppear(perform: synchronizeColumnVisibility)
         .onChange(of: model.selectedSession) { _, _ in
@@ -144,40 +160,42 @@ struct MainSplitView: View {
             preferredCompactColumn: $preferredCompactColumn
         ) {
             SessionsListView(
-                sessions: model.primaryStore.sortedSessions,
-                sleeping: model.primaryStore.sleeping,
+                controllers: listControllers,
                 waking: wakingSessionIDs,
-                approvals: model.primaryStore.approvals,
-                deciding: model.primaryStore.deciding,
-                connection: connection,
                 subtitleOverride: model.selectedSession == nil ? nil : "",
                 notice: sessionNotice,
+                canCreateSession: !newSessionChoices.isEmpty,
                 onSessionsLoaded: {
                     await model.requestNotificationAuthorizationAfterSessionsLoaded()
                 },
-                onOpen: { openSession($0.id) },
-                onAllow: { approval in
-                    performApprovalDecision(approval, scope: .once)
+                onOpen: { controllerID, session in openSession(controllerID, session.id) },
+                onAllow: { controllerID, approval in
+                    performApprovalDecision(approval, controllerID: controllerID, scope: .once)
                 },
-                onDeny: { approval in
-                    performApprovalDeny(approval)
+                onDeny: { controllerID, approval in
+                    performApprovalDeny(approval, controllerID: controllerID)
                 },
-                onRetry: { model.primaryStore.resume() },
+                onRetry: { controllerID in model.connection(for: controllerID)?.store.resume() },
+                onSignIn: { controllerID in model.signIn(controllerID: controllerID) },
                 onSettings: { model.isSettingsPresented = true },
-                onRefresh: { model.primaryStore.resume() },
-                onInterrupt: { session in
-                    guard let id = session.id else { return }
-                    runAction { await model.primaryStore.interrupt(sessionID: id) }
+                onRefresh: {
+                    for connection in model.connections {
+                        connection.store.resume()
+                    }
                 },
-                onSetApprovalMode: { session, mode in
-                    guard let id = session.id else { return }
-                    runAction { await model.primaryStore.setApprovalMode(sessionID: id, mode: mode) }
+                onInterrupt: { controllerID, session in
+                    guard let id = session.id, let store = model.connection(for: controllerID)?.store else { return }
+                    runAction { await store.interrupt(sessionID: id) }
+                },
+                onSetApprovalMode: { controllerID, session, mode in
+                    guard let id = session.id, let store = model.connection(for: controllerID)?.store else { return }
+                    runAction { await store.setApprovalMode(sessionID: id, mode: mode) }
                 },
                 onCopySessionID: { session in
                     guard let id = session.id else { return }
                     UIPasteboard.general.string = id
                 },
-                onNewSession: { isNewSessionPresented = true },
+                onNewSession: presentNewSession,
                 onWake: wakeSession,
                 onCopyAttachCommand: { sleeping in
                     UIPasteboard.general.string = "claude attach \(sleeping.shortId)"
@@ -209,12 +227,9 @@ struct MainSplitView: View {
         .background(.ccBackground)
     }
 
-    private func openSession(_ id: String?) {
+    private func openSession(_ controllerID: ControllerID, _ id: String?) {
         guard let id else { return }
-        model.selectedSession = SessionRef(
-            controllerID: model.primaryConnection.config.id,
-            sessionID: id
-        )
+        model.selectedSession = SessionRef(controllerID: controllerID, sessionID: id)
         preferredCompactColumn = .detail
         columnVisibility = .detailOnly
     }
@@ -232,51 +247,95 @@ struct MainSplitView: View {
         guard horizontalSizeClass == .regular,
               columnVisibility == .detailOnly,
               let selectedSession = model.selectedSession else { return 0 }
-        let sessionIDs = model.primaryStore.approvals.compactMap(\.sessionId)
-            .filter { $0 != selectedSession.sessionID }
-        return Set(sessionIDs).count
+        var sessionKeys: Set<String> = []
+        for connection in model.connections {
+            let controllerID = connection.config.id
+            for approval in connection.store.approvals {
+                guard let sessionID = approval.sessionId else { continue }
+                if controllerID == selectedSession.controllerID, sessionID == selectedSession.sessionID { continue }
+                sessionKeys.insert(sleepingSessionKey(controllerID: controllerID, sessionID: sessionID))
+            }
+        }
+        return sessionKeys.count
+    }
+
+    private var listControllers: [SessionsListController] {
+        model.connections.map { connection in
+            let store = connection.store
+            return SessionsListController(
+                id: connection.config.id,
+                name: connection.config.displayName,
+                connection: listConnection(for: store),
+                signInNeeded: store.connection == .unauthorized,
+                sessions: store.sortedSessions,
+                sleeping: store.sleeping,
+                approvals: store.approvals,
+                deciding: store.deciding,
+                capabilities: store.controllerInfo.capabilities
+            )
+        }
+    }
+
+    /// Controllers that can start a session, in registry order.
+    private var newSessionChoices: [NewSessionControllerChoice] {
+        model.connections
+            .filter { $0.store.supports(.newSession) }
+            .map { NewSessionControllerChoice(id: $0.config.id, name: $0.config.displayName) }
+    }
+
+    private func presentNewSession() {
+        let choices = newSessionChoices
+        guard let first = choices.first else { return }
+        if !choices.contains(where: { $0.id == newSessionControllerID }) {
+            newSessionControllerID = first.id
+        }
+        isNewSessionPresented = true
     }
 
     private var actionErrorTitle: String {
         if case .commandsUnavailable = model.actionError { return "Commands unavailable" }
+        if case .readOnly = model.actionError { return "Read-only" }
         return "Action failed"
     }
 
-    private func wakeSession(_ sleeping: SleepingSession) {
-        guard wakingSessionIDs.insert(sleeping.id).inserted else { return }
+    private func wakeSession(_ controllerID: ControllerID, _ sleeping: SleepingSession) {
+        guard let store = model.connection(for: controllerID)?.store else { return }
+        let key = sleepingSessionKey(controllerID: controllerID, sessionID: sleeping.id)
+        guard wakingSessionIDs.insert(key).inserted else { return }
         Task { @MainActor in
-            defer { wakingSessionIDs.remove(sleeping.id) }
+            defer { wakingSessionIDs.remove(key) }
             do {
-                let appeared = try await model.primaryStore.wakeSession(id: sleeping.id)
+                let appeared = try await store.wakeSession(id: sleeping.id)
                 guard appeared else {
                     wakeError = "The session did not appear after waking."
                     return
                 }
-                openSession(sleeping.id)
+                openSession(controllerID, sleeping.id)
             } catch {
                 wakeError = (error as? APIError)?.daemonMessage ?? error.localizedDescription
             }
         }
     }
 
-    private var connection: SessionsListView.Connection {
-        switch model.primaryStore.connection {
+    private func listConnection(for store: AppStore) -> SessionsListView.Connection {
+        switch store.connection {
         case .live:
             return .live
         case .reconnecting, .connecting:
             return .reconnecting
         case .offline(let lastUpdated, _):
-            return .offline(updatedAt: lastUpdated ?? model.primaryStore.lastUpdated ?? .now)
+            return .offline(updatedAt: lastUpdated ?? store.lastUpdated ?? .now)
         case .offlineUnreadable(let lastUpdated, _):
-            return .unreadable(updatedAt: lastUpdated ?? model.primaryStore.lastUpdated ?? .now)
+            return .unreadable(updatedAt: lastUpdated ?? store.lastUpdated ?? .now)
         case .unauthorized:
-            return .offline(updatedAt: model.primaryStore.lastUpdated ?? .now)
+            return .offline(updatedAt: store.lastUpdated ?? .now)
         }
     }
 
-    private func performApprovalDecision(_ approval: Approval, scope: ApprovalScope) {
+    private func performApprovalDecision(_ approval: Approval, controllerID: ControllerID, scope: ApprovalScope) {
+        guard let store = model.connection(for: controllerID)?.store else { return }
         Task { @MainActor in
-            let result = await model.primaryStore.allow(approval, scope: scope)
+            let result = await store.allow(approval, scope: scope)
             switch result {
             case .success:
                 allowFeedbackCount += 1
@@ -286,9 +345,10 @@ struct MainSplitView: View {
         }
     }
 
-    private func performApprovalDeny(_ approval: Approval) {
+    private func performApprovalDeny(_ approval: Approval, controllerID: ControllerID) {
+        guard let store = model.connection(for: controllerID)?.store else { return }
         Task { @MainActor in
-            let result = await model.primaryStore.deny(approval)
+            let result = await store.deny(approval)
             switch result {
             case .success:
                 denyFeedbackCount += 1

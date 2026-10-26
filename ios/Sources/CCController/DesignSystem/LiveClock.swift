@@ -33,6 +33,8 @@ struct LiveElapsedText: View {
 
 struct SessionSubtitleView: View {
     let session: Session
+    /// The owning controller's name, set only when two or more controllers are paired.
+    var controllerName: String? = nil
 
     var body: some View {
         #if CC_PERF
@@ -40,11 +42,17 @@ struct SessionSubtitleView: View {
         #endif
         if isLive, hasAnchor {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(sessionDetailSubtitle(session, now: context.date))
+                Text(prefixed(sessionDetailSubtitle(session, now: context.date)))
             }
         } else {
-            Text(sessionDetailSubtitle(session))
+            Text(prefixed(sessionDetailSubtitle(session)))
         }
+    }
+
+    private func prefixed(_ subtitle: String) -> String {
+        let marked = session.sudo == true ? (subtitle.isEmpty ? "sudo" : "\(subtitle) · sudo") : subtitle
+        guard let controllerName else { return marked }
+        return marked.isEmpty ? controllerName : "\(controllerName) · \(marked)"
     }
 
     private var isLive: Bool {

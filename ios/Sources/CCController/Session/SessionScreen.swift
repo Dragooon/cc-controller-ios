@@ -58,6 +58,8 @@ struct SessionScreen: View {
     @State private var pendingActivityDestination: SessionDestination?
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
+    @State private var answeredFeedbackCount = 0
+    @State private var questionState = QuestionCardState()
     @State private var knownApprovalIDs: Set<String> = []
     @State private var modelSheetPresented = false
     @State private var commandOutput: CommandOutput?
@@ -79,6 +81,7 @@ struct SessionScreen: View {
             .quickLookPreview($filePreviewURL)
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
+        .sensoryFeedback(.impact(weight: .light), trigger: answeredFeedbackCount)
         .sensoryFeedback(.impact(flexibility: .soft), trigger: pendingApprovalCount) { oldCount, newCount in
             newCount > oldCount
         }
@@ -202,9 +205,7 @@ struct SessionScreen: View {
                             selectedSubagentResult = SubagentResultSelection(entry: entry, subagent: subagent)
                         },
                         onCompaction: { selectedCompaction = $0 },
-                        downloadFile: { entry in
-                            try await downloadFile(entry, sessionID: sessionID)
-                        }
+                        downloadFile: transcriptDownload
                     )
                     .environment(\.openInspector, { inspectorPresented = true })
                     .environment(\.openFilePreview, { filePreviewURL = $0 })
@@ -217,9 +218,15 @@ struct SessionScreen: View {
             }
             .sheet(isPresented: toolSheetPresented) {
                 if let selectedTool {
-                    ToolDetailSheet(tool: selectedTool)
-                        .presentationDetents([.large])
-                        .presentationDragIndicator(.visible)
+                    if let questionModel = questionSheetModel(for: selectedTool) {
+                        QuestionAnswerSheet(model: questionModel)
+                            .presentationDetents([.medium, .large])
+                            .presentationDragIndicator(.visible)
+                    } else {
+                        ToolDetailSheet(tool: selectedTool)
+                            .presentationDetents([.large])
+                            .presentationDragIndicator(.visible)
+                    }
                 }
             }
             .sheet(isPresented: compactionSheetPresented) {
@@ -306,12 +313,15 @@ struct SessionScreen: View {
                 modelName: composerModelName(modelName),
                 placeholder: current.state == .working ? "Queue for after this turn…" : "Message",
                 isWorking: current.state == .working,
-                canInterrupt: current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"
+                canInterrupt: store.supports(.interrupt)
+                    && (current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"),
+                canAttach: store.supports(.files),
+                canRunCommands: store.supports(.commands)
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
             onActivity: { activityPresented = true },
-            slashCommands: commands,
+            slashCommands: slashCommands(commands, for: current),
             attachments: (store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
             attachmentNotice: store.attachmentNotices[sessionID],
             approvals: pendingApprovals,
@@ -346,8 +356,37 @@ struct SessionScreen: View {
             },
             onDeny: { approval in
                 performApprovalDeny(approval)
-            }
+            },
+            questionState: questionState,
+            canAnswerQuestions: store.supportsQuestions,
+            onAnswer: { approval, answers in
+                performQuestionAnswer(approval, answers: answers)
+            },
+            onSkip: { approval in
+                performQuestionSkip(approval)
+            },
+            approvalControllerName: model.controllerName(for: store),
+            allowsSessionScope: store.controllerInfo.kind != .stockade,
+            readOnlyLabel: readOnlyLabel(for: current)
         )
+    }
+
+    /// The controller's commands, plus `/sudo` on a writable Stockade session that advertises it.
+    private func slashCommands(_ commands: [SlashCommand], for session: Session) -> [SlashCommand] {
+        var available = store.supports(.commands) ? commands : []
+        if acceptsSudo(session, capabilities: store.controllerInfo.capabilities),
+           !available.contains(where: { $0.command == "/sudo" }) {
+            available.append(SlashCommand(command: "/sudo", description: "Toggle sudo mode"))
+        }
+        return available
+    }
+
+    /// Nil when the owning controller does not advertise `files`, which hides the download actions.
+    private var transcriptDownload: (@MainActor @Sendable (FileEntry) async throws -> URL)? {
+        guard store.supports(.files) else { return nil }
+        return { entry in
+            try await downloadFile(entry, sessionID: sessionID)
+        }
     }
 
     @MainActor
@@ -375,6 +414,9 @@ struct SessionScreen: View {
             if isSlashCommand(trimmed), message.queued == true {
                 showCommandToast()
             }
+            if let sudo = message.sudo {
+                showToast(sudoToastText(sudo))
+            }
         case .failure(let error):
             if shouldPresentSendError(error) {
                 model.actionError = error
@@ -390,8 +432,13 @@ struct SessionScreen: View {
 
     @MainActor
     private func showCommandToast() {
+        showToast("Runs when the current turn ends.")
+    }
+
+    @MainActor
+    private func showToast(_ message: String) {
         commandToastTask?.cancel()
-        commandToast = "Runs when the current turn ends."
+        commandToast = message
         commandToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
@@ -452,12 +499,59 @@ struct SessionScreen: View {
         }
     }
 
+    private func performQuestionAnswer(_ approval: Approval, answers: [String: String]) {
+        questionState.setError(nil, for: approval)
+        Task { @MainActor in
+            let result = await store.answerQuestion(approval, answers: answers)
+            switch result {
+            case .success:
+                questionState.forget(approval)
+                answeredFeedbackCount += 1
+                showToast("Answered")
+            case .failure(let error):
+                handleQuestionFailure(error, for: approval)
+            }
+        }
+    }
+
+    private func performQuestionSkip(_ approval: Approval) {
+        questionState.setError(nil, for: approval)
+        Task { @MainActor in
+            let result = await store.skipQuestion(approval)
+            switch result {
+            case .success:
+                questionState.forget(approval)
+                denyFeedbackCount += 1
+            case .failure(let error):
+                handleQuestionFailure(error, for: approval)
+            }
+        }
+    }
+
+    // A stale answer (410, hold expired) drops the card and refreshes state, so only a card that comes back can show an inline message.
+    @MainActor
+    private func handleQuestionFailure(_ error: ActionError, for approval: Approval) {
+        switch error {
+        case .answerInTerminal:
+            questionState.setReadOnly(error.userMessage, for: approval)
+        case .alreadyAnswered:
+            questionState.forget(approval)
+            model.actionError = error
+        default:
+            questionState.setError(error.userMessage, for: approval)
+        }
+    }
+
     private func announceNewApprovals(_ requestIDs: [String]) {
         let previousIDs = knownApprovalIDs
         knownApprovalIDs = Set(requestIDs)
         guard let newID = requestIDs.first(where: { !previousIDs.contains($0) }),
               let approval = pendingApprovals.first(where: { $0.requestId == newID }) else { return }
-        AccessibilityNotification.Announcement("Approval needed: \(approval.toolName ?? "Tool")").post()
+        if let header = approval.questions?.first?.header {
+            AccessibilityNotification.Announcement("Question: \(header)").post()
+        } else {
+            AccessibilityNotification.Announcement("Approval needed: \(approval.toolName ?? "Tool")").post()
+        }
     }
 
     private var toolSheetPresented: Binding<Bool> {
@@ -581,7 +675,7 @@ struct SessionScreen: View {
                             .lineLimit(1)
                             .accessibilityIdentifier("selected-session-name")
                             .accessibilityValue(session.id ?? sessionID)
-                        SessionSubtitleView(session: session)
+                        SessionSubtitleView(session: session, controllerName: model.controllerName(for: store))
                             .font(.caption)
                             .foregroundStyle(.ccSecondary)
                             .lineLimit(1)
@@ -610,7 +704,9 @@ struct SessionScreen: View {
                 onInterrupt: interrupt,
                 onCopySessionID: { UIPasteboard.general.string = sessionID },
                 onApprovalMode: setApprovalMode,
-                onSubagent: openSubagentFromInspector
+                onSubagent: openSubagentFromInspector,
+                canInterrupt: store.supports(.interrupt),
+                canSetApprovalMode: store.supports(.mode)
             )
         } else {
             ProgressView()
