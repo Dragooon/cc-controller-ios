@@ -313,6 +313,7 @@ public final class SessionStore {
     }
 
     public func resetTranscript() {
+        TranscriptLifecycleLog.shared.record(name: "transcript-reset", sessionID: sessionID)
         transcriptStore = TranscriptStore()
         turns = []
         rows = []
@@ -361,6 +362,13 @@ public final class SessionStore {
             rows = turnRows.flatMap { $0 }
             turnStartIndices = grouped.startIndices
             updateEarlierIdentityKeys()
+        }
+        if forceFull {
+            TranscriptLifecycleLog.shared.record(
+                name: "turns-full-refresh",
+                sessionID: sessionID,
+                detail: "\(turns.count)"
+            )
         }
         #if DEBUG || CC_PERF
         TranscriptPerformance.shared.markGroupingDone()

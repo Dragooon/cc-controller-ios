@@ -132,7 +132,7 @@ final class ScrollDiagnosticsTests: XCTestCase {
             Set(object.keys),
             [
                 "timestamp", "appVersion", "build", "sessionIDPrefix", "kind", "geometry",
-                "rowsCount", "notesCount", "isPinnedToBottom", "userHasScrolled", "recentEvents",
+                "rowsCount", "notesCount", "isPinnedToBottom", "userHasScrolled", "recentEvents", "lifecycle",
                 "corrections", "recovered", "msToRecover",
             ]
         )

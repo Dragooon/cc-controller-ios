@@ -65,6 +65,7 @@ struct SessionScreen: View {
     @State private var commandOutput: CommandOutput?
     @State private var commandToast: String?
     @State private var commandToastTask: Task<Void, Never>?
+    @State private var lifecycleScreenInstanceID = UUID()
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
@@ -105,6 +106,7 @@ struct SessionScreen: View {
         }
         .onDisappear {
             commandToastTask?.cancel()
+            recordLifecycleEvent(name: "screen-disappear", sessionID: sessionID)
         }
         .background {
             // TODO: move to navigationDestination once the split-view detail stack keeps the toolbar (see tasks/native-app.md Open)
@@ -138,6 +140,7 @@ struct SessionScreen: View {
             }
         }
         .onAppear {
+            recordLifecycleEvent(name: "screen-appear", sessionID: sessionID)
             #if DEBUG || CC_PERF
             TranscriptPerformance.shared.beginScreenAppearance(sessionID: sessionID)
             store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
@@ -209,8 +212,32 @@ struct SessionScreen: View {
                     )
                     .environment(\.openInspector, { inspectorPresented = true })
                     .environment(\.openFilePreview, { filePreviewURL = $0 })
+                    .onAppear {
+                        recordLifecycleEvent(
+                            name: "screen-branch",
+                            sessionID: sessionID,
+                            detail: TranscriptScreenBranch.transcript.rawValue,
+                            input: .screenBranch(
+                                screenID: lifecycleScreenInstanceID.uuidString,
+                                sessionID: sessionID,
+                                branch: .transcript
+                            )
+                        )
+                    }
                 } else {
                     ProgressView()
+                        .onAppear {
+                            recordLifecycleEvent(
+                                name: "screen-branch",
+                                sessionID: sessionID,
+                                detail: TranscriptScreenBranch.loadingUnloaded.rawValue,
+                                input: .screenBranch(
+                                    screenID: lifecycleScreenInstanceID.uuidString,
+                                    sessionID: sessionID,
+                                    branch: .loadingUnloaded
+                                )
+                            )
+                        }
                         .accessibilityIdentifier("session-loading")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(.ccBackground)
@@ -270,6 +297,18 @@ struct SessionScreen: View {
             }
         } else {
             ProgressView()
+                .onAppear {
+                    recordLifecycleEvent(
+                        name: "screen-branch",
+                        sessionID: sessionID,
+                        detail: TranscriptScreenBranch.loadingNoStore.rawValue,
+                        input: .screenBranch(
+                            screenID: lifecycleScreenInstanceID.uuidString,
+                            sessionID: sessionID,
+                            branch: .loadingNoStore
+                        )
+                    )
+                }
                 .accessibilityIdentifier("session-loading")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.ccBackground)
@@ -327,10 +366,12 @@ struct SessionScreen: View {
             approvals: pendingApprovals,
             deciding: store.deciding,
             onSend: { [model] text, now in
-                await send(text: text, to: session.id ?? sessionID, now: now, using: model)
+                recordLifecycleEvent(name: "composer-send", sessionID: sessionID)
+                return await send(text: text, to: session.id ?? sessionID, now: now, using: model)
             },
             onEnqueue: { [model] text, now in
-                await enqueue(text: text, to: session.id ?? sessionID, now: now, using: model)
+                recordLifecycleEvent(name: "composer-send", sessionID: sessionID)
+                return await enqueue(text: text, to: session.id ?? sessionID, now: now, using: model)
             },
             onAddAttachment: { file in
                 store.addAttachment(file, to: sessionID)

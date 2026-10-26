@@ -32,6 +32,9 @@ public struct ScrollGuardGeometry: Equatable, Sendable {
 public enum ScrollBlankKind: String, Codable, Sendable {
     case overshoot
     case unbuilt
+    case remount
+    case reload
+    case sentinelUnbuilt = "sentinel-unbuilt"
 }
 
 public enum ScrollBlankCondition {
@@ -130,6 +133,7 @@ public struct ScrollDiagnosticEntry: Codable, Equatable, Sendable {
     public let isPinnedToBottom: Bool
     public let userHasScrolled: Bool
     public let recentEvents: [ScrollDiagnosticEvent]
+    public let lifecycle: [TranscriptLifecycleEvent]
     public let corrections: Int
     public let recovered: Bool
     public let msToRecover: Int
@@ -146,6 +150,7 @@ public struct ScrollDiagnosticEntry: Codable, Equatable, Sendable {
         isPinnedToBottom: Bool,
         userHasScrolled: Bool,
         recentEvents: [ScrollDiagnosticEvent],
+        lifecycle: [TranscriptLifecycleEvent] = [],
         corrections: Int,
         recovered: Bool,
         msToRecover: Int
@@ -161,6 +166,7 @@ public struct ScrollDiagnosticEntry: Codable, Equatable, Sendable {
         self.isPinnedToBottom = isPinnedToBottom
         self.userHasScrolled = userHasScrolled
         self.recentEvents = recentEvents
+        self.lifecycle = lifecycle
         self.corrections = corrections
         self.recovered = recovered
         self.msToRecover = msToRecover
@@ -221,6 +227,7 @@ public final class ScrollDiagnosticsRecorder {
     private let fileStore: ScrollDiagnosticsFileStore
     private var sessionIDPrefix: String
     private var ring = ScrollDiagnosticEventRing(capacity: 30)
+    private let lifecycleLog: TranscriptLifecycleLog
     private let appVersion: String
     private let build: String
 
@@ -228,10 +235,12 @@ public final class ScrollDiagnosticsRecorder {
         sessionID: String = "",
         fileStore: ScrollDiagnosticsFileStore? = nil,
         appVersion: String? = nil,
-        build: String? = nil
+        build: String? = nil,
+        lifecycleLog: TranscriptLifecycleLog = .shared
     ) {
         let info = Bundle.main.infoDictionary ?? [:]
         self.sessionIDPrefix = String(sessionID.prefix(8))
+        self.lifecycleLog = lifecycleLog
         self.fileStore = fileStore ?? ScrollDiagnosticsFileStore(
             url: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("scroll-diagnostics.jsonl")
@@ -276,13 +285,64 @@ public final class ScrollDiagnosticsRecorder {
             isPinnedToBottom: isPinnedToBottom,
             userHasScrolled: userHasScrolled,
             recentEvents: ring.values,
+            lifecycle: lifecycleLog.events,
             corrections: corrections,
             recovered: recovered,
             msToRecover: msToRecover
         )
-        let kindCode = kind == .overshoot ? 1 : 2
+        let kindCode: Int
+        switch kind {
+        case .overshoot: kindCode = 1
+        case .unbuilt: kindCode = 2
+        case .remount: kindCode = 3
+        case .reload: kindCode = 4
+        case .sentinelUnbuilt: kindCode = 5
+        }
         Self.logger.notice(
             "scroll guard kind=\(kindCode, privacy: .public) offset=\(entry.geometry.contentOffsetY, privacy: .public) content=\(entry.geometry.contentHeight, privacy: .public) container=\(entry.geometry.containerHeight, privacy: .public) corrections=\(corrections, privacy: .public) recovered=\(recovered ? 1 : 0, privacy: .public) ms=\(msToRecover, privacy: .public)"
+        )
+        let fileStore = self.fileStore
+        Task {
+            let written = await fileStore.append(entry)
+            completion?(written)
+        }
+    }
+
+    public func recordLifecycleTrigger(
+        _ trigger: TranscriptLifecycleTrigger,
+        geometry: ScrollGuardGeometry = ScrollGuardGeometry(
+            contentOffsetY: 0,
+            contentHeight: 0,
+            containerHeight: 0,
+            insetTop: 0,
+            insetBottom: 0,
+            visibleMinY: 0,
+            visibleMaxY: 0
+        ),
+        rowsCount: Int = 0,
+        notesCount: Int = 0,
+        isPinnedToBottom: Bool = false,
+        userHasScrolled: Bool = false,
+        now: Date = Date(),
+        completion: (@MainActor (Bool) -> Void)? = nil
+    ) {
+        let formatter = ISO8601DateFormatter()
+        let entry = ScrollDiagnosticEntry(
+            timestamp: formatter.string(from: now),
+            appVersion: appVersion,
+            build: build,
+            sessionIDPrefix: TranscriptLifecycleLog.sessionPrefix(trigger.sessionID) ?? "",
+            kind: trigger.kind,
+            geometry: ScrollDiagnosticGeometry(geometry),
+            rowsCount: rowsCount,
+            notesCount: notesCount,
+            isPinnedToBottom: isPinnedToBottom,
+            userHasScrolled: userHasScrolled,
+            recentEvents: ring.values,
+            lifecycle: lifecycleLog.events,
+            corrections: 0,
+            recovered: false,
+            msToRecover: 0
         )
         let fileStore = self.fileStore
         Task {
