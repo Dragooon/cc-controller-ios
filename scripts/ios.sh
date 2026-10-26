@@ -178,7 +178,7 @@ start_fixture_daemon() {
   FIXTURE_SECOND_OUT=$(mktemp -t cc-controller-fixture-mustafar.XXXXXX)
   CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" \
     --scenario default --session-set mustafar --controller-id mustafar --controller-name Mustafar \
-    --controller-kind stockade --controller-capabilities list,transcript,send,decide --out "$FIXTURE_SECOND_OUT" --relay \
+    --controller-kind stockade --out "$FIXTURE_SECOND_OUT" --relay \
     >"$FIXTURE_LOG.mustafar" 2>&1 &
   STARTED_SECOND_DAEMON=$!
   for _ in {1..100}; do [[ -s "$FIXTURE_SECOND_OUT" ]] && break; sleep 0.1; done
