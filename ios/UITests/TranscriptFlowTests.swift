@@ -132,6 +132,8 @@ final class TranscriptFlowTests: XCTestCase {
             NSPredicate(format: "label CONTAINS[c] %@", "COMPACTION_SUMMARY_MARKER")
         ).firstMatch
         XCTAssertFalse(summaryMarker.exists, "Compaction summary leaked into the transcript")
+        let transcriptScroll = app.scrollViews["transcript-scroll"]
+        scrollTowardOlderContent(until: divider, in: transcriptScroll)
         XCTAssertTrue(waitForHittable(divider, timeout: 10), "Compaction divider was not visible")
         attach(named: "compaction-caption")
         divider.tap()
@@ -585,6 +587,14 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertLessThanOrEqual(maxTop - minTop, 1, "Spinner changed transcript paragraph top edge: \(samples)")
         XCTAssertLessThanOrEqual(maxBottom - minBottom, 1, "Spinner changed transcript paragraph bottom edge: \(samples)")
         XCTAssertLessThanOrEqual(maxHeight - minHeight, 1, "Spinner changed transcript paragraph wrapping: \(samples)")
+    }
+
+    private func scrollTowardOlderContent(until element: XCUIElement, in scrollView: XCUIElement) {
+        for _ in 0..<4 {
+            guard !element.isHittable else { return }
+            let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 120)))
+        }
     }
 
     private func promptCount(in app: XCUIApplication) -> Int {
