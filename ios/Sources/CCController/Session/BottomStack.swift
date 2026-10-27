@@ -232,7 +232,6 @@ struct BottomStackView: View {
             .padding(.top, 0)
             .padding(.bottom, 4)
         }
-        .background(.ccBackground.opacity(0.88))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bottom-stack")
         .sensoryFeedback(.impact(weight: .light), trigger: sendFeedbackCount)

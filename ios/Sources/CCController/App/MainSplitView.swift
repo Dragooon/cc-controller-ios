@@ -19,7 +19,7 @@ struct MainSplitView: View {
     init(model: AppModel) {
         self.model = model
         let hasSelectedSession = model.selectedSession != nil
-        _columnVisibility = State(initialValue: hasSelectedSession ? .detailOnly : .all)
+        _columnVisibility = State(initialValue: .all)
         _preferredCompactColumn = State(initialValue: hasSelectedSession ? .detail : .sidebar)
     }
 
@@ -149,58 +149,44 @@ struct MainSplitView: View {
             synchronizeColumnVisibility()
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
-            guard newSizeClass == .regular, model.selectedSession != nil else { return }
-            columnVisibility = .detailOnly
+            if newSizeClass == .regular {
+                columnVisibility = .all
+                preferredCompactColumn = .sidebar
+            } else {
+                synchronizeColumnVisibility()
+            }
         }
     }
 
+    @ViewBuilder
     private func splitView() -> some View {
+        if horizontalSizeClass == .regular {
+            splitViewContent()
+                .navigationSplitViewStyle(.balanced)
+                .tint(.ccAccent)
+                .background(.ccBackground)
+        } else {
+            splitViewContent()
+                .navigationSplitViewStyle(.prominentDetail)
+                .tint(.ccAccent)
+                .background(.ccBackground)
+        }
+    }
+
+    private func splitViewContent() -> some View {
         NavigationSplitView(
             columnVisibility: $columnVisibility,
             preferredCompactColumn: $preferredCompactColumn
         ) {
-            SessionsListView(
-                controllers: listControllers,
-                waking: wakingSessionIDs,
-                subtitleOverride: model.selectedSession == nil ? nil : "",
-                notice: sessionNotice,
-                canCreateSession: !newSessionChoices.isEmpty,
-                onSessionsLoaded: {
-                    await model.requestNotificationAuthorizationAfterSessionsLoaded()
-                },
-                onOpen: { controllerID, session in openSession(controllerID, session.id) },
-                onAllow: { controllerID, approval in
-                    performApprovalDecision(approval, controllerID: controllerID, scope: .once)
-                },
-                onDeny: { controllerID, approval in
-                    performApprovalDeny(approval, controllerID: controllerID)
-                },
-                onRetry: { controllerID in model.connection(for: controllerID)?.store.resume() },
-                onSignIn: { controllerID in model.signIn(controllerID: controllerID) },
-                onSettings: { model.isSettingsPresented = true },
-                onRefresh: {
-                    for connection in model.connections {
-                        connection.store.resume()
-                    }
-                },
-                onInterrupt: { controllerID, session in
-                    guard let id = session.id, let store = model.connection(for: controllerID)?.store else { return }
-                    runAction { await store.interrupt(sessionID: id) }
-                },
-                onSetApprovalMode: { controllerID, session, mode in
-                    guard let id = session.id, let store = model.connection(for: controllerID)?.store else { return }
-                    runAction { await store.setApprovalMode(sessionID: id, mode: mode) }
-                },
-                onCopySessionID: { session in
-                    guard let id = session.id else { return }
-                    UIPasteboard.general.string = id
-                },
-                onNewSession: presentNewSession,
-                onWake: wakeSession,
-                onCopyAttachCommand: { sleeping in
-                    UIPasteboard.general.string = "claude attach \(sleeping.shortId)"
-                }
-            )
+            if horizontalSizeClass == .regular {
+                sessionsList()
+#if DEBUG
+                    .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
+#endif
+                    .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 360)
+            } else {
+                sessionsList()
+            }
         } detail: {
             if let selectedSession = model.selectedSession,
                let selectedConnection = model.connection(for: selectedSession.controllerID) {
@@ -212,7 +198,9 @@ struct MainSplitView: View {
                     onShowApprovalsElsewhere: { columnVisibility = .all }
                 )
                 .id(selectedSession)
-                .onAppear { columnVisibility = .detailOnly }
+#if DEBUG
+                .overlay { LayoutFrameProbe(identifier: "session-detail-frame") }
+#endif
             } else {
                 ContentUnavailableView(
                     "No session selected",
@@ -222,16 +210,60 @@ struct MainSplitView: View {
                 .background(.ccBackground)
             }
         }
-        .navigationSplitViewStyle(.prominentDetail)
-        .tint(.ccAccent)
-        .background(.ccBackground)
+    }
+
+    private func sessionsList() -> some View {
+        SessionsListView(
+            controllers: listControllers,
+            waking: wakingSessionIDs,
+            subtitleOverride: model.selectedSession == nil ? nil : "",
+            notice: sessionNotice,
+            canCreateSession: !newSessionChoices.isEmpty,
+            onSessionsLoaded: {
+                await model.requestNotificationAuthorizationAfterSessionsLoaded()
+            },
+            onOpen: { controllerID, session in openSession(controllerID, session.id) },
+            onAllow: { controllerID, approval in
+                performApprovalDecision(approval, controllerID: controllerID, scope: .once)
+            },
+            onDeny: { controllerID, approval in
+                performApprovalDeny(approval, controllerID: controllerID)
+            },
+            onRetry: { controllerID in model.connection(for: controllerID)?.store.resume() },
+            onSignIn: { controllerID in model.signIn(controllerID: controllerID) },
+            onSettings: { model.isSettingsPresented = true },
+            onRefresh: {
+                for connection in model.connections {
+                    connection.store.resume()
+                }
+            },
+            onInterrupt: { controllerID, session in
+                guard let id = session.id, let store = model.connection(for: controllerID)?.store else { return }
+                runAction { await store.interrupt(sessionID: id) }
+            },
+            onSetApprovalMode: { controllerID, session, mode in
+                guard let id = session.id, let store = model.connection(for: controllerID)?.store else { return }
+                runAction { await store.setApprovalMode(sessionID: id, mode: mode) }
+            },
+            onCopySessionID: { session in
+                guard let id = session.id else { return }
+                UIPasteboard.general.string = id
+            },
+            onNewSession: presentNewSession,
+            onWake: wakeSession,
+            onCopyAttachCommand: { sleeping in
+                UIPasteboard.general.string = "claude attach \(sleeping.shortId)"
+            }
+        )
     }
 
     private func openSession(_ controllerID: ControllerID, _ id: String?) {
         guard let id else { return }
         model.selectedSession = SessionRef(controllerID: controllerID, sessionID: id)
         preferredCompactColumn = .detail
-        columnVisibility = .detailOnly
+        if horizontalSizeClass == .compact {
+            columnVisibility = .detailOnly
+        }
     }
 
     private func synchronizeColumnVisibility() {
@@ -240,7 +272,10 @@ struct MainSplitView: View {
             preferredCompactColumn = .sidebar
             return
         }
-        columnVisibility = .detailOnly
+        if horizontalSizeClass == .compact {
+            columnVisibility = .detailOnly
+            preferredCompactColumn = .detail
+        }
     }
 
     private var approvalsElsewhereCount: Int {
@@ -379,3 +414,23 @@ struct MainSplitView: View {
     }
     #endif
 }
+
+#if DEBUG
+private struct LayoutFrameProbe: View {
+    let identifier: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            Text(frameDescription(proxy.frame(in: .global)))
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityIdentifier(identifier)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func frameDescription(_ frame: CGRect) -> String {
+        "\(frame.minX),\(frame.minY),\(frame.width),\(frame.height)"
+    }
+}
+#endif
