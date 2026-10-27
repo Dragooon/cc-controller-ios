@@ -25,7 +25,10 @@ final class QuestionFlowTests: FixtureFlowTestSupport {
         send.tap()
 
         XCTAssertTrue(element(app, "command-toast").waitForExistence(timeout: 15), "Answered toast did not appear")
-        XCTAssertTrue(waitForGone(element(app, "question-card")), "Question card did not leave after sending")
+        XCTAssertTrue(
+            element(app, "question-text").waitForNonExistence(timeout: 30),
+            "Question text did not leave after sending"
+        )
         let answers = try await fixtureAnswers()
         XCTAssertEqual(answers, ["Choose one letter.": "A", "Choose letters.": "A, C"])
 
@@ -52,7 +55,10 @@ final class QuestionFlowTests: FixtureFlowTestSupport {
         element(app, "question-option-B").tap()
         app.buttons["question-send"].tap()
 
-        XCTAssertTrue(waitForGone(element(app, "question-card")), "Question card did not leave after sending")
+        XCTAssertTrue(
+            element(app, "question-text").waitForNonExistence(timeout: 30),
+            "Question text did not leave after sending"
+        )
         let answers = try await fixtureAnswers()
         XCTAssertEqual(answers, ["Choose one letter.": "Z", "Choose letters.": "B"])
         XCTAssertTrue(questionRow(app, "One · Z; Many · B").waitForExistence(timeout: 30), "Transcript row did not show the typed answer")
@@ -65,7 +71,10 @@ final class QuestionFlowTests: FixtureFlowTestSupport {
         XCTAssertFalse(app.buttons["question-send"].isEnabled, "Send answers was enabled before any answer")
         app.buttons["question-skip"].tap()
 
-        XCTAssertTrue(waitForGone(element(app, "question-card")), "Question card did not leave after Skip")
+        XCTAssertTrue(
+            element(app, "question-text").waitForNonExistence(timeout: 30),
+            "Question text did not leave after Skip"
+        )
         XCTAssertTrue(element(app, "composer-text").waitForExistence(timeout: 30), "Composer did not return after Skip")
         XCTAssertTrue(questionRow(app, "One · Declined; Many · Declined").waitForExistence(timeout: 30), "Transcript row did not show the skip")
     }
@@ -85,8 +94,10 @@ final class QuestionFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "question-sessions-list")
         session.tap()
 
-        XCTAssertTrue(element(app, "question-card").waitForExistence(timeout: 20), "Question card did not appear")
-        XCTAssertTrue(waitForLabel(element(app, "question-text"), "Choose one letter."))
+        XCTAssertTrue(
+            waitForLabel(element(app, "question-text"), "Choose one letter.", timeout: 20),
+            "Initial question text did not appear"
+        )
         return app
     }
 
@@ -113,10 +124,6 @@ final class QuestionFlowTests: FixtureFlowTestSupport {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == %@ AND value == %@", "question-row", value))
             .firstMatch
-    }
-
-    private func waitForGone(_ element: XCUIElement, timeout: TimeInterval = 30) -> Bool {
-        wait(for: NSPredicate(format: "exists == false"), on: element, timeout: timeout)
     }
 
     private func wait(for predicate: NSPredicate, on element: XCUIElement, timeout: TimeInterval) -> Bool {
