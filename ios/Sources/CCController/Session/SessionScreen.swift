@@ -69,6 +69,10 @@ struct SessionScreen: View {
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
+    private var composerCapabilities: ComposerCapabilities {
+        ComposerCapabilities(controllerCapabilities: store.controllerInfo.capabilities)
+    }
+
     private var approvalsElsewhereText: String {
         approvalsElsewhereCount == 1 ? "1 needs you" : "\(approvalsElsewhereCount) need you"
     }
@@ -354,8 +358,8 @@ struct SessionScreen: View {
                 isWorking: current.state == .working,
                 canInterrupt: store.supports(.interrupt)
                     && (current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"),
-                canAttach: store.supports(.files),
-                canRunCommands: store.supports(.commands)
+                canAttach: composerCapabilities.canAttach,
+                canRunCommands: composerCapabilities.canRunCommands
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
@@ -414,7 +418,7 @@ struct SessionScreen: View {
 
     /// The controller's commands, plus `/sudo` on a writable Stockade session that advertises it.
     private func slashCommands(_ commands: [SlashCommand], for session: Session) -> [SlashCommand] {
-        var available = store.supports(.commands) ? commands : []
+        var available = composerCapabilities.canRunCommands ? commands : []
         if acceptsSudo(session, capabilities: store.controllerInfo.capabilities),
            !available.contains(where: { $0.command == "/sudo" }) {
             available.append(SlashCommand(command: "/sudo", description: "Toggle sudo mode"))

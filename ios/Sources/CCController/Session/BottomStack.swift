@@ -261,6 +261,8 @@ struct BottomStackView: View {
             placeholder: configuration.composer.placeholder,
             isWorking: configuration.composer.isWorking,
             canInterrupt: configuration.composer.canInterrupt,
+            canAttach: configuration.composer.canAttach,
+            canRunCommands: configuration.composer.canRunCommands,
             focusesOnAppear: configuration.composer.focusesOnAppear,
             isSending: isSending,
             hasAttachments: !configuration.attachments.isEmpty

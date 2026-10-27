@@ -82,6 +82,21 @@ final class StockadePresentationTests: XCTestCase {
         XCTAssertFalse(ControllerCapability.all.contains(.sudo))
     }
 
+    func testComposerCapabilitiesForClaudeCode() {
+        let composer = ComposerCapabilities(controllerCapabilities: ControllerCapability.all)
+
+        XCTAssertTrue(composer.canAttach)
+        XCTAssertTrue(composer.canRunCommands)
+    }
+
+    func testComposerCapabilitiesForStockadeFixture() {
+        let capabilities: Set<ControllerCapability> = [.list, .transcript, .send, .decide, .questions, .newSession, .sudo]
+        let composer = ComposerCapabilities(controllerCapabilities: capabilities)
+
+        XCTAssertFalse(composer.canAttach)
+        XCTAssertFalse(composer.canRunCommands)
+    }
+
     func testNewSessionOptionsCarryStockadeAgents() throws {
         let mac = try JSONDecoder.ccKit().decode(NewSessionOptions.self, from: Data("{\"folders\":[],\"models\":[],\"defaultModel\":\"opus\"}".utf8))
         XCTAssertNil(mac.agents)
