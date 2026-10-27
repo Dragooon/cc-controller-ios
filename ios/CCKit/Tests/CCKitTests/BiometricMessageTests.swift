@@ -31,7 +31,7 @@ final class BiometricMessageTests: XCTestCase {
     }
 
     func testBiometryNotAvailableMessage() {
-        XCTAssertEqual(faceIDFailureMessage(for: .biometric(.biometryNotAvailable)), "Face ID is off for cc-controller. Turn it on in Settings.")
+        XCTAssertEqual(faceIDFailureMessage(for: .biometric(.biometryNotAvailable)), "Face ID is off for Code. Turn it on in Settings.")
     }
 
     func testOtherBiometricErrorMessageIncludesLAErrorCode() {

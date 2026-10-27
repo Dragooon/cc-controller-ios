@@ -18,7 +18,7 @@ struct LockView: View {
                 .font(.system(size: 72, weight: .regular, design: .rounded))
                 .foregroundStyle(.ccAccent)
                 .accessibilityHidden(true)
-            Text("cc-controller is locked")
+            Text("Code is locked")
                 .font(.headline)
                 .foregroundStyle(.ccLabel)
             if let message {
@@ -54,7 +54,7 @@ struct PrivacyCoverView: View {
             .foregroundStyle(.ccAccent)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.ccBackground)
-            .accessibilityLabel("cc-controller")
+            .accessibilityLabel("Code")
             .toolbar(.hidden, for: .navigationBar)
     }
 }

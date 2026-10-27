@@ -74,7 +74,7 @@ struct MainSplitView: View {
         ) {
             Button("OK", role: .cancel) { model.isRelayWarningPresented = false }
         } message: {
-            Text("\(model.relayIdentityWarning?.label ?? "This endpoint") presented a different Mac identity. cc-controller is using the matching endpoint.")
+            Text("\(model.relayIdentityWarning?.label ?? "This endpoint") presented a different Mac identity. Code is using the matching endpoint.")
         }
         .alert(
             actionErrorTitle,

@@ -15,7 +15,7 @@ struct OnboardingWelcomeView: View {
                     .foregroundStyle(.ccAccent)
                     .accessibilityHidden(true)
 
-                Text("cc-controller")
+                Text("Code")
                     .font(.largeTitle.weight(.bold))
                     .foregroundStyle(.ccLabel)
                     .multilineTextAlignment(.center)
@@ -27,7 +27,7 @@ struct OnboardingWelcomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("cc-controller. Approve, message and follow your Claude Code sessions from this iPhone.")
+            .accessibilityLabel("Code. Approve, message and follow your Claude Code sessions from this iPhone.")
         }
     }
 }

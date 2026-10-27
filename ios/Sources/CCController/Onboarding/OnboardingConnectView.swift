@@ -48,7 +48,7 @@ struct OnboardingConnectView: View {
                         .foregroundStyle(.ccLabel)
                         .fixedSize(horizontal: false, vertical: true)
                     if diagnostics == nil {
-                        Text("In Termius, start the forward to \(Text("localhost:47832").font(.body.monospaced())). cc-controller looks for your Mac there.")
+                        Text("In Termius, start the forward to \(Text("localhost:47832").font(.body.monospaced())). Code looks for your Mac there.")
                             .font(.body)
                             .foregroundStyle(.ccSecondary)
                             .fixedSize(horizontal: false, vertical: true)

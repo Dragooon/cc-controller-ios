@@ -34,7 +34,7 @@ struct OnboardingFaceIDView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("cc-controller locks when you leave it, and Face ID unlocks it.")
+                Text("Code locks when you leave it, and Face ID unlocks it.")
                     .font(.body)
                     .foregroundStyle(.ccSecondary)
                     .multilineTextAlignment(.center)

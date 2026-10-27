@@ -22,13 +22,13 @@ final class LockFlowTests: FixtureFlowTestSupport {
         app.activate()
 
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 10), "App locked before the interval elapsed")
-        XCTAssertFalse(app.staticTexts["cc-controller is locked"].exists, "Foreground interval locked the app too early")
+        XCTAssertFalse(app.staticTexts["Code is locked"].exists, "Foreground interval locked the app too early")
 
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(5))
         app.activate()
 
-        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
         let unlockButton = app.buttons["Unlock with Face ID"]
         XCTAssertTrue(unlockButton.waitForExistence(timeout: 10), "Lock screen button did not appear")
         print("Lock prompt check SpringBoard alert labels: \(springboard.alerts.allElementsBoundByIndex.map(\.label))")
@@ -52,7 +52,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 15), "Cold launch did not show the lock screen")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 15), "Cold launch did not show the lock screen")
         try await postFixture("/fixture/biometric/nomatch")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

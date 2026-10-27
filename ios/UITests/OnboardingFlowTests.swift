@@ -12,7 +12,7 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["cc-controller"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Code"].waitForExistence(timeout: 15))
         addScreenshot(named: "onboarding-welcome")
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)

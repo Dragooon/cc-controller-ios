@@ -8,7 +8,7 @@ public func faceIDFailureMessage(for error: CredentialStoreError) -> String {
         case .userCancel, .systemCancel, .appCancel: "Unlock with Face ID to continue."
         case .biometryLockout: "Face ID is locked after too many attempts. Unlock your iPhone with your passcode, then try again."
         case .biometryNotEnrolled: "Set up Face ID in Settings to use this app."
-        case .biometryNotAvailable: "Face ID is off for cc-controller. Turn it on in Settings."
+        case .biometryNotAvailable: "Face ID is off for Code. Turn it on in Settings."
         default: "Face ID did not work. Try again. (LAError \(code.rawValue))"
         }
     case .accessDenied: "Secure storage could not be unlocked."

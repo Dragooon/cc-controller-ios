@@ -628,7 +628,7 @@ final class AppModel {
         let summary: String
         if identity { summary = "Your Mac's identity changed." }
         else if macOffline { summary = "Your Mac isn't connected to the relay. Check it's awake and online." }
-        else if localDenied { summary = "Allow Local Network access for cc-controller in Settings." }
+        else if localDenied { summary = "Allow Local Network access for Code in Settings." }
         else { summary = "Can't reach the relay. Away from home? Turn on Tailscale." }
         let diagnostics = RelayDiagnostics(endpoints: rows, summary: summary)
         relayDiagnostics = diagnostics

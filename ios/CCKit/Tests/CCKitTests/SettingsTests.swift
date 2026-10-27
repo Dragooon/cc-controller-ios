@@ -96,7 +96,7 @@ final class SettingsFormattingTests: XCTestCase {
         XCTAssertEqual(connectionTestTitle(.unreachable(at: at)), "Can't reach the Mac")
         XCTAssertEqual(
             settingsUnreachableGuidance(address: "127.0.0.1:47832"),
-            "cc-controller can't reach 127.0.0.1:47832. Check that Termius is forwarding 127.0.0.1:47832 and the Mac is awake."
+            "Code can't reach 127.0.0.1:47832. Check that Termius is forwarding 127.0.0.1:47832 and the Mac is awake."
         )
     }
 }

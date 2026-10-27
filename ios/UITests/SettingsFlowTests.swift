@@ -112,7 +112,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         openSettings(app)
         app.buttons["Lock now"].tap()
 
-        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Lock now did not show the lock screen")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Lock now did not show the lock screen")
         XCTAssertFalse(app.staticTexts["Sessions"].exists, "Sessions remained visible after Lock now")
         let unlockButton = app.buttons["Unlock with Face ID"]
         XCTAssertTrue(unlockButton.waitForExistence(timeout: 10), "Lock screen unlock button did not appear")
@@ -151,7 +151,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(1))
         app.activate()
-        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Immediate interval did not lock after backgrounding")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Immediate interval did not lock after backgrounding")
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after interval lock")
 
         openSettings(app)
@@ -183,7 +183,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         try await expectValue(app, "settings-latency", equals: "Unreachable")
         let help = element(app, "settings-unreachable-help")
         XCTAssertTrue(help.waitForExistence(timeout: 10), "Unreachable guidance did not appear")
-        XCTAssertEqual(help.label, "cc-controller can't reach 127.0.0.1:1. Check that Termius is forwarding 127.0.0.1:1 and the Mac is awake.")
+        XCTAssertEqual(help.label, "Code can't reach 127.0.0.1:1. Check that Termius is forwarding 127.0.0.1:1 and the Mac is awake.")
 
         element(app, "settings-test-connection").tap()
         try await expectValue(app, "settings-test-result", matches: "Can't reach the Mac, tested at .+")
@@ -229,7 +229,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(5))
         app.activate()
-        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
         try await expectNoProbes(for: .seconds(4), "while the app was locked")
         try await completeFaceID(
             app,
@@ -255,7 +255,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         app = launchCold()
         XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), "Cold launch after unpair did not show onboarding")
         try await Task.sleep(for: .seconds(3))
-        XCTAssertFalse(app.staticTexts["cc-controller is locked"].exists, "Cold launch after unpair found Keychain credentials")
+        XCTAssertFalse(app.staticTexts["Code is locked"].exists, "Cold launch after unpair found Keychain credentials")
         XCTAssertTrue(app.buttons["Get started"].exists)
     }
 

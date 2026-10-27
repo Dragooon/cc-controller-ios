@@ -47,7 +47,7 @@ targets:
       properties:
         CFBundleIdentifier: com.example.cc-controller
         CFBundleExecutable: "$(EXECUTABLE_NAME)"
-        CFBundleDisplayName: cc-controller
+        CFBundleDisplayName: Code
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ITSAppUsesNonExemptEncryption: false
@@ -56,9 +56,9 @@ targets:
           NSExceptionDomains:
             100.64.0.0/10:
               NSExceptionAllowsInsecureHTTPLoads: true
-        NSLocalNetworkUsageDescription: cc-controller connects to the relay on your home network to reach your Mac.
+        NSLocalNetworkUsageDescription: Code connects to the relay on your home network to reach your Mac.
         CCRelayEndpoints: "$(CC_RELAY_ENDPOINTS)"
-        NSFaceIDUsageDescription: Unlock cc-controller
+        NSFaceIDUsageDescription: Unlock Code
         NSCameraUsageDescription: Take a photo to send to a session.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:

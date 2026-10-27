@@ -157,7 +157,7 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
         let context = LAContext()
         context.localizedFallbackTitle = ""
         do {
-            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock cc-controller")
+            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock Code")
         } catch let error as LAError {
             throw CredentialStoreError.biometric(error.code)
         } catch {

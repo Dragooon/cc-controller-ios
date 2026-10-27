@@ -156,7 +156,7 @@ struct SettingsView: View {
             Button("Unpair this iPhone", role: .destructive, action: onUnpair)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the device credentials and signs out of cc-controller.")
+            Text("This removes the device credentials and signs out of Code.")
         }
     }
 

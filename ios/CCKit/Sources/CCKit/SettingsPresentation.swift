@@ -170,7 +170,7 @@ public func connectionTestTitle(_ test: SettingsConnectionTest) -> String {
 }
 
 public func settingsUnreachableGuidance(address: String) -> String {
-    "cc-controller can't reach \(address). Check that Termius is forwarding \(address) and the Mac is awake."
+    "Code can't reach \(address). Check that Termius is forwarding \(address) and the Mac is awake."
 }
 
 /// The status dot on a Settings > Controllers row and the controller detail screen.
