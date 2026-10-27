@@ -69,6 +69,16 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(tool.toolUseId)
     }
 
+    func testMacNewSessionOptionsKeepClaudeAgentsOutsideStockadeAgents() throws {
+        let options = try JSONDecoder.ccKit().decode(
+            NewSessionOptions.self,
+            from: Data("""
+            {"folders":[],"models":[],"defaultModel":"default","claudeAgents":[{"id":"default","label":"Default"}]}
+            """.utf8)
+        )
+        XCTAssertNil(options.agents)
+    }
+
     func testActivityFieldsDecodeAndRemainOptional() throws {
         let session = try JSONDecoder.ccKit().decode(
             Session.self,
