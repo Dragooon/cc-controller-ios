@@ -2794,6 +2794,40 @@ signing_team() {
   ' "$config"
 }
 
+archive_release() {
+  local build_number=$1 archive_path=$2 team=$3 derived_data=$4
+  local args=(
+    xcodebuild
+    -project "$PROJECT"
+    -scheme CCController
+    -configuration Release
+    archive
+    -destination 'generic/platform=iOS'
+    -derivedDataPath "$derived_data"
+    -archivePath "$archive_path"
+    -allowProvisioningUpdates
+    CODE_SIGN_STYLE=Automatic
+    CURRENT_PROJECT_VERSION="$build_number"
+  )
+  if [[ "${CC_ARCHIVE_UNSIGNED:-0}" == '1' ]]; then
+    args+=(
+      CODE_SIGNING_ALLOWED=NO
+      CODE_SIGNING_REQUIRED=NO
+      CODE_SIGN_IDENTITY=''
+      DEVELOPMENT_TEAM=''
+    )
+  else
+    [[ -n "$team" ]] || {
+      printf '%s\n' 'archive requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
+      return 2
+    }
+    args+=(DEVELOPMENT_TEAM="$team")
+  fi
+  mkdir -p "$(dirname "$archive_path")"
+  step archive "${args[@]}"
+  printf 'archive created: %s\n' "$archive_path"
+}
+
 cmd_archive() {
   cmd_generate
   local build_number
@@ -2805,35 +2839,7 @@ cmd_archive() {
   fi
   local team
   team=$(signing_team)
-  local args=(
-    xcodebuild
-    -project "$PROJECT"
-    -scheme CCController
-    -configuration Release
-    archive
-    -destination 'generic/platform=iOS'
-    -derivedDataPath "$DERIVED/archive-derived"
-    -archivePath "$archive_path"
-    -allowProvisioningUpdates
-    CURRENT_PROJECT_VERSION="$build_number"
-  )
-  if [[ "${CC_ARCHIVE_UNSIGNED:-0}" == '1' ]]; then
-    args+=(
-      CODE_SIGNING_ALLOWED=NO
-      CODE_SIGNING_REQUIRED=NO
-      CODE_SIGN_IDENTITY=''
-      DEVELOPMENT_TEAM=''
-    )
-  else
-    if [[ -z "$team" ]]; then
-      printf '%s\n' 'archive requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
-      return 2
-    fi
-    args+=(DEVELOPMENT_TEAM="$team")
-  fi
-  mkdir -p "$(dirname "$archive_path")"
-  step archive "${args[@]}"
-  printf 'archive created: %s\n' "$archive_path"
+  archive_release "$build_number" "$archive_path" "$team" "$DERIVED/archive-derived"
 }
 
 cmd_gate() {
@@ -2916,6 +2922,256 @@ cmd_upload() {
   printf 'upload export completed: %s\n' "$export_dir"
 }
 
+ota_validate_revision() {
+  local requested_sha=$1 head expected main_sha
+  head=$(git -C "$ROOT" rev-parse HEAD)
+  if [[ -n "$requested_sha" ]]; then
+    expected=$(git -C "$ROOT" rev-parse --verify "$requested_sha^{commit}") || {
+      printf 'ota could not resolve --sha %s\n' "$requested_sha" >&2
+      return 2
+    }
+  else
+    main_sha=$(git -C "$ROOT" rev-parse --verify main^{commit} 2>/dev/null || true)
+    expected=$main_sha
+  fi
+  if [[ -z "$expected" || "$head" != "$expected" ]]; then
+    printf 'ota requires HEAD %s to equal main%s\n' "$head" "${requested_sha:+ or --sha $requested_sha}" >&2
+    return 2
+  fi
+  local dirty
+  dirty=$(git -C "$ROOT" status --porcelain --untracked-files=all)
+  if [[ -L "$ROOT/node_modules" && "$(readlink "$ROOT/node_modules")" == "$(main_checkout)/node_modules" ]]; then
+    dirty=$(printf '%s\n' "$dirty" | while IFS= read -r line; do
+      [[ "$line" == '?? node_modules' ]] || printf '%s\n' "$line"
+    done)
+  fi
+  if [[ -n "$dirty" ]]; then
+    printf '%s\n' 'ota requires a clean worktree' >&2
+    return 2
+  fi
+  printf '%s\n' "$head"
+}
+
+ota_next_build_number() {
+  local build_number path name existing
+  build_number=$(date +%Y%m%d%H%M)
+  for path in "$IOS/build/ota"/*; do
+    [[ -d "$path" ]] || continue
+    name=${path##*/}
+    [[ "$name" =~ ^[0-9]+$ ]] || continue
+    existing=$name
+    if (( existing >= build_number )); then
+      build_number=$((existing + 1))
+    fi
+  done
+  printf '%s\n' "$build_number"
+}
+
+ota_write_export_options() {
+  local output=$1 team=$2 base_url=$3
+  cat > "$output" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>compileBitcode</key>
+  <false/>
+  <key>manifest</key>
+  <dict>
+    <key>appURL</key>
+    <string>${base_url}/CCController.ipa</string>
+    <key>displayImageURL</key>
+    <string>${base_url}/AppIcon57.png</string>
+    <key>fullSizeImageURL</key>
+    <string>${base_url}/AppIcon512.png</string>
+  </dict>
+  <key>method</key>
+  <string>debugging</string>
+  <key>signingStyle</key>
+  <string>automatic</string>
+  <key>teamID</key>
+  <string>${team}</string>
+  <key>thinning</key>
+  <string>&lt;none&gt;</string>
+</dict>
+</plist>
+EOF
+}
+
+ota_render_icons() {
+  local output_dir=$1 source="$IOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+  [[ -f "$source" ]] || {
+    printf 'ota icon source is missing: %s\n' "$source" >&2
+    return 1
+  }
+  sips -z 57 57 "$source" --out "$output_dir/AppIcon57.png" >/dev/null
+  sips -z 512 512 "$source" --out "$output_dir/AppIcon512.png" >/dev/null
+}
+
+ota_write_index() {
+  local output_dir=$1 build_number=$2 short_sha=$3 build_date=$4 base_url=$5
+  cat > "$output_dir/index.html" <<EOF
+<!doctype html>
+<meta charset="utf-8">
+<title>cc-controller build ${build_number}</title>
+<p><a style="font: bold 2em system-ui" href="itms-services://?action=download-manifest&url=${base_url}/manifest.plist">Install cc-controller build ${build_number} (${short_sha})</a></p>
+<p>Build date: ${build_date}</p>
+EOF
+}
+
+ota_verify_remote() {
+  local base_url=$1 build_number=$2 response code content path url
+  local paths=("manifest.plist" "CCController.ipa" "AppIcon57.png" "AppIcon512.png" "index.html")
+  for path in "${paths[@]}"; do
+    url="${base_url}/${path}"
+    response=$(ssh mustafar "curl -sf -o /dev/null -w '%{http_code} %{content_type}\\n' '$url'") || {
+      printf 'ota verification failed: %s\n' "$url" >&2
+      return 1
+    }
+    code=${response%% *}
+    content=${response#* }
+    [[ "$code" =~ ^2[0-9][0-9]$ ]] || {
+      printf 'ota verification failed: %s returned %s\n' "$url" "$response" >&2
+      return 1
+    }
+    if [[ "$path" == manifest.plist && "$content" == text/html* ]]; then
+      printf 'ota verification failed: manifest served as %s\n' "$content" >&2
+      return 1
+    fi
+    printf 'ota verify %s: %s\n' "$url" "$response"
+  done
+  url="https://mustafar.example.ts.net/latest.html"
+  response=$(ssh mustafar "curl -sf -o /dev/null -w '%{http_code} %{content_type}\\n' '$url'") || {
+    printf 'ota verification failed: %s\n' "$url" >&2
+    return 1
+  }
+  code=${response%% *}
+  [[ "$code" =~ ^2[0-9][0-9]$ ]] || {
+    printf 'ota verification failed: %s returned %s\n' "$url" "$response" >&2
+    return 1
+  }
+  printf 'ota verify %s: %s\n' "$url" "$response"
+}
+
+ota_retain_builds() {
+  ssh mustafar 'set -eu
+for build in $(find /var/lib/cc-ota/cc -mindepth 1 -maxdepth 1 -type d -printf "%f\\n" | sort -rn | tail -n +4); do
+  case "$build" in
+    ""|*[!0-9]*) ;;
+    *) rm -rf -- "/var/lib/cc-ota/cc/$build"; printf "ota deleted old build %s\\n" "$build" ;;
+  esac
+done'
+}
+
+cmd_ota() {
+  local requested_sha='' dry_run=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sha)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'ota --sha requires a value' >&2; return 2; }
+        requested_sha=$2
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=1
+        shift
+        ;;
+      *)
+        printf 'unknown ota option: %s\n' "$1" >&2
+        return 2
+        ;;
+    esac
+  done
+
+  local source_sha
+  source_sha=$(ota_validate_revision "$requested_sha") || return $?
+  printf 'ota source SHA: %s\n' "$source_sha"
+  cmd_generate
+
+  local team
+  team=$(signing_team)
+  if [[ -z "$team" ]]; then
+    printf '%s\n' 'ota requires DEVELOPMENT_TEAM (set it in the environment or ios/Config/Signing.local.xcconfig)' >&2
+    return 2
+  fi
+
+  local build_number short_sha base_url build_date ota_root artifact_dir export_options archive_path export_dir
+  build_number=$(ota_next_build_number)
+  short_sha=$(git -C "$ROOT" rev-parse --short HEAD)
+  base_url="https://mustafar.example.ts.net/cc/${build_number}"
+  build_date=$(date -u '+%Y-%m-%d %H:%M UTC')
+  ota_root="$IOS/build/ota"
+  if (( dry_run )); then
+    artifact_dir="$ota_root/dry-run/$build_number"
+    export_options="$artifact_dir/ExportOptions.plist"
+    mkdir -p "$artifact_dir"
+    ota_write_export_options "$export_options" "$team" "$base_url"
+    plutil -lint "$export_options"
+    ota_render_icons "$artifact_dir"
+    ota_write_index "$artifact_dir" "$build_number" "$short_sha" "$build_date" "$base_url"
+    cp "$artifact_dir/index.html" "$ota_root/latest.html"
+    printf 'ota plan: dry-run\n'
+    printf 'ota build number: %s\n' "$build_number"
+    printf 'ota artifacts: %s\n' "$artifact_dir"
+    printf 'ota export options: %s\n' "$export_options"
+    cat "$export_options"
+    printf 'ota manifest URLs:\n'
+    printf '  appURL: %s/CCController.ipa\n' "$base_url"
+    printf '  displayImageURL: %s/AppIcon57.png\n' "$base_url"
+    printf '  fullSizeImageURL: %s/AppIcon512.png\n' "$base_url"
+    printf 'ota dry-run: no archive, export, or publish performed\n'
+    printf '%s/index.html\n' "$base_url"
+    return 0
+  fi
+
+  artifact_dir="$ota_root/$build_number"
+  export_options="$ota_root/ExportOptions-$build_number.plist"
+  archive_path="$ota_root/archive/CCController-$build_number.xcarchive"
+  if [[ -e "$artifact_dir" || -e "$archive_path" || -e "$export_options" ]]; then
+    printf 'ota build artifacts already exist for %s; refusing to overwrite\n' "$build_number" >&2
+    return 2
+  fi
+  mkdir -p "$artifact_dir"
+  ota_write_export_options "$export_options" "$team" "$base_url"
+  archive_release "$build_number" "$archive_path" "$team" "$ota_root/derived-$build_number"
+
+  export_dir="$artifact_dir"
+  local export_args=(
+    xcodebuild
+    -exportArchive
+    -allowProvisioningUpdates
+    -archivePath "$archive_path"
+    -exportPath "$export_dir"
+    -exportOptionsPlist "$export_options"
+  )
+  step 'ota export' "${export_args[@]}"
+  local ipa_path
+  ipa_path="$export_dir/CCController.ipa"
+  if [[ ! -f "$ipa_path" ]]; then
+    local exported_ipa
+    exported_ipa=$(find "$export_dir" -maxdepth 1 -type f -name '*.ipa' -print -quit)
+    [[ -n "$exported_ipa" ]] || {
+      printf 'ota export did not produce an IPA in %s\n' "$export_dir" >&2
+      return 1
+    }
+    mv "$exported_ipa" "$ipa_path"
+  fi
+  [[ -f "$export_dir/manifest.plist" ]] || {
+    printf 'ota export did not produce a manifest in %s\n' "$export_dir" >&2
+    return 1
+  }
+  ota_render_icons "$artifact_dir"
+  ota_write_index "$artifact_dir" "$build_number" "$short_sha" "$build_date" "$base_url"
+  cp "$artifact_dir/index.html" "$ota_root/latest.html"
+
+  ssh mustafar "mkdir -p /var/lib/cc-ota/cc/$build_number"
+  rsync -a "$artifact_dir/" "mustafar:/var/lib/cc-ota/cc/$build_number/"
+  scp "$ota_root/latest.html" "mustafar:/var/lib/cc-ota/latest.html"
+  ota_retain_builds
+  ota_verify_remote "$base_url" "$build_number"
+  printf '%s/index.html\n' "$base_url"
+}
+
 ensure_node_modules
 
 case "${1:-}" in
@@ -2927,6 +3183,7 @@ case "${1:-}" in
   perf-real) shift; cmd_perf_real "$@";;
   archive) shift; cmd_archive "$@";;
   upload) shift; cmd_upload "$@";;
+  ota) shift; cmd_ota "$@";;
   gate) shift; cmd_gate "$@";;
   real-smoke) shift; cmd_real_smoke "$@";;
   shots) shift; cmd_shots "$@";;
@@ -2935,5 +3192,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|gate|real-smoke|shots|flows [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
