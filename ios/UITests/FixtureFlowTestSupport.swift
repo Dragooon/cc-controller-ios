@@ -42,6 +42,7 @@ class FixtureFlowTestSupport: XCTestCase {
         server: String? = nil,
         expirySeconds: Int? = nil,
         lockInterval: TimeInterval? = nil,
+        maxUnlockAge: TimeInterval? = nil,
         probeInterval: TimeInterval? = nil
     ) -> XCUIApplication {
         launchFixture(
@@ -49,12 +50,16 @@ class FixtureFlowTestSupport: XCTestCase {
             onboarding: true,
             expirySeconds: expirySeconds,
             lockInterval: lockInterval,
+            maxUnlockAge: maxUnlockAge,
             probeInterval: probeInterval
         )
     }
 
-    func launchCold(server: String? = nil) -> XCUIApplication {
-        launchFixture(server: server, onboarding: false)
+    func launchCold(
+        server: String? = nil,
+        maxUnlockAge: TimeInterval? = nil
+    ) -> XCUIApplication {
+        launchFixture(server: server, onboarding: false, maxUnlockAge: maxUnlockAge)
     }
 
     func reachFaceID(_ app: XCUIApplication) async throws {
@@ -157,6 +162,7 @@ class FixtureFlowTestSupport: XCTestCase {
         onboarding: Bool,
         expirySeconds: Int? = nil,
         lockInterval: TimeInterval? = nil,
+        maxUnlockAge: TimeInterval? = nil,
         probeInterval: TimeInterval? = nil
     ) -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
@@ -175,6 +181,9 @@ class FixtureFlowTestSupport: XCTestCase {
         }
         if let lockInterval {
             app.launchArguments += ["-CCLockInterval", String(lockInterval)]
+        }
+        if let maxUnlockAge {
+            app.launchArguments += ["-CCMaxUnlockAge", String(maxUnlockAge)]
         }
         if let probeInterval {
             app.launchArguments += ["-CCProbeInterval", String(probeInterval)]

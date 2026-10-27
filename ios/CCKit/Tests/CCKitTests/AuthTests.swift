@@ -152,12 +152,27 @@ final class AuthTests: XCTestCase {
 
     func testLockPolicyIntervalsAndPrivacyCover() {
         let date = Date(timeIntervalSince1970: 1_000)
-        XCTAssertTrue(LockPolicy().shouldLockOnColdLaunch())
-        XCTAssertFalse(LockPolicy().shouldLockOnForeground(after: date, now: date.addingTimeInterval(299)))
-        XCTAssertTrue(LockPolicy().shouldLockOnForeground(after: date, now: date.addingTimeInterval(300)))
-        XCTAssertTrue(LockPolicy(interval: .immediately).shouldLockOnForeground(after: date, now: date))
-        XCTAssertFalse(LockPolicy(interval: .oneHour).shouldLockOnForeground(after: date, now: date.addingTimeInterval(3599)))
-        XCTAssertTrue(LockPolicy(interval: .oneHour).shouldLockOnForeground(after: date, now: date.addingTimeInterval(3600)))
+        XCTAssertTrue(LockPolicy().shouldLockOnColdLaunch(lastUnlockAt: nil, lastBackgroundAt: nil, now: date))
+        XCTAssertFalse(LockPolicy(interval: .oneHour).shouldLockOnForeground(
+            lastUnlockAt: date,
+            after: date.addingTimeInterval(-2 * 60),
+            now: date.addingTimeInterval(60)
+        ))
+        XCTAssertTrue(LockPolicy(interval: .immediately).shouldLockOnForeground(
+            lastUnlockAt: date,
+            after: date,
+            now: date
+        ))
+        XCTAssertFalse(LockPolicy(interval: .oneHour).shouldLockOnForeground(
+            lastUnlockAt: date,
+            after: date.addingTimeInterval(3500),
+            now: date.addingTimeInterval(3599)
+        ))
+        XCTAssertTrue(LockPolicy(interval: .oneHour).shouldLockOnForeground(
+            lastUnlockAt: date,
+            after: nil,
+            now: date.addingTimeInterval(3600)
+        ))
         XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: false, isBackgrounded: false, isLocked: false))
         XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: true, isLocked: false))
         XCTAssertFalse(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: false, isLocked: false))

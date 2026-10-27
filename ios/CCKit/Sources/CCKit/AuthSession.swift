@@ -227,6 +227,8 @@ public final class AuthSession {
         try? await credentials.deleteDeviceToken()
         try? await credentials.deleteNativeSecret()
         try? await credentials.deleteRelayPin()
+        try? await credentials.deleteLastUnlockAt()
+        try? await credentials.deleteLastBackgroundAt()
         try? await cache?.clear()
         bearerToken = nil
     }

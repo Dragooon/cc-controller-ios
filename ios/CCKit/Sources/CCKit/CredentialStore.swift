@@ -49,6 +49,12 @@ public protocol CredentialStore: Sendable {
     func getRelayPin() async throws -> String?
     func setRelayPin(_ value: String) async throws
     func deleteRelayPin() async throws
+    func getLastUnlockAt() async throws -> Date?
+    func setLastUnlockAt(_ value: Date) async throws
+    func deleteLastUnlockAt() async throws
+    func getLastBackgroundAt() async throws -> Date?
+    func setLastBackgroundAt(_ value: Date) async throws
+    func deleteLastBackgroundAt() async throws
 }
 
 public extension CredentialStore {
@@ -76,17 +82,23 @@ public actor InMemoryCredentialStore: CredentialStore {
     private var storedDeviceToken: String?
     private var storedNativeSecret: String?
     private var storedRelayPin: String?
+    private var storedLastUnlockAt: Date?
+    private var storedLastBackgroundAt: Date?
 
     public init(
         controllerID: ControllerID? = nil,
         deviceToken: String? = nil,
         nativeSecret: String? = nil,
-        relayPin: String? = nil
+        relayPin: String? = nil,
+        lastUnlockAt: Date? = nil,
+        lastBackgroundAt: Date? = nil
     ) {
         self.controllerID = controllerID
         storedDeviceToken = deviceToken
         storedNativeSecret = nativeSecret
         storedRelayPin = relayPin
+        storedLastUnlockAt = lastUnlockAt
+        storedLastBackgroundAt = lastBackgroundAt
     }
 
     public func getDeviceToken() async throws -> String? { storedDeviceToken }
@@ -99,6 +111,12 @@ public actor InMemoryCredentialStore: CredentialStore {
     public func getRelayPin() async throws -> String? { storedRelayPin }
     public func setRelayPin(_ value: String) async throws { storedRelayPin = value }
     public func deleteRelayPin() async throws { storedRelayPin = nil }
+    public func getLastUnlockAt() async throws -> Date? { storedLastUnlockAt }
+    public func setLastUnlockAt(_ value: Date) async throws { storedLastUnlockAt = value }
+    public func deleteLastUnlockAt() async throws { storedLastUnlockAt = nil }
+    public func getLastBackgroundAt() async throws -> Date? { storedLastBackgroundAt }
+    public func setLastBackgroundAt(_ value: Date) async throws { storedLastBackgroundAt = value }
+    public func deleteLastBackgroundAt() async throws { storedLastBackgroundAt = nil }
 }
 
 #if os(iOS)
@@ -151,6 +169,30 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
 
     public func deleteRelayPin() async throws {
         try remove(account: account("relayPin"))
+    }
+
+    public func getLastUnlockAt() async throws -> Date? {
+        try readTimestamp(account: account("lastUnlockAt"))
+    }
+
+    public func setLastUnlockAt(_ value: Date) async throws {
+        try writeTimestamp(value, account: account("lastUnlockAt"))
+    }
+
+    public func deleteLastUnlockAt() async throws {
+        try remove(account: account("lastUnlockAt"))
+    }
+
+    public func getLastBackgroundAt() async throws -> Date? {
+        try readTimestamp(account: account("lastBackgroundAt"))
+    }
+
+    public func setLastBackgroundAt(_ value: Date) async throws {
+        try writeTimestamp(value, account: account("lastBackgroundAt"))
+    }
+
+    public func deleteLastBackgroundAt() async throws {
+        try remove(account: account("lastBackgroundAt"))
     }
 
     public func getNativeSecret() async throws -> String? {
@@ -230,6 +272,21 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
                 throw CredentialStoreError.systemStatus(status, "Keychain migration failed (\(status)).")
             }
         }
+    }
+
+    private func readTimestamp(account: String) throws -> Date? {
+        guard let value = try read(account: account, context: nil) else { return nil }
+        guard let timestamp = TimeInterval(value) else { throw CredentialStoreError.invalidData }
+        return Date(timeIntervalSince1970: timestamp)
+    }
+
+    private func writeTimestamp(_ value: Date, account: String) throws {
+        try write(
+            String(value.timeIntervalSince1970),
+            account: account,
+            access: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            control: nil
+        )
     }
 
     private func baseQuery(account: String) -> [String: Any] {

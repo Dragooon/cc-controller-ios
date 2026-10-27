@@ -38,21 +38,50 @@ final class LockFlowTests: FixtureFlowTestSupport {
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after foreground lock")
     }
 
-    func testColdLaunchLocksAndCancelShowsMessage() async throws {
-        let onboarding = launchOnboarding()
+    func testUnlockExpiresWhileActiveAndKeepsDraft() async throws {
+        let app = launchOnboarding(maxUnlockAge: 8)
+        defer {
+            audit(app, name: "lock-active-expiry")
+            app.terminate()
+        }
+
+        try await setBiometricEnrollment(true)
+        try await reachFaceID(app)
+        app.buttons["Turn on Face ID"].tap()
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+
+        let session = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(session.waitForExistence(timeout: 30), "Fixture session did not load")
+        session.tap()
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 20), "Composer did not load")
+        let draft = "draft survives biometric lock"
+        composer.tap()
+        composer.typeText(draft)
+
+        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 15), "Unlock age did not expire while active")
+        try await completeFaceID(app, until: composer, "Face ID did not unlock after active expiry")
+        XCTAssertEqual(composer.value as? String, draft, "Composer draft was lost across the lock")
+    }
+
+    func testColdLaunchAfterUnlockWindowLocksAndCancelShowsMessage() async throws {
+        let onboarding = launchOnboarding(maxUnlockAge: 2)
         try await setBiometricEnrollment(true)
         try await reachFaceID(onboarding)
         onboarding.buttons["Turn on Face ID"].tap()
         try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
         onboarding.terminate()
+        try await Task.sleep(for: .seconds(3))
 
-        let app = launchCold()
+        let app = launchCold(maxUnlockAge: 2)
         defer {
-            audit(app, name: "lock-cold-launch")
+            audit(app, name: "lock-cold-launch-after-window")
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 15), "Cold launch did not show the lock screen")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 15), "Cold launch after the unlock window did not show the lock screen")
         try await postFixture("/fixture/biometric/nomatch")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -65,5 +94,23 @@ final class LockFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "lock-screen-cancel")
         app.buttons["Unlock with Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after cancel")
+    }
+
+    func testColdRelaunchWithinUnlockWindowSkipsFaceID() async throws {
+        let onboarding = launchOnboarding(maxUnlockAge: 8)
+        try await setBiometricEnrollment(true)
+        try await reachFaceID(onboarding)
+        onboarding.buttons["Turn on Face ID"].tap()
+        try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
+        onboarding.terminate()
+
+        let app = launchCold(maxUnlockAge: 8)
+        defer {
+            audit(app, name: "lock-cold-launch-within-window")
+            app.terminate()
+        }
+
+        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15), "Cold launch within the unlock window did not open Sessions")
+        XCTAssertFalse(app.staticTexts["cc-controller is locked"].exists, "Cold launch within the unlock window showed the lock screen")
     }
 }

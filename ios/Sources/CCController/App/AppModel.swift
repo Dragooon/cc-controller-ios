@@ -162,7 +162,9 @@ final class AppModel {
     private let relayDefaultEndpoints: [URL]
     private let relayDefaultsKey: String
     private let lockIntervalStore: LockIntervalStore
-    private var lockTransitionPolicy: LockTransitionPolicy
+    private var lastUnlockAt: Date?
+    private var lastBackgroundAt: Date?
+    private var unlockExpiryTask: Task<Void, Never>?
     private(set) var currentScenePhase: ScenePhase = .background
     private var connectionTask: Task<Void, Never>?
     private var pairingTask: Task<Void, Never>?
@@ -338,7 +340,9 @@ final class AppModel {
         let lockInterval = Self.argumentValue("-CCLockInterval", in: arguments)
             .flatMap(TimeInterval.init)
             .map(LockInterval.custom) ?? lockIntervalStore.interval
-        let lockPolicy = LockPolicy(interval: lockInterval)
+        let maxUnlockAge = Self.argumentValue("-CCMaxUnlockAge", in: arguments)
+            .flatMap(TimeInterval.init) ?? 60 * 60
+        let lockPolicy = LockPolicy(interval: lockInterval, maxUnlockAge: maxUnlockAge)
         let probeInterval = Self.argumentValue("-CCProbeInterval", in: arguments)
             .flatMap(TimeInterval.init)
             .map { Duration.seconds($0) } ?? .seconds(2)
@@ -348,7 +352,6 @@ final class AppModel {
         let probeInterval: Duration = .seconds(2)
         self.lockPolicy = lockPolicy
         #endif
-        self.lockTransitionPolicy = LockTransitionPolicy(policy: lockPolicy)
         self.phase = fixtureMode ? .unlocked : .onboarding
         #if DEBUG
         self.colorScheme = Self.colorScheme(arguments: arguments)
@@ -385,24 +388,43 @@ final class AppModel {
                 relayPin = try? await credentials.getRelayPin()
             }
         }
-        guard !fixtureMode else { return }
         Task { @MainActor [weak self, credentials] in
             guard let self else { return }
             if debugOnboarding {
                 try? await credentials.deleteDeviceToken()
                 try? await credentials.deleteNativeSecret()
+                try? await credentials.deleteLastUnlockAt()
+                try? await credentials.deleteLastBackgroundAt()
+                lastUnlockAt = nil
+                lastBackgroundAt = nil
                 onboarding = OnboardingFlowState()
                 phase = .onboarding
                 return
             }
+
+            lastUnlockAt = try? await credentials.getLastUnlockAt()
+            lastBackgroundAt = try? await credentials.getLastBackgroundAt()
             let hasSecret = (try? await credentials.hasNativeSecret()) == true
             let hasToken = (try? await credentials.getDeviceToken()) != nil
+            guard !fixtureMode else {
+                if let lastUnlockAt,
+                   lockPolicy.shouldLockOnColdLaunch(lastUnlockAt: lastUnlockAt, lastBackgroundAt: lastBackgroundAt, now: Date()) {
+                    transitionToLocked()
+                } else {
+                    phase = .unlocked
+                    scheduleUnlockExpiryIfNeeded()
+                }
+                return
+            }
+
             guard phase != .unlocked else { return }
             if transport.mode == .relay {
                 let hasPin = (try? await credentials.getRelayPin()).flatMap { try? RelayPin($0) } != nil
                 if relayCredentialPolicy(hasPin: hasPin, hasCredentials: hasSecret || hasToken) == .clearAndPairAgain {
                     try? await credentials.deleteDeviceToken()
                     try? await credentials.deleteNativeSecret()
+                    try? await credentials.deleteLastUnlockAt()
+                    try? await credentials.deleteLastBackgroundAt()
                     onboarding = OnboardingFlowState()
                     onboarding.continueFromWelcome()
                     connectionMessage = "Pair this iPhone again to connect through the relay."
@@ -411,10 +433,19 @@ final class AppModel {
                     return
                 }
             }
-            if hasSecret {
+            guard hasSecret else {
+                phase = .onboarding
+                return
+            }
+            if lockPolicy.shouldLockOnColdLaunch(
+                lastUnlockAt: lastUnlockAt,
+                lastBackgroundAt: lastBackgroundAt,
+                now: Date()
+            ) {
                 transitionToLocked()
             } else {
-                phase = .onboarding
+                phase = .unlocked
+                scheduleUnlockExpiryIfNeeded()
             }
         }
     }
@@ -436,6 +467,7 @@ final class AppModel {
         case .success:
             faceIDMessage = nil
             phase = .unlocked
+            await recordSuccessfulUnlock()
             await unlockOtherControllers()
         case .failure(let error):
             await handleUnlockFailure(error)
@@ -452,6 +484,59 @@ final class AppModel {
             if case .success = await connection.auth.unlock() {
                 connection.store.resume()
             }
+        }
+    }
+
+    private func recordSuccessfulUnlock() async {
+        let now = Date()
+        lastUnlockAt = now
+        lastBackgroundAt = nil
+        do {
+            try await credentials.setLastUnlockAt(now)
+            try await credentials.deleteLastBackgroundAt()
+        } catch {
+            authLogger.error("Could not persist unlock timestamps: \(error.localizedDescription, privacy: .public)")
+        }
+        scheduleUnlockExpiryIfNeeded()
+    }
+
+    private func recordBackground(at date: Date) {
+        lastBackgroundAt = date
+        Task { @MainActor [weak self, credentials] in
+            do {
+                try await credentials.setLastBackgroundAt(date)
+            } catch {
+                authLogger.error("Could not persist background timestamp: \(error.localizedDescription, privacy: .public)")
+            }
+            self?.unlockExpiryTask?.cancel()
+        }
+    }
+
+    private func clearBackgroundTimestamp() {
+        guard lastBackgroundAt != nil else { return }
+        lastBackgroundAt = nil
+        Task { @MainActor [weak self, credentials] in
+            try? await credentials.deleteLastBackgroundAt()
+            self?.scheduleUnlockExpiryIfNeeded()
+        }
+    }
+
+    private func scheduleUnlockExpiryIfNeeded() {
+        unlockExpiryTask?.cancel()
+        unlockExpiryTask = nil
+        guard !fixtureMode, phase == .unlocked, currentScenePhase == .active,
+              let expiry = lockPolicy.unlockExpiryDate(lastUnlockAt: lastUnlockAt) else { return }
+        let delay = max(0, expiry.timeIntervalSinceNow)
+        unlockExpiryTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let self, phase == .unlocked, currentScenePhase == .active,
+                  lockPolicy.shouldLockOnForeground(lastUnlockAt: lastUnlockAt, after: nil, now: Date()) else { return }
+            transitionToLocked()
+            await updateBadgeCount(0)
         }
     }
 
@@ -667,6 +752,10 @@ final class AppModel {
         try? await credentials.deleteRelayPin()
         try? await credentials.deleteDeviceToken()
         try? await credentials.deleteNativeSecret()
+        try? await credentials.deleteLastUnlockAt()
+        try? await credentials.deleteLastBackgroundAt()
+        lastUnlockAt = nil
+        lastBackgroundAt = nil
         await primaryStore.clearLocalState()
         await transport.reconfigure(pin: nil)
         relayPin = nil
@@ -761,6 +850,7 @@ final class AppModel {
         case .success:
             onboarding.finish()
             phase = .unlocked
+            await recordSuccessfulUnlock()
             await unlockOtherControllers()
         case .failure(let error):
             await handleUnlockFailure(error)
@@ -804,6 +894,8 @@ final class AppModel {
     }
 
     private func transitionToLocked(suppressAutoPrompt: Bool = false) {
+        unlockExpiryTask?.cancel()
+        unlockExpiryTask = nil
         connections.forEach { $0.auth.lock() }
         stores.forEach { $0.suspend() }
         hasAutoPromptedLockScreen = suppressAutoPrompt
@@ -821,7 +913,6 @@ final class AppModel {
     func setLockInterval(_ interval: LockInterval) {
         lockIntervalStore.set(interval)
         lockPolicy.interval = interval
-        lockTransitionPolicy.setInterval(interval)
     }
 
     var relayAddressesDraft: String { relayAddressesText(relayEndpoints) }
@@ -975,6 +1066,10 @@ final class AppModel {
         faceIDMessage = nil
         nativeSecretEnrolledForOnboarding = false
         hasAutoPromptedLockScreen = false
+        lastUnlockAt = nil
+        lastBackgroundAt = nil
+        unlockExpiryTask?.cancel()
+        unlockExpiryTask = nil
         phase = .onboarding
         updateSettingsProbing()
         await updateBadgeCount(0)
@@ -999,12 +1094,9 @@ final class AppModel {
         #endif
         currentScenePhase = scenePhase
         defer { updateSettingsProbing() }
+        let now = Date()
         let isActive = scenePhase == .active
         let isBackgrounded = scenePhase == .background
-        let shouldLock = lockTransitionPolicy.shouldLock(
-            on: lockScenePhase(for: scenePhase),
-            at: Date()
-        )
         isPrivacyCovered = lockPolicy.shouldShowPrivacyCover(
             isActive: isActive,
             isBackgrounded: isBackgrounded,
@@ -1013,6 +1105,8 @@ final class AppModel {
 
         switch scenePhase {
         case .background:
+            recordBackground(at: now)
+            unlockExpiryTask?.cancel()
             connectionTask?.cancel()
             pairingTask?.cancel()
             stores.forEach { $0.suspend() }
@@ -1030,26 +1124,24 @@ final class AppModel {
                 return
             }
             guard phase == .unlocked else { return }
-            if !fixtureMode, shouldLock {
+            let shouldLock = (!fixtureMode || lastUnlockAt != nil) && lockPolicy.shouldLockOnForeground(
+                lastUnlockAt: lastUnlockAt,
+                after: lastBackgroundAt,
+                now: now
+            )
+            if shouldLock {
                 transitionToLocked()
                 Task { @MainActor in
                     await updateBadgeCount(0)
                 }
             } else {
+                clearBackgroundTimestamp()
                 stores.forEach { $0.resume() }
                 watchForIdentityChange()
+                scheduleUnlockExpiryIfNeeded()
             }
         default:
             break
-        }
-    }
-
-    private func lockScenePhase(for scenePhase: ScenePhase) -> LockScenePhase {
-        switch scenePhase {
-        case .active: .active
-        case .inactive: .inactive
-        case .background: .background
-        @unknown default: .inactive
         }
     }
 

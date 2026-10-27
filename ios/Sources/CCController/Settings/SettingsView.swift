@@ -73,7 +73,7 @@ struct SettingsView: View {
         daemon: DaemonInfo? = nil,
         apiVersion: Int? = nil,
         isUnpairing: Bool = false,
-        lockAfter: SettingsLockInterval = .fiveMinutes,
+        lockAfter: SettingsLockInterval = .oneHour,
         onDone: @escaping () -> Void = {},
         onTestConnection: @escaping () -> Void = {},
         onLockNow: @escaping () -> Void = {},
@@ -292,7 +292,8 @@ struct SettingsView: View {
     }
 
     private var securitySection: some View {
-        Section("Security") {
+        Section {
+
             Picker("Lock after", selection: $selectedLockInterval) {
                 ForEach(SettingsLockInterval.allCases) { interval in
                     Text(interval.rawValue).tag(interval)
@@ -308,6 +309,12 @@ struct SettingsView: View {
                 Text("Lock now")
                     .frame(maxWidth: .infinity)
             }
+        } header: {
+            Text("Security")
+        } footer: {
+            Text("Face ID is also required every 60 minutes.")
+                .font(.footnote)
+                .foregroundStyle(.ccSecondary)
         }
     }
 
