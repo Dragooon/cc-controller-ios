@@ -76,7 +76,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         let remove = element(app, "controller-detail-remove")
         reveal(remove, in: app)
         remove.tap()
-        let confirm = app.buttons["Remove Mustafar"].firstMatch
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Remove Mustafar", "controller-detail-remove")).firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 10), "Remove confirmation did not appear")
         confirm.tap()
 

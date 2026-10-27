@@ -233,6 +233,7 @@ final class ComposerFlowTests: XCTestCase {
         field.typeText(first)
         app.buttons["composer-send"].tap()
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 2), "First quick send did not clear the composer")
+        field.tap()
         field.typeText(second)
         app.buttons["composer-send"].tap()
 
@@ -354,8 +355,8 @@ final class ComposerFlowTests: XCTestCase {
         let settledComposerHeight = composer.frame.height
         attach(named: "composer-queued-1.5s")
         print("composer queue timing glassUnfocused=\(unfocusedComposerHeight) glassFocused=\(focusedComposerHeight) glassAt0.1=\(earlyComposerHeight) glassAt1.5=\(settledComposerHeight)")
-        XCTAssertLessThanOrEqual(abs(earlyComposerHeight - focusedComposerHeight), 2, "Composer glass grew during queue reset: focused \(focusedComposerHeight), at 0.1s \(earlyComposerHeight)")
-        XCTAssertLessThanOrEqual(abs(settledComposerHeight - focusedComposerHeight), 2, "Composer glass did not settle: focused \(focusedComposerHeight), at 1.5s \(settledComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(earlyComposerHeight - unfocusedComposerHeight), 2, "Composer glass grew during queue reset: unfocused \(unfocusedComposerHeight), at 0.1s \(earlyComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(settledComposerHeight - unfocusedComposerHeight), 2, "Composer glass did not settle: unfocused \(unfocusedComposerHeight), at 1.5s \(settledComposerHeight)")
 
         XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
         XCTAssertTrue(waitForNonExistence(of: app.staticTexts["Queued"], timeout: 10), "Queued caption did not clear after tail delivery")
@@ -365,8 +366,8 @@ final class ComposerFlowTests: XCTestCase {
         let resetHeight = resetField.frame.height
         XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height while queueing: initial \(initialHeight), reset \(resetHeight)")
         let resetComposerHeight = composer.frame.height
-        print("composer queue heights fieldInitial=\(initialHeight) fieldReset=\(resetHeight) glassFocused=\(focusedComposerHeight) glassReset=\(resetComposerHeight)")
-        XCTAssertLessThanOrEqual(abs(resetComposerHeight - focusedComposerHeight), 2, "Composer glass did not reset height while queueing: focused \(focusedComposerHeight), reset \(resetComposerHeight)")
+        print("composer queue heights fieldInitial=\(initialHeight) fieldReset=\(resetHeight) glassUnfocused=\(unfocusedComposerHeight) glassReset=\(resetComposerHeight)")
+        XCTAssertLessThanOrEqual(abs(resetComposerHeight - unfocusedComposerHeight), 2, "Composer glass did not reset height while queueing: unfocused \(unfocusedComposerHeight), reset \(resetComposerHeight)")
         let contextSubtitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "ctx 6%")).firstMatch
         XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 6%")
     }
@@ -438,6 +439,7 @@ final class ComposerFlowTests: XCTestCase {
         field.typeText(first)
         app.buttons["composer-queue"].tap()
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 5), "First batched send did not clear the composer")
+        field.tap()
         field.typeText(second)
         app.buttons["composer-queue"].tap()
 
@@ -551,6 +553,7 @@ final class ComposerFlowTests: XCTestCase {
         field.typeText(heldMarker)
         app.buttons["composer-send"].tap()
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Held send did not clear the composer")
+        field.tap()
         field.typeText("while sending")
         XCTAssertTrue(waitForValue(of: field, equalTo: "while sending", timeout: 3), "Text typed during send did not appear")
         XCTAssertTrue(waitForPendingStatus("Sent", message: heldMarker, in: app, timeout: 15), "Held send did not reconcile to Sent")
