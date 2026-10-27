@@ -173,6 +173,7 @@ public final class AuthSession {
             guard let secret = try await credentials.getNativeSecret() else { return fail(.notEnrolled) }
             let response = try await client.login(secret: secret)
             guard response.authenticated != false, let token = response.token, !token.isEmpty else { throw AuthError.unknownSecret }
+            TranscriptLifecycleLog.shared.record(name: "native-login")
             bearerToken = token
             state = .unlocked(bearerExpiresAt: response.expiresAt ?? clock.now.addingTimeInterval(12 * 60 * 60))
             return .success(())

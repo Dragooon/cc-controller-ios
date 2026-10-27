@@ -26,7 +26,15 @@ final class AppModel {
     let settings: SettingsStore
 
     var phase: Phase
-    var selectedSession: SessionRef?
+    var selectedSession: SessionRef? {
+        didSet {
+            guard oldValue != selectedSession else { return }
+            TranscriptLifecycleLog.shared.record(
+                name: "selected-session",
+                sessionID: selectedSession?.sessionID
+            )
+        }
+    }
     var isPrivacyCovered = false
     var colorScheme: ColorScheme?
     var isSettingsPresented = false
@@ -981,6 +989,7 @@ final class AppModel {
     }
 
     func scenePhaseDidChange(_ scenePhase: ScenePhase) {
+        TranscriptLifecycleLog.shared.record(name: "scene-phase", detail: String(describing: scenePhase))
         #if DEBUG
         authLogger.notice("scene transition=\(String(describing: scenePhase), privacy: .public)")
         #endif

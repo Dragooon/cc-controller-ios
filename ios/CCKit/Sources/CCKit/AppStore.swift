@@ -163,6 +163,7 @@ public final class AppStore {
     }
 
     public func start() {
+        TranscriptLifecycleLog.shared.record(name: "start")
         guard !started else { return }
         started = true
         connection = .connecting
@@ -179,6 +180,7 @@ public final class AppStore {
     }
 
     public func suspend() {
+        TranscriptLifecycleLog.shared.record(name: "suspend")
         flushPendingEvents()
         flushCacheImmediately()
         draftCache.saveNow(drafts)
@@ -206,6 +208,7 @@ public final class AppStore {
     }
 
     public func resume() {
+        TranscriptLifecycleLog.shared.record(name: "resume")
         suspend()
         start()
         for sessionID in queuedNotes.keys where queuedNotes[sessionID]?.contains(where: { $0.state == .sending }) == true {
@@ -396,6 +399,7 @@ public final class AppStore {
                 existingPromptIDs: existingPromptIDs(for: sessionID)
             )
             queuedNotes[sessionID, default: []].append(note)
+            TranscriptLifecycleLog.shared.record(name: "note-sending", sessionID: sessionID)
             persistQueuedNotes()
             optimisticNote = note
         }
@@ -583,6 +587,7 @@ public final class AppStore {
             existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         queuedNotes[sessionID, default: []].append(note)
+        TranscriptLifecycleLog.shared.record(name: "note-sending", sessionID: sessionID)
         queuedNotes[sessionID] = orderedNotes(queuedNotes[sessionID] ?? [])
         attachments[sessionID]?.removeAll { sentIDs.contains($0.id) }
         attachmentProgressDates = attachmentProgressDates.filter { !sentIDs.contains($0.key) }
@@ -599,6 +604,7 @@ public final class AppStore {
         guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == id }), case .failed = notes[index].state else { return false }
         notes[index].state = .sending
         notes[index].sentAt = nil
+        TranscriptLifecycleLog.shared.record(name: "note-sending", sessionID: sessionID)
         notes = orderedNotes(notes)
         queuedNotes[sessionID] = notes
         persistQueuedNotes()
@@ -648,6 +654,7 @@ public final class AppStore {
             existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         notes.append(note)
+        TranscriptLifecycleLog.shared.record(name: "note-sending", sessionID: sessionID)
         notes = orderedNotes(notes)
         queuedNotes[sessionID] = notes
         persistQueuedNotes()
@@ -709,6 +716,7 @@ public final class AppStore {
         guard var notes = queuedNotes[sessionID], let index = notes.firstIndex(where: { $0.id == noteID }) else { return }
         notes[index].state = queued ? .queued : .sent
         notes[index].sentAt = clock.now
+        TranscriptLifecycleLog.shared.record(name: queued ? "note-queued" : "note-sent", sessionID: sessionID)
         queuedNotes[sessionID] = notes
         persistQueuedNotes()
         if let store = openStores[storeKey(sessionID: sessionID, agentID: nil)] {
@@ -737,6 +745,7 @@ public final class AppStore {
             notes[laterIndex].sentAt = nil
         }
         queuedNotes[sessionID] = notes
+        TranscriptLifecycleLog.shared.record(name: "note-failed", sessionID: sessionID)
         persistQueuedNotes()
         clearPendingTurnStart(for: sessionID)
     }
@@ -1224,6 +1233,7 @@ public final class AppStore {
         #endif
         let bootstrap = try await client.bootstrap()
         let startedAtChanged = resetTranscripts || hasDaemonRestarted(bootstrap.daemon)
+        TranscriptLifecycleLog.shared.record(name: "bootstrap", detail: startedAtChanged ? "restart" : "normal")
         if startedAtChanged { resetOpenTranscripts() }
         latestBootstrap = bootstrap
         if let controller = bootstrap.controller { controllerInfo = controller }
@@ -1316,6 +1326,7 @@ public final class AppStore {
         guard let sessionID = event.sessionId else { return }
         let key = storeKey(sessionID: sessionID, agentID: nil)
         if event.reset == true {
+            TranscriptLifecycleLog.shared.record(name: "transcript-event-reset", sessionID: sessionID)
             if let entryCount = event.entryCount { serverEntryCounts[sessionID] = entryCount }
             cachedTranscripts.removeValue(forKey: key)
             cacheChangedStoreKeys.remove(key)
@@ -1496,9 +1507,17 @@ public final class AppStore {
 
     private func openStore(sessionID: String, agentID: String?) -> SessionStore? {
         let key = storeKey(sessionID: sessionID, agentID: agentID)
-        if let store = openStores[key] { return store }
+        if let store = openStores[key] {
+            return store
+        }
         guard let session = sessions[sessionID], session.live == true else { return nil }
+        let hasCachedTranscript = cachedTranscripts[key] != nil
         let entries = cachedTranscripts[key] ?? []
+        TranscriptLifecycleLog.shared.record(
+            name: "store-open",
+            sessionID: sessionID,
+            detail: hasCachedTranscript ? "cached" : "new"
+        )
         let store = SessionStore(
             session: session,
             client: client,
@@ -1606,6 +1625,7 @@ public final class AppStore {
 
     private func closeStore(forKey key: String) {
         guard let store = openStores.removeValue(forKey: key) else { return }
+        TranscriptLifecycleLog.shared.record(name: "store-close", sessionID: store.sessionID)
         cachedTranscripts[key] = Array(store.entries.suffix(400))
         cacheChangedStoreKeys.insert(key)
         cacheWritePending = true

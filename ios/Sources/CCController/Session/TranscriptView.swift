@@ -34,6 +34,7 @@ private final class TranscriptScrollState {
     var blankCandidateStartedAt: Date?
     var blankCheckTask: Task<Void, Never>?
     var blankOccurrence: ScrollBlankOccurrence?
+    var sentinelCheckTask: Task<Void, Never>?
     var scrollPhaseIsIdle = true
     var recorder: ScrollDiagnosticsRecorder?
     var onBuiltRowsEmpty: (() -> Void)?
@@ -87,6 +88,11 @@ private final class TranscriptScrollState {
     func cancelBlankCheck() {
         blankCheckTask?.cancel()
         blankCheckTask = nil
+    }
+
+    func cancelSentinelCheck() {
+        sentinelCheckTask?.cancel()
+        sentinelCheckTask = nil
     }
 
     func updateRowIndices(displayRows: [TranscriptRow], queuedNotes: [QueuedNote]) {
@@ -266,6 +272,9 @@ struct SessionTranscriptView: View {
                 if !isPinnedToBottom, turns.last != nil {
                     Button {
                         isPinnedToBottom = true
+                        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+                            .pinned(sessionID: sessionID, pinned: true)
+                        )
                         scrollToNewest(using: proxy)
                     } label: {
                         Image(systemName: "arrow.down")
@@ -397,6 +406,26 @@ struct SessionTranscriptView: View {
                 contentFitsViewport = false
                 scrollState.latestUIKitMetrics = nil
                 handleTranscriptAppear(using: proxy)
+                recordLifecycleEvent(
+                    name: "transcript-appear",
+                    sessionID: sessionID,
+                    input: .transcriptAppear(sessionID: sessionID),
+                    recorder: scrollState.recorder,
+                    geometry: scrollState.lastScrollGeometry,
+                    rowsCount: displayRows.count,
+                    notesCount: queuedNotes.count,
+                    isPinnedToBottom: isPinnedToBottom,
+                    userHasScrolled: userHasScrolled
+                )
+                _ = TranscriptLifecycleDiagnostics.shared.ingest(
+                    .rowsMounted(sessionID: sessionID, mounted: false)
+                )
+                _ = TranscriptLifecycleDiagnostics.shared.ingest(
+                    .pinned(sessionID: sessionID, pinned: isPinnedToBottom)
+                )
+                _ = TranscriptLifecycleDiagnostics.shared.ingest(
+                    .scrollIdle(sessionID: sessionID, idle: true)
+                )
             }
             .task {
                 do {
@@ -408,12 +437,27 @@ struct SessionTranscriptView: View {
                 mountRows(source: .cap, using: proxy)
             }
             .onDisappear {
+                recordLifecycleEvent(
+                    name: "transcript-disappear",
+                    sessionID: sessionID,
+                    input: .transcriptDisappear(sessionID: sessionID),
+                    recorder: scrollState.recorder,
+                    geometry: scrollState.lastScrollGeometry,
+                    rowsCount: displayRows.count,
+                    notesCount: queuedNotes.count,
+                    isPinnedToBottom: isPinnedToBottom,
+                    userHasScrolled: userHasScrolled
+                )
+                _ = TranscriptLifecycleDiagnostics.shared.ingest(
+                    .rowsMounted(sessionID: sessionID, mounted: false)
+                )
                 transcriptIsVisible = false
                 rowsMounted = false
                 contentFitsViewport = false
                 scrollState.latestUIKitMetrics = nil
                 transcriptAppearDate = nil
                 scrollState.cancelBlankCheck()
+                scrollState.cancelSentinelCheck()
                 rebuildScrollTask?.cancel()
                 rebuildScrollTask = nil
                 scrollState.onBuiltRowsEmpty = nil
@@ -570,10 +614,15 @@ struct SessionTranscriptView: View {
     }
 
     private func handleSessionChange(to newSessionID: String, using proxy: ScrollViewProxy) {
+        recordLifecycleEvent(name: "session-change", sessionID: newSessionID)
         rebuildScrollTask?.cancel()
         rebuildScrollTask = nil
         rowsMounted = false
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .rowsMounted(sessionID: sessionID, mounted: false)
+        )
         scrollState.cancelBlankCheck()
+        scrollState.cancelSentinelCheck()
         scrollState.sessionChanged(to: newSessionID)
         subagentIndex = SubagentIndex(subagents)
         userHasScrolled = false
@@ -607,6 +656,15 @@ struct SessionTranscriptView: View {
         withTransaction(Transaction(animation: nil)) {
             rowsMounted = true
         }
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .rowsMounted(sessionID: sessionID, mounted: true)
+        )
+        recordLifecycleEvent(
+            name: "mount",
+            sessionID: sessionID,
+            detail: "\(source.rawValue) \(elapsed)",
+            recorder: scrollState.recorder
+        )
         if isPinnedToBottom {
             scrollToNewest(using: proxy)
         }
@@ -618,6 +676,9 @@ struct SessionTranscriptView: View {
 
     private func handleQueuedNotesChange(using proxy: ScrollViewProxy) {
         isPinnedToBottom = true
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .pinned(sessionID: sessionID, pinned: true)
+        )
         scrollToNewest(using: proxy)
     }
 
@@ -739,6 +800,12 @@ struct SessionTranscriptView: View {
         default:
             break
         }
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .scrollIdle(sessionID: sessionID, idle: scrollState.scrollPhaseIsIdle)
+        )
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .pinned(sessionID: sessionID, pinned: isPinnedToBottom)
+        )
     }
 
     private func recordPhaseChange(_ phase: ScrollPhase) {
@@ -826,6 +893,12 @@ struct SessionTranscriptView: View {
             withTransaction(Transaction(animation: nil)) {
                 stackGeneration += 1
             }
+            recordLifecycleEvent(
+                name: "stack-rebuild",
+                sessionID: sessionID,
+                detail: "\(stackGeneration)",
+                recorder: scrollState.recorder
+            )
             scrollState.recordEvent(name: "rebuild", newValue: Double(stackGeneration))
             if isPinnedToBottom {
                 scheduleRebuildScroll(using: proxy)
@@ -1014,6 +1087,12 @@ struct SessionTranscriptView: View {
             .frame(height: 1)
             .padding(.bottom, 18)
             .id("transcript-bottom")
+            .onAppear {
+                sentinelDidAppear()
+            }
+            .onDisappear {
+                sentinelDidDisappear()
+            }
             .accessibilityHidden(true)
             #if DEBUG
             .background {
@@ -1022,6 +1101,42 @@ struct SessionTranscriptView: View {
                 }
             }
             #endif
+    }
+
+    private func sentinelDidAppear() {
+        scrollState.cancelSentinelCheck()
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .sentinelBuilt(sessionID: sessionID, built: true)
+        )
+    }
+
+    private func sentinelDidDisappear() {
+        _ = TranscriptLifecycleDiagnostics.shared.ingest(
+            .sentinelBuilt(sessionID: sessionID, built: false)
+        )
+        scrollState.cancelSentinelCheck()
+        scrollState.sentinelCheckTask = Task { @MainActor in
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, transcriptIsVisible else { return }
+            let triggers = TranscriptLifecycleDiagnostics.shared.ingest(
+                .sentinelCheck(sessionID: sessionID)
+            )
+            writeLifecycleTriggers(
+                triggers,
+                sessionID: sessionID,
+                recorder: scrollState.recorder,
+                geometry: scrollState.lastScrollGeometry,
+                rowsCount: displayRows.count,
+                notesCount: queuedNotes.count,
+                isPinnedToBottom: isPinnedToBottom,
+                userHasScrolled: userHasScrolled
+            )
+            scrollState.sentinelCheckTask = nil
+        }
     }
 
     @ViewBuilder

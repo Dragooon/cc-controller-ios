@@ -267,6 +267,20 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.entries.map(\.id), ["loaded"])
     }
 
+    func testOpeningExistingStoreDoesNotRecordStoreOpen() throws {
+        let lifecycle = TranscriptLifecycleLog.shared
+        lifecycle.removeAll()
+        defer { lifecycle.removeAll() }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        _ = try XCTUnwrap(app.openSession("session-1"))
+        lifecycle.removeAll()
+
+        _ = try XCTUnwrap(app.openSession("session-1"))
+
+        XCTAssertTrue(lifecycle.events.isEmpty)
+    }
+
     func testRegistryReconcileDoesNotRefetchWhenCountsMatch() async throws {
         var bootstrapCalls = 0
         URLProtocolStub.keepEvents = true
