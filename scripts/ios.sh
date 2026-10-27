@@ -3061,6 +3061,12 @@ for build in $(find /var/lib/cc-ota/cc -mindepth 1 -maxdepth 1 -type d -printf "
     *) rm -rf -- "/var/lib/cc-ota/cc/$build"; printf "ota deleted old build %s\\n" "$build" ;;
   esac
 done'
+  # Keep only the newest three local builds and archives; each archive is several hundred MB.
+  local ota_root="$IOS/build/ota" old
+  for old in $(find "$ota_root" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' -exec basename {} \; | sort -rn | tail -n +4); do
+    [[ "$old" =~ ^[0-9]+$ ]] || continue
+    rm -rf -- "$ota_root/$old" "$ota_root/archive/CCController-$old.xcarchive" "$ota_root/ExportOptions-$old.plist"
+  done
 }
 
 cmd_ota() {
@@ -3133,7 +3139,7 @@ cmd_ota() {
   fi
   mkdir -p "$artifact_dir"
   ota_write_export_options "$export_options" "$team" "$base_url"
-  archive_release "$build_number" "$archive_path" "$team" "$ota_root/derived-$build_number"
+  archive_release "$build_number" "$archive_path" "$team" "$ota_root/derived"
 
   export_dir="$artifact_dir"
   local export_args=(
