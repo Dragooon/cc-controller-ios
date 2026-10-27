@@ -140,6 +140,22 @@ final class QuestionTests: XCTestCase {
         XCTAssertEqual(sessionListCaption(Session(id: "s", pending: [approval])), "Asking: One")
     }
 
+    func testRealWirePendingQuestionEntryParsesFromTranscriptPage() throws {
+        let entry = try decodeQuestionEntry(from: pendingTranscriptWire)
+        let row = try XCTUnwrap(questionTranscriptRow(for: entry))
+        XCTAssertEqual(row.text, "Asking: One; Many")
+        XCTAssertTrue(row.pending)
+        XCTAssertEqual(try XCTUnwrap(questionSheetModel(for: entry)).questions.count, 2)
+    }
+
+    func testRealWireAnsweredQuestionEntryParsesFromTranscriptPage() throws {
+        let entry = try decodeQuestionEntry(from: answeredTranscriptWire)
+        let row = try XCTUnwrap(questionTranscriptRow(for: entry))
+        XCTAssertEqual(row.text, "One · A; Many · A, C")
+        XCTAssertFalse(row.pending)
+        XCTAssertEqual(try XCTUnwrap(questionSheetModel(for: entry)).questions.count, 2)
+    }
+
     func testStructuredToolUseResultIsPreferred() {
         let entry = ToolEntry(
             tool: "AskUserQuestion",
@@ -188,6 +204,22 @@ final class QuestionTests: XCTestCase {
             .object(["question": .string("Choose letters."), "header": .string("Many"), "options": .array([.object(["label": .string("A"), "description": .string("Choose A")]), .object(["label": .string("B"), "description": .string("Choose B")]), .object(["label": .string("C"), "description": .string("Choose C")])]), "multiSelect": .bool(true)]),
         ])])
     }
+
+    private func decodeQuestionEntry(from wire: String) throws -> ToolEntry {
+        let page = try JSONDecoder.ccKit().decode(TranscriptPage.self, from: Data(wire.utf8))
+        return try XCTUnwrap(page.entries.compactMap { entry in
+            guard case .tool(let tool) = entry else { return nil }
+            return tool
+        }.first)
+    }
+
+    private let pendingTranscriptWire = #"""
+{"entries":[{"ts":"2026-10-27T01:00:42.160Z","kind":"tool","toolUseId":"fixture-question-flow-tool","tool":"AskUserQuestion","args":{"questions":"[{\"question\":\"Choose one letter.\",\"header\":\"One\",\"options\":[{\"label\":\"A\",\"description\":\"Choose A\"},{\"label\":\"B\",\"description\":\"Choose B\"}],\"multiSelect\":false},{\"question\":\"Choose letters.\",\"header\":\"Many\",\"options\":[{\"label\":\"A\",\"description\":\"Choose A\"},{\"label\":\"B\",\"description\":\"Choose B\"},{\"label\":\"C\",\"description\":\"Choose C\"}],\"multiSelect\":true}]"},"text":"AskUserQuestion","state":"running","id":"tool:fixture-question-flow-tool","rev":1038}],"total":1,"hasMore":false}
+"""#
+
+    private let answeredTranscriptWire = #"""
+{"entries":[{"ts":"2026-10-27T01:00:42.160Z","kind":"tool","toolUseId":"fixture-question-flow-tool","tool":"AskUserQuestion","args":{"questions":"[{\"question\":\"Choose one letter.\",\"header\":\"One\",\"options\":[{\"label\":\"A\",\"description\":\"Choose A\"},{\"label\":\"B\",\"description\":\"Choose B\"}],\"multiSelect\":false},{\"question\":\"Choose letters.\",\"header\":\"Many\",\"options\":[{\"label\":\"A\",\"description\":\"Choose A\"},{\"label\":\"B\",\"description\":\"Choose B\"},{\"label\":\"C\",\"description\":\"Choose C\"}],\"multiSelect\":true}]"},"text":"Your questions have been answered: \"Choose one letter.\"=\"A\", \"Choose letters.\"=\"A, C\". You can now continue with the user's answers in mind.","state":"done","id":"tool:fixture-question-flow-tool","rev":1040,"result":"Your questions have been answered: \"Choose one letter.\"=\"A\", \"Choose letters.\"=\"A, C\". You can now continue with the user's answers in mind."},{"ts":"2026-10-27T01:01:12.164Z","kind":"question","requestId":"08b9ddfa-388c-42fe-82d6-e2c2cb9551a8","sessionId":"question-flow","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Choose one letter.","header":"One","options":[{"label":"A","description":"Choose A"},{"label":"B","description":"Choose B"}],"multiSelect":false},{"question":"Choose letters.","header":"Many","options":[{"label":"A","description":"Choose A"},{"label":"B","description":"Choose B"},{"label":"C","description":"Choose C"}],"multiSelect":true}]},"agent_type":"engineer","permission_mode":"default","receivedAt":"2026-10-27T01:01:12.164Z","holdLimitMs":590000,"mode":"remote","status":"remote","behavior":"allow","answers":{"Choose one letter.":"A","Choose letters.":"A, C"},"via":"remote","id":"synthetic:966aaf511bca9ed1","rev":1039}],"total":2,"hasMore":false}
+"""#
 
     @MainActor
     private func makeApp(controllerInfo: ControllerInfo? = nil) -> AppStore {

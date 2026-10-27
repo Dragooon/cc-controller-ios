@@ -63,9 +63,20 @@ public extension Approval {
 }
 
 private func parseQuestionItems(from input: JSONValue?) -> [Question]? {
-    guard case .object(let object) = input,
-          case .array(let rawQuestions)? = object["questions"],
-          (1...4).contains(rawQuestions.count) else { return nil }
+    guard case .object(let object) = input else { return nil }
+    let rawQuestions: [JSONValue]
+    switch object["questions"] {
+    case .array(let questions):
+        rawQuestions = questions
+    case .string(let encoded):
+        guard let data = encoded.data(using: .utf8),
+              let decoded = try? JSONDecoder.ccKit().decode(JSONValue.self, from: data),
+              case .array(let questions) = decoded else { return nil }
+        rawQuestions = questions
+    default:
+        return nil
+    }
+    guard (1...4).contains(rawQuestions.count) else { return nil }
 
     let parsed = rawQuestions.compactMap { rawQuestion -> Question? in
         guard case .object(let value) = rawQuestion,
