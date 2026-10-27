@@ -52,10 +52,14 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
 
         // Both Needs-you rows sit above the first controller section.
-        let macSection = sectionHeader("mac", in: app)
-        XCTAssertTrue(bringIntoView(macSection, in: sessions), "Mac section header did not load")
-        XCTAssertLessThan(mustafarRow.frame.minY, macSection.frame.minY, "Mustafar approval was not in the merged Needs-you section")
-        XCTAssertLessThan(macRow.frame.minY, macSection.frame.minY, "Mac approval was not in the merged Needs-you section")
+        XCTAssertTrue(scrollToTop(of: sessions, until: macRow), "Could not scroll the sessions list back to the top")
+        let expectedOrder = [
+            "session-approval-flow-light-mode",
+            "session-discord-triage",
+            "controller-section-mac",
+        ]
+        let observedOrder = appearanceOrder(of: expectedOrder, in: sessions)
+        XCTAssertEqual(observedOrder, expectedOrder, "Needs-you rows were not ordered before the Mac section: \(observedOrder)")
         addScreenshot(named: "multi-controller-needs-you")
     }
 
@@ -305,6 +309,40 @@ final class MultiControllerFlowTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    private func scrollToTop(of list: XCUIElement, until element: XCUIElement) -> Bool {
+        if element.exists && element.isHittable { return true }
+        for _ in 0..<10 {
+            list.swipeDown(velocity: .slow)
+            if element.exists && element.isHittable { return true }
+        }
+        return element.exists && element.isHittable
+    }
+
+    private func appearanceOrder(
+        of identifiers: [String],
+        in list: XCUIElement,
+        maxSwipes: Int = 10
+    ) -> [String] {
+        var seen = Set<String>()
+        var order: [String] = []
+        for swipe in 0...maxSwipes {
+            let visible = identifiers.compactMap { identifier -> (String, CGFloat)? in
+                let element = list.descendants(matching: .any)
+                    .matching(identifier: identifier)
+                    .firstMatch
+                guard !seen.contains(identifier), element.exists, element.isHittable else { return nil }
+                return (identifier, element.frame.minY)
+            }.sorted { $0.1 < $1.1 }
+            for (identifier, _) in visible {
+                seen.insert(identifier)
+                order.append(identifier)
+            }
+            if seen.count == identifiers.count || swipe == maxSwipes { break }
+            list.swipeUp(velocity: .slow)
+        }
+        return order
+    }
 
     private func bringIntoView(_ element: XCUIElement, in scrollContainer: XCUIElement) -> Bool {
         if element.exists && element.isHittable { return true }
