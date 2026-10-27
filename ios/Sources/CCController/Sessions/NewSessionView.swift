@@ -90,6 +90,7 @@ struct NewSessionView: View {
                 .padding(.horizontal, 14)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.ccBackground)
             }
             .navigationTitle("New session")
@@ -140,9 +141,11 @@ struct NewSessionView: View {
                 }
                 .padding(.vertical, 2)
             }
-            .scrollClipDisabled()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
             sendButton
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .disabled(isCreating)
     }

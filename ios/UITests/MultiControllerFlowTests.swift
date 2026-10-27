@@ -273,9 +273,6 @@ final class MultiControllerFlowTests: XCTestCase {
     func testNewSessionOnMustafarStartsWithAnAgent() async throws {
         let app = launch()
         defer { app.terminate() }
-        if UIDevice.current.name.localizedCaseInsensitiveContains("Duo") {
-            XCUIDevice.shared.orientation = .landscapeRight
-        }
         waitForLiveControllers(in: app)
 
         let button = app.buttons["new-session"]
@@ -288,7 +285,18 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertTrue(draft.waitForExistence(timeout: 10), "Prompt field did not load")
         draft.tap()
         draft.typeText("Check the Moonlight build")
-        addScreenshot(named: "new-session-composer-host-folder-agent")
+        if UIDevice.current.name.localizedCaseInsensitiveContains("Duo") {
+            XCUIDevice.shared.orientation = .portrait
+            try await Task.sleep(for: .seconds(1))
+            addScreenshot(named: "new-session-composer-host-folder-agent-portrait")
+            XCUIDevice.shared.orientation = .landscapeRight
+            try await Task.sleep(for: .seconds(1))
+            addScreenshot(named: "new-session-composer-host-folder-agent-landscape")
+        } else {
+            XCUIDevice.shared.orientation = .landscapeRight
+            try await Task.sleep(for: .seconds(1))
+            addScreenshot(named: "new-session-composer-host-folder-agent")
+        }
         controller.tap()
         let mustafar = app.buttons["Mustafar"]
         XCTAssertTrue(mustafar.waitForExistence(timeout: 10), "Mustafar was not offered")

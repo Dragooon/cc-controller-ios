@@ -89,6 +89,14 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(app.buttons["new-session-folder"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["new-session-folder"].label.contains("new-project-1"))
         XCTAssertTrue(app.buttons["new-session-agent"].label.contains("Reviewer"))
+        let sendFrame = app.buttons["new-session-send"].frame
+        let agentFrame = app.buttons["new-session-agent"].frame
+        XCTAssertFalse(sendFrame.intersects(agentFrame), "Send button overlaps the agent chip")
+        XCTAssertLessThanOrEqual(
+            sendFrame.maxX,
+            app.navigationBars["New session"].frame.maxX + 24,
+            "Send button is not at the trailing edge of the sheet"
+        )
     }
 
     func testAsleepRowWakesAndOpensSession() async throws {
