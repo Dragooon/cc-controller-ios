@@ -10,6 +10,49 @@ final class ModelTests: XCTestCase {
         XCTAssertNotNil(plain.ts)
     }
 
+    func testPeerConversationTimesDecodeEpochMilliseconds() throws {
+        let conversation = try JSONDecoder.ccKit().decode(
+            [PeerConversation].self,
+            from: Data("""
+            [{"id":"74dca0e9cd297800","peer":{"host":"stockade","hostLabel":"Stockade","ref":"stockade1","label":"thread \\\"X\\\" in #general"},"local":{"ref":"<any>","label":"Approval Flow Light Mode"},"state":"allowed","since":1793059200000,"until":1793062800000}]
+            """.utf8)
+        ).first
+        let since = Date(timeIntervalSince1970: 1793059200)
+        let until = Date(timeIntervalSince1970: 1793062800)
+
+        XCTAssertEqual(conversation?.since, since)
+        XCTAssertEqual(conversation?.until, until)
+        XCTAssertEqual(conversation?.lastActive, until.addingTimeInterval(-60 * 60))
+    }
+
+    func testPeerConversationTimesDecodeISOStrings() throws {
+        let conversation = try JSONDecoder.ccKit().decode(
+            PeerConversation.self,
+            from: Data("""
+            {"id":"conversation","peer":{"host":"stockade","hostLabel":"Stockade","ref":"stockade1","label":"thread \\\"X\\\" in #general"},"local":{"ref":"local","label":"Approval Flow Light Mode"},"state":"allowed","since":"2026-10-27T00:00:00.000Z","until":"2026-10-27T01:00:00.000Z"}
+            """.utf8)
+        )
+
+        let since = Date(timeIntervalSince1970: 1793059200)
+        let until = Date(timeIntervalSince1970: 1793062800)
+        XCTAssertEqual(conversation.since, since)
+        XCTAssertEqual(conversation.until, until)
+        XCTAssertEqual(conversation.lastActive, until.addingTimeInterval(-60 * 60))
+    }
+
+    func testPeerConversationMissingSinceRemainsNil() throws {
+        let conversation = try JSONDecoder.ccKit().decode(
+            PeerConversation.self,
+            from: Data("""
+            {"id":"conversation","peer":{"host":"stockade","hostLabel":"Stockade","ref":"stockade1","label":"thread \\\"X\\\" in #general"},"local":{"ref":"local","label":"Approval Flow Light Mode"},"state":"denied","until":1793062800000}
+            """.utf8)
+        )
+
+        XCTAssertNil(conversation.since)
+        XCTAssertEqual(conversation.until, Date(timeIntervalSince1970: 1793062800))
+        XCTAssertEqual(conversation.lastActive, conversation.since)
+    }
+
     func testUnknownEnumAndEntryArePreserved() throws {
         let state = try JSONDecoder.ccKit().decode(SessionState.self, from: Data("\"future_state\"".utf8))
         XCTAssertEqual(state, .unknown("future_state"))

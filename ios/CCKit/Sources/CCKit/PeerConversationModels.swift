@@ -87,8 +87,8 @@ public struct PeerConversation: Codable, Sendable, Equatable, Identifiable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let state = try container.decodeIfPresent(PeerConversationState.self, forKey: .state) ?? .unknown("unknown")
-        let since = try container.decodeIfPresent(Date.self, forKey: .since)
-        let until = try container.decodeIfPresent(Date.self, forKey: .until)
+        let since = try Self.decodeDate(from: container, forKey: .since)
+        let until = try Self.decodeDate(from: container, forKey: .until)
         self.init(
             id: try container.decode(String.self, forKey: .id),
             peer: try container.decode(PeerConversationPeer.self, forKey: .peer),
@@ -96,8 +96,24 @@ public struct PeerConversation: Codable, Sendable, Equatable, Identifiable {
             state: state,
             since: since,
             until: until,
-            lastActive: try container.decodeIfPresent(Date.self, forKey: .lastActive)
+            lastActive: try Self.decodeDate(from: container, forKey: .lastActive)
         )
+    }
+
+    private static func decodeDate(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> Date? {
+        guard container.contains(key), try !container.decodeNil(forKey: key) else { return nil }
+        let value = try container.superDecoder(forKey: key).singleValueContainer()
+        if let milliseconds = try? value.decode(Double.self) {
+            return Date(timeIntervalSince1970: milliseconds / 1000)
+        }
+        let string = try value.decode(String.self)
+        guard let date = CCDateCoding.parse(string) else {
+            throw DecodingError.dataCorruptedError(in: value, debugDescription: "Invalid ISO 8601 date: \(string)")
+        }
+        return date
     }
 }
 
