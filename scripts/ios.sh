@@ -114,6 +114,14 @@ configure_keyboard() {
   xcrun simctl spawn "$udid" defaults write com.apple.keyboard.preferences DidShowContinuousPathIntroduction -bool true
 }
 
+disable_pool_posterboard() {
+  local udid=$1
+  # PosterBoard crashes in PRPosterDescriptor _initWithPath: on this runtime, raising macOS crash dialogs.
+  if ! xcrun simctl spawn "$udid" launchctl disable user/foreground/com.apple.PosterBoard >/dev/null 2>&1; then
+    printf 'warning: could not disable PosterBoard for pool simulator %s\n' "$udid" >&2
+  fi
+}
+
 terminate_process_tree() {
   local pid=$1 child
   [[ "$pid" =~ ^[0-9]+$ ]] || return 0
@@ -405,6 +413,7 @@ ensure_pool_device() {
   else
     printf '%s\n' "reusing booted $name" >&2
   fi
+  disable_pool_posterboard "$udid"
   configure_keyboard "$udid"
   xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
   printf '%s\n' "$(date +%s)" > "$(pool_last_use_file "$POOL_SLOT" "$device")"
