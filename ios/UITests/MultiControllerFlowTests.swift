@@ -181,6 +181,14 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertEqual(sizeClass.label, "regular", "Landscape pool device did not report regular horizontal size class")
         waitForLiveControllers(in: app)
 
+        let sidebarToggle = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] 'sidebar'"))
+            .firstMatch
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 20), "Sidebar toggle did not load")
+        sidebarToggle.tap()
+        expectation(for: NSPredicate(format: "value == %@", "detailOnly"), evaluatedWith: sizeClass)
+        waitForExpectations(timeout: 20)
+
         let capsule = app.buttons["approvals-elsewhere"]
         XCTAssertTrue(capsule.waitForExistence(timeout: 75), "Approvals-elsewhere capsule did not load")
         // One Mac approval, plus Mustafar's writable approval and its Discord one (answered in Discord, still waiting).
