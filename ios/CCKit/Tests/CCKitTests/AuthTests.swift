@@ -201,6 +201,26 @@ final class AuthTests: XCTestCase {
     }
 #endif
 
+    func testAuthSessionUnlockSucceedsWhenSessionBearerPersistenceFails() async throws {
+        AuthURLProtocol.handler = { request in
+            if request.url?.path == "/api/auth/native/login" {
+                return AuthURLProtocol.json(Data("{\"authenticated\":true,\"token\":\"bearer\"}".utf8))
+            }
+            return AuthURLProtocol.json(Data("{}".utf8))
+        }
+        let auth = AuthSession(
+            serverURL: URL(string: "http://localhost:47832")!,
+            credentials: ThrowingSessionBearerStore(),
+            session: AuthURLProtocol.session
+        )
+
+        guard case .success = await auth.unlock() else {
+            return XCTFail("Unlock must succeed when session bearer persistence fails")
+        }
+        let bearer = try await auth.bearer()
+        XCTAssertEqual(bearer, "bearer")
+    }
+
     func testLockPolicyIntervalsAndPrivacyCover() {
         let date = Date(timeIntervalSince1970: 1_000)
         XCTAssertTrue(LockPolicy().shouldLockOnColdLaunch(lastUnlockAt: nil, lastBackgroundAt: nil, now: date))
@@ -228,6 +248,27 @@ final class AuthTests: XCTestCase {
         XCTAssertTrue(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: true, isLocked: false))
         XCTAssertFalse(LockPolicy().shouldShowPrivacyCover(isActive: true, isBackgrounded: false, isLocked: false))
     }
+}
+
+private actor ThrowingSessionBearerStore: CredentialStore {
+    func getDeviceToken() async throws -> String? { nil }
+    func setDeviceToken(_ value: String) async throws { }
+    func deleteDeviceToken() async throws { }
+    func getNativeSecret() async throws -> String? { "native-secret" }
+    func hasNativeSecret() async throws -> Bool { true }
+    func setNativeSecret(_ value: String) async throws { }
+    func deleteNativeSecret() async throws { }
+    func getLastUnlockAt() async throws -> Date? { nil }
+    func setLastUnlockAt(_ value: Date) async throws { }
+    func deleteLastUnlockAt() async throws { }
+    func getLastBackgroundAt() async throws -> Date? { nil }
+    func setLastBackgroundAt(_ value: Date) async throws { }
+    func deleteLastBackgroundAt() async throws { }
+    func getSessionBearer() async throws -> SessionBearer? { nil }
+    func setSessionBearer(_ value: SessionBearer) async throws {
+        throw CredentialStoreError.system("test session bearer persistence failure")
+    }
+    func deleteSessionBearer() async throws { }
 }
 
 private struct TestAuthClock: CCKitClock {

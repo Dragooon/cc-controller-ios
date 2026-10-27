@@ -61,7 +61,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         composer.tap()
         composer.typeText(draft)
 
-        XCTAssertTrue(app.staticTexts["cc-controller is locked"].waitForExistence(timeout: 15), "Unlock age did not expire while active")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 15), "Unlock age did not expire while active")
         try await completeFaceID(app, until: composer, "Face ID did not unlock after active expiry")
         XCTAssertEqual(composer.value as? String, draft, "Composer draft was lost across the lock")
     }
@@ -112,6 +112,6 @@ final class LockFlowTests: FixtureFlowTestSupport {
 
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15), "Cold launch within the unlock window did not open Sessions")
         XCTAssertTrue(app.buttons["session-pull-up-agentic-uw"].waitForExistence(timeout: 30), "Cold launch did not restore the fixture session list")
-        XCTAssertFalse(app.staticTexts["cc-controller is locked"].exists, "Cold launch within the unlock window showed the lock screen")
+        XCTAssertFalse(app.staticTexts["Code is locked"].exists, "Cold launch within the unlock window showed the lock screen")
     }
 }

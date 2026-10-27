@@ -1,5 +1,11 @@
 import Foundation
 import Observation
+import OSLog
+
+private let authSessionLogger = Logger(
+    subsystem: "com.example.cc-controller",
+    category: "auth"
+)
 
 public enum AuthState: Sendable, Equatable {
     case unpaired
@@ -185,7 +191,11 @@ public final class AuthSession {
             let response = try await client.login(secret: secret)
             guard response.authenticated != false, let token = response.token, !token.isEmpty else { throw AuthError.unknownSecret }
             let expiresAt = response.expiresAt ?? clock.now.addingTimeInterval(12 * 60 * 60)
-            try await credentials.setSessionBearer(SessionBearer(token: token, expiresAt: expiresAt))
+            do {
+                try await credentials.setSessionBearer(SessionBearer(token: token, expiresAt: expiresAt))
+            } catch {
+                authSessionLogger.error("Could not persist session bearer: \(error.localizedDescription, privacy: .public)")
+            }
             TranscriptLifecycleLog.shared.record(name: "native-login")
             bearerToken = token
             state = .unlocked(bearerExpiresAt: expiresAt)
