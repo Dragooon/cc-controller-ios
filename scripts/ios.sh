@@ -178,7 +178,7 @@ start_fixture_daemon() {
   FIXTURE_SECOND_OUT=$(mktemp -t cc-controller-fixture-mustafar.XXXXXX)
   CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" \
     --scenario default --session-set mustafar --controller-id mustafar --controller-name Mustafar \
-    --controller-kind stockade --out "$FIXTURE_SECOND_OUT" --relay \
+    --controller-kind stockade --out "$FIXTURE_SECOND_OUT" \
     >"$FIXTURE_LOG.mustafar" 2>&1 &
   STARTED_SECOND_DAEMON=$!
   for _ in {1..100}; do [[ -s "$FIXTURE_SECOND_OUT" ]] && break; sleep 0.1; done
@@ -447,7 +447,7 @@ configure_xctestrun() {
     return 1
   fi
   local relay_port="" relay_pin="" second_fixture_url="" second_fixture_bearer=""
-  local second_relay_port="" second_relay_pin="" second_control_url=""
+  local second_tls_port="" second_tls_pin="" second_control_url=""
   if [[ -n "$FIXTURE_OUT" && -s "$FIXTURE_OUT" ]]; then
     relay_port=$(json_value "$FIXTURE_OUT" relayPort)
     relay_pin=$(json_value "$FIXTURE_OUT" relaySpkiSha256)
@@ -455,8 +455,8 @@ configure_xctestrun() {
   if [[ -n "$FIXTURE_SECOND_OUT" && -s "$FIXTURE_SECOND_OUT" ]]; then
     second_fixture_url="http://127.0.0.1:$(json_value "$FIXTURE_SECOND_OUT" webPort)"
     second_fixture_bearer=$(json_value "$FIXTURE_SECOND_OUT" bearer)
-    second_relay_port=$(json_value "$FIXTURE_SECOND_OUT" relayPort)
-    second_relay_pin=$(json_value "$FIXTURE_SECOND_OUT" relaySpkiSha256)
+    second_tls_port=$(json_value "$FIXTURE_SECOND_OUT" tlsPort)
+    second_tls_pin=$(json_value "$FIXTURE_SECOND_OUT" tlsSpkiSha256)
     second_control_url="http://127.0.0.1:$(json_value "$FIXTURE_SECOND_OUT" controlPort)"
   fi
   local entries=(
@@ -467,8 +467,8 @@ configure_xctestrun() {
     TEST_RUNNER_FIXTURE_CONTROL_URL "$control"
     TEST_RUNNER_SECOND_FIXTURE_URL "$second_fixture_url"
     TEST_RUNNER_SECOND_FIXTURE_BEARER "$second_fixture_bearer"
-    TEST_RUNNER_SECOND_FIXTURE_RELAY_PORT "$second_relay_port"
-    TEST_RUNNER_SECOND_FIXTURE_RELAY_PIN "$second_relay_pin"
+    TEST_RUNNER_SECOND_FIXTURE_TLS_PORT "$second_tls_port"
+    TEST_RUNNER_SECOND_FIXTURE_TLS_PIN "$second_tls_pin"
     TEST_RUNNER_SECOND_FIXTURE_CONTROL_URL "$second_control_url"
     TEST_RUNNER_COLOR_SCHEME "$color"
     CC_FLOW_OUTPUT_DIR "$output_dir"

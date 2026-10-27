@@ -129,7 +129,7 @@ final class MultiControllerFlowTests: XCTestCase {
             .firstMatch
         XCTAssertTrue(peer.waitForExistence(timeout: 75), "Peer prompt did not render as a peer message")
         XCTAssertTrue(peer.label.contains("From Kepler · macbook"), "Peer header was wrong: \(peer.label)")
-        XCTAssertTrue(peer.label.contains("Is the Mustafar relay listening on 47834?"), "Peer text was missing: \(peer.label)")
+        XCTAssertTrue(peer.label.contains("Is the Mustafar direct TLS listener available?"), "Peer text was missing: \(peer.label)")
         addScreenshot(named: "multi-controller-peer-message")
     }
 

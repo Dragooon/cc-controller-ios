@@ -1,12 +1,12 @@
 import XCTest
 
-/// Settings > Add controller against the second fixture's relay: pair with the identity check, turn on Face ID,
-/// see the controller go live beside the primary, then remove it.
+/// Settings > Add controller against the second fixture's direct TLS listener: pair with the identity check,
+/// turn on Face ID, see the controller go live beside the primary, then remove it.
 @MainActor
 final class AddControllerFlowTests: FixtureFlowTestSupport {
-    func testAddRelayControllerPairsGoesLiveAndRemoves() async throws {
-        let relayPort = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_RELAY_PORT")
-        let relayPin = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_RELAY_PIN")
+    func testAddDirectTLSControllerPairsGoesLiveAndRemoves() async throws {
+        let tlsPort = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_TLS_PORT")
+        let tlsPin = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_TLS_PIN")
         let controlURL = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_CONTROL_URL")
 
         let app = XCUIApplication()
@@ -41,7 +41,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         name.typeText("Mustafar")
         let addresses = element(app, "add-controller-addresses")
         addresses.tap()
-        addresses.typeText("127.0.0.1:\(relayPort)")
+        addresses.typeText("127.0.0.1:\(tlsPort)")
         let connect = element(app, "add-controller-connect")
         XCTAssertTrue(connect.isEnabled, "Connect stayed disabled for a valid draft")
         connect.tap()
@@ -50,13 +50,13 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(codeElement.waitForExistence(timeout: 30), "Pairing code did not appear")
         let code = codeElement.label.replacingOccurrences(of: " ", with: "")
         XCTAssertEqual(code.count, 6)
-        let check = String(relayPin.lowercased().prefix(8))
+        let check = String(tlsPin.lowercased().prefix(8))
         let command = element(app, "add-controller-pairing-command")
         XCTAssertTrue(command.waitForExistence(timeout: 5))
         XCTAssertTrue(command.label.contains(code), "Pairing command did not include the code: \(command.label)")
         XCTAssertTrue(
             command.label.replacingOccurrences(of: " ", with: "").lowercased().hasSuffix(check),
-            "Pairing command did not end with the relay identity check: \(command.label)"
+            "Pairing command did not end with the TLS identity check: \(command.label)"
         )
         addScreenshot(named: "add-controller-pairing")
         try await approvePairing(code, check: check, controlURL: controlURL)
