@@ -367,6 +367,8 @@ public struct Session: Codable, Sendable, Equatable {
     public var shells: [Shell]?
     public var mode: ApprovalMode?
     public var commandRoute: String?
+    public var lastUserMessageAt: Date?
+    public var lastUserMessageAtExact: Bool?
     public var startedAt: Date?
     public var idleSince: Date?
     public var background: BackgroundSession?
@@ -380,7 +382,33 @@ public struct Session: Codable, Sendable, Equatable {
     public var readOnlyReason: String?
     public var sudo: Bool?
     public var agent: SessionAgent?
-    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
+    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
+}
+
+/// Whether `left` should appear before `right` in the Recents list.
+public func sessionRecencyPrecedes(_ left: Session, _ right: Session) -> Bool {
+    switch (left.lastUserMessageAt, right.lastUserMessageAt) {
+    case let (leftDate?, rightDate?):
+        if leftDate != rightDate { return leftDate > rightDate }
+    case (_?, nil): return true
+    case (nil, _?): return false
+    case (nil, nil): break
+    }
+
+    if left.lastUserMessageAt == nil && right.lastUserMessageAt == nil {
+        let leftActivity = max(left.idleSince ?? .distantPast, left.startedAt ?? .distantPast)
+        let rightActivity = max(right.idleSince ?? .distantPast, right.startedAt ?? .distantPast)
+        if leftActivity != rightActivity { return leftActivity > rightActivity }
+    }
+
+    let leftName = left.name ?? ""
+    let rightName = right.name ?? ""
+    if leftName != rightName { return leftName.localizedStandardCompare(rightName) == .orderedAscending }
+    return (left.id ?? "") < (right.id ?? "")
+}
+
+public func sortSessionsForRecents(_ sessions: [Session]) -> [Session] {
+    sessions.sorted(by: sessionRecencyPrecedes)
 }
 
 public struct SessionStarter: Codable, Sendable, Equatable {

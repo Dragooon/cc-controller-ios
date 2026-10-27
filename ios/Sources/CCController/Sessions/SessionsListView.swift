@@ -83,6 +83,7 @@ struct SessionsListView: View {
     let onCopyAttachCommand: (SleepingSession) -> Void
 
     @State private var searchText = ""
+    @State private var isSearchPresented = false
 
     init(
         controllers: [SessionsListController],
@@ -175,61 +176,87 @@ struct SessionsListView: View {
         }
     }
 
-    private func needsYou(_ controller: SessionsListController) -> [Session] {
-        filteredSessions(controller).filter { sessionActivity($0) == .needsYou }
-    }
-
-    private func working(_ controller: SessionsListController) -> [Session] {
-        filteredSessions(controller).filter {
-            switch sessionActivity($0) {
-            case .working, .background: true
-            case .needsYou, .idle: false
-            }
+    private var sessionItems: [ControllerSessionItem] {
+        controllers.flatMap { controller in
+            filteredSessions(controller).map { ControllerSessionItem(controller: controller, session: $0) }
         }
     }
 
-    private func idle(_ controller: SessionsListController) -> [Session] {
-        filteredSessions(controller).filter { sessionActivity($0) == .idle }
+    private var needsYouItems: [ControllerSessionItem] {
+        sortSessionItems(sessionItems.filter { sessionActivity($0.session) == .needsYou })
     }
 
-    /// The single-controller capsule. With several controllers each section header carries its own status.
-    private var capsuleConnection: Connection {
-        guard !isMultiController, let controller = controllers.first else { return .live }
-        return controller.connection
+    private var recentItems: [ControllerSessionItem] {
+        sortSessionItems(sessionItems.filter { sessionActivity($0.session) != .needsYou })
+    }
+
+    private var sleepingItems: [ControllerSleepingItem] {
+        controllers.flatMap { controller in
+            filteredSleeping(controller).map { ControllerSleepingItem(controller: controller, session: $0) }
+        }.sorted { left, right in
+            if left.session.lastActiveAt != right.session.lastActiveAt {
+                return left.session.lastActiveAt > right.session.lastActiveAt
+            }
+            return false
+        }
+    }
+
+    private func sortSessionItems(_ items: [ControllerSessionItem]) -> [ControllerSessionItem] {
+        items.sorted { sessionRecencyPrecedes($0.session, $1.session) }
     }
 
     var body: some View {
         NavigationStack {
             list
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if canCreateSession && (hasAnySessions || isMultiController) {
+                        HStack {
+                            Spacer()
+                            Button(action: onNewSession) {
+                                Image(systemName: "square.and.pencil")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.ccAccent)
+                                    .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
+                                    .glassEffect(.regular.interactive(), in: .circle)
+                            }
+                            .buttonStyle(.plain)
+                            .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+                            .contentShape(.rect)
+                            .accessibilityLabel("New session")
+                            .accessibilityIdentifier("new-session")
+                            .padding(.trailing, 16)
+                            .padding(.bottom, 12)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
                 .navigationTitle("Sessions")
                 .navigationSubtitle(subtitle ?? "")
                 .toolbar {
-                    if canCreateSession {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(action: onNewSession) {
-                                Image(systemName: "plus")
-                            }
-                            .accessibilityLabel("New session")
-                            .accessibilityIdentifier("new-session")
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            isSearchPresented = true
+                        } label: {
+                            Image(systemName: "magnifyingglass")
                         }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
+                        .accessibilityLabel("Search sessions")
+                        .accessibilityIdentifier("sessions-search")
                         Button(action: onSettings) {
                             Image(systemName: "gearshape")
                         }
                         .accessibilityLabel("Settings")
                     }
                 }
-                .searchable(text: $searchText, prompt: "Search sessions")
-                .searchToolbarBehavior(.minimize)
-                .refreshable { await onRefresh() }
-                .safeAreaBar(edge: .top, spacing: 8) {
-                    if case .live = capsuleConnection {
-                        EmptyView()
-                    } else if let controller = controllers.first {
-                        ConnectionCapsule(connection: capsuleConnection, onRetry: { onRetry(controller.id) })
-                    }
+                .searchable(
+                    text: $searchText,
+                    isPresented: $isSearchPresented,
+                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Search sessions"
+                )
+                .onChange(of: isSearchPresented) { _, presented in
+                    if !presented { searchText = "" }
                 }
+                .refreshable { await onRefresh() }
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -243,7 +270,7 @@ struct SessionsListView: View {
 
     @ViewBuilder
     private var list: some View {
-        if !isMultiController && !hasAnySessions {
+        if !isMultiController && !hasAnySessions && controllers.allSatisfy({ if case .live = $0.connection { return true }; return false }) {
             ContentUnavailableView {
                 Label("No sessions", systemImage: "terminal")
             } description: {
@@ -265,13 +292,36 @@ struct SessionsListView: View {
                             .foregroundStyle(.ccSecondary)
                     }
                 }
-                if isMultiController {
-                    multiControllerSections
-                } else if let controller = controllers.first {
-                    sessionSection("Needs you", controller: controller, sessions: needsYou(controller))
-                    sessionSection("Working", controller: controller, sessions: working(controller))
-                    sessionSection("Idle", controller: controller, sessions: idle(controller))
-                    sleepingSection(controller)
+                statusRows
+                if !needsYouItems.isEmpty {
+                    Section("Needs you") {
+                        ForEach(needsYouItems) { item in
+                            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController)
+                        }
+                    }
+                }
+                if !recentItems.isEmpty {
+                    Section("Recents") {
+                        ForEach(recentItems) { item in
+                            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController)
+                        }
+                    }
+                }
+                if !sleepingItems.isEmpty {
+                    Section("Asleep") {
+                        ForEach(sleepingItems) { item in
+                            sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController)
+                        }
+                    }
+                }
+                if needsYouItems.isEmpty && recentItems.isEmpty && sleepingItems.isEmpty {
+                    Section {
+                        Text(query.isEmpty ? "No sessions" : "No matches")
+                            .font(.subheadline)
+                            .foregroundStyle(.ccTertiary)
+                            .listRowBackground(Color.ccCard)
+                            .accessibilityIdentifier("sessions-empty")
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -281,60 +331,27 @@ struct SessionsListView: View {
         }
     }
 
-    // MARK: Multi-controller layout
+    // MARK: Merged list layout
 
     @ViewBuilder
-    private var multiControllerSections: some View {
-        let merged = controllers.flatMap { controller in
-            needsYou(controller).map { NeedsYouItem(controller: controller, session: $0) }
-        }
-        if !merged.isEmpty {
-            Section("Needs you") {
-                ForEach(merged) { item in
-                    sessionRow(item.session, controller: item.controller, showsControllerName: true)
-                }
-            }
-        }
-        ForEach(controllers) { controller in
-            let rows = working(controller) + idle(controller)
-            let sleeping = filteredSleeping(controller)
-            Section {
-                if rows.isEmpty && sleeping.isEmpty {
-                    Text(query.isEmpty ? "No other sessions" : "No matches")
-                        .font(.subheadline)
-                        .foregroundStyle(.ccTertiary)
-                        .listRowBackground(Color.ccCard)
-                        .accessibilityIdentifier("controller-empty-\(controller.id.rawValue)")
-                }
-                ForEach(rows, id: \.id) { session in
-                    sessionRow(session, controller: controller, showsControllerName: false)
-                }
-                ForEach(sleeping) { session in
-                    sleepingRow(session, controller: controller)
-                }
-            } header: {
-                ControllerSectionHeader(controller: controller, onSignIn: { onSignIn(controller.id) })
-            }
+    private var statusRows: some View {
+        ForEach(controllers.filter { if case .live = $0.connection { return false }; return true }) { controller in
+            ControllerSectionHeader(
+                controller: controller,
+                onSignIn: { onSignIn(controller.id) },
+                onRetry: { onRetry(controller.id) }
+            )
+            .listRowBackground(Color.ccCard)
+            .listRowSeparatorTint(.ccSeparator)
         }
     }
 
     // MARK: Shared rows
 
-    @ViewBuilder
-    private func sleepingSection(_ controller: SessionsListController) -> some View {
-        let sleeping = filteredSleeping(controller)
-        if !sleeping.isEmpty {
-            Section("Asleep") {
-                ForEach(sleeping) { session in
-                    sleepingRow(session, controller: controller)
-                }
-            }
-        }
-    }
-
-    private func sleepingRow(_ session: SleepingSession, controller: SessionsListController) -> some View {
+    private func sleepingRow(_ session: SleepingSession, controller: SessionsListController, showsControllerName: Bool) -> some View {
         SleepingSessionRow(
             session: session,
+            controllerName: showsControllerName ? controller.name : nil,
             isWaking: waking.contains(sleepingSessionKey(controllerID: controller.id, sessionID: session.id)),
             canWake: controller.capabilities.contains(.wake),
             onWake: { onWake(controller.id, session) },
@@ -342,15 +359,6 @@ struct SessionsListView: View {
         )
         .listRowBackground(Color.ccCard)
         .listRowSeparatorTint(.ccSeparator)
-    }
-
-    @ViewBuilder
-    private func sessionSection(_ title: String, controller: SessionsListController, sessions: [Session]) -> some View {
-        Section(title) {
-            ForEach(sessions, id: \.id) { session in
-                sessionRow(session, controller: controller, showsControllerName: false)
-            }
-        }
     }
 
     private func sessionRow(_ session: Session, controller: SessionsListController, showsControllerName: Bool) -> some View {
@@ -381,38 +389,47 @@ struct SessionsListView: View {
 
     private var listAnimationKey: [String] {
         var keys: [String] = []
+        for (position, item) in sortSessionItems(sessionItems).enumerated() {
+            let parts = [
+                "session",
+                String(position),
+                item.controller.id.rawValue,
+                item.session.id ?? "",
+                item.session.state?.rawValue ?? "",
+                item.controller.approval(for: item.session)?.requestId ?? "",
+            ]
+            keys.append(parts.joined(separator: ":"))
+        }
+        for (position, item) in sleepingItems.enumerated() {
+            let key = sleepingSessionKey(controllerID: item.controller.id, sessionID: item.session.id)
+            keys.append("sleeping:\(position):\(key):\(waking.contains(key))")
+        }
         for controller in controllers {
-            for session in filteredSessions(controller) {
-                let parts = [
-                    controller.id.rawValue,
-                    session.id ?? "",
-                    session.state?.rawValue ?? "",
-                    controller.approval(for: session)?.requestId ?? "",
-                ]
-                keys.append(parts.joined(separator: ":"))
-            }
-            for session in filteredSleeping(controller) {
-                let key = sleepingSessionKey(controllerID: controller.id, sessionID: session.id)
-                keys.append("sleeping:\(key):\(waking.contains(key))")
-            }
-            keys.append("controller:\(controller.id.rawValue):\(controller.signInNeeded):\(controller.connection.isFrozen)")
+            keys.append("controller:\(controller.id.rawValue):\(controller.signInNeeded):\(controller.connection)")
         }
         return keys
     }
 }
 
-/// A "Needs you" row in the merged multi-controller section.
-private struct NeedsYouItem: Identifiable {
+private struct ControllerSessionItem: Identifiable {
     let controller: SessionsListController
     let session: Session
 
     var id: String { "\(controller.id.rawValue)/\(session.id ?? "")" }
 }
 
+private struct ControllerSleepingItem: Identifiable {
+    let controller: SessionsListController
+    let session: SleepingSession
+
+    var id: String { sleepingSessionKey(controllerID: controller.id, sessionID: session.id) }
+}
+
 /// A controller section header: name, status dot, and the status text.
 private struct ControllerSectionHeader: View {
     let controller: SessionsListController
     let onSignIn: () -> Void
+    let onRetry: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -439,6 +456,11 @@ private struct ControllerSectionHeader: View {
                     .foregroundStyle(.ccSecondary)
                     .textCase(nil)
                     .lineLimit(1)
+                Button("Retry", action: onRetry)
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .textCase(nil)
+                    .accessibilityIdentifier("controller-retry-\(controller.id.rawValue)")
             }
         }
         .accessibilityElement(children: .contain)
@@ -474,66 +496,6 @@ private struct ControllerSectionHeader: View {
         case .offline, .unreadable: return "offline"
         }
     }
-}
-
-private struct ConnectionCapsule: View {
-    let connection: SessionsListView.Connection
-    let onRetry: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            switch connection {
-            case .offline(let updatedAt):
-                Image(systemName: "wifi.exclamationmark")
-                    .foregroundStyle(.ccAccent)
-                Text("Can't reach the Mac · updated \(formatTime(updatedAt, timeZone: Self.sydney, locale: Self.english))")
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Button("Retry", action: onRetry)
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.glass)
-            case .unreadable(let updatedAt):
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.ccAccent)
-                Text("Can't read the Mac's reply · updated \(formatTime(updatedAt, timeZone: Self.sydney, locale: Self.english))")
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                Button("Retry", action: onRetry)
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.glass)
-            case .reconnecting:
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.ccAccent)
-                Text("Reconnecting…")
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-            case .live:
-                EmptyView()
-            }
-        }
-        .font(.caption)
-        .foregroundStyle(.ccSecondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .padding(.horizontal, 16)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(statusLabel)
-    }
-
-    private var statusLabel: String {
-        switch connection {
-        case .offline: "Can't reach the Mac"
-        case .unreadable: "Can't read the Mac's reply"
-        case .reconnecting: "Reconnecting"
-        case .live: "Connected"
-        }
-    }
-
-    private static let sydney = TimeZone(identifier: "Australia/Sydney")!
-    private static let english = Locale(identifier: "en_AU")
 }
 
 private struct SessionRow: View {
@@ -616,6 +578,7 @@ private struct SessionRow: View {
 
 private struct SleepingSessionRow: View {
     let session: SleepingSession
+    let controllerName: String?
     let isWaking: Bool
     let canWake: Bool
     let onWake: () -> Void
@@ -634,6 +597,12 @@ private struct SleepingSessionRow: View {
                         .frame(width: 28)
                 }
                 VStack(alignment: .leading, spacing: 3) {
+                    if let controllerName {
+                        Label(controllerName, systemImage: "desktopcomputer")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                    }
                     Text(displayName)
                         .font(.headline)
                         .lineLimit(2)

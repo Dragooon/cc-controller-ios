@@ -20,13 +20,12 @@ final class MultiControllerFlowTests: XCTestCase {
             app.buttons["session-staff-account-exclusions"].waitForExistence(timeout: 20),
             "Primary session was not visible"
         )
-        let macSection = sectionHeader("mac", in: app)
-        let mustafarSection = sectionHeader("mustafar", in: app)
-        XCTAssertTrue(bringIntoView(macSection, in: sessions), "Mac section header did not load")
-        XCTAssertTrue(bringIntoView(mustafarSection, in: sessions), "Mustafar section header did not load")
-        XCTAssertEqual(mustafarSection.value as? String, "live")
+        let mac = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(bringIntoView(mac, in: sessions), "Primary session was not visible")
+        XCTAssertTrue(mac.label.contains("Mac"), "Primary session had no controller caption: \(mac.label)")
         let dune = app.buttons["session-dune-relay"]
         XCTAssertTrue(bringIntoView(dune, in: sessions), "Mustafar session was not listed")
+        XCTAssertTrue(dune.label.contains("Mustafar"), "Mustafar session had no controller caption: \(dune.label)")
         let meta = app.descendants(matching: .any).matching(identifier: "session-meta-dune-relay").firstMatch
         XCTAssertTrue(bringIntoView(meta, in: sessions), "Stockade session had no meta line")
         XCTAssertEqual(meta.label, "Madge · Started by Kepler")
@@ -51,16 +50,44 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertEqual(mustafarRow.value as? String, "needs_you")
         XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
 
-        // Both Needs-you rows sit above the first controller section.
-        XCTAssertTrue(scrollToTop(of: sessions, until: macRow), "Could not scroll the sessions list back to the top")
+        // Both Needs-you rows sit above the merged Recents section.
+        let recents = app.staticTexts["Recents"]
+        XCTAssertTrue(recents.exists, "Recents section did not load")
+        XCTAssertLessThan(macRow.frame.minY, recents.frame.minY, "Mac Needs-you row was not pinned above Recents")
+        XCTAssertLessThan(mustafarRow.frame.minY, recents.frame.minY, "Mustafar Needs-you row was not pinned above Recents")
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "controller-section-mac").firstMatch.exists)
+    }
+
+    func testRecentsMergeControllersByLastMessageTimeAndShowHosts() throws {
+        let app = launch()
+        defer { app.terminate() }
+        waitForLiveControllers(in: app)
+
+        let sessions = app.descendants(matching: .any)
+            .matching(identifier: "sessions-list")
+            .firstMatch
+        XCTAssertTrue(sessions.waitForExistence(timeout: 20), "Sessions list did not load")
+
+        let needsYou = app.buttons["session-approval-flow-light-mode"]
+        XCTAssertTrue(needsYou.waitForExistence(timeout: 20), "Needs-you session was not listed")
+        let recents = app.staticTexts["Recents"]
+        XCTAssertTrue(bringIntoView(recents, in: sessions), "Recents section did not load")
+        XCTAssertLessThan(needsYou.frame.minY, recents.frame.minY, "Needs-you session was not pinned above Recents")
+
         let expectedOrder = [
-            "session-approval-flow-light-mode",
-            "session-discord-triage",
-            "controller-section-mac",
+            "session-recent-review",
+            "session-dune-part-three-imax-tickets",
         ]
         let observedOrder = appearanceOrder(of: expectedOrder, in: sessions)
-        XCTAssertEqual(observedOrder, expectedOrder, "Needs-you rows were not ordered before the Mac section: \(observedOrder)")
-        addScreenshot(named: "multi-controller-needs-you")
+        XCTAssertEqual(observedOrder, expectedOrder, "Recents did not interleave hosts by owner message time: \(observedOrder)")
+        for identifier in expectedOrder {
+            let row = app.buttons[identifier]
+            XCTAssertTrue(row.label.contains(identifier.contains("recent-review") ? "Mustafar" : "Mac"), "Row \(identifier) had no host caption: \(row.label)")
+        }
+        let pull = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(bringIntoView(pull, in: sessions), "Second Mac Recents session was not listed")
+        XCTAssertTrue(pull.label.contains("Mac"), "Second Mac Recents session had no host caption: \(pull.label)")
+        addScreenshot(named: "multi-controller-recents")
     }
 
     func testAllowingMustafarApprovalPostsToTheMustafarController() async throws {
@@ -295,16 +322,13 @@ final class MultiControllerFlowTests: XCTestCase {
             .matching(identifier: "sessions-list")
             .firstMatch
         let header = sectionHeader("mustafar", in: app)
-        XCTAssertTrue(bringIntoView(header, in: sessions), "Unreachable controller had no section header")
+        XCTAssertTrue(bringIntoView(header, in: sessions), "Unreachable controller had no status row")
         let notLive = NSPredicate(format: "value == %@ OR value == %@", "offline", "reconnecting")
         expectation(for: notLive, evaluatedWith: header)
         waitForExpectations(timeout: 30)
-        let empty = app.descendants(matching: .any).matching(identifier: "controller-empty-mustafar").firstMatch
-        XCTAssertTrue(
-            bringIntoView(empty, in: sessions),
-            "Unreachable controller section had no placeholder row"
-        )
-        XCTAssertEqual(sectionHeader("mac", in: app).value as? String, "live")
+        let retry = app.buttons["controller-retry-mustafar"]
+        XCTAssertTrue(retry.exists, "Unreachable controller status row had no Retry action")
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "controller-section-mac").firstMatch.exists)
         addScreenshot(named: "multi-controller-offline-header")
     }
 

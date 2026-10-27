@@ -36,19 +36,7 @@ public final class AppStore {
     private var debugAttachmentSessions: Set<String> = []
 
     public var sortedSessions: [Session] {
-        let priority: (Session) -> Int = { session in
-            switch sessionActivity(session) {
-            case .needsYou: 0
-            case .working, .background: 1
-            case .idle: 2
-            }
-        }
-        return sessions.values.sorted { left, right in
-            let leftPriority = priority(left)
-            let rightPriority = priority(right)
-            if leftPriority != rightPriority { return leftPriority < rightPriority }
-            return activityDate(left) > activityDate(right)
-        }
+        sortSessionsForRecents(Array(sessions.values))
     }
 
     public var needsYouSessions: [Session] { sortedSessions.filter { sessionActivity($0) == .needsYou } }
@@ -1689,10 +1677,6 @@ public final class AppStore {
 
     private func draftKey(sessionID: String, agentID: String?) -> String {
         storeKey(sessionID: sessionID, agentID: agentID)
-    }
-
-    private func activityDate(_ session: Session) -> Date {
-        session.startedAt ?? session.idleSince ?? .distantPast
     }
 
     private func isPlaceholderUsage(_ usage: Usage?) -> Bool {

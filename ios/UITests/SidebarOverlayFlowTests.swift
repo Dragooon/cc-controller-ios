@@ -34,6 +34,37 @@ final class SidebarOverlayFlowTests: XCTestCase {
         assertDetailIsBesideSidebar(detail: transcript(in: app), sidebar: sessionsList, in: app)
     }
 
+    func testLandscapeSearchFieldStaysInsideSessionsSidebar() throws {
+        let app = launch(orientation: .landscapeRight, sessionID: "staff-account-exclusions")
+        defer { app.terminate() }
+        assertRegularLandscape(in: app)
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        let searchButton = app.buttons["sessions-search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
+        searchButton.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "Presented sessions search field did not load")
+        XCTAssertTrue(sidebar.frame.contains(field.frame), "Landscape search field escaped sessions sidebar: field=\(field.frame), sidebar=\(sidebar.frame)")
+        addScreenshot(named: "sessions-search-landscape")
+    }
+
+    func testPortraitSearchFieldStaysInsideSessionsColumn() throws {
+        let app = launch(orientation: .portrait)
+        defer { app.terminate() }
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        let searchButton = app.buttons["sessions-search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
+        searchButton.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "Presented sessions search field did not load")
+        XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
+        addScreenshot(named: "sessions-search-portrait")
+    }
+
     func testLandscapeSidebarToggleResizesDetail() throws {
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")
         defer { app.terminate() }
@@ -180,13 +211,15 @@ final class SidebarOverlayFlowTests: XCTestCase {
         return false
     }
 
-    private func launch(orientation: UIDeviceOrientation, sessionID: String) -> XCUIApplication {
+    private func launch(orientation: UIDeviceOrientation, sessionID: String? = nil) -> XCUIApplication {
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
         app.launchArguments = [
             "-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL"),
-            "-CCSession", sessionID,
         ]
+        if let sessionID {
+            app.launchArguments += ["-CCSession", sessionID]
+        }
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
         if let colorScheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !colorScheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", colorScheme]
