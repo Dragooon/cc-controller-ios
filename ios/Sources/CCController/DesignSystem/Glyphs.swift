@@ -371,6 +371,7 @@ struct ApprovalCard: View {
         .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
         .contentShape(Rectangle())
         .accessibilityLabel(isTerminal ? "Deny in the terminal" : "Deny")
+        .accessibilityIdentifier("\(actionIdentifierPrefix)-deny")
     }
 
     private var fullAllowButton: some View {
@@ -384,6 +385,7 @@ struct ApprovalCard: View {
         .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
         .contentShape(Rectangle())
         .accessibilityLabel(isTerminal ? "Allow in the terminal" : "Allow")
+        .accessibilityIdentifier("\(actionIdentifierPrefix)-allow")
     }
 
     private var visibleFullActionHeight: CGFloat {

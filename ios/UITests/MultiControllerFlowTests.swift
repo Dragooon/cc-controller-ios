@@ -22,12 +22,13 @@ final class MultiControllerFlowTests: XCTestCase {
         )
         let macSection = sectionHeader("mac", in: app)
         let mustafarSection = sectionHeader("mustafar", in: app)
-        XCTAssertTrue(macSection.waitForExistence(timeout: 20), "Mac section header did not load")
-        XCTAssertTrue(mustafarSection.waitForExistence(timeout: 20), "Mustafar section header did not load")
+        XCTAssertTrue(bringIntoView(macSection, in: sessions), "Mac section header did not load")
+        XCTAssertTrue(bringIntoView(mustafarSection, in: sessions), "Mustafar section header did not load")
         XCTAssertEqual(mustafarSection.value as? String, "live")
-        XCTAssertTrue(app.buttons["session-dune-relay"].waitForExistence(timeout: 20), "Mustafar session was not listed")
+        let dune = app.buttons["session-dune-relay"]
+        XCTAssertTrue(bringIntoView(dune, in: sessions), "Mustafar session was not listed")
         let meta = app.descendants(matching: .any).matching(identifier: "session-meta-dune-relay").firstMatch
-        XCTAssertTrue(meta.waitForExistence(timeout: 20), "Stockade session had no meta line")
+        XCTAssertTrue(bringIntoView(meta, in: sessions), "Stockade session had no meta line")
         XCTAssertEqual(meta.label, "Madge · Started by Kepler")
     }
 
@@ -36,19 +37,23 @@ final class MultiControllerFlowTests: XCTestCase {
         defer { app.terminate() }
         waitForLiveControllers(in: app)
 
-        let mustafarRow = app.buttons["session-discord-triage"]
-        XCTAssertTrue(mustafarRow.waitForExistence(timeout: 30), "Mustafar approval session was not listed")
-        XCTAssertEqual(mustafarRow.value as? String, "needs_you")
-        XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
-
+        let sessions = app.descendants(matching: .any)
+            .matching(identifier: "sessions-list")
+            .firstMatch
+        XCTAssertTrue(sessions.waitForExistence(timeout: 20), "Sessions list did not load")
         let macRow = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(macRow.waitForExistence(timeout: 20), "Mac approval session was not listed")
+        XCTAssertTrue(bringIntoView(macRow, in: sessions), "Mac approval session was not listed")
         XCTAssertEqual(macRow.value as? String, "needs_you")
         XCTAssertTrue(macRow.label.contains("Mac"), "Mac Needs-you row had no controller caption: \(macRow.label)")
 
+        let mustafarRow = app.buttons["session-discord-triage"]
+        XCTAssertTrue(bringIntoView(mustafarRow, in: sessions), "Mustafar approval session was not listed")
+        XCTAssertEqual(mustafarRow.value as? String, "needs_you")
+        XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
+
         // Both Needs-you rows sit above the first controller section.
         let macSection = sectionHeader("mac", in: app)
-        XCTAssertTrue(macSection.waitForExistence(timeout: 20), "Mac section header did not load")
+        XCTAssertTrue(bringIntoView(macSection, in: sessions), "Mac section header did not load")
         XCTAssertLessThan(mustafarRow.frame.minY, macSection.frame.minY, "Mustafar approval was not in the merged Needs-you section")
         XCTAssertLessThan(macRow.frame.minY, macSection.frame.minY, "Mac approval was not in the merged Needs-you section")
         addScreenshot(named: "multi-controller-needs-you")
@@ -173,11 +178,13 @@ final class MultiControllerFlowTests: XCTestCase {
         let info = app.buttons["session-info"]
         XCTAssertTrue(info.waitForExistence(timeout: 10), "Session info button did not load")
         info.tap()
-        let access = app.descendants(matching: .any).matching(identifier: "inspector-access").firstMatch
-        XCTAssertTrue(access.waitForExistence(timeout: 20), "Inspector had no access row")
-        XCTAssertTrue(access.label.contains("Read-only · Discord"), "Access row was wrong: \(access.label)")
+        let inspector = app.collectionViews.firstMatch
         let people = app.descendants(matching: .any).matching(identifier: "inspector-participants").firstMatch
+        XCTAssertTrue(bringIntoView(people, in: inspector), "Inspector had no participants row")
         XCTAssertTrue(people.label.contains("sam, riley"), "Participants were wrong: \(people.label)")
+        let access = app.descendants(matching: .any).matching(identifier: "inspector-access").firstMatch
+        XCTAssertTrue(bringIntoView(access, in: inspector), "Inspector had no access row")
+        XCTAssertTrue(access.label.contains("Read-only · Discord"), "Access row was wrong: \(access.label)")
         addScreenshot(named: "multi-controller-discord-read-only")
     }
 
@@ -280,13 +287,17 @@ final class MultiControllerFlowTests: XCTestCase {
             app.buttons["session-staff-account-exclusions"].waitForExistence(timeout: 75),
             "Primary session was not visible"
         )
+        let sessions = app.descendants(matching: .any)
+            .matching(identifier: "sessions-list")
+            .firstMatch
         let header = sectionHeader("mustafar", in: app)
-        XCTAssertTrue(header.waitForExistence(timeout: 30), "Unreachable controller had no section header")
+        XCTAssertTrue(bringIntoView(header, in: sessions), "Unreachable controller had no section header")
         let notLive = NSPredicate(format: "value == %@ OR value == %@", "offline", "reconnecting")
         expectation(for: notLive, evaluatedWith: header)
         waitForExpectations(timeout: 30)
+        let empty = app.descendants(matching: .any).matching(identifier: "controller-empty-mustafar").firstMatch
         XCTAssertTrue(
-            app.descendants(matching: .any).matching(identifier: "controller-empty-mustafar").firstMatch.exists,
+            bringIntoView(empty, in: sessions),
             "Unreachable controller section had no placeholder row"
         )
         XCTAssertEqual(sectionHeader("mac", in: app).value as? String, "live")
@@ -294,6 +305,15 @@ final class MultiControllerFlowTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    private func bringIntoView(_ element: XCUIElement, in scrollContainer: XCUIElement) -> Bool {
+        if element.exists && element.isHittable { return true }
+        for _ in 0..<8 {
+            scrollContainer.swipeUp()
+            if element.exists && element.isHittable { return true }
+        }
+        return element.exists && element.isHittable
+    }
 
     private func launch(
         sessionID: String? = nil,
