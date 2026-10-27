@@ -1,10 +1,11 @@
+import Foundation
 import XCTest
 
 @MainActor
 final class PeerConversationFlowTests: FixtureFlowTestSupport {
     func testPeerConversationCardShowsOnlyAllowAndDenyAndAllowSettles() async throws {
         try await postFixture("/fixture/peer-conversation")
-        let app = launchCold()
+        let app = launchSignedIn()
         defer { app.terminate() }
         openApprovalSession(in: app)
 
@@ -26,7 +27,7 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
 
     func testPeerConversationDenySettlesIt() async throws {
         try await postFixture("/fixture/peer-conversation")
-        let app = launchCold()
+        let app = launchSignedIn()
         defer { app.terminate() }
         openApprovalSession(in: app)
 
@@ -39,27 +40,41 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
     }
 
     func testSettingsListsAndRevokesPeerConversation() async throws {
-        let app = launchCold()
+        let app = launchSignedIn()
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 30), "Settings button did not load")
         app.buttons["Settings"].tap()
-        let controller = app.buttons["settings-controller-mac"]
-        XCTAssertTrue(controller.waitForExistence(timeout: 20), "Controller list did not load")
+        XCTAssertTrue(element(app, "settings-address").waitForExistence(timeout: 10), "Settings did not open")
+        let controller = element(app, "settings-controller-mac")
+        reveal(controller, in: app, "Controller list did not load")
         controller.tap()
 
         let section = app.staticTexts["Conversations with other controllers"]
-        XCTAssertTrue(section.waitForExistence(timeout: 20), "Peer conversations section did not load")
+        reveal(section, in: app, "Peer conversations section did not load")
         let row = element(app, "peer-conversation-\(conversationID)")
-        XCTAssertTrue(row.waitForExistence(timeout: 20), "Open peer conversation did not appear")
+        reveal(row, in: app, "Open peer conversation did not appear")
         let revoke = element(app, "peer-conversation-revoke-\(conversationID)")
         XCTAssertTrue(revoke.exists, "Peer conversation did not offer Revoke")
         revoke.tap()
-        XCTAssertTrue(app.buttons["Revoke"].waitForExistence(timeout: 10), "Revoke confirmation did not appear")
-        app.buttons["Revoke"].tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Revoke", "peer-conversation-revoke-\(conversationID)")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "Revoke confirmation did not appear")
+        confirm.tap()
         XCTAssertTrue(row.waitForNonExistence(timeout: 30), "Revoked conversation remained in Settings")
     }
 
     private let conversationID = "74dca0e9cd297800"
+
+    private func launchSignedIn() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL")]
+        if let scheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !scheme.isEmpty {
+            app.launchArguments += ["-CCColorScheme", scheme]
+        }
+        app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        dismissLeftoverNotificationPrompt()
+        app.launch()
+        return app
+    }
 
     private func openApprovalSession(in app: XCUIApplication) {
         let session = app.buttons["session-approval-flow-light-mode"]
@@ -83,5 +98,20 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    /// Scrolls a lazy Form until the element is on screen, waiting for rows that load late.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, _ message: String, timeout: TimeInterval = 20) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var swipes = 0
+        while !(element.exists && element.isHittable) && Date() < deadline {
+            if swipes < 8 {
+                app.swipeUp()
+                swipes += 1
+            } else {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            }
+        }
+        XCTAssertTrue(element.exists && element.isHittable, message)
     }
 }
