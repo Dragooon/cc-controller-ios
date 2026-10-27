@@ -273,14 +273,22 @@ final class MultiControllerFlowTests: XCTestCase {
     func testNewSessionOnMustafarStartsWithAnAgent() async throws {
         let app = launch()
         defer { app.terminate() }
+        if UIDevice.current.name.localizedCaseInsensitiveContains("Duo") {
+            XCUIDevice.shared.orientation = .landscapeRight
+        }
         waitForLiveControllers(in: app)
 
         let button = app.buttons["new-session"]
         XCTAssertTrue(button.waitForExistence(timeout: 30), "New session toolbar button did not load")
         button.tap()
         XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 15), "New session sheet did not open")
-        let controller = app.buttons["new-session-controller"]
-        XCTAssertTrue(controller.waitForExistence(timeout: 15), "Controller picker did not load")
+        let controller = app.buttons["new-session-host"]
+        XCTAssertTrue(controller.waitForExistence(timeout: 15), "Host picker did not load")
+        let draft = app.textFields["new-session-prompt"]
+        XCTAssertTrue(draft.waitForExistence(timeout: 10), "Prompt field did not load")
+        draft.tap()
+        draft.typeText("Check the Moonlight build")
+        addScreenshot(named: "new-session-composer-host-folder-agent")
         controller.tap()
         let mustafar = app.buttons["Mustafar"]
         XCTAssertTrue(mustafar.waitForExistence(timeout: 10), "Mustafar was not offered")
@@ -289,15 +297,14 @@ final class MultiControllerFlowTests: XCTestCase {
         let agent = app.buttons["new-session-agent"]
         XCTAssertTrue(agent.waitForExistence(timeout: 20), "Agent picker did not load for Mustafar")
         XCTAssertTrue(agent.label.contains("Madge"), "Agent picker did not default to Madge: \(agent.label)")
-        XCTAssertFalse(app.buttons["new-session-folder-row"].exists, "Stockade New Session showed a folder")
-        XCTAssertFalse(app.buttons["new-session-create"].isEnabled, "Create was enabled without a first message")
+        XCTAssertFalse(app.buttons["new-session-folder"].exists, "Stockade New Session showed a folder")
+        XCTAssertTrue(app.buttons["new-session-send"].isEnabled, "Send was not enabled after the draft survived host switch")
 
-        let message = app.textViews["new-session-first-message"]
-        XCTAssertTrue(message.waitForExistence(timeout: 10), "First message field did not load")
-        message.tap()
-        message.typeText("Check the Moonlight build")
+        let message = app.textFields["new-session-prompt"]
+        XCTAssertTrue(message.waitForExistence(timeout: 10), "Prompt field did not load")
+        XCTAssertEqual(message.value as? String, "Check the Moonlight build", "Prompt draft did not survive host switch")
         addScreenshot(named: "multi-controller-new-session-agent")
-        app.buttons["new-session-create"].tap()
+        app.buttons["new-session-send"].tap()
 
         let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Created Stockade session did not open")

@@ -142,7 +142,7 @@ struct MainSplitView: View {
                     }
                 }
             }
-            .id(newSessionControllerID)
+            .presentationDetents([.large])
         }
         .onAppear(perform: synchronizeColumnVisibility)
         .onChange(of: model.selectedSession) { _, _ in

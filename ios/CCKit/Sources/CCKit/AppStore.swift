@@ -229,13 +229,15 @@ public final class AppStore {
         name: String? = nil,
         model: String? = nil,
         defaultModel: String = "default",
-        prompt: String? = nil
+        prompt: String? = nil,
+        agent: String? = nil
     ) async throws -> CreatedSession {
         try await client.createSession(
             cwd: cwd,
             name: name,
             model: model == defaultModel ? nil : model,
-            prompt: prompt
+            prompt: prompt,
+            agent: agent
         )
     }
 

@@ -205,15 +205,37 @@ public struct NewSessionAgent: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+public struct ClaudeAgentOption: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var label: String
+    public var description: String?
+
+    public init(id: String, label: String, description: String? = nil) {
+        self.id = id; self.label = label; self.description = description
+    }
+}
+
 public struct NewSessionOptions: Codable, Sendable, Equatable {
     public var folders: [NewSessionFolder]
     public var models: [ModelOption]
     public var defaultModel: String
     /// Stockade: the agents a new session can start with. Nil on the Mac, which starts sessions in folders.
     public var agents: [NewSessionAgent]?
+    /// Claude Code: the agents a new session can start with. Nil on Stockade.
+    public var claudeAgents: [ClaudeAgentOption]?
 
-    public init(folders: [NewSessionFolder] = [], models: [ModelOption] = [], defaultModel: String = "default", agents: [NewSessionAgent]? = nil) {
-        self.folders = folders; self.models = models; self.defaultModel = defaultModel; self.agents = agents
+    public init(
+        folders: [NewSessionFolder] = [],
+        models: [ModelOption] = [],
+        defaultModel: String = "default",
+        agents: [NewSessionAgent]? = nil,
+        claudeAgents: [ClaudeAgentOption]? = nil
+    ) {
+        self.folders = folders
+        self.models = models
+        self.defaultModel = defaultModel
+        self.agents = agents
+        self.claudeAgents = claudeAgents
     }
 }
 

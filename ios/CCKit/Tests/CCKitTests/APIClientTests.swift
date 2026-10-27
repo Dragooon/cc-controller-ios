@@ -189,6 +189,22 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(body, ["agentId": "main", "prompt": "Check the build"])
     }
 
+    func testCreateSessionEncodesOptionalAgentOnlyWhenSet() async throws {
+        var bodies: [Data] = []
+        StubURLProtocol.handler = { request in
+            if let body = APIClientTests.bodyData(for: request) { bodies.append(body) }
+            return StubURLProtocol.response(status: 200, body: Data("{\"id\":\"created-1\",\"shortId\":\"create\"}".utf8))
+        }
+        let client = makeClient()
+        _ = try await client.createSession(cwd: "/tmp/project", prompt: "Review", agent: "reviewer")
+        _ = try await client.createSession(cwd: "/tmp/project", prompt: "Default", agent: nil)
+
+        let withAgent = try XCTUnwrap(bodies.first.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        let withoutAgent = try XCTUnwrap(bodies.last.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        XCTAssertEqual(withAgent["agent"] as? String, "reviewer")
+        XCTAssertNil(withoutAgent["agent"])
+    }
+
     func testMessageNowAndMultipartUpload() async throws {
         var bodies: [Data] = []
         var contentTypes: [String?] = []

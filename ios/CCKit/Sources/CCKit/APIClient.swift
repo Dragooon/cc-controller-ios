@@ -60,8 +60,8 @@ public actor APIClient {
         try await get("/api/sessions/new-options")
     }
 
-    public func createSession(cwd: String, name: String? = nil, model: String? = nil, prompt: String? = nil) async throws -> CreatedSession {
-        try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt))
+    public func createSession(cwd: String, name: String? = nil, model: String? = nil, prompt: String? = nil, agent: String? = nil) async throws -> CreatedSession {
+        try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt, agent: agent))
     }
 
     /// Stockade: starts a session with an agent instead of in a folder.
@@ -356,8 +356,9 @@ private struct CreateSessionRequest: Encodable {
     let name: String?
     let model: String?
     let prompt: String?
+    let agent: String?
 
-    enum CodingKeys: String, CodingKey { case cwd, name, model, prompt }
+    enum CodingKeys: String, CodingKey { case cwd, name, model, prompt, agent }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -365,6 +366,7 @@ private struct CreateSessionRequest: Encodable {
         try container.encodeIfPresent(name, forKey: .name)
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(prompt, forKey: .prompt)
+        try container.encodeIfPresent(agent, forKey: .agent)
     }
 }
 private struct CreateAgentSessionRequest: Encodable {

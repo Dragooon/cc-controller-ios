@@ -73,10 +73,14 @@ final class ModelTests: XCTestCase {
         let options = try JSONDecoder.ccKit().decode(
             NewSessionOptions.self,
             from: Data("""
-            {"folders":[],"models":[],"defaultModel":"default","claudeAgents":[{"id":"default","label":"Default"}]}
+            {"folders":[],"models":[],"defaultModel":"default","claudeAgents":[{"id":"default","label":"Default"},{"id":"reviewer","label":"Reviewer","description":"Reviews changes carefully."}]}
             """.utf8)
         )
         XCTAssertNil(options.agents)
+        XCTAssertEqual(options.claudeAgents, [
+            ClaudeAgentOption(id: "default", label: "Default"),
+            ClaudeAgentOption(id: "reviewer", label: "Reviewer", description: "Reviews changes carefully."),
+        ])
     }
 
     func testActivityFieldsDecodeAndRemainOptional() throws {

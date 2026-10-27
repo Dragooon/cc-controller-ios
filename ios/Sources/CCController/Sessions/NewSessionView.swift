@@ -9,95 +9,89 @@ struct NewSessionControllerChoice: Identifiable, Equatable {
 
 struct NewSessionView: View {
     let store: AppStore
-    /// With two or more choices the form starts with a controller picker bound to `selectedControllerID`.
     var controllerChoices: [NewSessionControllerChoice] = []
     var selectedControllerID: Binding<ControllerID>? = nil
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
+    @FocusState private var promptFocused: Bool
 
     @State private var options: NewSessionOptions?
     @State private var loading = true
     @State private var loadError: String?
     @State private var createError: String?
     @State private var selectedFolderPath: String?
-    @State private var isOtherFolder = false
-    @State private var otherPath = ""
-    @State private var name = ""
-    @State private var selectedModel = ""
-    @State private var firstMessage = ""
-    @State private var selectedAgentID = ""
+    @State private var selectedAgentID: String?
+    @State private var prompt = ""
     @State private var isCreating = false
+    @State private var customFolderDraft = ""
+    @State private var isCustomFolderPresented = false
 
-    /// Stockade starts sessions with an agent and a first message, not in a folder.
-    private var agents: [NewSessionAgent]? {
-        guard let agents = options?.agents, !agents.isEmpty else { return nil }
-        return agents
+    private static let lastControllerKey = "newSession.lastControllerID"
+    private static let folderKeyPrefix = "newSession.folder."
+    private static let agentKeyPrefix = "newSession.agent."
+
+    private var currentControllerID: ControllerID {
+        selectedControllerID?.wrappedValue ?? .mac
+    }
+
+    private var stockadeAgents: [NewSessionAgent]? {
+        options?.agents
+    }
+
+    private var claudeAgents: [ClaudeAgentOption]? {
+        options?.claudeAgents
+    }
+
+    private var isStockade: Bool {
+        options?.agents != nil
+    }
+
+    private var canCreate: Bool {
+        guard let options, !loading, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        if isStockade { return selectedAgentID?.isEmpty == false }
+        return selectedFolderPath != nil
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let selectedControllerID, controllerChoices.count >= 2 {
-                    Section("Controller") {
-                        Picker("Run on", selection: selectedControllerID) {
-                            ForEach(controllerChoices) { choice in
-                                Text(choice.name).tag(choice.id)
+            VStack(alignment: .leading, spacing: 0) {
+                TextField("What do you want to work on?", text: $prompt, axis: .vertical)
+                    .font(.body)
+                    .foregroundStyle(.ccLabel)
+                    .lineLimit(1...8)
+                    .textFieldStyle(.plain)
+                    .textInputAutocapitalization(.sentences)
+                    .focused($promptFocused)
+                    .accessibilityIdentifier("new-session-prompt")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 18)
+            }
+            .background(.ccBackground)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let message = loadError ?? createError {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(message)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("new-session-error")
+                            if loadError != nil {
+                                Button("Retry", action: loadOptions)
+                                    .font(.footnote.weight(.semibold))
+                                    .accessibilityIdentifier("new-session-retry")
                             }
                         }
-                        .accessibilityIdentifier("new-session-controller")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    controls
                 }
-
-                if let createError {
-                    Section {
-                        Text(createError)
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("new-session-error")
-                    }
-                }
-
-                if loading {
-                    Section {
-                        HStack {
-                            ProgressView()
-                            Text("Loading options…")
-                                .foregroundStyle(.ccSecondary)
-                        }
-                        .accessibilityIdentifier("new-session-loading")
-                    }
-                } else if let loadError {
-                    Section {
-                        Text(loadError)
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Retry", action: loadOptions)
-                            .accessibilityIdentifier("new-session-retry")
-                    }
-                } else if let agents {
-                    agentSection(agents)
-                    agentMessageSection
-                    Section {
-                        EmptyView()
-                    } footer: {
-                        Text("Starts a new app session with this agent. Its approvals come to this app.")
-                    }
-                } else if let options {
-                    folderRow(options)
-                    nameSection
-                    modelSection(options)
-                    messageSection
-                    Section {
-                        EmptyView()
-                    } footer: {
-                        Text("Runs on your Mac as a background session. Open it there with `claude attach <name>`.")
-                    }
-                }
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+                .background(.ccBackground)
             }
-            .formStyle(.grouped)
-            .disabled(isCreating)
-            .scrollContentBackground(.hidden)
-            .background(.ccBackground)
             .navigationTitle("New session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -105,172 +99,292 @@ struct NewSessionView: View {
                     Button("Cancel") { dismiss() }
                         .disabled(isCreating)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await create() }
-                    } label: {
-                        if isCreating {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Text("Create")
-                        }
-                    }
-                    .accessibilityLabel(isCreating ? "Creating" : "Create")
-                    .accessibilityIdentifier("new-session-create")
-                    .disabled(isCreating || !canCreate)
-                }
             }
             .tint(.ccAccent)
         }
-        .task { loadOptions() }
+        .presentationDetents([.large])
         .interactiveDismissDisabled(isCreating)
+        .onAppear {
+            selectInitialController()
+            loadOptions()
+            focusPrompt()
+        }
+        .onChange(of: selectedControllerID?.wrappedValue) { _, _ in
+            loadOptions()
+        }
+        .sheet(isPresented: $isCustomFolderPresented) {
+            customFolderSheet
+        }
     }
 
     @ViewBuilder
-    private func folderRow(_ options: NewSessionOptions) -> some View {
-        Section("Folder") {
-            NavigationLink {
-                FolderPickerView(
-                    options: options,
-                    selectedFolderPath: $selectedFolderPath,
-                    isOtherFolder: $isOtherFolder,
-                    otherPath: $otherPath
-                )
-            } label: {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(folderDisplayName(options))
-                            .font(.body)
-                            .foregroundStyle(.ccLabel)
-                        Text(folderDisplayPath(options))
-                            .font(.footnote)
-                            .foregroundStyle(.ccSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+    private var controls: some View {
+        HStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if controllerChoices.count >= 2 {
+                        hostMenu
                     }
-                    Spacer(minLength: 8)
+                    if loading {
+                        loadingChip
+                    } else if !isStockade {
+                        folderMenu
+                    }
+                    if loading {
+                        loadingChip
+                    } else if isStockade, stockadeAgents?.isEmpty == false {
+                        stockadeAgentMenu
+                    } else if !isStockade, claudeAgents?.isEmpty == false {
+                        claudeAgentMenu
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .scrollClipDisabled()
+            sendButton
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .disabled(isCreating)
+    }
+
+    private var loadingChip: some View {
+        ProgressView()
+            .controlSize(.small)
+            .frame(minWidth: 44, minHeight: 36)
+            .glassEffect(.regular, in: .capsule)
+            .accessibilityIdentifier("new-session-loading")
+    }
+
+    private var hostMenu: some View {
+        Menu {
+            ForEach(controllerChoices) { choice in
+                Button {
+                    selectedControllerID?.wrappedValue = choice.id
+                } label: {
+                    Text(choice.name)
                 }
             }
-            .accessibilityIdentifier("new-session-folder-row")
+        } label: {
+            chipLabel(systemImage: "desktopcomputer", text: controllerChoices.first(where: { $0.id == currentControllerID })?.name ?? "Host")
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("new-session-host")
     }
 
-    private var nameSection: some View {
-        Section("Name") {
-            TextField(namePlaceholder, text: $name)
-                .textInputAutocapitalization(.sentences)
-                .accessibilityIdentifier("new-session-name")
-        }
-    }
-
-    private func modelSection(_ options: NewSessionOptions) -> some View {
-        Section {
-            Picker("Model", selection: $selectedModel) {
-                ForEach(options.models) { model in
-                    Text(model.label).tag(model.id)
+    private var folderMenu: some View {
+        Menu {
+            ForEach(options?.folders ?? []) { folder in
+                Button {
+                    selectedFolderPath = folder.path
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(folderLastComponent(folder.path))
+                        Text(folder.path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("new-session-folder-\(folder.name)")
+            }
+            if let selectedFolderPath, !(options?.folders.contains(where: { $0.path == selectedFolderPath }) ?? false) {
+                Button {
+                    self.selectedFolderPath = selectedFolderPath
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(folderLastComponent(selectedFolderPath))
+                        Text(selectedFolderPath)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("new-session-model")
+            Divider()
+            Button("Other folder…", systemImage: "folder.badge.plus") {
+                customFolderDraft = ""
+                Task { @MainActor in
+                    await Task.yield()
+                    isCustomFolderPresented = true
+                }
+            }
+        } label: {
+            chipLabel(systemImage: "folder", text: selectedFolderPath.map(folderLastComponent) ?? "Folder")
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("new-session-folder")
     }
 
-    private var messageSection: some View {
-        Section("First message") {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $firstMessage)
-                    .frame(minHeight: 90)
-                    .accessibilityIdentifier("new-session-first-message")
-                if firstMessage.isEmpty {
-                    Text("Optional. Without one, the session waits for your first message.")
-                        .foregroundStyle(.ccTertiary)
-                        .padding(.top, 8)
-                        .padding(.leading, 4)
-                        .allowsHitTesting(false)
+    private var stockadeAgentMenu: some View {
+        Menu {
+            ForEach(stockadeAgents ?? []) { agent in
+                Button {
+                    selectedAgentID = agent.id
+                } label: {
+                    Text(agent.name)
+                }
+                .accessibilityIdentifier("new-session-agent-\(agent.id)")
+            }
+        } label: {
+            chipLabel(systemImage: "person", text: selectedAgentName ?? "Agent")
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("new-session-agent")
+    }
+
+    private var claudeAgentMenu: some View {
+        Menu {
+            ForEach(claudeAgents ?? []) { agent in
+                Button {
+                    selectedAgentID = agent.id
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(agent.label)
+                        if let description = agent.description, !description.isEmpty {
+                            Text(description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityIdentifier("new-session-agent-\(agent.id)")
+            }
+        } label: {
+            chipLabel(systemImage: "person", text: selectedAgentName ?? "Agent")
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("new-session-agent")
+    }
+
+    private var selectedAgentName: String? {
+        if let agent = stockadeAgents?.first(where: { $0.id == selectedAgentID }) { return agent.name }
+        return claudeAgents?.first(where: { $0.id == selectedAgentID })?.label
+    }
+
+    private var sendButton: some View {
+        Button {
+            Task { await create() }
+        } label: {
+            Group {
+                if isCreating {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.semibold))
+                }
+            }
+            .frame(width: 36, height: 36)
+            .foregroundStyle(.white)
+            .glassEffect(.regular.tint(.ccAccent).interactive(), in: .circle)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
+        .accessibilityLabel(isCreating ? "Creating" : "Send")
+        .accessibilityIdentifier("new-session-send")
+        .disabled(!canCreate || isCreating)
+    }
+
+    private var customFolderSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("/absolute/path", text: $customFolderDraft)
+                    .font(.body.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .accessibilityIdentifier("new-session-other-path")
+            }
+            .navigationTitle("Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isCustomFolderPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        let path = customFolderDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !path.isEmpty else { return }
+                        selectedFolderPath = path
+                        isCustomFolderPresented = false
+                    }
                 }
             }
         }
+        .presentationDetents([.medium])
     }
 
-    private func agentSection(_ agents: [NewSessionAgent]) -> some View {
-        Section("Agent") {
-            Picker("Agent", selection: $selectedAgentID) {
-                ForEach(agents) { agent in
-                    Text(agent.name).tag(agent.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .accessibilityIdentifier("new-session-agent")
+    private func chipLabel(systemImage: String, text: String) -> some View {
+        Label {
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } icon: {
+            Image(systemName: systemImage)
         }
+        .font(.footnote)
+        .foregroundStyle(.ccLabel)
+        .padding(.horizontal, 11)
+        .frame(minHeight: 36)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 
-    private var agentMessageSection: some View {
-        Section("First message") {
-            ZStack(alignment: .topLeading) {
-                TextEditor(text: $firstMessage)
-                    .frame(minHeight: 90)
-                    .accessibilityIdentifier("new-session-first-message")
-                if firstMessage.isEmpty {
-                    Text("What should it do?")
-                        .foregroundStyle(.ccTertiary)
-                        .padding(.top, 8)
-                        .padding(.leading, 4)
-                        .allowsHitTesting(false)
-                }
-            }
+    private func selectInitialController() {
+        guard let binding = selectedControllerID, !controllerChoices.isEmpty else { return }
+        if let saved = UserDefaults.standard.string(forKey: Self.lastControllerKey),
+           let savedID = ControllerID(rawValue: saved),
+           controllerChoices.contains(where: { $0.id == savedID }) {
+            binding.wrappedValue = savedID
+        } else if !controllerChoices.contains(where: { $0.id == binding.wrappedValue }) {
+            binding.wrappedValue = controllerChoices[0].id
         }
-    }
-
-    private var canCreate: Bool {
-        if agents != nil {
-            return !selectedAgentID.isEmpty && !firstMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        if !isOtherFolder { return selectedFolderPath != nil }
-        return !otherPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var namePlaceholder: String {
-        guard !isOtherFolder, let path = selectedFolderPath,
-              let folder = options?.folders.first(where: { $0.path == path }) else { return "Session name" }
-        return folder.name
-    }
-
-    private func folderDisplayName(_ options: NewSessionOptions) -> String {
-        if isOtherFolder { return "Other folder" }
-        return options.folders.first(where: { $0.path == selectedFolderPath })?.name ?? "Choose a folder"
-    }
-
-    private func folderDisplayPath(_ options: NewSessionOptions) -> String {
-        if isOtherFolder { return displayPath(otherPath) }
-        guard let path = selectedFolderPath else { return "" }
-        return displayPath(path)
-    }
-
-    private func displayPath(_ path: String) -> String {
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard components.count >= 2, components[0] == "Users" else { return path }
-        return "~" + (components.dropFirst(2).isEmpty ? "" : "/" + components.dropFirst(2).joined(separator: "/"))
     }
 
     private func loadOptions() {
         guard !isCreating else { return }
+        let controllerID = currentControllerID
         loading = true
+        options = nil
         loadError = nil
         createError = nil
+        selectedFolderPath = nil
+        selectedAgentID = nil
         Task { @MainActor in
             do {
                 let loaded = try await store.newSessionOptions()
+                guard currentControllerID == controllerID else { return }
                 options = loaded
-                selectedFolderPath = loaded.folders.first?.path
-                isOtherFolder = false
-                selectedModel = loaded.models.first(where: { $0.id == loaded.defaultModel })?.id ?? loaded.models.first?.id ?? ""
-                selectedAgentID = loaded.agents?.first?.id ?? ""
+                restoreSelections(from: loaded, controllerID: controllerID)
                 loading = false
             } catch {
+                guard currentControllerID == controllerID else { return }
                 loading = false
                 loadError = errorMessage(error)
             }
+        }
+    }
+
+    private func restoreSelections(from options: NewSessionOptions, controllerID: ControllerID) {
+        if options.agents != nil {
+            let available = options.agents ?? []
+            let saved = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
+            selectedAgentID = available.first(where: { $0.id == saved })?.id ?? available.first?.id
+            return
+        }
+
+        let savedFolder = UserDefaults.standard.string(forKey: Self.folderKeyPrefix + controllerID.rawValue)
+        selectedFolderPath = options.folders.first(where: { $0.path == savedFolder })?.path ?? options.folders.first?.path
+        let available = options.claudeAgents ?? []
+        let savedAgent = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
+        selectedAgentID = available.first(where: { $0.id == savedAgent })?.id
+            ?? available.first(where: { $0.id == "default" })?.id
+            ?? available.first?.id
+    }
+
+    private func focusPrompt() {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            promptFocused = true
         }
     }
 
@@ -279,19 +393,26 @@ struct NewSessionView: View {
         isCreating = true
         createError = nil
         defer { isCreating = false }
-        if agents != nil {
-            await createWithAgent()
-            return
-        }
-        let cwd = selectedFolderPath ?? otherPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+
         do {
-            let created = try await store.createSession(
-                cwd: cwd,
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : name,
-                model: selectedModel.isEmpty ? nil : selectedModel,
-                defaultModel: options.defaultModel,
-                prompt: firstMessage.isEmpty ? nil : firstMessage
-            )
+            let created: CreatedSession
+            if isStockade {
+                guard let selectedAgentID else { return }
+                created = try await store.createAgentSession(agentId: selectedAgentID, prompt: trimmedPrompt)
+            } else {
+                guard let cwd = selectedFolderPath else { return }
+                let agent = selectedAgentID == "default" ? nil : selectedAgentID
+                created = try await store.createSession(
+                    cwd: cwd,
+                    name: nil,
+                    model: nil,
+                    defaultModel: options.defaultModel,
+                    prompt: trimmedPrompt,
+                    agent: agent
+                )
+            }
+            saveSelections(controllerID: currentControllerID)
             let appeared = await store.waitForSession(created.id)
             dismiss()
             onCreated(created.id, appeared)
@@ -300,18 +421,18 @@ struct NewSessionView: View {
         }
     }
 
-    private func createWithAgent() async {
-        do {
-            let created = try await store.createAgentSession(
-                agentId: selectedAgentID,
-                prompt: firstMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-            let appeared = await store.waitForSession(created.id)
-            dismiss()
-            onCreated(created.id, appeared)
-        } catch {
-            createError = errorMessage(error)
+    private func saveSelections(controllerID: ControllerID) {
+        UserDefaults.standard.set(controllerID.rawValue, forKey: Self.lastControllerKey)
+        if let selectedFolderPath {
+            UserDefaults.standard.set(selectedFolderPath, forKey: Self.folderKeyPrefix + controllerID.rawValue)
         }
+        if let selectedAgentID {
+            UserDefaults.standard.set(selectedAgentID, forKey: Self.agentKeyPrefix + controllerID.rawValue)
+        }
+    }
+
+    private func folderLastComponent(_ path: String) -> String {
+        path.split(separator: "/", omittingEmptySubsequences: true).last.map(String.init) ?? path
     }
 
     private func errorMessage(_ error: Error) -> String {
@@ -322,87 +443,5 @@ struct NewSessionView: View {
             return apiError.daemonMessage ?? apiError.localizedDescription
         }
         return error.localizedDescription
-    }
-}
-
-private struct FolderPickerView: View {
-    let options: NewSessionOptions
-    @Binding var selectedFolderPath: String?
-    @Binding var isOtherFolder: Bool
-    @Binding var otherPath: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var searchText = ""
-
-    private var filteredFolders: [NewSessionFolder] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return options.folders }
-        return options.folders.filter {
-            $0.name.localizedCaseInsensitiveContains(query)
-                || $0.path.localizedCaseInsensitiveContains(query)
-        }
-    }
-
-    var body: some View {
-        List {
-            Section("Recent") {
-                ForEach(filteredFolders) { folder in
-                    Button {
-                        selectedFolderPath = folder.path
-                        isOtherFolder = false
-                        otherPath = ""
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(folder.name)
-                                    .foregroundStyle(.ccLabel)
-                                Text(displayPath(folder.path))
-                                    .font(.footnote)
-                                    .foregroundStyle(.ccSecondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            Spacer(minLength: 8)
-                            if !isOtherFolder && selectedFolderPath == folder.path {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.ccAccent)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("new-session-folder-\(folder.name)")
-                }
-            }
-            Section("Other folder") {
-                TextField("/absolute/path", text: $otherPath)
-                    .font(.body.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityIdentifier("new-session-other-path")
-                    .onSubmit { selectOtherIfValid() }
-                if !otherPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button("Use this folder") { selectOtherIfValid() }
-                        .accessibilityIdentifier("new-session-use-other-folder")
-                }
-            }
-        }
-        .navigationTitle("Folder")
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, prompt: "Search folders")
-        .tint(.ccAccent)
-    }
-
-    private func selectOtherIfValid() {
-        guard !otherPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        selectedFolderPath = nil
-        isOtherFolder = true
-        dismiss()
-    }
-
-    private func displayPath(_ path: String) -> String {
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard components.count >= 2, components[0] == "Users" else { return path }
-        return "~" + (components.dropFirst(2).isEmpty ? "" : "/" + components.dropFirst(2).joined(separator: "/"))
     }
 }
