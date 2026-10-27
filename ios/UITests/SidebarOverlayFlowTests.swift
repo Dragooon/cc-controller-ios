@@ -41,6 +41,10 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         let sidebar = sessionsList(in: app)
         XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        let newSession = app.buttons["new-session"]
+        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Floating new-session button did not load")
+        XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Landscape new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
+        addScreenshot(named: "sessions-search-landscape-before")
         let searchButton = app.buttons["sessions-search"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
         searchButton.tap()
@@ -51,11 +55,20 @@ final class SidebarOverlayFlowTests: XCTestCase {
     }
 
     func testPortraitSearchFieldStaysInsideSessionsColumn() throws {
-        let app = launch(orientation: .portrait)
+        let app = launch(orientation: .portrait, sessionID: "staff-account-exclusions")
         defer { app.terminate() }
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        if !sidebar.waitForExistence(timeout: 15) {
+            let back = app.buttons["BackButton"]
+            XCTAssertTrue(back.waitForExistence(timeout: 30), "Portrait sessions navigation did not load")
+            back.tap()
+        }
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions sidebar did not load after opening the overlay")
+        let newSession = app.buttons["new-session"]
+        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Floating new-session button did not load")
+        XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
+        addScreenshot(named: "sessions-search-portrait-before")
         let searchButton = app.buttons["sessions-search"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
         searchButton.tap()
@@ -179,7 +192,8 @@ final class SidebarOverlayFlowTests: XCTestCase {
     }
 
     private func sidebarToggle(in app: XCUIApplication) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar'"))
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] 'sidebar'"))
             .firstMatch
     }
 
