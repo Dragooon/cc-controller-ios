@@ -71,7 +71,7 @@ public final class AppStore {
     @ObservationIgnored private let queuedNoteCache: QueuedNoteCache
     @ObservationIgnored private let uploadTimeout: TimeInterval
     @ObservationIgnored private let initialTranscriptTail: Int
-    @ObservationIgnored private let authenticationFailureHandler: (@Sendable () async -> Void)?
+    @ObservationIgnored private var authenticationFailureHandler: (@Sendable () async -> Void)?
     @ObservationIgnored private var eventStream: EventStream?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
@@ -160,6 +160,10 @@ public final class AppStore {
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.authenticationFailureHandler = authenticationFailureHandler
         self.controllerInfo = controllerInfo ?? ControllerInfo(id: .mac, name: "Mac", kind: .claudeCode, capabilities: ControllerCapability.all)
+    }
+
+    public func setAuthenticationFailureHandler(_ handler: (@Sendable () async -> Void)?) {
+        authenticationFailureHandler = handler
     }
 
     public func start() {

@@ -67,15 +67,15 @@ final class LockFlowTests: FixtureFlowTestSupport {
     }
 
     func testColdLaunchAfterUnlockWindowLocksAndCancelShowsMessage() async throws {
-        let onboarding = launchOnboarding(maxUnlockAge: 2)
+        let onboarding = launchOnboarding(maxUnlockAge: 5)
         try await setBiometricEnrollment(true)
         try await reachFaceID(onboarding)
         onboarding.buttons["Turn on Face ID"].tap()
         try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
         onboarding.terminate()
-        try await Task.sleep(for: .seconds(3))
+        try await Task.sleep(for: .seconds(6))
 
-        let app = launchCold(maxUnlockAge: 2)
+        let app = launchCold(maxUnlockAge: 5)
         defer {
             audit(app, name: "lock-cold-launch-after-window")
             app.terminate()
@@ -97,20 +97,21 @@ final class LockFlowTests: FixtureFlowTestSupport {
     }
 
     func testColdRelaunchWithinUnlockWindowSkipsFaceID() async throws {
-        let onboarding = launchOnboarding(maxUnlockAge: 8)
+        let onboarding = launchOnboarding()
         try await setBiometricEnrollment(true)
         try await reachFaceID(onboarding)
         onboarding.buttons["Turn on Face ID"].tap()
         try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
         onboarding.terminate()
 
-        let app = launchCold(maxUnlockAge: 8)
+        let app = launchCold()
         defer {
             audit(app, name: "lock-cold-launch-within-window")
             app.terminate()
         }
 
         XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15), "Cold launch within the unlock window did not open Sessions")
+        XCTAssertTrue(app.buttons["session-pull-up-agentic-uw"].waitForExistence(timeout: 30), "Cold launch did not restore the fixture session list")
         XCTAssertFalse(app.staticTexts["cc-controller is locked"].exists, "Cold launch within the unlock window showed the lock screen")
     }
 }

@@ -38,6 +38,16 @@ public enum CredentialStoreError: Error, Sendable, Equatable, LocalizedError {
     }
 }
 
+public struct SessionBearer: Codable, Sendable, Equatable {
+    public let token: String
+    public let expiresAt: Date
+
+    public init(token: String, expiresAt: Date) {
+        self.token = token
+        self.expiresAt = expiresAt
+    }
+}
+
 public protocol CredentialStore: Sendable {
     func getDeviceToken() async throws -> String?
     func setDeviceToken(_ value: String) async throws
@@ -55,6 +65,9 @@ public protocol CredentialStore: Sendable {
     func getLastBackgroundAt() async throws -> Date?
     func setLastBackgroundAt(_ value: Date) async throws
     func deleteLastBackgroundAt() async throws
+    func getSessionBearer() async throws -> SessionBearer?
+    func setSessionBearer(_ value: SessionBearer) async throws
+    func deleteSessionBearer() async throws
 }
 
 public extension CredentialStore {
@@ -74,6 +87,7 @@ public extension CredentialStore {
         try await deleteDeviceToken()
         try await deleteNativeSecret()
         try await deleteRelayPin()
+        try await deleteSessionBearer()
     }
 }
 
@@ -84,6 +98,7 @@ public actor InMemoryCredentialStore: CredentialStore {
     private var storedRelayPin: String?
     private var storedLastUnlockAt: Date?
     private var storedLastBackgroundAt: Date?
+    private var storedSessionBearer: SessionBearer?
 
     public init(
         controllerID: ControllerID? = nil,
@@ -91,7 +106,8 @@ public actor InMemoryCredentialStore: CredentialStore {
         nativeSecret: String? = nil,
         relayPin: String? = nil,
         lastUnlockAt: Date? = nil,
-        lastBackgroundAt: Date? = nil
+        lastBackgroundAt: Date? = nil,
+        sessionBearer: SessionBearer? = nil
     ) {
         self.controllerID = controllerID
         storedDeviceToken = deviceToken
@@ -99,6 +115,7 @@ public actor InMemoryCredentialStore: CredentialStore {
         storedRelayPin = relayPin
         storedLastUnlockAt = lastUnlockAt
         storedLastBackgroundAt = lastBackgroundAt
+        storedSessionBearer = sessionBearer
     }
 
     public func getDeviceToken() async throws -> String? { storedDeviceToken }
@@ -117,6 +134,9 @@ public actor InMemoryCredentialStore: CredentialStore {
     public func getLastBackgroundAt() async throws -> Date? { storedLastBackgroundAt }
     public func setLastBackgroundAt(_ value: Date) async throws { storedLastBackgroundAt = value }
     public func deleteLastBackgroundAt() async throws { storedLastBackgroundAt = nil }
+    public func getSessionBearer() async throws -> SessionBearer? { storedSessionBearer }
+    public func setSessionBearer(_ value: SessionBearer) async throws { storedSessionBearer = value }
+    public func deleteSessionBearer() async throws { storedSessionBearer = nil }
 }
 
 #if os(iOS)
@@ -193,6 +213,38 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
 
     public func deleteLastBackgroundAt() async throws {
         try remove(account: account("lastBackgroundAt"))
+    }
+
+    public func getSessionBearer() async throws -> SessionBearer? {
+        guard let value = try read(account: account("sessionBearer"), context: nil),
+              let data = value.data(using: .utf8) else { return nil }
+        do {
+            return try JSONDecoder().decode(SessionBearer.self, from: data)
+        } catch {
+            throw CredentialStoreError.invalidData
+        }
+    }
+
+    public func setSessionBearer(_ value: SessionBearer) async throws {
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(value)
+        } catch {
+            throw CredentialStoreError.invalidData
+        }
+        guard let encoded = String(data: data, encoding: .utf8) else {
+            throw CredentialStoreError.invalidData
+        }
+        try write(
+            encoded,
+            account: account("sessionBearer"),
+            access: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            control: nil
+        )
+    }
+
+    public func deleteSessionBearer() async throws {
+        try remove(account: account("sessionBearer"))
     }
 
     public func getNativeSecret() async throws -> String? {

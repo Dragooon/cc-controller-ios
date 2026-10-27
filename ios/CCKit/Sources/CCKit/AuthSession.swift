@@ -82,9 +82,20 @@ public final class AuthSession {
         return bearerToken
     }
 
+    @discardableResult
+    public func restore(token: String, expiresAt: Date) -> Bool {
+        guard !token.isEmpty, expiresAt > clock.now else { return false }
+        bearerToken = token
+        state = .unlocked(bearerExpiresAt: expiresAt)
+        return true
+    }
+
     public func lock() {
         bearerToken = nil
         state = .locked
+        Task { [credentials] in
+            try? await credentials.deleteSessionBearer()
+        }
     }
 
     public func startPairing(deviceName: String) async -> Result<Void, AuthError> {
@@ -173,9 +184,11 @@ public final class AuthSession {
             guard let secret = try await credentials.getNativeSecret() else { return fail(.notEnrolled) }
             let response = try await client.login(secret: secret)
             guard response.authenticated != false, let token = response.token, !token.isEmpty else { throw AuthError.unknownSecret }
+            let expiresAt = response.expiresAt ?? clock.now.addingTimeInterval(12 * 60 * 60)
+            try await credentials.setSessionBearer(SessionBearer(token: token, expiresAt: expiresAt))
             TranscriptLifecycleLog.shared.record(name: "native-login")
             bearerToken = token
-            state = .unlocked(bearerExpiresAt: response.expiresAt ?? clock.now.addingTimeInterval(12 * 60 * 60))
+            state = .unlocked(bearerExpiresAt: expiresAt)
             return .success(())
         } catch {
             let mapped = asAuthError(error)
@@ -192,11 +205,13 @@ public final class AuthSession {
     public func handleUnauthorized() async -> Result<Void, AuthError> {
         bearerToken = nil
         state = .locked
+        try? await credentials.deleteSessionBearer()
         return await unlock()
     }
 
     public func logout() async -> Result<Void, AuthError> {
         guard let bearerToken else {
+            try? await credentials.deleteSessionBearer()
             state = .locked
             return .success(())
         }
@@ -204,10 +219,12 @@ public final class AuthSession {
             try await client.logout(bearer: bearerToken)
             self.bearerToken = nil
             state = .locked
+            try? await credentials.deleteSessionBearer()
             return .success(())
         } catch {
             self.bearerToken = nil
             state = .locked
+            try? await credentials.deleteSessionBearer()
             return .failure(asAuthError(error))
         }
     }
@@ -229,6 +246,7 @@ public final class AuthSession {
         try? await credentials.deleteRelayPin()
         try? await credentials.deleteLastUnlockAt()
         try? await credentials.deleteLastBackgroundAt()
+        try? await credentials.deleteSessionBearer()
         try? await cache?.clear()
         bearerToken = nil
     }

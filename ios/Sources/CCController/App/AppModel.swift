@@ -368,6 +368,12 @@ final class AppModel {
             revokeConversation: { id in try await store.revokePeerConversation(id: id) },
             interval: probeInterval
         )
+        for connection in connections {
+            let controllerID = connection.config.id
+            connection.store.setAuthenticationFailureHandler { [weak self] in
+                await self?.handleAuthenticationFailure(controllerID: controllerID)
+            }
+        }
         observedSessions = Dictionary(uniqueKeysWithValues: connections.map { ($0.config.id, $0.store.sessions) })
         observeSessionReplacement()
         observeApprovalCount()
@@ -395,6 +401,7 @@ final class AppModel {
                 try? await credentials.deleteNativeSecret()
                 try? await credentials.deleteLastUnlockAt()
                 try? await credentials.deleteLastBackgroundAt()
+                try? await credentials.deleteSessionBearer()
                 lastUnlockAt = nil
                 lastBackgroundAt = nil
                 onboarding = OnboardingFlowState()
@@ -425,6 +432,7 @@ final class AppModel {
                     try? await credentials.deleteNativeSecret()
                     try? await credentials.deleteLastUnlockAt()
                     try? await credentials.deleteLastBackgroundAt()
+                    try? await credentials.deleteSessionBearer()
                     onboarding = OnboardingFlowState()
                     onboarding.continueFromWelcome()
                     connectionMessage = "Pair this iPhone again to connect through the relay."
@@ -443,9 +451,12 @@ final class AppModel {
                 now: Date()
             ) {
                 transitionToLocked()
-            } else {
+            } else if await restoreStoredBearers() {
                 phase = .unlocked
+                startAuthenticatedStores()
                 scheduleUnlockExpiryIfNeeded()
+            } else {
+                transitionToLocked()
             }
         }
     }
@@ -484,6 +495,51 @@ final class AppModel {
             if case .success = await connection.auth.unlock() {
                 connection.store.resume()
             }
+        }
+    }
+
+    private func restoreStoredBearers() async -> Bool {
+        var primaryRestored = false
+        for connection in connections {
+            let stored = try? await connection.credentials.getSessionBearer()
+            guard let stored,
+                  connection.auth.restore(token: stored.token, expiresAt: stored.expiresAt) else {
+                try? await connection.credentials.deleteSessionBearer()
+                if connection.config.id == primaryConnection.config.id { return false }
+                continue
+            }
+            if connection.config.id == primaryConnection.config.id {
+                primaryRestored = true
+            }
+        }
+        return primaryRestored
+    }
+
+    private func handleAuthenticationFailure(controllerID: ControllerID) async {
+        guard let connection = connection(for: controllerID) else { return }
+        try? await connection.credentials.deleteSessionBearer()
+        connection.auth.lock()
+        connection.store.suspend()
+        if controllerID == primaryConnection.config.id {
+            transitionToLocked()
+        }
+    }
+
+    private func isAuthenticated(_ connection: ControllerConnection) -> Bool {
+        if fixtureMode { return true }
+        if case .unlocked = connection.auth.state { return true }
+        return false
+    }
+
+    private func resumeAuthenticatedStores() {
+        for connection in connections where isAuthenticated(connection) {
+            connection.store.resume()
+        }
+    }
+
+    private func startAuthenticatedStores() {
+        for connection in connections where isAuthenticated(connection) {
+            connection.store.start()
         }
     }
 
@@ -740,7 +796,7 @@ final class AppModel {
             if onboardingStep == .connect { startConnectionCheck() }
             else if onboardingStep == .pair { startPairingPoll() }
         } else if phase == .unlocked {
-            stores.forEach { $0.resume() }
+            resumeAuthenticatedStores()
             watchForIdentityChange()
         }
     }
@@ -754,6 +810,7 @@ final class AppModel {
         try? await credentials.deleteNativeSecret()
         try? await credentials.deleteLastUnlockAt()
         try? await credentials.deleteLastBackgroundAt()
+        try? await credentials.deleteSessionBearer()
         lastUnlockAt = nil
         lastBackgroundAt = nil
         await primaryStore.clearLocalState()
@@ -1002,7 +1059,7 @@ final class AppModel {
         _ = registry.add(connection.config)
         connections.append(connection)
         observedSessions[connection.config.id] = connection.store.sessions
-        if phase == .unlocked {
+        if phase == .unlocked, isAuthenticated(connection) {
             connection.store.start()
         }
     }
@@ -1080,7 +1137,7 @@ final class AppModel {
             stores.forEach { $0.suspend() }
             return
         }
-        stores.forEach { $0.start() }
+        startAuthenticatedStores()
         watchForIdentityChange()
         Task { @MainActor in
             await updateBadgeCount()
@@ -1136,7 +1193,7 @@ final class AppModel {
                 }
             } else {
                 clearBackgroundTimestamp()
-                stores.forEach { $0.resume() }
+                resumeAuthenticatedStores()
                 watchForIdentityChange()
                 scheduleUnlockExpiryIfNeeded()
             }

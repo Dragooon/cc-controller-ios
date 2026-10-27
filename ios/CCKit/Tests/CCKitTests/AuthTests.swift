@@ -99,6 +99,11 @@ final class AuthTests: XCTestCase {
         guard case .success = await auth.unlock() else { return XCTFail("Unlock failed") }
         let bearer = try await auth.bearer()
         XCTAssertEqual(bearer, "bearer")
+        let storedBearer = try await credentials.getSessionBearer()
+        XCTAssertEqual(
+            storedBearer,
+            SessionBearer(token: "bearer", expiresAt: clock.now.addingTimeInterval(12 * 60 * 60))
+        )
         XCTAssertEqual(auth.state, .unlocked(bearerExpiresAt: clock.now.addingTimeInterval(12 * 60 * 60)))
         guard case .success = await auth.handleUnauthorized() else { return XCTFail("Re-unlock failed") }
         guard case .success = await auth.unpair() else { return XCTFail("Unpair failed") }
@@ -149,6 +154,52 @@ final class AuthTests: XCTestCase {
         }
         XCTAssertEqual(auth.state, .locked)
     }
+
+    func testInMemorySessionBearerRoundTripsAndDeletes() async throws {
+        let store = InMemoryCredentialStore()
+        let value = SessionBearer(token: "bearer", expiresAt: Date(timeIntervalSince1970: 2_000))
+
+        try await store.setSessionBearer(value)
+        let stored = try await store.getSessionBearer()
+        XCTAssertEqual(stored, value)
+        try await store.deleteSessionBearer()
+        let deleted = try await store.getSessionBearer()
+        XCTAssertNil(deleted)
+    }
+
+    func testAuthSessionRestoreRejectsExpiredBearerAndRestoresValidBearer() async throws {
+        let clock = TestAuthClock(now: Date(timeIntervalSince1970: 1_000))
+        let auth = AuthSession(
+            serverURL: URL(string: "http://localhost:47832")!,
+            credentials: InMemoryCredentialStore(),
+            session: AuthURLProtocol.session,
+            clock: clock
+        )
+
+        XCTAssertFalse(auth.restore(token: "expired", expiresAt: clock.now))
+        XCTAssertEqual(auth.state, .locked)
+        XCTAssertTrue(auth.restore(token: "restored", expiresAt: clock.now.addingTimeInterval(60)))
+        let restored = try await auth.bearer()
+        XCTAssertEqual(restored, "restored")
+        XCTAssertEqual(auth.state, .unlocked(bearerExpiresAt: clock.now.addingTimeInterval(60)))
+    }
+
+#if os(iOS)
+    func testKeychainSessionBearerRoundTripsAndDeletes() async throws {
+        let store = KeychainCredentialStore(
+            service: "com.cc-controller.session-bearer-tests.\(UUID().uuidString)",
+            controllerID: .mac
+        )
+        let value = SessionBearer(token: "bearer", expiresAt: Date(timeIntervalSince1970: 2_000))
+
+        try await store.setSessionBearer(value)
+        let stored = try await store.getSessionBearer()
+        XCTAssertEqual(stored, value)
+        try await store.deleteSessionBearer()
+        let deleted = try await store.getSessionBearer()
+        XCTAssertNil(deleted)
+    }
+#endif
 
     func testLockPolicyIntervalsAndPrivacyCover() {
         let date = Date(timeIntervalSince1970: 1_000)
