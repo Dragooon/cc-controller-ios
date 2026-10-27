@@ -107,6 +107,7 @@ struct ComposerView: View, Equatable {
     let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
     let glassNamespace: Namespace.ID?
     let resetGeneration: Int
+    let restoresFocusOnReset: Bool
 
     @State private var fieldGeneration = 0
     @State private var photosPresented = false
@@ -122,6 +123,7 @@ struct ComposerView: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.configuration == rhs.configuration
             && lhs.resetGeneration == rhs.resetGeneration
+            && lhs.restoresFocusOnReset == rhs.restoresFocusOnReset
     }
 
     init(
@@ -134,7 +136,8 @@ struct ComposerView: View, Equatable {
         onSendNow: @escaping () -> Void = {},
         onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
         glassNamespace: Namespace.ID? = nil,
-        resetGeneration: Int = 0
+        resetGeneration: Int = 0,
+        restoresFocusOnReset: Bool = true
     ) {
         _text = text
         _isFocused = isFocused
@@ -146,6 +149,7 @@ struct ComposerView: View, Equatable {
         self.onAddAttachment = onAddAttachment
         self.glassNamespace = glassNamespace
         self.resetGeneration = resetGeneration
+        self.restoresFocusOnReset = restoresFocusOnReset
     }
 
     var body: some View {
@@ -237,7 +241,7 @@ struct ComposerView: View, Equatable {
         .padding(.vertical, 12)
         .glassEffect(.regular, in: .rect(cornerRadius: 26))
         .onChange(of: resetGeneration) { _, generation in
-            restoreFocus = isFocused
+            restoreFocus = restoresFocusOnReset && isFocused
             fieldGeneration = generation
         }
     }

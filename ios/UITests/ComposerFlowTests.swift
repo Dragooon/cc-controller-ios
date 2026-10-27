@@ -131,8 +131,9 @@ final class ComposerFlowTests: XCTestCase {
         let resetHeight = resetField.frame.height
         XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height: initial \(initialHeight), reset \(resetHeight)")
         print("composer heights initial=\(initialHeight) wrapped=\(wrappedHeight ?? field.frame.height) reset=\(resetHeight)")
-        resetField.typeText("f")
-        XCTAssertEqual(resetField.value as? String, "f", "Composer did not retain keyboard focus after send")
+        XCTAssertTrue(waitForKeyboardDismissal(in: app, timeout: 3), "Keyboard did not dismiss after send")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        XCTAssertEqual(app.keyboards.count, 0, "Keyboard reappeared after send")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
         let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
         XCTAssertTrue(prompt.waitForExistence(timeout: 15), "Delivered sent marker did not render in the transcript")
@@ -685,6 +686,16 @@ private struct FixtureKeyRequest: Decodable, CustomStringConvertible {
     let key: String
 
     var description: String { "FixtureKeyRequest(sessionID: \(sessionID), key: \(key))" }
+}
+
+@MainActor
+private func waitForKeyboardDismissal(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    repeat {
+        if app.keyboards.count == 0 { return true }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    } while Date() < deadline
+    return false
 }
 
 @MainActor

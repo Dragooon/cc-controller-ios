@@ -135,6 +135,7 @@ struct BottomStackView: View {
     @State private var text: String
     @State private var isSending = false
     @State private var fieldResetGeneration = 0
+    @State private var fieldResetRestoresFocus = true
     @State private var sendFeedbackCount = 0
     @State private var stopFeedbackCount = 0
     @State private var pulseFailedAttachments = false
@@ -221,7 +222,8 @@ struct BottomStackView: View {
                         onSendNow: sendNow,
                         onAddAttachment: configuration.onAddAttachment,
                         glassNamespace: glassNamespace,
-                        resetGeneration: fieldResetGeneration
+                        resetGeneration: fieldResetGeneration,
+                        restoresFocusOnReset: fieldResetRestoresFocus
                     )
                     .equatable()
                 }
@@ -247,6 +249,7 @@ struct BottomStackView: View {
         .onChange(of: configuration.composer.draft?.revision) { _, _ in
             guard let draft = configuration.composer.draft else { return }
             text = draft.initialText()
+            fieldResetRestoresFocus = true
             fieldResetGeneration += 1
         }
     }
@@ -289,9 +292,6 @@ struct BottomStackView: View {
             configuration.onModel()
             return
         }
-        if isSlashCommand(submittedText) {
-            composerFocused = false
-        }
         isSending = true
         Task { @MainActor in
             if isSlashCommand(submittedText) {
@@ -317,9 +317,7 @@ struct BottomStackView: View {
     }
 
     private func finishSuccessfulSend(originalText: String, submittedText: String) {
-        if isSlashCommand(submittedText) {
-            composerFocused = false
-        }
+        composerFocused = false
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
@@ -329,6 +327,7 @@ struct BottomStackView: View {
                 currentText: text
             ) {
                 text = nextText
+                fieldResetRestoresFocus = false
                 fieldResetGeneration += 1
             }
         }
