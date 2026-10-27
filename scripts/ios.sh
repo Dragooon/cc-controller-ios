@@ -9,6 +9,7 @@ RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
+EVIDENCE_ROOT="${CC_EVIDENCE_DIR:-$HOME/dev/cc-controller-evidence}"
 POOL_SLOTS="${CC_IOS_POOL_SLOTS:-4}"
 POOL_IDLE_SECONDS=$((20 * 60))
 POOL_WAIT_SECONDS=$((60 * 60))
@@ -1239,7 +1240,7 @@ cmd_real_smoke() {
   REAL_DEVICE_NAME="cc-real-smoke-$(date '+%Y%m%dT%H%M%S')-$$"
   local timestamp output_base status_file session_file skip_file started=$SECONDS
   timestamp=$(date '+%Y%m%dT%H%M%S')
-  output_base="$HOME/Documents/dev/cc-controller-evidence/real-smoke/$timestamp"
+  output_base="$EVIDENCE_ROOT/real-smoke/$timestamp"
   [[ ! -e "$output_base" ]] || output_base="${output_base}-$$"
   REAL_OUTPUT_DIR="$output_base"
   mkdir -p "$REAL_OUTPUT_DIR"
@@ -2001,7 +2002,7 @@ real_wait_for_scratch_state() {
 real_start_scratch() {
   local output directory state_id existing=()
   shopt -s nullglob
-  existing=("$HOME/Documents/dev"/cc-perf-scratch-*.state.json)
+  existing=("$HOME/dev"/cc-perf-scratch-*.state.json)
   shopt -u nullglob
   if (( ${#existing[@]} != 0 )); then
     printf 'real perf turn: refusing to use pre-existing scratch state: %s\n' "${existing[*]}" >&2
@@ -2433,7 +2434,7 @@ cmd_perf_real() {
   REAL_DEVICE_NAME="cc-real-smoke-perf-$(date '+%Y%m%dT%H%M%S')-$$"
   local timestamp main_root app_bundle
   timestamp=$(date '+%Y%m%dT%H%M%S')
-  REAL_OUTPUT_DIR="$HOME/Documents/dev/cc-controller-evidence/perf-real-2026-10-13/$timestamp"
+  REAL_OUTPUT_DIR="$EVIDENCE_ROOT/perf-real-2026-10-13/$timestamp"
   [[ ! -e "$REAL_OUTPUT_DIR" ]] || { printf 'perf-real evidence directory already exists: %s\n' "$REAL_OUTPUT_DIR" >&2; return 1; }
   mkdir -p "$REAL_OUTPUT_DIR"
   REAL_SECRET_DIR=$(mktemp -d)
@@ -2487,7 +2488,7 @@ cmd_perf() {
   [[ -z "$only_scenario" ]] || default_repeats=1
   local repeats=${CC_PERF_REPEATS:-$default_repeats}
   [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { printf 'CC_PERF_REPEATS must be a positive integer\n' >&2; return 2; }
-  PERF_OUTPUT_DIR=${CC_PERF_OUTPUT_DIR:-$HOME/Documents/dev/cc-controller-evidence/perf-2026-10-04/harness}
+  PERF_OUTPUT_DIR=${CC_PERF_OUTPUT_DIR:-$EVIDENCE_ROOT/perf-2026-10-04/harness}
   PERF_DERIVED="$IOS/build/perf-release"
   PERF_RUN_NUMBER=0
   PERF_BUDGET_FAILED=0
