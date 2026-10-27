@@ -3,6 +3,7 @@ import Foundation
 public enum ApprovalKind: Codable, Sendable, Equatable {
     case generic
     case question
+    case peerConversation
     case unknown(String)
 
     public init(from decoder: Decoder) throws {
@@ -11,6 +12,7 @@ public enum ApprovalKind: Codable, Sendable, Equatable {
         switch value {
         case "generic": self = .generic
         case "question": self = .question
+        case "peer_conversation": self = .peerConversation
         default: self = .unknown(value)
         }
     }
@@ -24,6 +26,7 @@ public enum ApprovalKind: Codable, Sendable, Equatable {
         switch self {
         case .generic: "generic"
         case .question: "question"
+        case .peerConversation: "peer_conversation"
         case .unknown(let value): value
         }
     }
@@ -59,6 +62,24 @@ public extension Approval {
     var questions: [Question]? {
         guard kind == .question else { return nil }
         return parseQuestionItems(from: toolInput)
+    }
+
+    var peerConversation: PeerConversationApproval? {
+        guard kind == .peerConversation,
+              case .object(let object) = toolInput,
+              let senderHost = object["host"]?.stringValue,
+              let senderLabel = object["from"]?.stringValue,
+              let targetLabel = object["to"]?.stringValue,
+              !senderHost.isEmpty,
+              !senderLabel.isEmpty,
+              !targetLabel.isEmpty else { return nil }
+        let preview = object["message"]?.stringValue
+        return PeerConversationApproval(
+            senderHost: senderHost,
+            senderLabel: senderLabel,
+            targetLabel: targetLabel,
+            messagePreview: preview?.isEmpty == false ? preview : nil
+        )
     }
 }
 

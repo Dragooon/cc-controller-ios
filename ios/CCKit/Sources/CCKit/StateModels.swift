@@ -43,6 +43,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     case commands
     /// Stockade only: /sudo toggles sudo mode on a writable session.
     case sudo
+    /// Lists and revokes owner-approved cross-controller conversations.
+    case peerConversations
     case unknown(String)
 
     public init(rawValue: String) {
@@ -60,6 +62,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case "files": self = .files
         case "commands": self = .commands
         case "sudo": self = .sudo
+        case "peer_conversations": self = .peerConversations
         default: self = .unknown(rawValue)
         }
     }
@@ -88,12 +91,13 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case .files: "files"
         case .commands: "commands"
         case .sudo: "sudo"
+        case .peerConversations: "peer_conversations"
         case .unknown(let value): value
         }
     }
 
     public static let all: Set<Self> = [
-        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands,
+        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands, .peerConversations,
     ]
 }
 

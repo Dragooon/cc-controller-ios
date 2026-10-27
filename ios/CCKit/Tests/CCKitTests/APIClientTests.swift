@@ -60,6 +60,66 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer token")
     }
 
+    func testPeerConversationApprovalDecodesDaemonBootstrapAndSSEShapes() throws {
+        let approvalJSON = """
+        {
+          "requestId":"peer-approval-1",
+          "sessionId":"approval-flow-light-mode",
+          "kind":"peer_conversation",
+          "tool_name":"peer_conversation",
+          "tool_input":{
+            "request":"Stockade session ‘thread \\\"X\\\" in #general’ wants to message ‘Approval Flow Light Mode’. Allow?",
+            "from":"thread \\\"X\\\" in #general",
+            "host":"Stockade",
+            "to":"Approval Flow Light Mode",
+            "message":"Please check the cross-controller build status."
+          },
+          "receivedAt":"2026-10-27T01:00:00.000Z",
+          "holdLimitMs":590000,
+          "mode":"remote",
+          "status":"remote"
+        }
+        """
+        let bootstrap = try JSONDecoder.ccKit().decode(StateSnapshot.self, from: Data("{\"sessions\":[{\"id\":\"approval-flow-light-mode\",\"pending\":[\(approvalJSON)]}]}".utf8))
+        let approval = try XCTUnwrap(bootstrap.sessions?.first?.pending?.first)
+        XCTAssertEqual(approval.kind, .peerConversation)
+        XCTAssertEqual(approval.peerConversation, PeerConversationApproval(
+            senderHost: "Stockade",
+            senderLabel: "thread \"X\" in #general",
+            targetLabel: "Approval Flow Light Mode",
+            messagePreview: "Please check the cross-controller build status."
+        ))
+
+        guard case .approval(let event)? = LiveEvent.decode(name: "approval", data: approvalJSON) else {
+            return XCTFail("Expected an approval SSE event")
+        }
+        XCTAssertEqual(event.kind, .peerConversation)
+        XCTAssertEqual(event.toolInput, approval.toolInput)
+    }
+
+    func testPeerConversationListAndRevokeUseDaemonRoutes() async throws {
+        var paths: [(String, String)] = []
+        StubURLProtocol.handler = { request in
+            let method = request.httpMethod ?? ""
+            let path = request.url?.path ?? ""
+            paths.append((method, path))
+            if method == "GET" {
+                return StubURLProtocol.response(status: 200, body: Data("""
+                [{"id":"74dca0e9cd297800","peer":{"host":"stockade","hostLabel":"Stockade","ref":"stockade1","label":"thread \\\"X\\\" in #general"},"local":{"ref":"local1","label":"Approval Flow Light Mode"},"state":"allowed","since":"2026-10-27T01:00:00.000Z","until":"2026-10-27T02:00:00.000Z"}]
+                """.utf8))
+            }
+            return StubURLProtocol.response(status: 204, body: Data())
+        }
+        let client = makeClient()
+        let conversations = try await client.peerConversations()
+        XCTAssertEqual(conversations.count, 1)
+        XCTAssertEqual(conversations[0].peer.label, "thread \"X\" in #general")
+        XCTAssertEqual(conversations[0].lastActive, Date(timeIntervalSince1970: 1793062800))
+        try await client.revokePeerConversation(id: conversations[0].id)
+        XCTAssertEqual(paths.map { $0.0 }, ["GET", "DELETE"])
+        XCTAssertEqual(paths.map { $0.1 }, ["/api/peer-conversations", "/api/peer-conversations/74dca0e9cd297800"])
+    }
+
     func testEventRequestOptsIntoSubagentUpsertsWhenAdvertised() async throws {
         let client = makeClient()
         StubURLProtocol.handler = { _ in

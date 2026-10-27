@@ -11,6 +11,14 @@ enum ApprovalMocks {
     static var terminal: some View {
         ApprovalSessionMock(approvals: [MockApprovalData.terminalApproval])
     }
+
+    static var question: some View {
+        ApprovalSessionMock(approvals: [MockApprovalData.questionApproval])
+    }
+
+    static var peerConversation: some View {
+        ApprovalSessionMock(approvals: [MockApprovalData.peerConversationApproval])
+    }
 }
 
 private struct ApprovalSessionMock: View {
@@ -91,6 +99,58 @@ xcodebuild test \\
         sessionId: "mock-approval-session",
         toolName: "Read",
         toolInput: .object(["file_path": .string("tasks/native-app.md")]),
+        receivedAt: Date.now.addingTimeInterval(-120),
+        holdLimitMs: 590_000,
+        mode: .remote,
+        status: .remote
+    )
+
+    static let questionApproval = Approval(
+        requestId: "mock-question-approval",
+        sessionId: "mock-approval-session",
+        kind: .question,
+        toolName: "AskUserQuestion",
+        toolInput: .object([
+            "questions": .array([
+                .object([
+                    "question": .string("Which environment should receive the deploy?"),
+                    "header": .string("Environment"),
+                    "options": .array([
+                        .object(["label": .string("Sandbox"), "description": .string("Deploy to the shared sandbox.")]),
+                        .object(["label": .string("Production"), "description": .string("Deploy to production after validation.")]),
+                    ]),
+                    "multiSelect": .bool(false),
+                ]),
+                .object([
+                    "question": .string("Which checks should run first?"),
+                    "header": .string("Checks"),
+                    "options": .array([
+                        .object(["label": .string("Unit tests"), "description": .string("Run the fast unit suite.")]),
+                        .object(["label": .string("UI flows"), "description": .string("Run the focused iOS flows.")]),
+                        .object(["label": .string("Smoke"), "description": .string("Run the live smoke path.")]),
+                    ]),
+                    "multiSelect": .bool(true),
+                ]),
+            ]),
+        ]),
+        receivedAt: Date.now.addingTimeInterval(-120),
+        holdLimitMs: 590_000,
+        mode: .remote,
+        status: .remote
+    )
+
+    static let peerConversationApproval = Approval(
+        requestId: "mock-peer-conversation-approval",
+        sessionId: "mock-approval-session",
+        kind: .peerConversation,
+        toolName: "peer_conversation",
+        toolInput: .object([
+            "request": .string("Stockade session ‘thread \\\"X\\\" in #general’ wants to message ‘App Debugging’. Allow?"),
+            "from": .string("thread \\\"X\\\" in #general"),
+            "host": .string("Stockade"),
+            "to": .string("App Debugging"),
+            "message": .string("Please check the cross-controller build status."),
+        ]),
         receivedAt: Date.now.addingTimeInterval(-120),
         holdLimitMs: 590_000,
         mode: .remote,

@@ -11,6 +11,8 @@ struct ControllerDetailView: View {
     @State private var addressDraft = ""
     @State private var relayPin: String?
     @State private var showingRemoveConfirmation = false
+    @State private var conversationToRevoke: PeerConversation?
+    @State private var isRevokingConversation = false
     @State private var isRemoving = false
 
     private var row: SettingsControllerRow? { model.controllerRows.first { $0.id == controllerID } }
@@ -38,6 +40,9 @@ struct ControllerDetailView: View {
                 if let settings {
                     connectionTestSection(settings)
                     devicesSection(settings)
+                    if model.connection(for: controllerID)?.store.supports(.peerConversations) == true {
+                        conversationsSection(settings)
+                    }
                 }
                 if !row.isPrimary {
                     removeSection(row)
@@ -53,6 +58,7 @@ struct ControllerDetailView: View {
             addressDraft = savedAddresses
             relayPin = await model.relayPinGrouped(for: controllerID)
             await settings?.loadPairedDevices()
+            await settings?.loadPeerConversations()
         }
         .confirmationDialog(
             "Remove \(row?.name ?? "this controller")?",
@@ -70,6 +76,31 @@ struct ControllerDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This signs out of the controller and deletes its credentials, caches and settings from this iPhone.")
+        }
+        .confirmationDialog(
+            "Revoke this conversation?",
+            isPresented: Binding(
+                get: { conversationToRevoke != nil },
+                set: { if !$0 { conversationToRevoke = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Revoke", role: .destructive) {
+                guard let conversation = conversationToRevoke, let settings else { return }
+                isRevokingConversation = true
+                Task {
+                    defer {
+                        isRevokingConversation = false
+                        conversationToRevoke = nil
+                    }
+                    try? await settings.revokePeerConversation(id: conversation.id)
+                }
+            }
+            Button("Cancel", role: .cancel) { conversationToRevoke = nil }
+        } message: {
+            if let conversation = conversationToRevoke {
+                Text("This stops messages between \(conversation.peer.label) and \(conversation.local.label).")
+            }
         }
     }
 
@@ -192,6 +223,68 @@ struct ControllerDetailView: View {
                 }
             }
         }
+    }
+
+    private func conversationsSection(_ settings: SettingsStore) -> some View {
+        Section("Conversations with other controllers") {
+            switch settings.peerConversations {
+            case .loading:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Loading conversations…")
+                        .foregroundStyle(.ccSecondary)
+                }
+                .accessibilityIdentifier("peer-conversations-loading")
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Couldn’t load conversations")
+                        .font(.subheadline.weight(.semibold))
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                }
+                Button("Retry") { Task { await settings.loadPeerConversations() } }
+                    .accessibilityIdentifier("peer-conversations-retry")
+            case .loaded(let conversations):
+                let open = conversations.filter { $0.state == .allowed }
+                if open.isEmpty {
+                    Text("No open conversations.")
+                        .foregroundStyle(.ccSecondary)
+                        .accessibilityIdentifier("peer-conversations-empty")
+                } else {
+                    ForEach(open) { conversation in
+                        peerConversationRow(conversation)
+                    }
+                }
+            }
+        }
+    }
+
+    private func peerConversationRow(_ conversation: PeerConversation) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(conversation.peer.hostLabel) · \(conversation.peer.label)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccLabel)
+                Text("This controller · \(conversation.local.label)")
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+                Text("Last active \(conversation.lastActive.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Unknown")")
+                    .font(.footnote)
+                    .foregroundStyle(.ccSecondary)
+            }
+            Spacer(minLength: 8)
+            Button("Revoke", role: .destructive) {
+                conversationToRevoke = conversation
+            }
+            .disabled(isRevokingConversation)
+            .font(.footnote.weight(.semibold))
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("peer-conversation-revoke-\(conversation.id)")
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("peer-conversation-\(conversation.id)")
     }
 
     private func removeSection(_ row: SettingsControllerRow) -> some View {

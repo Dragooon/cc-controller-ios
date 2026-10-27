@@ -126,6 +126,14 @@ public actor APIClient {
     public func mode(sessionID: String, mode: ApprovalMode) async throws -> ModeResult { try await post("/api/sessions/\(pathComponent(sessionID))/mode", body: ModeRequest(mode: mode.rawValue)) }
     public func decision(sessionID: String, requestID: String, behavior: DecisionBehavior, answers: [String: String]? = nil) async throws -> Decision { try await post("/api/sessions/\(pathComponent(sessionID))/decision", body: DecisionRequest(requestId: requestID, behavior: behavior.rawValue, answers: answers), staleDecision: true) }
 
+    public func peerConversations() async throws -> [PeerConversation] {
+        try await get("/api/peer-conversations")
+    }
+
+    public func revokePeerConversation(id: String) async throws {
+        _ = try await requestData("/api/peer-conversations/\(pathComponent(id))", method: "DELETE")
+    }
+
     public func answerQuestion(sessionID: String, requestID: String, answers: [String: String]) async throws -> Decision {
         try await decision(sessionID: sessionID, requestID: requestID, behavior: .allow, answers: answers)
     }

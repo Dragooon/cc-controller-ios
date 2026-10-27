@@ -157,12 +157,115 @@ struct ApprovalCard: View {
     }
 
 
+    @ViewBuilder
     var body: some View {
-        switch style {
-        case .compact:
-            compactBody
-        case .full:
-            fullBody
+        if approval.peerConversation != nil {
+            switch style {
+            case .compact: peerCompactBody
+            case .full: peerFullBody
+            }
+        } else {
+            switch style {
+            case .compact: compactBody
+            case .full: fullBody
+            }
+        }
+    }
+
+    private var peerFullBody: some View {
+        Group {
+            if let glassNamespace {
+                peerFullCard.glassEffectID("composer", in: glassNamespace)
+            } else {
+                peerFullCard
+            }
+        }
+    }
+
+    private var peerFullCard: some View {
+        ViewThatFits(in: .vertical) {
+            VStack(alignment: .leading, spacing: 12) {
+                peerContent
+                peerFullActions
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                ScrollView(.vertical) { peerContent }
+                    .scrollIndicators(.hidden)
+                    .frame(maxHeight: .infinity)
+                peerFullActions
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26))
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Peer conversation approval")
+        .accessibilityIdentifier(cardIdentifier)
+    }
+
+    private var peerCompactBody: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            peerContent
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    denyButton
+                    allowButton
+                }
+                VStack(spacing: 12) {
+                    allowButton
+                    denyButton
+                }
+            }
+        }
+        .padding(13)
+        .background(.ccBackground.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.ccAccent.opacity(0.35), lineWidth: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Peer conversation approval")
+        .accessibilityIdentifier(cardIdentifier)
+    }
+
+    private var peerContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            controllerCaption
+            if let peerConversation = approval.peerConversation {
+                Text(peerConversation.sentence)
+                    .font(.body)
+                    .foregroundStyle(.ccLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("peer-conversation-request")
+                if let preview = peerConversation.messagePreview {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Message preview")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.ccSecondary)
+                        Text(preview)
+                            .font(.subheadline)
+                            .foregroundStyle(.ccLabel)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("peer-conversation-preview")
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var peerFullActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                fullDenyButton
+                fullAllowButton
+            }
+            VStack(spacing: 8) {
+                fullAllowButton
+                fullDenyButton
+            }
         }
     }
 

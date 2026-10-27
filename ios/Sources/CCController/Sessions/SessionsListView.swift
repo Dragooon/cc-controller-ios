@@ -576,7 +576,8 @@ private struct SessionRow: View {
                     onOpen: onOpen,
                     onAllow: { onAllow(approval) },
                     onAllowSession: {},
-                    onDeny: { onDeny(approval) }
+                    onDeny: { onDeny(approval) },
+                    controllerName: controllerName
                 )
                 .disabled(isDeciding(approval))
             }

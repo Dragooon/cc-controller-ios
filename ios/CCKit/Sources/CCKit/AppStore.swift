@@ -869,6 +869,16 @@ public final class AppStore {
         return try await client.devices().devices ?? []
     }
 
+    public func peerConversations() async throws -> [PeerConversation] {
+        try await authenticate()
+        return try await client.peerConversations()
+    }
+
+    public func revokePeerConversation(id: String) async throws {
+        try await authenticate()
+        try await client.revokePeerConversation(id: id)
+    }
+
     public func logout() async -> Result<Void, ActionError> {
         do {
             _ = try await client.logout()

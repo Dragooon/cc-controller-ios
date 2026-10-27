@@ -361,6 +361,8 @@ final class AppModel {
             probe: { try await auth.probeDaemon(timeout: 5) },
             whoAmI: { try await store.whoAmI() },
             devices: { try await store.pairedDevices() },
+            conversations: { try await store.peerConversations() },
+            revokeConversation: { id in try await store.revokePeerConversation(id: id) },
             interval: probeInterval
         )
         observedSessions = Dictionary(uniqueKeysWithValues: connections.map { ($0.config.id, $0.store.sessions) })
@@ -879,7 +881,9 @@ final class AppModel {
         let settingsStore = SettingsStore(
             probe: { try await auth.probeDaemon(timeout: 5) },
             whoAmI: { try await store.whoAmI() },
-            devices: { try await store.pairedDevices() }
+            devices: { try await store.pairedDevices() },
+            conversations: { try await store.peerConversations() },
+            revokeConversation: { id in try await store.revokePeerConversation(id: id) }
         )
         controllerSettings[controllerID] = settingsStore
         return settingsStore
