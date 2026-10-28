@@ -158,18 +158,30 @@ struct MainSplitView: View {
 
     private func regularSplitView() -> some View {
         GeometryReader { proxy in
+            let sidebarWidth = min(360, max(300, proxy.size.width * 0.3))
+            let remainingWidth = proxy.size.width - sidebarWidth
 #if DEBUG
             let forceOverlay = ProcessInfo.processInfo.arguments.contains("-CCSidebarLayout")
                 && ProcessInfo.processInfo.arguments.contains("overlay")
 #else
             let forceOverlay = false
 #endif
+            let layoutMode = forceOverlay || remainingWidth < 440 ? "overlay" : "push"
             regularSplitContent(
                 width: proxy.size.width,
                 height: proxy.size.height,
-                sidebarWidth: min(360, max(300, proxy.size.width * 0.3)),
-                isOverlay: forceOverlay || proxy.size.width - min(360, max(300, proxy.size.width * 0.3)) < 520
+                sidebarWidth: sidebarWidth,
+                isOverlay: forceOverlay || remainingWidth < 440
             )
+#if DEBUG
+            .overlay {
+                Text(" ")
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .accessibilityIdentifier("regular-layout-metrics")
+                    .accessibilityValue("width=\(proxy.size.width),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode)")
+            }
+#endif
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -245,6 +257,7 @@ struct MainSplitView: View {
     private var regularSidebarScrim: some View {
         Color.black
             .opacity(0.25 * regularSidebarProgress)
+            .ignoresSafeArea()
             .contentShape(Rectangle())
             .onTapGesture { toggleSidebar() }
             .zIndex(0.5)

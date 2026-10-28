@@ -42,14 +42,11 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let sidebar = sessionsList(in: app)
         XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
         let newSession = app.buttons["new-session"]
-        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Floating new-session button did not load")
+        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Sidebar new-session button did not load")
         XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Landscape new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
         addScreenshot(named: "sessions-search-landscape-before")
-        let searchButton = app.buttons["sessions-search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
-        searchButton.tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "Presented sessions search field did not load")
+        let field = app.textFields["sessions-search-field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 20), "Permanent sessions search field did not load")
         XCTAssertTrue(sidebar.frame.contains(field.frame), "Landscape search field escaped sessions sidebar: field=\(field.frame), sidebar=\(sidebar.frame)")
         addScreenshot(named: "sessions-search-landscape")
     }
@@ -65,16 +62,29 @@ final class SidebarOverlayFlowTests: XCTestCase {
             back.tap()
         }
         XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions sidebar did not load after opening the overlay")
-        let newSession = app.buttons["new-session"]
-        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Floating new-session button did not load")
-        XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
+        let sizeClass = app.descendants(matching: .any)
+            .matching(identifier: "horizontal-size-class")
+            .firstMatch
+        XCTAssertTrue(sizeClass.waitForExistence(timeout: 20), "Horizontal size-class probe did not load")
         addScreenshot(named: "sessions-search-portrait-before")
-        let searchButton = app.buttons["sessions-search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
-        searchButton.tap()
-        let field = app.searchFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "Presented sessions search field did not load")
-        XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
+        if sizeClass.label == "regular" {
+            let newSession = app.buttons["new-session"]
+            XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Sidebar new-session button did not load")
+            XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
+            let field = app.textFields["sessions-search-field"]
+            XCTAssertTrue(field.waitForExistence(timeout: 20), "Permanent sessions search field did not load")
+            XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
+        } else {
+            let newSession = app.buttons["new-session"]
+            XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Floating new-session button did not load")
+            XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
+            let searchButton = app.buttons["sessions-search"]
+            XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
+            searchButton.tap()
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 20), "Presented sessions search field did not load")
+            XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
+        }
         addScreenshot(named: "sessions-search-portrait")
     }
 
@@ -152,10 +162,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         sidebarToggle(in: app).tap()
         XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sidebar toggle did not reopen the sidebar")
-        let searchButton = app.buttons["sessions-search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sidebar search button did not load")
-        searchButton.tap()
-        let searchField = app.searchFields.firstMatch
+        let searchField = app.textFields["sessions-search-field"]
         XCTAssertTrue(searchField.waitForExistence(timeout: 20), "Sidebar search field did not load")
         searchField.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Leading-edge search-field tap did not focus the field")
@@ -233,6 +240,11 @@ final class SidebarOverlayFlowTests: XCTestCase {
             .firstMatch
         XCTAssertTrue(sizeClass.waitForExistence(timeout: 30), "Horizontal size-class probe did not load")
         XCTAssertEqual(sizeClass.label, "regular", "Landscape pool device did not report regular horizontal size class")
+        let metrics = app.descendants(matching: .any)
+            .matching(identifier: "regular-layout-metrics")
+            .firstMatch
+        XCTAssertTrue(metrics.waitForExistence(timeout: 10), "Regular layout metrics did not load")
+        print("REGULAR_LAYOUT_METRICS \(metrics.value ?? metrics.label)")
         print("LANDSCAPE_HORIZONTAL_SIZE_CLASS \(sizeClass.label) VISIBILITY \(sizeClass.value ?? "nil")")
     }
 

@@ -47,16 +47,28 @@ func postFixtureRoute(_ path: String) async throws {
 @MainActor
 @discardableResult
 func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> XCUIElement {
+    let regularField = app.textFields["sessions-search-field"]
+    if regularField.exists {
+        regularField.tap()
+        return regularField
+    }
+
     let search = app.searchFields.firstMatch
+    if search.exists {
+        search.tap()
+        return search
+    }
+
     let button = app.buttons["sessions-search"]
     if button.waitForExistence(timeout: min(timeout, 2)) {
         button.tap()
-    } else {
         XCTAssertTrue(search.waitForExistence(timeout: timeout), "Session search field did not load")
-        search.tap()
+        return search
     }
-    XCTAssertTrue(search.waitForExistence(timeout: timeout), "Session search field did not load")
-    return search
+
+    XCTAssertTrue(regularField.waitForExistence(timeout: timeout), "Session search field did not load")
+    regularField.tap()
+    return regularField
 }
 
 @MainActor

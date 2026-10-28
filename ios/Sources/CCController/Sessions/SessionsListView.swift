@@ -96,6 +96,7 @@ struct SessionsListView: View {
     @AppStorage("sessions.archived.collapsed") private var archivedCollapsed = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @FocusState private var regularSearchFocused: Bool
 
     init(
         controllers: [SessionsListController],
@@ -297,61 +298,24 @@ struct SessionsListView: View {
 
     var body: some View {
         NavigationStack {
-            list
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    bottomInset
-                }
-                .navigationTitle(horizontalSizeClass == .regular ? "" : "Sessions")
-                .navigationBarTitleDisplayMode(horizontalSizeClass == .regular ? .inline : .large)
-                .toolbar {
-                    if horizontalSizeClass == .regular {
-                        ToolbarItem(placement: .topBarLeading) {
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text("Sessions")
-                                    .font(.title3.weight(.semibold))
-                                    .foregroundStyle(.ccLabel)
-                                if let subtitle, !subtitle.isEmpty {
-                                    Text(subtitle)
-                                        .font(.caption)
-                                        .foregroundStyle(.ccSecondary)
-                                        .lineLimit(1)
-                                }
-                            }
-                            .fixedSize(horizontal: true, vertical: true)
-                            .scaleEffect(0.9, anchor: .leading)
-                            .frame(width: 84, alignment: .leading)
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            HStack(spacing: 2) {
-                                if canCreateSession {
-                                    Button(action: onNewSession) {
-                                        Image(systemName: "square.and.pencil")
-                                            .frame(width: 32, height: 32)
-                                    }
-                                    .accessibilityLabel("New session")
-                                    .accessibilityIdentifier("new-session")
-                                }
-                                Button(action: onSettings) {
-                                    Image(systemName: "gearshape")
-                                        .frame(width: 32, height: 32)
-                                }
-                                .accessibilityLabel("Settings")
-                            }
-                            .padding(.horizontal, 4)
-                            .frame(height: 36)
-                            .glassEffect(.regular.interactive(), in: .capsule)
-                        }
-                        if let onToggleSidebar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                Button(action: onToggleSidebar) {
-                                    Image(systemName: "sidebar.left")
-                                        .frame(width: 32, height: 32)
-                                }
-                                .accessibilityLabel("Toggle sidebar")
-                                .accessibilityIdentifier("sidebar-toggle")
-                            }
-                        }
-                    } else {
+            if horizontalSizeClass == .regular {
+                list
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        regularHeader
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        bottomInset
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .refreshable { await onRefresh() }
+            } else {
+                list
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        bottomInset
+                    }
+                    .navigationTitle("Sessions")
+                    .navigationBarTitleDisplayMode(.large)
+                    .toolbar {
                         ToolbarItemGroup(placement: .topBarTrailing) {
                             Button {
                                 isSearchPresented = true
@@ -366,19 +330,17 @@ struct SessionsListView: View {
                             .accessibilityLabel("Settings")
                         }
                     }
-                }
-                .searchable(
-                    text: $searchText,
-                    isPresented: $isSearchPresented,
-                    placement: .navigationBarDrawer(
-                        displayMode: horizontalSizeClass == .regular ? .always : .automatic
-                    ),
-                    prompt: "Search sessions"
-                )
-                .onChange(of: isSearchPresented) { _, presented in
-                    if !presented { searchText = "" }
-                }
-                .refreshable { await onRefresh() }
+                    .searchable(
+                        text: $searchText,
+                        isPresented: $isSearchPresented,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "Search sessions"
+                    )
+                    .onChange(of: isSearchPresented) { _, presented in
+                        if !presented { searchText = "" }
+                    }
+                    .refreshable { await onRefresh() }
+            }
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -388,6 +350,83 @@ struct SessionsListView: View {
             guard !allSessions.isEmpty else { return }
             await onSessionsLoaded()
         }
+    }
+
+    private var regularHeader: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Sessions")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.ccLabel)
+                        .accessibilityLabel("Sessions")
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.ccSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                HStack(spacing: 0) {
+                    if canCreateSession {
+                        Button(action: onNewSession) {
+                            Image(systemName: "square.and.pencil")
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("New session")
+                        .accessibilityIdentifier("new-session")
+                    }
+                    Button(action: onSettings) {
+                        Image(systemName: "gearshape")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+                .glassEffect(.regular.interactive(), in: .capsule)
+                if let onToggleSidebar {
+                    Button(action: onToggleSidebar) {
+                        Image(systemName: "sidebar.left")
+                            .frame(width: 44, height: 44)
+                    }
+                    .accessibilityLabel("Toggle sidebar")
+                    .accessibilityIdentifier("sidebar-toggle")
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .padding(.leading, 8)
+                }
+            }
+            .frame(height: 44)
+            .padding(.horizontal, 16)
+            regularSearchField
+        }
+        .background(.ccBackground)
+    }
+
+    private var regularSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.ccSecondary)
+            TextField("Search sessions", text: $searchText)
+                .focused($regularSearchFocused)
+                .submitLabel(.search)
+                .accessibilityIdentifier("sessions-search-field")
+                .onSubmit { regularSearchFocused = false }
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.ccSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .frame(height: 36)
+        .padding(.horizontal, 12)
+        .background(.ccLabel.opacity(0.06), in: .capsule)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder
