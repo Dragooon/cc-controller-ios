@@ -114,6 +114,67 @@ final class AuthTests: XCTestCase {
         XCTAssertNil(nativeSecret)
     }
 
+    func testAuthSessionsSharingBiometricSessionEvaluateOnce() async throws {
+        AuthURLProtocol.handler = { request in
+            if request.url?.path == "/api/auth/native/login" {
+                return AuthURLProtocol.json(Data("{\"authenticated\":true,\"token\":\"bearer\"}".utf8))
+            }
+            return AuthURLProtocol.json(Data("{}".utf8))
+        }
+        let evaluations = AuthEvaluationCounter()
+        let biometricSession = BiometricUnlockSession { _, _ in
+            await evaluations.increment()
+        }
+        let first = AuthSession(
+            serverURL: URL(string: "http://localhost:47832")!,
+            credentials: SessionAwareCredentialStore(),
+            session: AuthURLProtocol.session
+        )
+        let second = AuthSession(
+            serverURL: URL(string: "http://localhost:47832")!,
+            credentials: SessionAwareCredentialStore(),
+            session: AuthURLProtocol.session
+        )
+
+        guard case .success = await first.unlock(session: biometricSession) else {
+            return XCTFail("First auth session did not unlock")
+        }
+        guard case .success = await second.unlock(session: biometricSession) else {
+            return XCTFail("Second auth session did not unlock")
+        }
+
+        let count = await evaluations.value
+        XCTAssertEqual(count, 1)
+    }
+
+    func testUnauthorizedReloginWithinWindowReusesBiometricSession() async throws {
+        AuthURLProtocol.handler = { request in
+            if request.url?.path == "/api/auth/native/login" {
+                return AuthURLProtocol.json(Data("{\"authenticated\":true,\"token\":\"bearer\"}".utf8))
+            }
+            return AuthURLProtocol.json(Data("{}".utf8))
+        }
+        let evaluations = AuthEvaluationCounter()
+        let biometricSession = BiometricUnlockSession { _, _ in
+            await evaluations.increment()
+        }
+        let auth = AuthSession(
+            serverURL: URL(string: "http://localhost:47832")!,
+            credentials: SessionAwareCredentialStore(),
+            session: AuthURLProtocol.session
+        )
+
+        guard case .success = await auth.unlock(session: biometricSession) else {
+            return XCTFail("Initial auth session did not unlock")
+        }
+        guard case .success = await auth.handleUnauthorized(session: biometricSession) else {
+            return XCTFail("Unauthorized auth session did not silently relogin")
+        }
+
+        let count = await evaluations.value
+        XCTAssertEqual(count, 1)
+    }
+
     func testRevokedSecretReturnsToUnpaired() async throws {
         AuthURLProtocol.handler = { request in
             if request.url?.path == "/api/auth/native/login" { return AuthURLProtocol.json(401, body: Data("{\"error\":\"Unknown device secret\"}".utf8)) }
@@ -250,11 +311,45 @@ final class AuthTests: XCTestCase {
     }
 }
 
+private actor AuthEvaluationCounter {
+    private var count = 0
+
+    func increment() {
+        count += 1
+    }
+
+    var value: Int { count }
+}
+
+private actor SessionAwareCredentialStore: CredentialStore {
+    func getDeviceToken() async throws -> String? { nil }
+    func setDeviceToken(_ value: String) async throws { }
+    func deleteDeviceToken() async throws { }
+    func getNativeSecret(session: BiometricUnlockSession?) async throws -> String? {
+        if let session {
+            _ = try await session.authorizedContext(reason: "Unlock Code")
+        }
+        return "native-secret"
+    }
+    func hasNativeSecret() async throws -> Bool { true }
+    func setNativeSecret(_ value: String) async throws { }
+    func deleteNativeSecret() async throws { }
+    func getLastUnlockAt() async throws -> Date? { nil }
+    func setLastUnlockAt(_ value: Date) async throws { }
+    func deleteLastUnlockAt() async throws { }
+    func getLastBackgroundAt() async throws -> Date? { nil }
+    func setLastBackgroundAt(_ value: Date) async throws { }
+    func deleteLastBackgroundAt() async throws { }
+    func getSessionBearer() async throws -> SessionBearer? { nil }
+    func setSessionBearer(_ value: SessionBearer) async throws { }
+    func deleteSessionBearer() async throws { }
+}
+
 private actor ThrowingSessionBearerStore: CredentialStore {
     func getDeviceToken() async throws -> String? { nil }
     func setDeviceToken(_ value: String) async throws { }
     func deleteDeviceToken() async throws { }
-    func getNativeSecret() async throws -> String? { "native-secret" }
+    func getNativeSecret(session: BiometricUnlockSession?) async throws -> String? { "native-secret" }
     func hasNativeSecret() async throws -> Bool { true }
     func setNativeSecret(_ value: String) async throws { }
     func deleteNativeSecret() async throws { }

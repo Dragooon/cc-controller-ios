@@ -182,12 +182,12 @@ public final class AuthSession {
         return await enroll()
     }
 
-    public func unlock() async -> Result<Void, AuthError> {
+    public func unlock(session: BiometricUnlockSession? = nil) async -> Result<Void, AuthError> {
         state = .unlocking
         lastUnlockBiometricErrorCode = nil
         lastUnlockFailureCode = nil
         do {
-            guard let secret = try await credentials.getNativeSecret() else { return fail(.notEnrolled) }
+            guard let secret = try await credentials.getNativeSecret(session: session) else { return fail(.notEnrolled) }
             let response = try await client.login(secret: secret)
             guard response.authenticated != false, let token = response.token, !token.isEmpty else { throw AuthError.unknownSecret }
             let expiresAt = response.expiresAt ?? clock.now.addingTimeInterval(12 * 60 * 60)
@@ -212,11 +212,11 @@ public final class AuthSession {
         }
     }
 
-    public func handleUnauthorized() async -> Result<Void, AuthError> {
+    public func handleUnauthorized(session: BiometricUnlockSession? = nil) async -> Result<Void, AuthError> {
         bearerToken = nil
         state = .locked
         try? await credentials.deleteSessionBearer()
-        return await unlock()
+        return await unlock(session: session)
     }
 
     public func logout() async -> Result<Void, AuthError> {

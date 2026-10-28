@@ -52,7 +52,7 @@ public protocol CredentialStore: Sendable {
     func getDeviceToken() async throws -> String?
     func setDeviceToken(_ value: String) async throws
     func deleteDeviceToken() async throws
-    func getNativeSecret() async throws -> String?
+    func getNativeSecret(session: BiometricUnlockSession?) async throws -> String?
     func hasNativeSecret() async throws -> Bool
     func setNativeSecret(_ value: String) async throws
     func deleteNativeSecret() async throws
@@ -71,6 +71,7 @@ public protocol CredentialStore: Sendable {
 }
 
 public extension CredentialStore {
+    func getNativeSecret() async throws -> String? { try await getNativeSecret(session: nil) }
     func getRelayPin() async throws -> String? { nil }
     func setRelayPin(_ value: String) async throws { throw CredentialStoreError.unavailable }
     func deleteRelayPin() async throws { }
@@ -121,7 +122,7 @@ public actor InMemoryCredentialStore: CredentialStore {
     public func getDeviceToken() async throws -> String? { storedDeviceToken }
     public func setDeviceToken(_ value: String) async throws { storedDeviceToken = value }
     public func deleteDeviceToken() async throws { storedDeviceToken = nil }
-    public func getNativeSecret() async throws -> String? { storedNativeSecret }
+    public func getNativeSecret(session: BiometricUnlockSession?) async throws -> String? { storedNativeSecret }
     public func hasNativeSecret() async throws -> Bool { storedNativeSecret != nil }
     public func setNativeSecret(_ value: String) async throws { storedNativeSecret = value }
     public func deleteNativeSecret() async throws { storedNativeSecret = nil }
@@ -247,16 +248,14 @@ public final class KeychainCredentialStore: CredentialStore, @unchecked Sendable
         try remove(account: account("sessionBearer"))
     }
 
-    public func getNativeSecret() async throws -> String? {
-        let context = LAContext()
-        context.localizedFallbackTitle = ""
-        do {
-            try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: "Unlock Code")
-        } catch let error as LAError {
-            throw CredentialStoreError.biometric(error.code)
-        } catch {
-            throw CredentialStoreError.system(error.localizedDescription)
+    public func getNativeSecret(session: BiometricUnlockSession? = nil) async throws -> String? {
+        let unlockSession: BiometricUnlockSession
+        if let session {
+            unlockSession = session
+        } else {
+            unlockSession = await BiometricUnlockSession()
         }
+        let context = try await unlockSession.authorizedContext(reason: "Unlock Code")
         return try read(account: account("nativeSecret"), context: context)
     }
 
