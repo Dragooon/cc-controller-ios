@@ -1037,13 +1037,25 @@ public final class AppStore {
             _ = await refreshStateAndOpenTranscripts()
             return .success(())
         } catch {
-            if isStaleDecision(error) {
+            let mapped = actionError(for: error)
+            if mapped == .waitingInTerminal {
+                markApprovalAsPaneLess(approval)
+                restorePendingApproval(approval)
+            } else if isStaleDecision(error) {
                 _ = await refreshStateAndOpenTranscripts()
             } else {
                 restorePendingApproval(approval)
             }
-            return .failure(actionError(for: error))
+            return .failure(mapped)
         }
+    }
+
+    private func markApprovalAsPaneLess(_ approval: Approval) {
+        guard let sessionID = approval.sessionId, var session = sessions[sessionID] else { return }
+        session.tmuxPane = nil
+        session.tmux = false
+        sessions[sessionID] = session
+        updateOpenStores(for: session)
     }
 
     private func removePendingApproval(_ approval: Approval) {
@@ -1422,21 +1434,24 @@ public final class AppStore {
     private func applyApproval(_ event: ApprovalEvent) {
         guard let sessionID = event.sessionId, let requestID = event.requestId else { return }
         var pending = sessions[sessionID]?.pending ?? []
+        let existing = pending.first { $0.requestId == requestID }
         let approval = Approval(
             requestId: requestID,
             sessionId: sessionID,
-            kind: event.kind,
-            toolName: event.toolName,
-            toolInput: event.toolInput,
-            toolUseId: event.toolUseId,
-            permissionMode: event.permissionMode,
-            agentType: event.agentType,
-            receivedAt: event.receivedAt,
-            holdLimitMs: event.holdLimitMs,
-            mode: event.mode,
-            status: event.status,
-            timedOutAt: event.timedOutAt,
-            permissionSuggestions: event.permissionSuggestions
+            kind: event.kind == .generic ? (existing?.kind ?? .generic) : event.kind,
+            toolName: event.toolName ?? existing?.toolName,
+            toolInput: event.toolInput ?? existing?.toolInput,
+            toolUseId: event.toolUseId ?? existing?.toolUseId,
+            permissionMode: event.permissionMode ?? existing?.permissionMode,
+            agentType: event.agentType ?? existing?.agentType,
+            receivedAt: event.receivedAt ?? existing?.receivedAt,
+            holdLimitMs: event.holdLimitMs ?? existing?.holdLimitMs,
+            mode: event.mode ?? existing?.mode,
+            status: event.status ?? existing?.status,
+            timedOutAt: event.timedOutAt ?? existing?.timedOutAt,
+            permissionSuggestions: event.permissionSuggestions ?? existing?.permissionSuggestions,
+            previousState: existing?.previousState,
+            answerIn: existing?.answerIn
         )
         pending.removeAll { $0.requestId == requestID }
         pending.append(approval)

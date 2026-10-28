@@ -36,6 +36,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
     /// The owning controller's name, set only when two or more controllers are paired.
     let approvalControllerName: String?
     let allowsSessionScope: Bool
+    let terminalPaneAvailable: Bool
+    let approvalAttachCommand: String?
     /// Set on sessions the app may only read, such as "Read-only · Discord". It replaces the composer.
     let readOnlyLabel: String?
 
@@ -66,6 +68,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
         onSkip: @escaping (Approval) -> Void = { _ in },
         approvalControllerName: String? = nil,
         allowsSessionScope: Bool = true,
+        terminalPaneAvailable: Bool = true,
+        approvalAttachCommand: String? = nil,
         readOnlyLabel: String? = nil
     ) {
         self.composer = composer
@@ -94,6 +98,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.onSkip = onSkip
         self.approvalControllerName = approvalControllerName
         self.allowsSessionScope = allowsSessionScope
+        self.terminalPaneAvailable = terminalPaneAvailable
+        self.approvalAttachCommand = approvalAttachCommand
         self.readOnlyLabel = readOnlyLabel
     }
 
@@ -125,6 +131,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
             onSkip: onSkip,
             approvalControllerName: approvalControllerName,
             allowsSessionScope: allowsSessionScope,
+            terminalPaneAvailable: terminalPaneAvailable,
+            approvalAttachCommand: approvalAttachCommand,
             readOnlyLabel: readOnlyLabel
         )
     }
@@ -195,6 +203,8 @@ struct BottomStackView: View {
                         onSkip: configuration.onSkip,
                         controllerName: configuration.approvalControllerName,
                         allowsSessionScope: configuration.allowsSessionScope,
+                        terminalPaneAvailable: configuration.terminalPaneAvailable,
+                        attachCommand: configuration.approvalAttachCommand,
                         glassNamespace: glassNamespace,
                         inGlassContainer: false
                     )

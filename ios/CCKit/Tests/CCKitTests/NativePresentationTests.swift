@@ -449,4 +449,36 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(approvalHoldFraction(remaining: 700, total: 590), 1)
         XCTAssertEqual(approvalHoldFraction(remaining: 1, total: 0), 0)
     }
+
+    func testTerminalApprovalNeedsAttachOnlyWhenTheSessionHasNoPane() {
+        let approval = Approval(
+            sessionId: "session",
+            toolName: "Bash",
+            toolInput: .object(["command": .string("rm -f scratch")]),
+            mode: .remote,
+            status: .terminal
+        )
+        XCTAssertTrue(approvalNeedsAttach(approval, in: Session(id: "session", background: BackgroundSession(shortId: "abc12345"))))
+        XCTAssertFalse(approvalNeedsAttach(approval, in: Session(id: "session", tmuxPane: "%7")))
+    }
+
+    func testSubagentBashPermissionCopyKeepsTheCommand() {
+        let approval = Approval(
+            toolName: "Bash",
+            toolInput: .object([
+                "command": .string("rm -f scratch"),
+                "description": .string("Remove scratch files"),
+                "timeout": .number(30),
+            ]),
+            agentType: "atlas-ops"
+        )
+        XCTAssertEqual(permissionCopy(approval).command, "rm -f scratch")
+    }
+
+    func testClaudeAttachCommandUsesBackgroundShortID() {
+        XCTAssertEqual(
+            claudeAttachCommand(for: Session(id: "c9f8e6f7-bc80-4097-a66e-b1cd958a33c4", background: BackgroundSession(shortId: "c9f8e6f7"))),
+            "claude attach c9f8e6f7"
+        )
+    }
 }

@@ -1,5 +1,6 @@
 import CCKit
 import SwiftUI
+import UIKit
 
 /// Proposes at most `cap` points of height to its single child and reports the child's own size, so the child never grows to the cap.
 struct CappedHeightLayout: Layout {
@@ -114,8 +115,11 @@ struct ApprovalCard: View {
     let controllerName: String?
     /// False on controllers that cannot remember an allow for the rest of a session, such as Stockade.
     let allowsSessionScope: Bool
+    let terminalPaneAvailable: Bool
+    let attachCommand: String?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var attachCommandCopied = false
     @ScaledMetric(relativeTo: .body) private var fullActionHeight = CCMetrics.actionHeight
     @ScaledMetric(relativeTo: .body) private var compactActionHeight = CCMetrics.compactActionHeight
 
@@ -128,7 +132,9 @@ struct ApprovalCard: View {
         onDeny: @escaping () -> Void = {},
         glassNamespace: Namespace.ID? = nil,
         controllerName: String? = nil,
-        allowsSessionScope: Bool = true
+        allowsSessionScope: Bool = true,
+        terminalPaneAvailable: Bool = true,
+        attachCommand: String? = nil
     ) {
         self.approval = approval
         self.style = style
@@ -139,6 +145,8 @@ struct ApprovalCard: View {
         self.glassNamespace = glassNamespace
         self.controllerName = controllerName
         self.allowsSessionScope = allowsSessionScope
+        self.terminalPaneAvailable = terminalPaneAvailable
+        self.attachCommand = attachCommand
     }
 
     @ViewBuilder
@@ -341,7 +349,9 @@ struct ApprovalCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if isTerminal {
+            if terminalApprovalNeedsAttach {
+                ApprovalAttachWaitingText()
+            } else if isTerminal {
                 ApprovalWaitingText(approval: approval)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -411,6 +421,8 @@ struct ApprovalCard: View {
     private var fullActions: some View {
         if let answerIn {
             answerInText(answerIn)
+        } else if terminalApprovalNeedsAttach {
+            attachOnlyActions
         } else {
             fullDecisionActions
         }
@@ -427,6 +439,10 @@ struct ApprovalCard: View {
             .foregroundStyle(.ccSecondary)
             .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
             .accessibilityIdentifier("\(actionIdentifierPrefix)-answer-in")
+    }
+
+    private var attachOnlyActions: some View {
+        attachCommandButton
     }
 
     private var fullDecisionActions: some View {
@@ -503,6 +519,35 @@ struct ApprovalCard: View {
         approval.mode == .terminal || approval.status == .terminal
     }
 
+    private var terminalApprovalNeedsAttach: Bool {
+        !terminalPaneAvailable && isTerminal
+    }
+
+    @ViewBuilder
+    private var attachCommandButton: some View {
+        if let attachCommand {
+            Button {
+                UIPasteboard.general.string = attachCommand
+                attachCommandCopied = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2))
+                    attachCommandCopied = false
+                }
+            } label: {
+                Label(attachCommandCopied ? "Copied" : "Copy attach command", systemImage: attachCommandCopied ? "checkmark" : "doc.on.doc")
+                    .frame(maxWidth: .infinity, minHeight: visibleFullActionHeight)
+                    .contentShape(Rectangle())
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.ccAccent)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityIdentifier("\(actionIdentifierPrefix)-attach")
+            .accessibilityLabel(attachCommandCopied ? "Attach command copied" : "Copy attach command")
+        }
+    }
+
     private var cardIdentifier: String {
         "approval-card-\(approval.sessionId ?? approval.requestId ?? "unknown")"
     }
@@ -527,6 +572,8 @@ struct ApprovalCard: View {
 
             if let answerIn {
                 answerInText(answerIn)
+            } else if terminalApprovalNeedsAttach {
+                attachOnlyActions
             } else if dynamicTypeSize >= .accessibility1 {
                 VStack(spacing: 12) {
                     allowButton
@@ -585,6 +632,14 @@ struct ApprovalCard: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            if terminalApprovalNeedsAttach {
+                Text("Waiting in the session on your Mac")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.ccSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("\(actionIdentifierPrefix)-waiting")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -601,7 +656,7 @@ struct ApprovalCard: View {
                 .foregroundStyle(.ccLabel)
                 .lineLimit(1)
             Spacer(minLength: 4)
-            countdown
+            if !terminalApprovalNeedsAttach { countdown }
         }
     }
 
@@ -617,8 +672,10 @@ struct ApprovalCard: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            countdown
-                .padding(.leading, 28)
+            if !terminalApprovalNeedsAttach {
+                countdown
+                    .padding(.leading, 28)
+            }
         }
     }
 
@@ -664,6 +721,14 @@ private func approvalRemainingMilliseconds(_ approval: Approval, now: Date) -> D
     let limit = Double(approval.holdLimitMs ?? 600_000)
     let elapsed = max(0, now.timeIntervalSince(receivedAt) * 1000)
     return max(0, limit - elapsed)
+}
+
+private struct ApprovalAttachWaitingText: View {
+    var body: some View {
+        Text("Waiting in the session on your Mac")
+            .font(.footnote)
+            .foregroundStyle(.ccSecondary)
+    }
 }
 
 private struct ApprovalWaitingText: View {

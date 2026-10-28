@@ -413,6 +413,8 @@ struct SessionScreen: View {
             },
             approvalControllerName: model.controllerName(for: store),
             allowsSessionScope: store.controllerInfo.kind != .stockade,
+            terminalPaneAvailable: current.tmuxPane?.isEmpty == false,
+            approvalAttachCommand: claudeAttachCommand(for: current),
             readOnlyLabel: readOnlyLabel(for: current)
         )
     }
@@ -528,7 +530,7 @@ struct SessionScreen: View {
             case .success:
                 allowFeedbackCount += 1
             case .failure(let error):
-                model.actionError = error
+                if error != .waitingInTerminal { model.actionError = error }
             }
         }
     }
@@ -540,7 +542,7 @@ struct SessionScreen: View {
             case .success:
                 denyFeedbackCount += 1
             case .failure(let error):
-                model.actionError = error
+                if error != .waitingInTerminal { model.actionError = error }
             }
         }
     }

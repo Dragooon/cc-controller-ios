@@ -252,7 +252,7 @@ struct MainSplitView: View {
             onNewSession: presentNewSession,
             onWake: wakeSession,
             onCopyAttachCommand: { sleeping in
-                UIPasteboard.general.string = "claude attach \(sleeping.shortId)"
+                UIPasteboard.general.string = claudeAttachCommand(shortId: sleeping.shortId)
             }
         )
     }
@@ -375,7 +375,7 @@ struct MainSplitView: View {
             case .success:
                 allowFeedbackCount += 1
             case .failure(let error):
-                model.actionError = error
+                if error != .waitingInTerminal { model.actionError = error }
             }
         }
     }
@@ -388,7 +388,7 @@ struct MainSplitView: View {
             case .success:
                 denyFeedbackCount += 1
             case .failure(let error):
-                model.actionError = error
+                if error != .waitingInTerminal { model.actionError = error }
             }
         }
     }

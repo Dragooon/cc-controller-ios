@@ -500,6 +500,44 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(app.approvals.isEmpty)
     }
 
+    func testApprovalEventDoesNotEraseToolInputAlreadyReceivedInState() {
+        let app = makeApp()
+        let input = JSONValue.object(["command": .string("rm -f scratch")])
+        let existing = Approval(
+            requestId: "request-1",
+            sessionId: "session-1",
+            toolName: "Bash",
+            toolInput: input,
+            agentType: "atlas-ops"
+        )
+        var session = Self.session()
+        session.pending = [existing]
+        app.apply(.state(StateSnapshot(sessions: [session], entries: ["session-1": 0])))
+        app.apply(.approval(ApprovalEvent(sessionId: "session-1", requestId: "request-1", toolName: "Bash", agentType: "atlas-ops")))
+        XCTAssertEqual(app.approvals(for: "session-1").first?.toolInput, input)
+    }
+
+    func testTerminalNoPaneDecisionRestoresApprovalAsPaneLessWithoutAlertState() async {
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/sessions/session-1/decision" {
+                return URLProtocolStub.json(409, body: Data("{\"error\":\"Waiting in the terminal\",\"code\":\"terminal_no_pane\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        let approval = Approval(requestId: "request-1", sessionId: "session-1", toolName: "Bash", mode: .terminal, status: .terminal)
+        var session = Self.session()
+        session.tmuxPane = "%7"
+        app.apply(.state(StateSnapshot(sessions: [session], entries: ["session-1": 0])))
+        app.apply(.approval(ApprovalEvent(sessionId: "session-1", requestId: approval.requestId, toolName: approval.toolName, mode: .terminal, status: .terminal)))
+
+        guard case .failure(.waitingInTerminal) = await app.allow(approval) else {
+            return XCTFail("Expected terminal no-pane refusal")
+        }
+        XCTAssertNil(app.sessions["session-1"]?.tmuxPane)
+        XCTAssertEqual(app.approvals(for: "session-1").first?.status, .terminal)
+    }
+
     func testFileEventDoesNotCreateDurableTranscriptEntry() {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))

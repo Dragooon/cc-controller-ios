@@ -367,7 +367,7 @@ struct InspectorView: View {
         if let shortId = session.background?.shortId, !shortId.isEmpty {
             Section {
                 Button {
-                    UIPasteboard.general.string = "claude attach \(shortId)"
+                    UIPasteboard.general.string = claudeAttachCommand(shortId: shortId)
                     attachCommandCopied = true
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(2))
@@ -375,7 +375,7 @@ struct InspectorView: View {
                     }
                 } label: {
                     HStack(spacing: 10) {
-                        Text("claude attach \(shortId)")
+                        Text(claudeAttachCommand(shortId: shortId))
                             .font(.body.monospaced())
                             .foregroundStyle(.ccLabel)
                             .lineLimit(1)

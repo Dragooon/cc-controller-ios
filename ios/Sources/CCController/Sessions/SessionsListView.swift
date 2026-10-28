@@ -561,7 +561,9 @@ private struct SessionRow: View {
                     onAllow: { onAllow(approval) },
                     onAllowSession: {},
                     onDeny: { onDeny(approval) },
-                    controllerName: controllerName
+                    controllerName: controllerName,
+                    terminalPaneAvailable: session.tmuxPane?.isEmpty == false,
+                    attachCommand: claudeAttachCommand(for: session)
                 )
                 .disabled(isDeciding(approval))
             }

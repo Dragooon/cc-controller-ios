@@ -1061,6 +1061,21 @@ public func activityFooterText(
     )
 }
 
+public func claudeAttachCommand(shortId: String) -> String {
+    "claude attach \(shortId)"
+}
+
+public func claudeAttachCommand(for session: Session) -> String? {
+    // `claude attach` only reaches background sessions, so other sessions get no command.
+    guard let shortId = session.background?.shortId, !shortId.isEmpty else { return nil }
+    return claudeAttachCommand(shortId: shortId)
+}
+
+public func approvalNeedsAttach(_ approval: Approval, in session: Session) -> Bool {
+    let isTerminal = approval.mode == .terminal || approval.status == .terminal
+    return isTerminal && session.tmuxPane?.isEmpty != false
+}
+
 public func permissionCopy(_ approval: Approval, timeZone: TimeZone = .current, locale: Locale = .current) -> PermissionCopy {
     let tool = approval.toolName ?? "Permission request"
     let input = approval.toolInput
