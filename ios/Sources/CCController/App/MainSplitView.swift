@@ -258,13 +258,14 @@ struct MainSplitView: View {
         }
     }
 
-    @ViewBuilder
     private func regularDetailContent() -> some View {
+        let onToggleSidebar: (() -> Void)?
         if regularSidebarProgress == 0 {
-            detailView(onToggleSidebar: toggleSidebar)
+            onToggleSidebar = toggleSidebar
         } else {
-            detailView(onToggleSidebar: nil)
+            onToggleSidebar = nil
         }
+        return detailView(onToggleSidebar: onToggleSidebar)
     }
 
     private var regularSidebarScrim: some View {
