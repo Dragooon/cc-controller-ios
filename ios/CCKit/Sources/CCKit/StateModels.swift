@@ -103,7 +103,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     }
 
     public static let all: Set<Self> = [
-        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands, .archive, .close, .peerConversations,
+        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands, .peerConversations,
     ]
 }
 

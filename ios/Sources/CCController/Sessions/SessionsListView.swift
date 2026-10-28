@@ -200,7 +200,7 @@ struct SessionsListView: View {
     }
 
     private var needsYouItems: [ControllerSessionItem] {
-        sortSessionItems(sessionItems.filter { $0.session.archivedAt == nil && sessionActivity($0.session) == .needsYou })
+        sortSessionItems(sessionItems.filter { sessionActivity($0.session) == .needsYou })
     }
 
     private var recentItems: [ControllerSessionItem] {
@@ -219,7 +219,7 @@ struct SessionsListView: View {
     }
 
     private var archivedSessionItems: [ControllerSessionItem] {
-        sortSessionItems(sessionItems.filter { $0.session.archivedAt != nil })
+        sortSessionItems(sessionItems.filter { $0.session.archivedAt != nil && sessionActivity($0.session) != .needsYou })
     }
 
     private var archivedSleepingItems: [ControllerSleepingItem] {
@@ -237,27 +237,35 @@ struct SessionsListView: View {
     }
 
     @ViewBuilder
-    private var newSessionInset: some View {
-        if canCreateSession && (hasAnySessions || isMultiController) {
-            HStack {
-                Spacer()
-                Button(action: onNewSession) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.ccAccent)
-                        .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
-                        .glassEffect(.regular.interactive(), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
-                .contentShape(.rect)
-                .accessibilityLabel("New session")
-                .accessibilityIdentifier("new-session")
-                .padding(.trailing, 16)
-                .padding(.bottom, 12)
+    private var bottomInset: some View {
+        VStack(spacing: 8) {
+            archiveToastOverlay
+            if canCreateSession && (hasAnySessions || isMultiController) {
+                newSessionButton
             }
-            .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var newSessionButton: some View {
+        HStack {
+            Spacer()
+            Button(action: onNewSession) {
+                Image(systemName: "square.and.pencil")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
+                    .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+            .contentShape(.rect)
+            .accessibilityLabel("New session")
+            .accessibilityIdentifier("new-session")
+            .padding(.trailing, 16)
+            .padding(.bottom, 12)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -266,7 +274,6 @@ struct SessionsListView: View {
             ArchiveToastView(toast: archiveToast, reduceMotion: reduceMotion) {
                 archive(archiveToast.controllerID, archiveToast.sessionID, false, name: archiveToast.name)
             }
-            .padding(.bottom, 12)
             .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
         }
     }
@@ -275,7 +282,7 @@ struct SessionsListView: View {
         NavigationStack {
             list
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    newSessionInset
+                    bottomInset
                 }
                 .navigationTitle("Sessions")
                 .navigationSubtitle(subtitle ?? "")
@@ -304,9 +311,6 @@ struct SessionsListView: View {
                     if !presented { searchText = "" }
                 }
                 .refreshable { await onRefresh() }
-                .overlay(alignment: .bottom) {
-                    archiveToastOverlay
-                }
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -440,7 +444,9 @@ struct SessionsListView: View {
     }
 
     private func sessionRow(_ session: Session, controller: SessionsListController, showsControllerName: Bool, isArchived: Bool) -> some View {
-        SessionRow(
+        let hasPendingApproval = controller.approval(for: session) != nil
+        let canManageSession = sessionActivity(session) != .needsYou && !hasPendingApproval
+        return SessionRow(
             session: session,
             approval: controller.approval(for: session),
             deciding: controller.deciding,
@@ -451,8 +457,8 @@ struct SessionsListView: View {
             controllerKind: controller.kind,
             canInterrupt: controller.capabilities.contains(.interrupt),
             canSetApprovalMode: controller.capabilities.contains(.mode),
-            canArchive: controller.capabilities.contains(.archive),
-            canEnd: controller.capabilities.contains(.close) && session.closable,
+            canArchive: canManageSession && controller.capabilities.contains(.archive),
+            canEnd: canManageSession && controller.capabilities.contains(.close) && session.closable,
             isArchived: isArchived,
             onOpen: { onOpen(controller.id, session) },
             onAllow: { onAllow(controller.id, $0) },
@@ -741,14 +747,6 @@ private struct SessionRow: View {
         }
         .padding(.vertical, 6)
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if canEnd {
-                Button(role: .destructive) { endConfirmationPresented = true } label: {
-                    Label("End session", systemImage: "stop.circle")
-                }
-                .tint(.red)
-                .accessibilityLabel("End session")
-                .accessibilityIdentifier("session-end-\(session.id ?? "")")
-            }
             if canArchive {
                 Button(action: onArchive) {
                     Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
@@ -756,6 +754,14 @@ private struct SessionRow: View {
                 .tint(.gray)
                 .accessibilityLabel(isArchived ? "Unarchive session" : "Archive session")
                 .accessibilityIdentifier("session-\(isArchived ? "unarchive" : "archive")-\(session.id ?? "")")
+            }
+            if canEnd {
+                Button { endConfirmationPresented = true } label: {
+                    Label("End session", systemImage: "stop.circle")
+                }
+                .tint(.red)
+                .accessibilityLabel("End session")
+                .accessibilityIdentifier("session-end-\(session.id ?? "")")
             }
         }
         .contextMenu {

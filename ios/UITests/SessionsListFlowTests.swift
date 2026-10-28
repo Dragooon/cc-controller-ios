@@ -6,10 +6,10 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         let app = launchSignedIn()
         defer { app.terminate() }
 
-        let row = app.buttons["session-staff-account-exclusions"]
+        let row = app.buttons["session-dune-part-three-imax-tickets"]
         XCTAssertTrue(row.waitForExistence(timeout: 75), "Recents fixture session was not listed")
         row.swipeLeft()
-        let archive = app.buttons["session-archive-staff-account-exclusions"]
+        let archive = app.buttons["session-archive-dune-part-three-imax-tickets"]
         XCTAssertTrue(archive.waitForExistence(timeout: 10), "Archive swipe action did not appear")
         addScreenshot(named: "archive-swipe-actions")
         archive.tap()
@@ -27,10 +27,10 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(header.waitForExistence(timeout: 10), "Archived section did not appear")
         header.tap()
         addScreenshot(named: "archive-expanded")
-        let archivedRow = app.buttons["session-staff-account-exclusions"]
+        let archivedRow = app.buttons["session-dune-part-three-imax-tickets"]
         XCTAssertTrue(archivedRow.waitForExistence(timeout: 10), "Archived row did not appear")
         archivedRow.swipeLeft()
-        let unarchive = app.buttons["session-unarchive-staff-account-exclusions"]
+        let unarchive = app.buttons["session-unarchive-dune-part-three-imax-tickets"]
         XCTAssertTrue(unarchive.waitForExistence(timeout: 10), "Archived row did not expose Unarchive")
         unarchive.tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "Unarchive did not restore the Recents row")
