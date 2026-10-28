@@ -13,6 +13,7 @@ struct NewSessionView: View {
     var selectedControllerID: Binding<ControllerID>? = nil
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @FocusState private var promptFocused: Bool
 
     @State private var options: NewSessionOptions?
@@ -25,8 +26,10 @@ struct NewSessionView: View {
     @State private var isCreating = false
     @State private var customFolderDraft = ""
     @State private var isCustomFolderPresented = false
+    @State private var greeting: String?
 
     private static let lastControllerKey = "newSession.lastControllerID"
+    private static let ownerNameKey = "newSession.ownerName"
     private static let folderKeyPrefix = "newSession.folder."
     private static let agentKeyPrefix = "newSession.agent."
 
@@ -42,6 +45,14 @@ struct NewSessionView: View {
         options?.claudeAgents
     }
 
+    private var visibleClaudeAgents: [ClaudeAgentOption] {
+        guard let agents = claudeAgents,
+              let resolvesTo = agents.first(where: { $0.id == "default" })?.resolvesTo else {
+            return claudeAgents ?? []
+        }
+        return agents.filter { $0.id != resolvesTo }
+    }
+
     private var isStockade: Bool {
         options?.agents != nil
     }
@@ -54,21 +65,27 @@ struct NewSessionView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 0) {
-                TextField("What do you want to work on?", text: $prompt, axis: .vertical)
-                    .font(.body)
-                    .foregroundStyle(.ccLabel)
-                    .lineLimit(1...8)
-                    .textFieldStyle(.plain)
-                    .textInputAutocapitalization(.sentences)
-                    .focused($promptFocused)
-                    .accessibilityIdentifier("new-session-prompt")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 18)
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                if let greeting {
+                    VStack(spacing: 12) {
+                        SpinnerGlyph(active: true, frozen: true)
+                            .font(.system(size: 36))
+                        Text(greeting)
+                            .font(.system(size: 30, weight: .regular, design: .serif))
+                            .multilineTextAlignment(.center)
+                            .minimumScaleFactor(0.7)
+                            .padding(.horizontal, 24)
+                            .accessibilityIdentifier("new-session-greeting")
+                    }
+                }
+                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { promptFocused = false }
             .background(.ccBackground)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 VStack(alignment: .leading, spacing: 8) {
                     if let message = loadError ?? createError {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -85,16 +102,15 @@ struct NewSessionView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    controls
+                    composer
+                        .offset(y: verticalSizeClass == .compact ? 0 : 12)
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(.ccBackground)
             }
-            .navigationTitle("New session")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -118,6 +134,27 @@ struct NewSessionView: View {
         }
     }
 
+    private var composer: some View {
+        ComposerCard {
+            TextField(promptPlaceholder, text: $prompt, axis: .vertical)
+                .font(.body)
+                .foregroundStyle(.ccLabel)
+                .lineLimit(1...6)
+                .textFieldStyle(.plain)
+                .textInputAutocapitalization(.sentences)
+                .focused($promptFocused)
+                .accessibilityIdentifier("new-session-prompt")
+
+            controls
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("new-session-composer")
+    }
+
+    private var promptPlaceholder: String {
+        "Chat with \(selectedAgentName ?? "Claude")"
+    }
+
     @ViewBuilder
     private var controls: some View {
         HStack(spacing: 8) {
@@ -135,7 +172,7 @@ struct NewSessionView: View {
                         loadingChip
                     } else if isStockade, stockadeAgents?.isEmpty == false {
                         stockadeAgentMenu
-                    } else if !isStockade, claudeAgents?.isEmpty == false {
+                    } else if !isStockade, visibleClaudeAgents.isEmpty == false {
                         claudeAgentMenu
                     }
                 }
@@ -235,19 +272,24 @@ struct NewSessionView: View {
 
     private var claudeAgentMenu: some View {
         Menu {
-            ForEach(claudeAgents ?? []) { agent in
+            ForEach(visibleClaudeAgents) { agent in
                 Button {
                     selectedAgentID = agent.id
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(agent.label)
-                        if let description = agent.description, !description.isEmpty {
+                        if agent.id == "default" {
+                            Text("Default")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let description = agent.description, !description.isEmpty {
                             Text(description)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
+                .accessibilityLabel(agent.id == "default" ? "\(agent.label), Default" : agent.label)
                 .accessibilityIdentifier("new-session-agent-\(agent.id)")
             }
         } label: {
@@ -259,7 +301,7 @@ struct NewSessionView: View {
 
     private var selectedAgentName: String? {
         if let agent = stockadeAgents?.first(where: { $0.id == selectedAgentID }) { return agent.name }
-        return claudeAgents?.first(where: { $0.id == selectedAgentID })?.label
+        return visibleClaudeAgents.first(where: { $0.id == selectedAgentID })?.label
     }
 
     private var sendButton: some View {
@@ -356,14 +398,26 @@ struct NewSessionView: View {
                 let loaded = try await store.newSessionOptions()
                 guard currentControllerID == controllerID else { return }
                 options = loaded
+                if let ownerName = loaded.ownerName?.trimmingCharacters(in: .whitespacesAndNewlines), !ownerName.isEmpty {
+                    UserDefaults.standard.set(ownerName, forKey: Self.ownerNameKey)
+                    setGreeting(name: ownerName)
+                } else {
+                    setGreeting(name: UserDefaults.standard.string(forKey: Self.ownerNameKey))
+                }
                 restoreSelections(from: loaded, controllerID: controllerID)
                 loading = false
             } catch {
                 guard currentControllerID == controllerID else { return }
                 loading = false
+                setGreeting(name: UserDefaults.standard.string(forKey: Self.ownerNameKey))
                 loadError = errorMessage(error)
             }
         }
+    }
+
+    private func setGreeting(name: String?) {
+        guard greeting == nil else { return }
+        greeting = NewSessionGreeting.text(date: Date(), name: name)
     }
 
     private func restoreSelections(from options: NewSessionOptions, controllerID: ControllerID) {
@@ -376,7 +430,7 @@ struct NewSessionView: View {
 
         let savedFolder = UserDefaults.standard.string(forKey: Self.folderKeyPrefix + controllerID.rawValue)
         selectedFolderPath = options.folders.first(where: { $0.path == savedFolder })?.path ?? options.folders.first?.path
-        let available = options.claudeAgents ?? []
+        let available = visibleClaudeAgents
         let savedAgent = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
         selectedAgentID = available.first(where: { $0.id == savedAgent })?.id
             ?? available.first(where: { $0.id == "default" })?.id

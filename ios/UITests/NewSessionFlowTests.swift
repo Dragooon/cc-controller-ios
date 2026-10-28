@@ -20,6 +20,58 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertEqual(title.label, "new-project-0")
     }
 
+    func testNewSessionClaudeStyleGreetingComposerAndDefaultAgent() async throws {
+        let app = launch()
+        openNewSession(app)
+
+        let greeting = app.staticTexts["new-session-greeting"]
+        XCTAssertTrue(greeting.waitForExistence(timeout: 15), "New session greeting did not load")
+        XCTAssertTrue(greeting.label.contains(", Alex"), "Greeting did not use the fixture owner name: \(greeting.label)")
+
+        let prompt = app.textFields["new-session-prompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 15), "New session prompt did not load")
+        XCTAssertTrue(prompt.placeholderValue?.hasPrefix("Chat with") == true, "Prompt placeholder was not Claude-style")
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 15), "New session keyboard did not appear")
+        let composer = app.descendants(matching: .any).matching(identifier: "new-session-composer").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10), "New session composer card did not load")
+        XCTAssertLessThanOrEqual(abs(composer.frame.maxY - keyboard.frame.minY), 40, "Composer was not attached to the keyboard")
+        addScreenshot(named: "new-chat-page-keyboard-up")
+        greeting.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10), "New session keyboard did not dismiss")
+        addScreenshot(named: "new-chat-page-keyboard-down")
+        prompt.tap()
+
+        app.buttons["new-session-agent"].tap()
+        let defaultAgent = app.buttons["new-session-agent-default"]
+        XCTAssertTrue(defaultAgent.waitForExistence(timeout: 10), "Resolved Default agent menu item did not appear")
+        XCTAssertTrue(defaultAgent.label.contains("Default"), "Default menu item had no subtitle: \(defaultAgent.label)")
+        XCTAssertFalse(app.buttons["new-session-agent-builder"].exists, "Resolved agent was duplicated in the menu")
+        defaultAgent.tap()
+
+        prompt.tap()
+        prompt.typeText("Start a Claude-style session")
+        app.buttons["new-session-send"].tap()
+        let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 30), "Created session did not open")
+        let requests = try await getFixtureJSON(path: "/fixture/create-requests")
+        let latest = try XCTUnwrap((requests["requests"] as? [[String: Any]])?.last)
+        XCTAssertNil(latest["agent"] as? String, "Default agent should be sent as nil")
+    }
+
+    func testNewSessionClaudeStyleScreenshots() throws {
+        let app = launch()
+        openNewSession(app)
+        let greeting = app.staticTexts["new-session-greeting"]
+        XCTAssertTrue(greeting.waitForExistence(timeout: 15), "New session greeting did not load")
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 15), "New session keyboard did not appear")
+        addScreenshot(named: "new-chat-page-screenshot-keyboard-up")
+        greeting.tap()
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 10), "New session keyboard did not dismiss")
+        addScreenshot(named: "new-chat-page-screenshot-keyboard-down")
+    }
+
     func testNewSessionFolderPickerSelectsRecentFolder() throws {
         let app = launch()
         openNewSession(app)
@@ -28,7 +80,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(folder.waitForExistence(timeout: 10), "New session folder did not load")
         addScreenshot(named: "new-session-folder-picker")
         folder.tap()
-        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 10), "Folder menu did not close")
+        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 10), "Folder menu did not close")
         XCTAssertTrue(app.buttons["new-session-folder"].label.contains("new-project-1"))
     }
 
@@ -59,7 +111,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertEqual(path.value as? String, "/tmp")
         addScreenshot(named: "new-session-other-folder")
         app.buttons["Done"].tap()
-        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 10), "Other folder sheet did not close")
+        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 10), "Other folder sheet did not close")
         XCTAssertTrue(app.buttons["new-session-folder"].label.contains("tmp"))
     }
 
@@ -94,7 +146,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertFalse(sendFrame.intersects(agentFrame), "Send button overlaps the agent chip")
         XCTAssertLessThanOrEqual(
             sendFrame.maxX,
-            app.navigationBars["New session"].frame.maxX + 24,
+            app.windows.firstMatch.frame.maxX + 24,
             "Send button is not at the trailing edge of the sheet"
         )
     }
@@ -133,7 +185,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let emptyButton = app.buttons["empty-new-session"]
         XCTAssertTrue(emptyButton.waitForExistence(timeout: 30), "Empty sessions action did not load")
         emptyButton.tap()
-        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 15), "Empty-state New session button did not open the composer")
+        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "Empty-state New session button did not open the composer")
     }
 
     func testBackgroundSessionInspectorShowsOpenOnMac() throws {
@@ -192,8 +244,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let button = app.buttons["new-session"]
         XCTAssertTrue(button.waitForExistence(timeout: 30), "New session toolbar button did not load")
         button.tap()
-        XCTAssertTrue(app.navigationBars["New session"].waitForExistence(timeout: 15), "New session sheet did not open")
-        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session send button did not load")
+        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session sheet did not open")
         XCTAssertTrue(app.buttons["new-session-folder"].waitForExistence(timeout: 15), "New session folder chip did not load")
     }
 }

@@ -186,7 +186,7 @@ struct ComposerView: View, Equatable {
     }
 
     private var composerLayout: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        ComposerCard {
             TextField(configuration.placeholder, text: $text, axis: .vertical)
                 .font(.body)
                 .foregroundStyle(.ccLabel)
@@ -237,9 +237,6 @@ struct ComposerView: View, Equatable {
             }
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26))
         .onChange(of: resetGeneration) { _, generation in
             restoreFocus = restoresFocusOnReset && isFocused
             fieldGeneration = generation

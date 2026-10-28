@@ -209,9 +209,11 @@ public struct ClaudeAgentOption: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var label: String
     public var description: String?
+    /// The agent selected by Claude Code's `default` entry, when configured.
+    public var resolvesTo: String?
 
-    public init(id: String, label: String, description: String? = nil) {
-        self.id = id; self.label = label; self.description = description
+    public init(id: String, label: String, description: String? = nil, resolvesTo: String? = nil) {
+        self.id = id; self.label = label; self.description = description; self.resolvesTo = resolvesTo
     }
 }
 
@@ -223,19 +225,23 @@ public struct NewSessionOptions: Codable, Sendable, Equatable {
     public var agents: [NewSessionAgent]?
     /// Claude Code: the agents a new session can start with. Nil on Stockade.
     public var claudeAgents: [ClaudeAgentOption]?
+    /// The first word of the Mac account's full name, when available.
+    public var ownerName: String?
 
     public init(
         folders: [NewSessionFolder] = [],
         models: [ModelOption] = [],
         defaultModel: String = "default",
         agents: [NewSessionAgent]? = nil,
-        claudeAgents: [ClaudeAgentOption]? = nil
+        claudeAgents: [ClaudeAgentOption]? = nil,
+        ownerName: String? = nil
     ) {
         self.folders = folders
         self.models = models
         self.defaultModel = defaultModel
         self.agents = agents
         self.claudeAgents = claudeAgents
+        self.ownerName = ownerName
     }
 }
 
