@@ -683,7 +683,7 @@ public func formatTokenUsageSegments(_ usage: Usage?) -> [String] {
     }
     if let cacheHitRate = usage.cacheHitRate, cacheHitRate.isFinite, cacheHitRate > 0 {
         let percent = cacheHitRate <= 1 ? cacheHitRate * 100 : cacheHitRate
-        if percent > 0 { segments.append("cache \(Int(percent.rounded()))%") }
+        if percent > 0 { segments.append("\(Int(percent.rounded()))% cached") }
     }
     return segments
 }
@@ -746,7 +746,7 @@ public func buildStatusSegments(_ session: Session, now: Date = .now, contextExp
     if let output = usage?.outputTokens { segments.append("\(formatTokenCount(output)) out") }
     if let cacheHitRate = usage?.cacheHitRate, cacheHitRate.isFinite {
         let percent = cacheHitRate <= 1 ? cacheHitRate * 100 : cacheHitRate
-        segments.append("cache \(Int(percent.rounded()))%")
+        segments.append("\(Int(percent.rounded()))% cached")
     }
     return segments
 }

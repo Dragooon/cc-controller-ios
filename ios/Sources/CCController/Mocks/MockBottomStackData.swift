@@ -58,7 +58,7 @@ enum MockBottomStackData {
         )
     }()
 
-    static let statusSegments = ["3.1M in", "84k out", "cache 92%"]
+    static let statusSegments = ["3.1M in", "84k out", "92% cached"]
 
     static let activityFooter: ActivityFooter = {
         let activitySession = Session(

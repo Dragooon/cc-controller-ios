@@ -238,7 +238,7 @@ struct BottomStackView: View {
         let _ = PerfCounters.shared.hit(.bottomStackBody)
         #endif
         GlassEffectContainer(spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 if !filteredCommands.isEmpty {
                     SlashSuggestionsView(commands: filteredCommands) { command in
                         if command.command == "/model" {
@@ -473,10 +473,10 @@ private struct WakeStatusLine: View {
                 .controlSize(.small)
             Text("Waking…")
         }
-        .font(.caption.monospaced())
-        .foregroundStyle(.ccSecondary)
+        .font(.caption)
+        .foregroundStyle(.ccTertiary)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 14)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("session-waking")
     }

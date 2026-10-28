@@ -40,13 +40,13 @@ struct ToolRunCard: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.ccTertiary)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .animation(.snappy, value: isExpanded)
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(nativeToolRunLabel(run))
                 .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-                .animation(.snappy, value: isExpanded)
             }
 
             let entries = isCollapsedRun ? collapsedEntries : run.entries

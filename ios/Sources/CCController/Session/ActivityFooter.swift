@@ -27,7 +27,7 @@ struct LiveActivityFooterView: View {
 
     private func content(_ current: CCKit.ActivityFooter) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            ActivityGlyph(active: !current.isWaiting, reduceMotion: reduceMotion)
+            ActivityGlyph(active: !current.isWaiting)
                 .font(.footnote)
 
             Text(current.primary)
@@ -106,24 +106,14 @@ extension View {
 
 private struct ActivityGlyph: View {
     let active: Bool
-    let reduceMotion: Bool
-    @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
-    @State private var rotation = 0.0
 
+    @ViewBuilder
     var body: some View {
-        Text("✻")
-            .foregroundStyle(active ? .ccAccent : .ccAmber)
-            .rotationEffect(.degrees(rotation))
-            .animation(
-                freezeLiveIndicators || reduceMotion
-                    ? nil
-                    : .linear(duration: 8).repeatForever(autoreverses: false),
-                value: rotation
-            )
-            .onAppear {
-                guard active, !reduceMotion, !freezeLiveIndicators else { return }
-                rotation = 360
-            }
-            .accessibilityHidden(true)
+        if active {
+            SpinnerGlyph(active: true, frozen: false)
+        } else {
+            Text("✻")
+                .foregroundStyle(.ccAmber)
+        }
     }
 }

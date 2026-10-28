@@ -148,8 +148,9 @@ struct AttachmentTrayView: View {
                     .frame(maxWidth: 154, alignment: .leading)
             }
         }
-        .scaleEffect(pulseFailed && isFailed(attachment) ? 1.04 : 1)
-        .animation(.easeInOut(duration: 0.18), value: pulseFailed)
+        .animation(.easeInOut(duration: 0.18)) { content in
+            content.scaleEffect(pulseFailed && isFailed(attachment) ? 1.04 : 1)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel(for: attachment))
         .accessibilityIdentifier("attachment-tile")

@@ -102,7 +102,7 @@ final class NativePresentationTests: XCTestCase {
     func testTokenUsageSegmentsOmitUnknownAndPlaceholderZeroValues() {
         XCTAssertEqual(
             formatTokenUsageSegments(Usage(totalInputTokens: 3_100_000, outputTokens: 84_000, cacheHitRate: 0.92)),
-            ["3.1M in", "84k out", "cache 92%"]
+            ["3.1M in", "84k out", "92% cached"]
         )
         XCTAssertEqual(formatTokenUsageSegments(Usage(inputTokens: 0, outputTokens: 0, cacheHitRate: 0)), [])
         XCTAssertEqual(formatTokenUsageSegments(nil), [])

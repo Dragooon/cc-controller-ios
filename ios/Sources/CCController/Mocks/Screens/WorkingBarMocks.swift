@@ -117,7 +117,7 @@ private enum MockWorkingBarData {
         showsWorkingBar: true,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["38.4k in", "6.5k out", "cache 92%"],
+        statusSegments: ["38.4k in", "6.5k out", "92% cached"],
         activityFooter: nil
     )
 
@@ -128,7 +128,7 @@ private enum MockWorkingBarData {
         showsWorkingBar: true,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["41.2k in", "6.5k out", "cache 89%"],
+        statusSegments: ["41.2k in", "6.5k out", "89% cached"],
         activityFooter: nil
     )
 
@@ -139,7 +139,7 @@ private enum MockWorkingBarData {
         showsWorkingBar: true,
         composerText: "While that runs, check the release checklist too",
         focusesComposer: true,
-        statusSegments: ["38.4k in", "6.5k out", "cache 92%"],
+        statusSegments: ["38.4k in", "6.5k out", "92% cached"],
         activityFooter: nil
     )
 
@@ -150,7 +150,7 @@ private enum MockWorkingBarData {
         showsWorkingBar: false,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["38.4k in", "6.5k out", "cache 92%"],
+        statusSegments: ["38.4k in", "6.5k out", "92% cached"],
         activityFooter: nil
     )
 
@@ -161,7 +161,7 @@ private enum MockWorkingBarData {
         showsWorkingBar: false,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["41.2k in", "6.5k out", "cache 89%"],
+        statusSegments: ["41.2k in", "6.5k out", "89% cached"],
         activityFooter: activityFooterText(toolAgentsSession, now: now, verb: "Hashing")
     )
 
@@ -254,7 +254,7 @@ private struct WorkingBarMockBottomStack: View {
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 StatusLineView(segments: configuration.statusSegments)
                 WorkingBarView(
                     session: configuration.session,

@@ -27,11 +27,11 @@ struct StatusLineView: View {
                     .accessibilityLabel(fullText.replacingOccurrences(of: " · ", with: ", "))
             }
         }
-        .font(.caption.monospaced())
-        .foregroundStyle(.ccSecondary)
+        .font(.caption)
+        .foregroundStyle(.ccTertiary)
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 14)
     }
 
     private var regularLayout: some View {
@@ -57,6 +57,7 @@ struct StatusLineView: View {
             activityButton
             if !segments.isEmpty {
                 Text("·")
+                    .foregroundStyle(.ccTertiary)
                     .accessibilityHidden(true)
                 content()
             }
@@ -67,17 +68,20 @@ struct StatusLineView: View {
     private var activityButton: some View {
         Button(action: onActivity) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                PulsingAccentDot()
                 Text(activitySummary ?? "")
-                    .font(.caption.monospaced())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Image(systemName: "chevron.right")
                     .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.ccAccent)
             }
+            .padding(.horizontal, 8)
+            .frame(height: 22)
+            .background(.ccAccent.opacity(0.13), in: Capsule())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(.ccAccent)
         .accessibilityLabel(activityAccessibilityLabel)
         .accessibilityHint("Shows activity")
         .accessibilityIdentifier("activity-status")
@@ -94,16 +98,8 @@ struct StatusLineView: View {
 
     private func statusText(_ text: String) -> some View {
         Text(text)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.ccTertiary)
             .fixedSize(horizontal: true, vertical: false)
-    }
-}
-
-// Static on purpose: this dot is on screen whenever agents run, and a repeating animation keeps the display link busy.
-private struct PulsingAccentDot: View {
-    var body: some View {
-        Circle()
-            .fill(.ccAccent)
-            .frame(width: 6, height: 6)
-            .accessibilityHidden(true)
     }
 }
