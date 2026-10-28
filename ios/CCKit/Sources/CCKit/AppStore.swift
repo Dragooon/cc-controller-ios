@@ -536,6 +536,10 @@ public final class AppStore {
     /// Adds a non-command message locally, then delivers it in the background.
     @discardableResult
     public func enqueueMessage(text: String, to sessionID: String, now: Bool = false) async -> Result<QueuedNote, ActionError> {
+        #if DEBUG
+        TranscriptLifecycleLog.shared.record(name: "enqueue-entry", sessionID: sessionID)
+        defer { TranscriptLifecycleLog.shared.record(name: "enqueue-return", sessionID: sessionID) }
+        #endif
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let pending = attachments(for: sessionID)
         guard !trimmed.isEmpty || !pending.isEmpty else { return .failure(.invalid("Message text is required.")) }
@@ -581,6 +585,9 @@ public final class AppStore {
             existingPromptIDs: existingPromptIDs(for: sessionID)
         )
         queuedNotes[sessionID, default: []].append(note)
+        #if DEBUG
+        TranscriptLifecycleLog.shared.record(name: "note-appended", sessionID: sessionID)
+        #endif
         TranscriptLifecycleLog.shared.record(name: "note-sending", sessionID: sessionID)
         queuedNotes[sessionID] = orderedNotes(queuedNotes[sessionID] ?? [])
         attachments[sessionID]?.removeAll { sentIDs.contains($0.id) }

@@ -17,6 +17,9 @@ public struct TranscriptLifecycleEvent: Codable, Equatable, Sendable {
 @MainActor
 public final class TranscriptLifecycleLog {
     public static let shared = TranscriptLifecycleLog()
+    #if DEBUG
+    public static let eventNotification = Notification.Name("CCControllerTranscriptLifecycleEvent")
+    #endif
     public static let capacity = 64
     private static let timestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -39,14 +42,27 @@ public final class TranscriptLifecycleLog {
         sessionID: String? = nil,
         detail: String? = nil
     ) {
-        storage.append(
-            TranscriptLifecycleEvent(
-                at: Self.timestampFormatter.string(from: clock()),
-                name: name,
-                session: Self.sessionPrefix(sessionID),
-                detail: detail.map { String($0.prefix(39)) }
-            )
+        let timestamp = Self.timestampFormatter.string(from: clock())
+        let sessionPrefix = Self.sessionPrefix(sessionID)
+        let event = TranscriptLifecycleEvent(
+            at: timestamp,
+            name: name,
+            session: sessionPrefix,
+            detail: detail.map { String($0.prefix(39)) }
         )
+        storage.append(event)
+        #if DEBUG
+        NotificationCenter.default.post(
+            name: Self.eventNotification,
+            object: nil,
+            userInfo: [
+                "at": timestamp,
+                "name": name,
+                "session": sessionPrefix as Any,
+                "detail": detail as Any
+            ]
+        )
+        #endif
         if storage.count > Self.capacity {
             storage.removeFirst(storage.count - Self.capacity)
         }

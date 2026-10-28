@@ -169,6 +169,7 @@ struct SessionTranscriptView: View {
     let showsWorkedFooter: Bool
     let bottomStackConfiguration: BottomStackConfiguration?
     let queuedNotes: [QueuedNote]
+    let sendRevealCoordinator: SendRevealCoordinator?
     let activityFooter: CCKit.ActivityFooter?
     let liveSession: Session?
     let sessionState: SessionState?
@@ -216,6 +217,7 @@ struct SessionTranscriptView: View {
         showsWorkedFooter: Bool = true,
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         queuedNotes: [QueuedNote] = [],
+        sendRevealCoordinator: SendRevealCoordinator? = nil,
         activityFooter: CCKit.ActivityFooter? = nil,
         liveSession: Session? = nil,
         sessionState: SessionState? = nil,
@@ -241,6 +243,7 @@ struct SessionTranscriptView: View {
         self.showsWorkedFooter = showsWorkedFooter
         self.bottomStackConfiguration = bottomStackConfiguration
         self.queuedNotes = queuedNotes
+        self.sendRevealCoordinator = sendRevealCoordinator
         self.activityFooter = activityFooter
         self.liveSession = liveSession
         self.sessionState = sessionState ?? liveSession?.state
@@ -471,7 +474,15 @@ struct SessionTranscriptView: View {
             .onChange(of: queuedNotes.count) { oldCount, newCount in
                 scrollState.recordEvent(name: "notes", oldValue: Double(oldCount), newValue: Double(newCount))
             }
-        let withScrollEvents = withRows
+#if DEBUG
+        let withKeyboard = withRows
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                recordLifecycleEvent(name: "keyboard-will-hide", sessionID: sessionID)
+            }
+#else
+        let withKeyboard = withRows
+#endif
+        let withScrollEvents = withKeyboard
             .background(.ccBackground)
             .scrollEdgeEffectStyle(.hard, for: .bottom)
             .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
@@ -722,7 +733,17 @@ struct SessionTranscriptView: View {
     }
 
     private func handleUIKitScrollMetrics(_ metrics: UIKitScrollMetrics, using proxy: ScrollViewProxy) {
+        let previousMetrics = scrollState.latestUIKitMetrics
         scrollState.latestUIKitMetrics = metrics
+        if let previousMetrics,
+           abs(previousMetrics.contentHeight - metrics.contentHeight) > 1 {
+            sendRevealCoordinator?.observeContentHeightChange()
+        }
+        if sendRevealCoordinator?.completeIfReady(isAtBottom: abs(metrics.maxOffsetY - metrics.offsetY) <= 1) == true {
+            #if DEBUG
+            recordLifecycleEvent(name: "send-reveal-complete", sessionID: sessionID)
+            #endif
+        }
         guard rowsMounted else { return }
 
         let viewportHeight = metrics.boundsHeight - metrics.insetTop - metrics.insetBottom

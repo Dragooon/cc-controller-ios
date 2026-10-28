@@ -1,6 +1,64 @@
 import CCKit
 import SwiftUI
 
+@MainActor
+final class SendRevealCoordinator {
+    private var revealContinuation: AsyncStream<Void>.Continuation?
+    private var revealStream: AsyncStream<Void>?
+    private(set) var isWaiting = false
+    private var contentHeightChanged = false
+    private var revealCompleted = false
+
+    func begin() {
+        let stream = AsyncStream<Void> { continuation in
+            revealContinuation = continuation
+        }
+        revealStream = stream
+        isWaiting = true
+        contentHeightChanged = false
+        revealCompleted = false
+    }
+
+    func cancel() {
+        revealContinuation?.finish()
+        revealContinuation = nil
+        revealStream = nil
+        isWaiting = false
+        contentHeightChanged = false
+        revealCompleted = false
+    }
+
+    func observeContentHeightChange() {
+        guard isWaiting else { return }
+        contentHeightChanged = true
+    }
+
+    func completeIfReady(isAtBottom: Bool) -> Bool {
+        guard isWaiting, contentHeightChanged, isAtBottom, !revealCompleted else { return false }
+        revealCompleted = true
+        revealContinuation?.yield()
+        revealContinuation?.finish()
+        return true
+    }
+
+    func waitForReveal(timeout: Duration = .milliseconds(100)) async {
+        guard isWaiting else { return }
+        if !revealCompleted, let revealStream {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await _ in revealStream { break }
+                }
+                group.addTask {
+                    try? await Task.sleep(for: timeout)
+                }
+                _ = await group.next()
+                group.cancelAll()
+            }
+        }
+        cancel()
+    }
+}
+
 struct SlashCommand: Identifiable {
     let command: String
     let description: String
@@ -9,6 +67,8 @@ struct SlashCommand: Identifiable {
 }
 
 struct BottomStackConfiguration: @unchecked Sendable {
+    let sessionID: String?
+    let sendRevealCoordinator: SendRevealCoordinator?
     let composer: ComposerConfiguration
     let statusSegments: [String]
     let activitySession: Session?
@@ -42,6 +102,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let readOnlyLabel: String?
 
     init(
+        sessionID: String? = nil,
+        sendRevealCoordinator: SendRevealCoordinator? = nil,
         composer: ComposerConfiguration = ComposerConfiguration(),
         statusSegments: [String] = [],
         activitySession: Session? = nil,
@@ -72,6 +134,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
         approvalAttachCommand: String? = nil,
         readOnlyLabel: String? = nil
     ) {
+        self.sessionID = sessionID
+        self.sendRevealCoordinator = sendRevealCoordinator
         self.composer = composer
         self.statusSegments = statusSegments
         self.activitySession = activitySession
@@ -105,6 +169,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
 
     func withAvailableHeight(_ height: CGFloat) -> Self {
         Self(
+            sessionID: sessionID,
+            sendRevealCoordinator: sendRevealCoordinator,
             composer: composer,
             statusSegments: statusSegments,
             activitySession: activitySession,
@@ -303,15 +369,25 @@ struct BottomStackView: View {
             configuration.onModel()
             return
         }
+        #if DEBUG
+        recordLifecycleEvent(name: "send-tap", sessionID: configuration.sessionID)
+        #endif
+        if !isSlashCommand(submittedText) {
+            configuration.sendRevealCoordinator?.begin()
+        }
         isSending = true
         Task { @MainActor in
+            #if DEBUG
+            recordLifecycleEvent(name: "send-task-start", sessionID: configuration.sessionID)
+            #endif
             if isSlashCommand(submittedText) {
                 let result = await configuration.onSend(submittedText, now)
                 isSending = false
                 switch result {
                 case .success:
-                    finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
+                    await finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
                 case .failure(let error):
+                    configuration.sendRevealCoordinator?.cancel()
                     handleSendFailure(error)
                 }
             } else {
@@ -319,15 +395,22 @@ struct BottomStackView: View {
                 isSending = false
                 switch result {
                 case .success:
-                    finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
+                    await finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
                 case .failure(let error):
+                    configuration.sendRevealCoordinator?.cancel()
                     handleSendFailure(error)
                 }
             }
         }
     }
 
-    private func finishSuccessfulSend(originalText: String, submittedText: String) {
+    private func finishSuccessfulSend(originalText: String, submittedText: String) async {
+        if !isSlashCommand(submittedText) {
+            await configuration.sendRevealCoordinator?.waitForReveal()
+        }
+        #if DEBUG
+        recordLifecycleEvent(name: "send-focus-drop", sessionID: configuration.sessionID)
+        #endif
         composerFocused = false
         var transaction = Transaction()
         transaction.disablesAnimations = true
