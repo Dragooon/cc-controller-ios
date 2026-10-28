@@ -256,12 +256,9 @@ final class RealControllerSmokeTests: XCTestCase {
         }
         let navigationBar = app.navigationBars.firstMatch
         let visibleTop = max(list.frame.minY, navigationBar.exists ? navigationBar.frame.maxY : list.frame.minY)
-        let searchButton = app.buttons["sessions-search"]
-        let searchFrame = searchButton.frame
-        let hasSearchButton = searchButton.exists && !searchFrame.isEmpty
-        let bottomControlsTop = hasSearchButton ? searchFrame.minY : app.windows.firstMatch.frame.maxY - 120
-        let bottomBoundary = hasSearchButton ? "search-button" : "window-fallback"
-        print("real-smoke reveal boundary=\(bottomBoundary) bottom-controls-top=\(bottomControlsTop)")
+        // Search sits in the top toolbar, so the bottom boundary leaves room for the floating New Session button.
+        let bottomControlsTop = app.windows.firstMatch.frame.maxY - 120
+        print("real-smoke reveal boundary=window bottom-controls-top=\(bottomControlsTop)")
 
         struct Probe {
             let exists: Bool
