@@ -14,12 +14,14 @@ final class AttachmentFlowTests: XCTestCase {
     }
 
     func testDeliveredPromptShowsRealAttachmentsAndQuickLook() throws {
-        let app = launchFixture(with: [fixture("attachment.png"), fixture("evidence.csv")])
+        let app = launchFixture(
+            with: [fixture("attachment.png"), fixture("evidence.csv")],
+            openingSession: "long-session"
+        )
         defer {
             audit(app, name: "attachment-delivered-bubble")
             app.terminate()
         }
-        openLongSession(in: app)
 
         let field = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "Composer did not load")
@@ -330,15 +332,16 @@ final class AttachmentFlowTests: XCTestCase {
         add(attachment)
     }
 
-    private func launchFixture(with path: String? = nil) -> XCUIApplication {
-        launchFixture(with: path.map { [$0] } ?? [])
+    private func launchFixture(with path: String? = nil, openingSession: String? = nil) -> XCUIApplication {
+        launchFixture(with: path.map { [$0] } ?? [], openingSession: openingSession)
     }
 
-    private func launchFixture(with paths: [String]) -> XCUIApplication {
+    private func launchFixture(with paths: [String], openingSession: String? = nil) -> XCUIApplication {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server, "-CCResetCache"]
+        if let openingSession { app.launchArguments += ["-CCSession", openingSession] }
         for path in paths {
             app.launchArguments += ["-CCAttachFile", path]
         }

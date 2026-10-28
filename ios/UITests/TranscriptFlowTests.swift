@@ -268,17 +268,11 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     func testPagingAndJumpToLatest() throws {
-        let app = launchFixture(initialTranscriptTail: 20)
+        let app = launchFixture(openingSession: "long-session", initialTranscriptTail: 20)
         defer {
             audit(app: app, name: "paging")
             app.terminate()
         }
-        let search = openSessionSearch(in: app)
-        search.typeText("Long session")
-
-        let longSession = app.buttons["session-long-session"]
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
-        longSession.tap()
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
@@ -343,17 +337,11 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     func testSmallScrollUpKeepsPlace() async throws {
-        let app = launchFixture()
+        let app = launchFixture(openingSession: "long-session")
         defer {
             audit(app: app, name: "small-scroll-up")
             app.terminate()
         }
-        let search = openSessionSearch(in: app)
-        search.typeText("Long session")
-
-        let longSession = app.buttons["session-long-session"]
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
-        longSession.tap()
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
@@ -631,6 +619,7 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     private func launchFixture(
+        openingSession: String? = nil,
         resetCache: Bool = true,
         initialTranscriptTail: Int? = nil,
         scrollGuardOvershoot: Bool = false
@@ -639,6 +628,7 @@ final class TranscriptFlowTests: XCTestCase {
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
+        if let openingSession { app.launchArguments += ["-CCSession", openingSession] }
         if resetCache { app.launchArguments.append("-CCResetCache") }
         if let initialTranscriptTail {
             app.launchArguments += ["-CCFixtureInitialTranscriptTail", String(initialTranscriptTail)]

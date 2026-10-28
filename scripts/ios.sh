@@ -872,7 +872,7 @@ run_flow_shard() {
 }
 
 cmd_flows() {
-  local devices=() test_filter="" shard_count=1 no_rerun=0
+  local devices=() test_filters=() shard_count=1 no_rerun=0
   FLOWS_FLAKY_COUNT=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -883,7 +883,7 @@ cmd_flows() {
         ;;
       --test)
         [[ $# -ge 2 ]] || { printf '%s\n' 'flows --test requires a value' >&2; exit 2; }
-        test_filter=$2
+        test_filters+=("$2")
         shift 2
         ;;
       --shards)
@@ -922,27 +922,54 @@ cmd_flows() {
     return 0
   fi
 
-  local selector_class="$test_filter" selector_method="" filter_has_method=0
-  if [[ "$test_filter" == */* ]]; then
-    filter_has_method=1
-    selector_class=${test_filter%%/*}
-    selector_method=${test_filter#*/}
-  fi
   local selected_classes=() selected_methods=() selected_count=0
-  local index
+  local index filter selector_class selector_method filter_has_method matched
+  for filter in "${test_filters[@]}"; do
+    selector_class=$filter
+    selector_method=""
+    filter_has_method=0
+    if [[ "$filter" == */* ]]; then
+      filter_has_method=1
+      selector_class=${filter%%/*}
+      selector_method=${filter#*/}
+    fi
+    matched=0
+    for index in "${!flow_methods[@]}"; do
+      flow_class=${flow_method_classes[$index]}
+      flow_method=${flow_methods[$index]}
+      [[ "$selector_class" == "$flow_class" ]] || continue
+      [[ $filter_has_method -eq 0 || "$selector_method" == "$flow_method" ]] || continue
+      matched=1
+      break
+    done
+    if [[ $matched -eq 0 ]]; then
+      printf 'unknown flow test: %s\n' "$filter" >&2
+      return 2
+    fi
+  done
   for index in "${!flow_methods[@]}"; do
     flow_class=${flow_method_classes[$index]}
     flow_method=${flow_methods[$index]}
-    [[ -z "$test_filter" || "$selector_class" == "$flow_class" ]] || continue
-    [[ $filter_has_method -eq 0 || "$selector_method" == "$flow_method" ]] || continue
+    matched=0
+    for filter in "${test_filters[@]}"; do
+      selector_class=$filter
+      selector_method=""
+      filter_has_method=0
+      if [[ "$filter" == */* ]]; then
+        filter_has_method=1
+        selector_class=${filter%%/*}
+        selector_method=${filter#*/}
+      fi
+      if [[ "$selector_class" == "$flow_class" && ($filter_has_method -eq 0 || "$selector_method" == "$flow_method") ]]; then
+        matched=1
+        break
+      fi
+    done
+    [[ ${#test_filters[@]} -eq 0 || $matched -eq 1 ]] || continue
     selected_classes+=("$flow_class")
     selected_methods+=("$flow_method")
     selected_count=$((selected_count + 1))
   done
-  if [[ -n "$test_filter" && $selected_count -eq 0 ]]; then
-    printf 'unknown flow test: %s\n' "$test_filter" >&2
-    return 2
-  fi
 
   if [[ -n "${CC_MOCK_LANE:-}" ]]; then
     DERIVED="$IOS/build/flow-derived-$CC_MOCK_LANE"
@@ -3199,5 +3226,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
