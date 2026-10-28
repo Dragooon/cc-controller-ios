@@ -598,6 +598,8 @@ NODE
 cleanup_on_exit() {
   local status=$?
   trap - EXIT INT TERM
+  # Cleanup must not replace a passing test status with an incidental cleanup failure.
+  set +e
   if [[ $SHARD_CONTROLLER -eq 1 ]]; then
     stop_shards
   fi
@@ -1134,6 +1136,7 @@ cmd_flows() {
     return 1
   fi
   printf '%s\n' "flow shots written to $flow_root"
+  return 0
 }
 
 real_api_request() {
