@@ -203,18 +203,32 @@ struct SessionsListView: View {
         sortSessionItems(sessionItems.filter { sessionActivity($0.session) == .needsYou })
     }
 
-    private var recentItems: [ControllerSessionItem] {
-        sortSessionItems(sessionItems.filter { $0.session.archivedAt == nil && sessionActivity($0.session) != .needsYou })
+    private var recentItems: [RecentSessionItem] {
+        let live = sessionItems
+            .filter { $0.session.archivedAt == nil && sessionActivity($0.session) != .needsYou }
+            .map(RecentSessionItem.live)
+        let sleeping = controllers.flatMap { controller in
+            filteredSleeping(controller)
+                .filter { $0.archivedAt == nil }
+                .map { RecentSessionItem.sleeping(ControllerSleepingItem(controller: controller, session: $0)) }
+        }
+        let now = Date()
+        return (live + sleeping).sorted { recentSessionPrecedes($0, $1, now: now) }
     }
 
-    private var sleepingItems: [ControllerSleepingItem] {
-        controllers.flatMap { controller in
-            filteredSleeping(controller).filter { $0.archivedAt == nil }.map { ControllerSleepingItem(controller: controller, session: $0) }
-        }.sorted { left, right in
-            if left.session.lastActiveAt != right.session.lastActiveAt {
-                return left.session.lastActiveAt > right.session.lastActiveAt
-            }
-            return false
+    private func recentSessionPrecedes(_ left: RecentSessionItem, _ right: RecentSessionItem, now: Date) -> Bool {
+        let leftDate = left.activityDate(now: now)
+        let rightDate = right.activityDate(now: now)
+        if leftDate != rightDate {
+            return leftDate > rightDate
+        }
+        switch (left, right) {
+        case let (.live(left), .live(right)):
+            return sessionRecencyPrecedes(left.session, right.session)
+        case let (.sleeping(left), .sleeping(right)):
+            return left.session.lastActiveAt > right.session.lastActiveAt
+        default:
+            return left.id < right.id
         }
     }
 
@@ -337,9 +351,6 @@ struct SessionsListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.ccBackground)
-        } else if horizontalSizeClass == .regular {
-            sessionList
-                .listStyle(.sidebar)
         } else {
             sessionList
                 .listStyle(.plain)
@@ -353,29 +364,39 @@ struct SessionsListView: View {
                     Text(notice)
                         .font(.footnote)
                         .foregroundStyle(.ccSecondary)
-                        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
+                        .modifier(SessionsListRowBackground())
                 }
             }
             statusRows
             if !needsYouItems.isEmpty {
-                Section("Needs you") {
+                Section {
                     ForEach(needsYouItems) { item in
                         sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
                     }
+                } header: {
+                    Text("Needs you")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.ccSecondary)
+                        .textCase(nil)
+                        .padding(.top, 8)
                 }
             }
             if !recentItems.isEmpty {
-                Section("Recents") {
+                Section {
                     ForEach(recentItems) { item in
-                        sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
+                        switch item {
+                        case .live(let item):
+                            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
+                        case .sleeping(let item):
+                            sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
+                        }
                     }
-                }
-            }
-            if !sleepingItems.isEmpty {
-                Section("Asleep") {
-                    ForEach(sleepingItems) { item in
-                        sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
-                    }
+                } header: {
+                    Text("Recents")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.ccSecondary)
+                        .textCase(nil)
+                        .padding(.top, 8)
                 }
             }
             if archivedCount > 0 {
@@ -392,20 +413,25 @@ struct SessionsListView: View {
                     ArchivedSectionHeader(count: archivedCount, isCollapsed: archivedCollapsed) {
                         withAnimation(reduceMotion ? nil : .smooth) { archivedCollapsed.toggle() }
                     }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.ccSecondary)
+                    .textCase(nil)
+                    .padding(.top, 8)
                 }
             }
-            if needsYouItems.isEmpty && recentItems.isEmpty && sleepingItems.isEmpty && archivedCount == 0 {
+            if needsYouItems.isEmpty && recentItems.isEmpty && archivedCount == 0 {
                 Section {
                     Text(query.isEmpty ? "No sessions" : "No matches")
                         .font(.subheadline)
                         .foregroundStyle(.ccTertiary)
-                        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
+                        .modifier(SessionsListRowBackground())
                         .accessibilityIdentifier("sessions-empty")
                 }
             }
         }
         .scrollContentBackground(.hidden)
         .background(.ccBackground)
+        .listRowSeparator(.hidden)
         .animation(.smooth, value: listAnimationKey)
     }
 
@@ -419,8 +445,8 @@ struct SessionsListView: View {
                 onSignIn: { onSignIn(controller.id) },
                 onRetry: { onRetry(controller.id) }
             )
-            .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
-            .listRowSeparatorTint(.ccSeparator)
+            .modifier(SessionsListRowBackground())
+            .listRowSeparator(.hidden)
         }
     }
 
@@ -439,8 +465,8 @@ struct SessionsListView: View {
             onArchive: { archive(controller.id, session.id, !isArchived, name: session.name ?? session.project) }
         )
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
-        .listRowSeparatorTint(.ccSeparator)
+        .modifier(SessionsListRowBackground())
+        .listRowSeparator(.hidden)
     }
 
     private func sessionRow(_ session: Session, controller: SessionsListController, showsControllerName: Bool, isArchived: Bool) -> some View {
@@ -471,8 +497,8 @@ struct SessionsListView: View {
         )
         .opacity(isMultiController && controller.connection.isFrozen ? 0.6 : 1)
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
-        .listRowSeparatorTint(.ccSeparator)
+        .modifier(SessionsListRowBackground())
+        .listRowSeparator(.hidden)
     }
 
     private func archive(_ controllerID: ControllerID, _ sessionID: String?, _ archived: Bool, name: String) {
@@ -510,20 +536,22 @@ struct SessionsListView: View {
 
     private var listAnimationKey: [String] {
         var keys: [String] = []
-        for (position, item) in sortSessionItems(sessionItems).enumerated() {
-            let parts = [
-                "session",
-                String(position),
-                item.controller.id.rawValue,
-                item.session.id ?? "",
-                item.session.state?.rawValue ?? "",
-                item.controller.approval(for: item.session)?.requestId ?? "",
-            ]
-            keys.append(parts.joined(separator: ":"))
-        }
-        for (position, item) in sleepingItems.enumerated() {
-            let key = sleepingSessionKey(controllerID: item.controller.id, sessionID: item.session.id)
-            keys.append("sleeping:\(position):\(key):\(waking.contains(key))")
+        for (position, item) in recentItems.enumerated() {
+            switch item {
+            case .live(let item):
+                let parts = [
+                    "session",
+                    String(position),
+                    item.controller.id.rawValue,
+                    item.session.id ?? "",
+                    item.session.state?.rawValue ?? "",
+                    item.controller.approval(for: item.session)?.requestId ?? "",
+                ]
+                keys.append(parts.joined(separator: ":"))
+            case .sleeping(let item):
+                let key = sleepingSessionKey(controllerID: item.controller.id, sessionID: item.session.id)
+                keys.append("sleeping:\(position):\(key):\(waking.contains(key))")
+            }
         }
         for item in archivedSessionItems {
             keys.append("archived:\(item.controller.id.rawValue):\(item.session.id ?? "")")
@@ -605,16 +633,36 @@ private struct ControllerSleepingItem: Identifiable {
     var id: String { sleepingSessionKey(controllerID: controller.id, sessionID: session.id) }
 }
 
-private struct SessionsListRowBackground: ViewModifier {
-    let isCompact: Bool
+private enum RecentSessionItem: Identifiable {
+    case live(ControllerSessionItem)
+    case sleeping(ControllerSleepingItem)
 
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if isCompact {
-            content.listRowBackground(Color.ccBackground)
-        } else {
-            content
+    var id: String {
+        switch self {
+        case .live(let item): "live:\(item.id)"
+        case .sleeping(let item): "sleeping:\(item.id)"
         }
+    }
+
+    func activityDate(now: Date) -> Date {
+        switch self {
+        case .live(let item):
+            switch sessionActivity(item.session) {
+            case .working, .background:
+                return now
+            case .needsYou, .idle:
+                return item.session.lastUserMessageAt
+                    ?? max(item.session.idleSince ?? .distantPast, item.session.startedAt ?? .distantPast)
+            }
+        case .sleeping(let item):
+            return item.session.lastActiveAt
+        }
+    }
+}
+
+private struct SessionsListRowBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        content.listRowBackground(Color.ccBackground)
     }
 }
 
@@ -718,10 +766,9 @@ private struct SessionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: onOpen) {
-                HStack(alignment: .center, spacing: 8) {
-                    SessionText(session: session, approval: approval, controllerName: controllerName)
-                    Spacer(minLength: 4)
+                HStack(alignment: .center, spacing: 12) {
                     SessionStatusIndicator(session: session, frozen: frozen, dimmed: dimmed)
+                    SessionText(session: session, approval: approval, controllerName: controllerName)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -743,10 +790,11 @@ private struct SessionRow: View {
                     attachCommand: claudeAttachCommand(for: session)
                 )
                 .disabled(isDeciding(approval))
+                .padding(.leading, 34)
             }
         }
-        .padding(.vertical, 6)
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .padding(.vertical, 10)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canArchive {
                 Button(action: onArchive) {
                     Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
@@ -799,9 +847,9 @@ private struct SessionRow: View {
             return "It closes on \(controllerLabel). Your next message reopens it."
         }
         if session.background != nil {
-            return "It stops on your Mac. The conversation is kept, and you can wake it from Asleep."
+            return "It stops on your Mac. The conversation stays in Recents, and tapping it wakes it."
         }
-        return "It stops. The conversation is kept, and you can wake it from Asleep."
+        return "It stops. The conversation stays in Recents, and tapping it wakes it."
     }
 
     private var activityStateLabel: String {
@@ -830,24 +878,9 @@ private struct SleepingSessionRow: View {
     let onCopyAttachCommand: () -> Void
     let onArchive: () -> Void
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
     var body: some View {
         Button(action: onWake) {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(displayName)
-                        .font(.headline)
-                        .foregroundStyle(.ccLabel)
-                        .lineLimit(dynamicTypeSize >= .accessibility1 ? 2 : 1)
-                        .accessibilityIdentifier("sleeping-session-title-\(session.id)")
-                    Text(projectLine)
-                        .font(.subheadline)
-                        .foregroundStyle(.ccSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 4)
+            HStack(alignment: .center, spacing: 12) {
                 Group {
                     if isWaking {
                         ProgressView()
@@ -859,15 +892,28 @@ private struct SleepingSessionRow: View {
                     }
                 }
                 .frame(width: 22, height: 22)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(displayName)
+                        .font(.body)
+                        .foregroundStyle(.ccSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityIdentifier("sleeping-session-title-\(session.id)")
+                    Text(projectLine)
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .opacity(0.58)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!canWake)
         .accessibilityIdentifier("sleeping-session-\(session.id)")
         .accessibilityValue(isWaking ? "Waking" : "asleep")
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canArchive {
                 Button(action: onArchive) {
                     Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
@@ -884,7 +930,7 @@ private struct SleepingSessionRow: View {
             }
             Button("Copy attach command", action: onCopyAttachCommand)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 10)
     }
 
     private var displayName: String {
@@ -906,13 +952,9 @@ private struct SessionStatusIndicator: View {
     @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
 
     var body: some View {
-        Group {
-            if isVisible {
-                statusView
-            }
-        }
-        .frame(width: 22, height: 22)
-        .animation(freezeLiveIndicators ? nil : .easeInOut(duration: 0.2), value: statusKey)
+        statusView
+            .frame(width: 22, height: 22)
+            .animation(freezeLiveIndicators ? nil : .easeInOut(duration: 0.2), value: statusKey)
     }
 
     @ViewBuilder
@@ -930,14 +972,11 @@ private struct SessionStatusIndicator: View {
                 .accessibilityIdentifier("session-status-\(session.id ?? "")")
                 .transition(statusTransition)
         case .idle:
-            EmptyView()
-        }
-    }
-
-    private var isVisible: Bool {
-        switch sessionActivity(session) {
-        case .idle: false
-        case .working, .background, .needsYou: true
+            Image(systemName: "bubble.left")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.ccTertiary)
+                .accessibilityIdentifier("session-status-\(session.id ?? "")")
+                .transition(statusTransition)
         }
     }
 
@@ -960,20 +999,18 @@ private struct SessionText: View {
     let approval: Approval?
     let controllerName: String?
 
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(session.name ?? "Untitled session")
-                .font(.headline)
+                .font(.body)
                 .foregroundStyle(.ccLabel)
-                .lineLimit(dynamicTypeSize >= .accessibility1 ? 2 : 1)
+                .lineLimit(1)
                 .truncationMode(.tail)
                 .accessibilityIdentifier("session-title-\(session.id ?? "")")
 
             Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(subtitleColor)
+                .font(.footnote)
+                .foregroundStyle(.ccSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .accessibilityIdentifier("session-agent-\(session.id ?? "")")
@@ -989,7 +1026,4 @@ private struct SessionText: View {
         return controllerName.map { "\(agent) · \($0)" } ?? agent
     }
 
-    private var subtitleColor: Color {
-        approval?.questions != nil ? .ccAccent : .ccSecondary
-    }
 }

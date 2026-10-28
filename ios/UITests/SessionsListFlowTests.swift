@@ -36,7 +36,7 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "Unarchive did not restore the Recents row")
     }
 
-    func testEndBackgroundFromContextMenuThenArchiveAsleep() async throws {
+    func testEndBackgroundFromContextMenuThenArchiveSleepingSession() async throws {
         try await postFixture("/fixture/sleeping-seed")
         let app = launchSignedIn()
         defer { app.terminate() }
@@ -44,10 +44,16 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         let sleeping = app.buttons["sleeping-session-sleeping-dune"]
         XCTAssertTrue(sleeping.waitForExistence(timeout: 75), "Seeded sleeping session was not listed")
         sleeping.tap()
-        let live = app.buttons["session-sleeping-dune"]
-        XCTAssertTrue(live.waitForExistence(timeout: 20), "Seeded session did not wake into Recents")
+        let title = app.descendants(matching: .any)
+            .matching(identifier: "selected-session-name")
+            .firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 30), "Woken session did not open")
+        XCTAssertEqual(title.label, "Sleeping Dune")
         app.buttons["BackButton"].tap()
-        XCTAssertTrue(live.waitForExistence(timeout: 20), "Woken background session was not listed")
+        let live = app.buttons["session-sleeping-dune"]
+        let list = app.collectionViews.firstMatch
+        for _ in 0..<8 where !live.exists { list.swipeUp() }
+        XCTAssertTrue(live.waitForExistence(timeout: 20), "Woken background session was not listed in Recents")
         live.press(forDuration: 1)
         let endAction = app.buttons["session-end-sleeping-dune"]
         XCTAssertTrue(endAction.waitForExistence(timeout: 10), "End session context action did not appear")
@@ -57,13 +63,13 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         app.buttons["End session"].tap()
 
         let asleep = app.buttons["sleeping-session-sleeping-dune"]
-        XCTAssertTrue(asleep.waitForExistence(timeout: 20), "Ended background session did not appear in Asleep")
+        XCTAssertTrue(asleep.waitForExistence(timeout: 20), "Ended background session did not appear in Recents")
         asleep.swipeLeft()
         let archive = app.buttons["session-archive-sleeping-dune"]
-        XCTAssertTrue(archive.waitForExistence(timeout: 10), "Asleep archive action did not appear")
+        XCTAssertTrue(archive.waitForExistence(timeout: 10), "Sleeping-session archive action did not appear")
         archive.tap()
-        XCTAssertTrue(app.buttons["archive-undo"].waitForExistence(timeout: 10), "Archive of Asleep session did not complete")
-        XCTAssertTrue(asleep.waitForNonExistence(timeout: 10), "Archived Asleep session remained in Asleep")
+        XCTAssertTrue(app.buttons["archive-undo"].waitForExistence(timeout: 10), "Archive of sleeping session did not complete")
+        XCTAssertTrue(asleep.waitForNonExistence(timeout: 10), "Archived sleeping session remained in Recents")
     }
 
     func testCompactRowsShowTitleAgentAndStatus() throws {
@@ -85,7 +91,7 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
                 .matching(identifier: "session-status-pull-up-agentic-uw")
                 .firstMatch
                 .waitForExistence(timeout: 10),
-            "Working session had no trailing status indicator"
+            "Working session had no leading status indicator"
         )
 
         let idleRow = app.buttons["session-dune-part-three-imax-tickets"]
@@ -101,19 +107,19 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         XCTAssertFalse(idleRow.label.contains("idle"), "Idle duration leaked into compact row: \(idleRow.label)")
         XCTAssertFalse(idleRow.label.contains("ctx"), "Context usage leaked into compact row: \(idleRow.label)")
         XCTAssertFalse(idleRow.label.contains("thinking"), "Activity text leaked into compact row: \(idleRow.label)")
-        XCTAssertFalse(
+        XCTAssertTrue(
             app.descendants(matching: .any)
                 .matching(identifier: "session-status-dune-part-three-imax-tickets")
                 .firstMatch
-                .exists,
-            "Idle session showed a trailing status indicator"
+                .waitForExistence(timeout: 10),
+            "Idle session had no leading status indicator"
         )
         print("COMPACT_IDLE_ROW_HEIGHT \(idleRow.frame.height)")
         XCTAssertLessThanOrEqual(idleRow.frame.height, 60, "Idle row exceeded compact height")
-        XCTAssertLessThanOrEqual(
-            abs(idleTitle.frame.minX - idleRow.frame.minX),
-            24,
-            "Title was too far from the list cell leading edge"
+        XCTAssertGreaterThanOrEqual(
+            idleTitle.frame.minX - idleRow.frame.minX,
+            34,
+            "Title did not leave room for the leading status column"
         )
     }
 

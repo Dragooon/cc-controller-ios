@@ -156,13 +156,13 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         )
     }
 
-    func testAsleepRowWakesAndOpensSession() async throws {
+    func testSleepingRowWakesAndOpensSession() async throws {
         let app = launch()
         try await postFixture("/fixture/sleeping-seed")
-        revealAsleep(in: app)
-        let asleep = app.staticTexts["Asleep"]
-        XCTAssertTrue(asleep.waitForExistence(timeout: 30), "Asleep section did not load")
-        addScreenshot(named: "sessions-asleep")
+        revealRecents(in: app)
+        let recents = app.staticTexts["Recents"]
+        XCTAssertTrue(recents.waitForExistence(timeout: 30), "Recents section did not load")
+        addScreenshot(named: "sessions-recents")
         let row = app.buttons["sleeping-session-sleeping-dune"]
         XCTAssertTrue(row.waitForExistence(timeout: 10), "Sleeping session row did not load")
         row.tap()
@@ -172,11 +172,11 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertEqual(title.label, "Sleeping Dune")
     }
 
-    func testAsleepRowShowsHistoryWhileWakeIsHeld() async throws {
+    func testSleepingRowShowsHistoryWhileWakeIsHeld() async throws {
         let app = launch()
         try await postFixture("/fixture/sleeping-seed")
         try await setWakeBehaviour(delayMs: 3_000)
-        revealAsleep(in: app)
+        revealRecents(in: app)
         let row = app.buttons["sleeping-session-sleeping-dune"]
         XCTAssertTrue(row.waitForExistence(timeout: 30), "Sleeping session row did not load")
         row.tap()
@@ -195,7 +195,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let composer = app.textFields["composer-text"]
         XCTAssertTrue(composer.waitForExistence(timeout: 5), "Composer did not stay visible while waking")
         let send = app.buttons["composer-send"]
-        XCTAssertTrue(send.waitForExistence(timeout: 5), "Composer send button did not appear while waking")
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "Send button did not appear while waking")
         XCTAssertFalse(send.isEnabled, "Send was enabled before the session became live")
 
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not remain available after wake")
@@ -206,10 +206,10 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "wake-open-live")
     }
 
-    func testAsleepRowCopiesAttachCommand() async throws {
+    func testSleepingRowCopiesAttachCommand() async throws {
         let app = launch()
         try await postFixture("/fixture/sleeping-seed")
-        revealAsleep(in: app)
+        revealRecents(in: app)
         let row = app.buttons["sleeping-session-sleeping-dune"]
         XCTAssertTrue(row.waitForExistence(timeout: 30), "Sleeping session row did not load")
         row.press(forDuration: 1)
@@ -244,10 +244,10 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         row.tap()
     }
 
-    private func revealAsleep(in app: XCUIApplication) {
-        let asleep = app.staticTexts["Asleep"]
+    private func revealRecents(in app: XCUIApplication) {
+        let recents = app.staticTexts["Recents"]
         let list = app.collectionViews.firstMatch
-        for _ in 0..<8 where !asleep.exists {
+        for _ in 0..<8 where !recents.exists {
             list.swipeUp()
         }
     }
