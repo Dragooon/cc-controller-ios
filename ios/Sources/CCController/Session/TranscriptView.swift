@@ -1089,10 +1089,6 @@ struct SessionTranscriptView: View {
         ForEach(startingNotes) { note in
             pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: false)
         }
-        .transaction { transaction in
-            transaction.animation = pendingNoteAnimation
-        }
-        .animation(pendingNoteAnimation, value: startingNotes.map(\.id))
 
         if let currentActivityRow {
             TranscriptRowView(
@@ -1120,10 +1116,6 @@ struct SessionTranscriptView: View {
         ForEach(queuedNotes) { note in
             pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: currentActivityRow != nil)
         }
-        .transaction { transaction in
-            transaction.animation = pendingNoteAnimation
-        }
-        .animation(pendingNoteAnimation, value: queuedNotes.map(\.id))
 
         Color.clear
             .frame(height: 1)
