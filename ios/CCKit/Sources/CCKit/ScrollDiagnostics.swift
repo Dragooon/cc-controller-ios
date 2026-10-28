@@ -37,6 +37,17 @@ public enum ScrollBlankKind: String, Codable, Sendable {
     case sentinelUnbuilt = "sentinel-unbuilt"
 }
 
+public enum SentinelCorrection: Equatable, Sendable {
+    case scroll
+    case rebuild
+    case none
+}
+
+public func sentinelCorrection(builtRowCount: Int, pinned: Bool) -> SentinelCorrection {
+    guard pinned else { return .none }
+    return builtRowCount > 0 ? .scroll : .rebuild
+}
+
 public enum ScrollBlankCondition {
     public static func isOvershoot(
         contentHeight: CGFloat,

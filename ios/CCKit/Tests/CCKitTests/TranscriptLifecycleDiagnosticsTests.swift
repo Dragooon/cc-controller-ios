@@ -67,6 +67,20 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
         XCTAssertEqual(engine.ingest(.sentinelCheck(sessionID: session)), [])
     }
 
+    func testSentinelCorrectionScrollsWhenRowsAreBuiltAndPinned() {
+        XCTAssertEqual(sentinelCorrection(builtRowCount: 1, pinned: true), .scroll)
+        XCTAssertEqual(sentinelCorrection(builtRowCount: 236, pinned: true), .scroll)
+    }
+
+    func testSentinelCorrectionRebuildsWhenNoRowsAreBuilt() {
+        XCTAssertEqual(sentinelCorrection(builtRowCount: 0, pinned: true), .rebuild)
+    }
+
+    func testSentinelCorrectionDoesNothingWhenNotPinned() {
+        XCTAssertEqual(sentinelCorrection(builtRowCount: 236, pinned: false), .none)
+        XCTAssertEqual(sentinelCorrection(builtRowCount: 0, pinned: false), .none)
+    }
+
     func testSentinelCorrectionIsEligibleAfterResume() {
         let clock = TestClock()
         var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })

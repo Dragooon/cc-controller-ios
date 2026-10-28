@@ -35,6 +35,7 @@ private final class TranscriptScrollState {
     var blankCheckTask: Task<Void, Never>?
     var blankOccurrence: ScrollBlankOccurrence?
     var sentinelCheckTask: Task<Void, Never>?
+    var lastStackRebuildAt: Date?
     var scrollPhaseIsIdle = true
     var recorder: ScrollDiagnosticsRecorder?
     var onBuiltRowsEmpty: (() -> Void)?
@@ -78,6 +79,7 @@ private final class TranscriptScrollState {
         blankCandidate = nil
         blankCandidateStartedAt = nil
         blankOccurrence = nil
+        lastStackRebuildAt = nil
         builtRowIndices = [:]
         highestBuiltRowIndex = -1
         lastBuiltRowID = nil
@@ -93,6 +95,20 @@ private final class TranscriptScrollState {
     func cancelSentinelCheck() {
         sentinelCheckTask?.cancel()
         sentinelCheckTask = nil
+    }
+
+    func markStackRebuilt(at date: Date = Date()) {
+        lastStackRebuildAt = date
+    }
+
+    var rebuildCooldownMilliseconds: Int {
+        guard let lastStackRebuildAt else { return 0 }
+        let remaining = 1 - Date().timeIntervalSince(lastStackRebuildAt)
+        return max(0, Int(ceil(remaining * 1000)))
+    }
+
+    var isRebuildCooldownActive: Bool {
+        rebuildCooldownMilliseconds > 0
     }
 
     func updateRowIndices(displayRows: [TranscriptRow], queuedNotes: [QueuedNote]) {
@@ -336,6 +352,13 @@ struct SessionTranscriptView: View {
                 Text(diagnosticStatus)
                     .accessibilityIdentifier("scroll-diagnostics-status")
                     .accessibilityLabel(diagnosticStatus)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+            }
+            .overlay(alignment: .topTrailing) {
+                Text("stack-generation=\(stackGeneration)")
+                    .accessibilityIdentifier("transcript-stack-generation")
+                    .accessibilityLabel("stack-generation=\(stackGeneration)")
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
             }
@@ -932,12 +955,41 @@ struct SessionTranscriptView: View {
             finishBlankOccurrence(recovered: false)
             return
         }
+
+        let shouldRebuild: Bool
+        if kind == .sentinelUnbuilt {
+            switch sentinelCorrection(
+                builtRowCount: scrollState.builtRowIndices.count,
+                pinned: isPinnedToBottom
+            ) {
+            case .scroll:
+                shouldRebuild = false
+                withTransaction(Transaction(animation: nil)) {
+                    proxy.scrollTo("transcript-bottom", anchor: .bottom)
+                }
+                scrollState.bridgeHandle.pinToBottom()
+                recordLifecycleEvent(
+                    name: "sentinel-scroll",
+                    sessionID: sessionID,
+                    detail: "built=\(scrollState.builtRowIndices.count)",
+                    recorder: scrollState.recorder
+                )
+            case .rebuild:
+                shouldRebuild = true
+            case .none:
+                return
+            }
+        } else {
+            shouldRebuild = kind == .unbuilt
+        }
+
         occurrence.corrections += 1
         scrollState.blankOccurrence = occurrence
-        if kind == .unbuilt || kind == .sentinelUnbuilt {
+        if shouldRebuild {
             withTransaction(Transaction(animation: nil)) {
                 stackGeneration += 1
             }
+            scrollState.markStackRebuilt()
             recordLifecycleEvent(
                 name: "stack-rebuild",
                 sessionID: sessionID,
@@ -948,6 +1000,8 @@ struct SessionTranscriptView: View {
             if isPinnedToBottom {
                 scheduleRebuildScroll(using: proxy)
             }
+        } else if kind == .sentinelUnbuilt {
+            // The sentinel correction already scrolled to the bottom above.
         } else if kind == .overshoot || isPinnedToBottom {
             isPinnedToBottom = true
             withTransaction(Transaction(animation: nil)) {
@@ -1149,7 +1203,9 @@ struct SessionTranscriptView: View {
     }
 
     private func sentinelDidAppear() {
-        scrollState.cancelSentinelCheck()
+        if !scrollState.isRebuildCooldownActive {
+            scrollState.cancelSentinelCheck()
+        }
         _ = TranscriptLifecycleDiagnostics.shared.ingest(
             .sentinelBuilt(sessionID: sessionID, built: true)
         )
@@ -1159,18 +1215,25 @@ struct SessionTranscriptView: View {
         _ = TranscriptLifecycleDiagnostics.shared.ingest(
             .sentinelBuilt(sessionID: sessionID, built: false)
         )
+        guard !scrollState.isRebuildCooldownActive else { return }
         scheduleSentinelCheck(using: proxy)
     }
 
     private func scheduleSentinelCheck(using proxy: ScrollViewProxy?) {
         scrollState.cancelSentinelCheck()
+        let delayMilliseconds = 300 + scrollState.rebuildCooldownMilliseconds
         scrollState.sentinelCheckTask = Task { @MainActor in
             do {
-                try await Task.sleep(for: .milliseconds(300))
+                try await Task.sleep(for: .milliseconds(delayMilliseconds))
             } catch {
                 return
             }
+            scrollState.sentinelCheckTask = nil
             guard !Task.isCancelled, transcriptIsVisible else { return }
+            guard !scrollState.isRebuildCooldownActive else {
+                scheduleSentinelCheck(using: proxy)
+                return
+            }
             let evaluation = TranscriptLifecycleDiagnostics.shared.ingestWithCorrections(
                 .sentinelCheck(sessionID: sessionID)
             )
@@ -1191,7 +1254,6 @@ struct SessionTranscriptView: View {
                let geometry = scrollState.lastScrollGeometry {
                 startCorrection(for: .sentinelUnbuilt, geometry: geometry, using: proxy)
             }
-            scrollState.sentinelCheckTask = nil
         }
     }
 
