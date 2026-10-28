@@ -132,12 +132,17 @@ struct SessionScreen: View {
             let key = sessionLoadKey
             guard key.hasSession,
                   let sessionStore = store.openSession(key.sessionID) else { return }
-            #if DEBUG || CC_PERF
-            store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
-            #endif
-            guard !sessionStore.isLoaded else { return }
+            guard !sessionStore.isLoaded else {
+                #if DEBUG || CC_PERF
+                store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
+                #endif
+                return
+            }
             do {
                 try await sessionStore.loadInitial()
+                #if DEBUG || CC_PERF
+                store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
+                #endif
             } catch {
                 guard !isTranscriptCancellation(error) else { return }
                 model.actionError = store.actionError(for: error)
@@ -147,7 +152,6 @@ struct SessionScreen: View {
             recordLifecycleEvent(name: "screen-appear", sessionID: sessionID)
             #if DEBUG || CC_PERF
             TranscriptPerformance.shared.beginScreenAppearance(sessionID: sessionID)
-            store.addDebugAttachments(model.debugAttachmentPaths, to: sessionID)
             #endif
         }
         .onDisappear {
