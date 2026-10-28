@@ -43,6 +43,9 @@ final class AppModel {
     let debugAttachmentPaths: [URL]
     var keychainSelfTestResult: String?
     #endif
+    #if DEBUG
+    let freezeLiveIndicators: Bool
+    #endif
     var onboarding = OnboardingFlowState()
     var connectionMessage: String?
     var copiedPairingCommand = false
@@ -182,6 +185,9 @@ final class AppModel {
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
+        #if DEBUG
+        freezeLiveIndicators = Self.argumentValue("-CCFreezeLiveIndicators", in: arguments)?.uppercased() == "YES"
+        #endif
         let cacheRoot = Self.cacheDirectory()
         try? ControllerMigration.migrateLegacyCacheAndSettings(
             legacyCacheDirectory: cacheRoot,

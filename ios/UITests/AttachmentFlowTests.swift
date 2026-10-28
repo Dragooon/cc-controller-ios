@@ -347,6 +347,7 @@ final class AttachmentFlowTests: XCTestCase {
         }
         app.launchEnvironment["CCAttachFile"] = paths.joined(separator: "\n")
         app.launchEnvironment["CCBearer"] = bearer
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

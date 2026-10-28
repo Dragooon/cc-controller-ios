@@ -308,7 +308,11 @@ final class SidebarOverlayFlowTests: XCTestCase {
         return false
     }
 
-    private func launch(orientation: UIDeviceOrientation, sessionID: String? = nil) -> XCUIApplication {
+    private func launch(
+        orientation: UIDeviceOrientation,
+        sessionID: String? = nil,
+        freezeLiveIndicators: Bool = true
+    ) -> XCUIApplication {
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
         app.launchArguments = [
@@ -321,6 +325,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         if let colorScheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !colorScheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", colorScheme]
         }
+        configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

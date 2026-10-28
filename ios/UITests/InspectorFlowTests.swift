@@ -185,6 +185,7 @@ final class InspectorFlowTests: XCTestCase {
             app.launchArguments += ["-CCColorScheme", colorScheme]
         }
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

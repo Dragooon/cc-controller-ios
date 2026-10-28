@@ -15,6 +15,7 @@ struct CCControllerApp: App {
                 RootView(model: model)
             }
             .preferredColorScheme(model.colorScheme)
+            .environment(\.ccFreezeLiveIndicators, model.freezeLiveIndicators)
             #else
             RootView(model: model)
                 .preferredColorScheme(model.colorScheme)

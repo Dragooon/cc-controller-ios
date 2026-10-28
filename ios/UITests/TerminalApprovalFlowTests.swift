@@ -7,6 +7,7 @@ final class TerminalApprovalFlowTests: FixtureFlowTestSupport {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL")]
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         defer { app.terminate() }

@@ -81,6 +81,7 @@ final class MockScreenshotTests: XCTestCase {
             "-CCColorScheme", scheme,
             "-UIPreferredContentSizeCategoryName", category,
         ]
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
 

@@ -32,6 +32,7 @@ final class ScreenshotTests: XCTestCase {
                     "-CCColorScheme", scheme,
                     "-UIPreferredContentSizeCategoryName", sizeValue,
                 ]
+                configureLiveIndicatorAnimations(app)
                 app.launchEnvironment["CCBearer"] = bearer
                 dismissLeftoverNotificationPrompt()
                 app.launch()

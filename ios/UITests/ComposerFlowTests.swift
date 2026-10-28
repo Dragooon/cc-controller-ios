@@ -602,12 +602,13 @@ final class ComposerFlowTests: XCTestCase {
         return []
     }
 
-    private func launchFixture() -> XCUIApplication {
+    private func launchFixture(freezeLiveIndicators: Bool = true) -> XCUIApplication {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer
+        configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

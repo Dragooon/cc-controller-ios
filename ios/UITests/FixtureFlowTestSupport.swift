@@ -9,6 +9,11 @@ func requiredRunnerVariable(_ key: String, file: StaticString = #filePath, line:
     return value
 }
 
+func configureLiveIndicatorAnimations(_ app: XCUIApplication, freeze: Bool = true) {
+    guard freeze else { return }
+    app.launchArguments += ["-CCFreezeLiveIndicators", "YES"]
+}
+
 /// Dismisses a notification prompt left on SpringBoard by an earlier test or another simulator lane.
 /// An app launched under that prompt never becomes active, so it never connects, and a test that only waits
 /// for elements never triggers XCTest's interruption handling.
@@ -70,7 +75,8 @@ class FixtureFlowTestSupport: XCTestCase {
         expirySeconds: Int? = nil,
         lockInterval: TimeInterval? = nil,
         maxUnlockAge: TimeInterval? = nil,
-        probeInterval: TimeInterval? = nil
+        probeInterval: TimeInterval? = nil,
+        freezeLiveIndicators: Bool = true
     ) -> XCUIApplication {
         launchFixture(
             server: server,
@@ -78,15 +84,22 @@ class FixtureFlowTestSupport: XCTestCase {
             expirySeconds: expirySeconds,
             lockInterval: lockInterval,
             maxUnlockAge: maxUnlockAge,
-            probeInterval: probeInterval
+            probeInterval: probeInterval,
+            freezeLiveIndicators: freezeLiveIndicators
         )
     }
 
     func launchCold(
         server: String? = nil,
-        maxUnlockAge: TimeInterval? = nil
+        maxUnlockAge: TimeInterval? = nil,
+        freezeLiveIndicators: Bool = true
     ) -> XCUIApplication {
-        launchFixture(server: server, onboarding: false, maxUnlockAge: maxUnlockAge)
+        launchFixture(
+            server: server,
+            onboarding: false,
+            maxUnlockAge: maxUnlockAge,
+            freezeLiveIndicators: freezeLiveIndicators
+        )
     }
 
     func reachFaceID(_ app: XCUIApplication) async throws {
@@ -180,7 +193,8 @@ class FixtureFlowTestSupport: XCTestCase {
         expirySeconds: Int? = nil,
         lockInterval: TimeInterval? = nil,
         maxUnlockAge: TimeInterval? = nil,
-        probeInterval: TimeInterval? = nil
+        probeInterval: TimeInterval? = nil,
+        freezeLiveIndicators: Bool = true
     ) -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
         let app = XCUIApplication()
@@ -205,6 +219,7 @@ class FixtureFlowTestSupport: XCTestCase {
         if let probeInterval {
             app.launchArguments += ["-CCProbeInterval", String(probeInterval)]
         }
+        configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

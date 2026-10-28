@@ -83,6 +83,7 @@ final class RealControllerSmokeTests: XCTestCase {
             app.launchArguments.append("-CCResetCache")
         }
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
     }
 

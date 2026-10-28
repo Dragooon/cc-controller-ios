@@ -5,6 +5,7 @@ struct LiveActivityFooterView: View {
     let footer: CCKit.ActivityFooter
     let session: Session?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
 
     init(footer: CCKit.ActivityFooter, session: Session? = nil) {
         self.footer = footer
@@ -32,8 +33,11 @@ struct LiveActivityFooterView: View {
             Text(current.primary)
                 .font(.subheadline)
                 .foregroundStyle(current.isWaiting ? .ccAmber : .ccAccent)
-                .contentTransition(.opacity)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: current.primary)
+                .liveIndicatorTextAnimation(
+                    enabled: !freezeLiveIndicators,
+                    value: current.primary,
+                    reduceMotion: reduceMotion
+                )
                 .lineLimit(1)
                 .truncationMode(.tail)
 
@@ -74,18 +78,50 @@ struct LiveActivityFooterView: View {
     }
 }
 
+struct LiveIndicatorTextAnimation<Value: Equatable>: ViewModifier {
+    let enabled: Bool
+    let value: Value
+    let reduceMotion: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .contentTransition(.opacity)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: value)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func liveIndicatorTextAnimation<Value: Equatable>(
+        enabled: Bool,
+        value: Value,
+        reduceMotion: Bool
+    ) -> some View {
+        modifier(LiveIndicatorTextAnimation(enabled: enabled, value: value, reduceMotion: reduceMotion))
+    }
+}
+
 private struct ActivityGlyph: View {
     let active: Bool
     let reduceMotion: Bool
+    @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
     @State private var rotation = 0.0
 
     var body: some View {
         Text("✻")
             .foregroundStyle(active ? .ccAccent : .ccAmber)
             .rotationEffect(.degrees(rotation))
-            .animation(reduceMotion ? nil : .linear(duration: 8).repeatForever(autoreverses: false), value: rotation)
+            .animation(
+                freezeLiveIndicators || reduceMotion
+                    ? nil
+                    : .linear(duration: 8).repeatForever(autoreverses: false),
+                value: rotation
+            )
             .onAppear {
-                guard active, !reduceMotion else { return }
+                guard active, !reduceMotion, !freezeLiveIndicators else { return }
                 rotation = 360
             }
             .accessibilityHidden(true)

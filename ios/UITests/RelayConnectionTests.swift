@@ -80,6 +80,7 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
         if let bearer {
             app.launchEnvironment["CCBearer"] = bearer
         }
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

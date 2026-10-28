@@ -29,6 +29,7 @@ struct SpinnerGlyph: View {
     }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
     @State private var isVisible = false
 
     private let frames = ["·︎", "✢︎", "✳︎", "✶︎", "✻︎", "✽︎", "✻︎", "✶︎", "✳︎", "✢︎"]
@@ -55,7 +56,7 @@ struct SpinnerGlyph: View {
             Text("○")
                 .foregroundStyle(.ccTertiary)
                 .accessibilityHidden(true)
-        } else if frozen || reduceMotion {
+        } else if frozen || reduceMotion || freezeLiveIndicators {
             Text("✻︎")
                 .foregroundStyle(dimmed ? Color.ccTertiary : Color.ccAccent)
                 .accessibilityHidden(true)

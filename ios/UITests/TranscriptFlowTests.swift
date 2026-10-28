@@ -637,6 +637,7 @@ final class TranscriptFlowTests: XCTestCase {
             app.launchArguments.append("-CCScrollGuardTestOvershoot")
         }
         app.launchEnvironment["CCBearer"] = bearer
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

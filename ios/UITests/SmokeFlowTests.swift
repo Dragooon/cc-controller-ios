@@ -8,6 +8,7 @@ final class SmokeFlowTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
 
@@ -37,6 +38,7 @@ final class SmokeFlowTests: XCTestCase {
     func testKeychainSelfTest() {
         let app = XCUIApplication()
         app.launchArguments = ["-CCKeychainSelfTest"]
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
 

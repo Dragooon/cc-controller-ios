@@ -71,6 +71,7 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
             app.launchArguments += ["-CCColorScheme", scheme]
         }
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

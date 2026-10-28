@@ -258,6 +258,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         if let scheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !scheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", scheme]
         }
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

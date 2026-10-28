@@ -903,6 +903,7 @@ private struct SessionStatusIndicator: View {
     let dimmed: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
 
     var body: some View {
         Group {
@@ -911,7 +912,7 @@ private struct SessionStatusIndicator: View {
             }
         }
         .frame(width: 22, height: 22)
-        .animation(.easeInOut(duration: 0.2), value: statusKey)
+        .animation(freezeLiveIndicators ? nil : .easeInOut(duration: 0.2), value: statusKey)
     }
 
     @ViewBuilder
@@ -950,7 +951,7 @@ private struct SessionStatusIndicator: View {
     }
 
     private var statusTransition: AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8))
+        reduceMotion || freezeLiveIndicators ? .opacity : .opacity.combined(with: .scale(scale: 0.8))
     }
 }
 

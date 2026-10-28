@@ -1,6 +1,17 @@
 import CCKit
 import SwiftUI
 
+private struct CCFreezeLiveIndicatorsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var ccFreezeLiveIndicators: Bool {
+        get { self[CCFreezeLiveIndicatorsKey.self] }
+        set { self[CCFreezeLiveIndicatorsKey.self] = newValue }
+    }
+}
+
 struct LiveElapsedText: View {
     let startedAt: Date?
     let finishedAt: Date?

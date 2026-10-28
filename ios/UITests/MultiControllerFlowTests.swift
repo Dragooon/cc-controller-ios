@@ -435,6 +435,7 @@ final class MultiControllerFlowTests: XCTestCase {
         if let colorScheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !colorScheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", colorScheme]
         }
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         return app

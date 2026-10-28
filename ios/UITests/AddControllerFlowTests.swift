@@ -18,6 +18,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
             app.launchArguments += ["-CCColorScheme", scheme]
         }
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         defer { app.terminate() }

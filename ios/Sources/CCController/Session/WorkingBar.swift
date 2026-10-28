@@ -7,6 +7,7 @@ struct WorkingBarView: View {
     let frozenNow: Date?
     let onTap: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ccFreezeLiveIndicators) private var freezeLiveIndicators
 
     init(
         session: Session,
@@ -43,8 +44,11 @@ struct WorkingBarView: View {
                         .font(.footnote)
                     Text(primaryText)
                         .font(.footnote.weight(toolIsRunning ? .regular : .semibold))
-                        .contentTransition(.opacity)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: primaryText)
+                        .liveIndicatorTextAnimation(
+                            enabled: !freezeLiveIndicators,
+                            value: primaryText,
+                            reduceMotion: reduceMotion
+                        )
                         .foregroundStyle(.ccLabel)
                         .lineLimit(1)
                         .truncationMode(.tail)

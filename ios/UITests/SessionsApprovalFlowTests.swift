@@ -19,6 +19,7 @@ final class SessionsApprovalFlowTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer
+        configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
         app.launch()
         defer { app.terminate() }
