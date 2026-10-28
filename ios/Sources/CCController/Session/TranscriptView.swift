@@ -205,6 +205,7 @@ struct SessionTranscriptView: View {
     @State private var rowsMounted = false
     @State private var transcriptIsVisible = false
     @State private var transcriptAppearDate: Date?
+    @State private var renderedQueuedNotes: [QueuedNote]
     @State private var scrollState: TranscriptScrollState
     @State private var diagnosticWrittenCount = 0
     @State private var diagnosticStatus = "count=0"
@@ -263,6 +264,7 @@ struct SessionTranscriptView: View {
         self.onCompaction = onCompaction
         self.downloadFile = downloadFile
         self.scrollAnchor = scrollAnchor
+        _renderedQueuedNotes = State(initialValue: queuedNotes)
         _scrollState = State(initialValue: TranscriptScrollState(sessionID: sessionID))
     }
 
@@ -469,7 +471,18 @@ struct SessionTranscriptView: View {
             .onChange(of: displayRows.count) { oldCount, newCount in
                 scrollState.recordEvent(name: "rows", oldValue: Double(oldCount), newValue: Double(newCount))
             }
-            .onChange(of: queuedNotes) { _, _ in
+            .onChange(of: queuedNotes) { _, newNotes in
+                let renderedIDs = Set(renderedQueuedNotes.map(\.id))
+                let hasInsertion = newNotes.contains { !renderedIDs.contains($0.id) }
+                if hasInsertion {
+                    withAnimation(pendingNoteAnimation) {
+                        renderedQueuedNotes = newNotes
+                    }
+                } else {
+                    withTransaction(Transaction(animation: nil)) {
+                        renderedQueuedNotes = newNotes
+                    }
+                }
                 handleQueuedNotesChange(using: proxy)
             }
             .onChange(of: queuedNotes.count) { oldCount, newCount in
@@ -1028,11 +1041,11 @@ struct SessionTranscriptView: View {
     }
 
     private var turnStartingNotes: [QueuedNote] {
-        queuedNotes.filter(\.startsTurn)
+        renderedQueuedNotes.filter(\.startsTurn)
     }
 
     private var afterTurnNotes: [QueuedNote] {
-        queuedNotes.filter { !$0.startsTurn }
+        renderedQueuedNotes.filter { !$0.startsTurn }
     }
 
     @ViewBuilder
@@ -1076,6 +1089,9 @@ struct SessionTranscriptView: View {
         ForEach(startingNotes) { note in
             pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: false)
         }
+        .transaction { transaction in
+            transaction.animation = pendingNoteAnimation
+        }
         .animation(pendingNoteAnimation, value: startingNotes.map(\.id))
 
         if let currentActivityRow {
@@ -1103,6 +1119,9 @@ struct SessionTranscriptView: View {
 
         ForEach(queuedNotes) { note in
             pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: currentActivityRow != nil)
+        }
+        .transaction { transaction in
+            transaction.animation = pendingNoteAnimation
         }
         .animation(pendingNoteAnimation, value: queuedNotes.map(\.id))
 
@@ -1437,7 +1456,7 @@ private struct PendingPromptView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("pending-prompt")
-        .accessibilityLabel("\(note.text), \(text)")
+        .accessibilityLabel(note.text)
         .accessibilityValue(text)
         .accessibilityAddTraits(actionable ? .isButton : [])
         .accessibilityHint(actionable ? "Shows options for this message" : "")
