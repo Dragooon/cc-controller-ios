@@ -426,6 +426,8 @@ reset_flow_state() {
   xcrun simctl keychain "$udid" reset
   xcrun simctl privacy "$udid" reset all com.example.cc-controller
   xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl spawn "$udid" notifyutil -s com.apple.BiometricKit.enrollmentChanged 1
+  xcrun simctl spawn "$udid" notifyutil -p com.apple.BiometricKit.enrollmentChanged
 }
 
 ensure_attachment_media() {

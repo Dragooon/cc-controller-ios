@@ -77,6 +77,10 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
+        addTeardownBlock {
+            try? await postFixtureRoute("/fixture/biometric/enroll")
+        }
+
         do {
             try await setBiometricEnrollment(false)
         } catch {

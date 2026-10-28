@@ -25,6 +25,20 @@ func dismissLeftoverNotificationPrompt() {
     print("Dismissed leftover notification prompt before launch: \(label) (gone: \(dismissed))")
 }
 
+func postFixtureRoute(_ path: String) async throws {
+    let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+    guard let url = URL(string: "\(value)\(path)") else {
+        throw XCTSkip("Fixture control URL was invalid")
+    }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        let body = String(data: data, encoding: .utf8) ?? "no response body"
+        throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(body)"])
+    }
+}
+
 @MainActor
 @discardableResult
 func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> XCUIElement {
@@ -106,17 +120,7 @@ class FixtureFlowTestSupport: XCTestCase {
     }
 
     func postFixture(_ path: String) async throws {
-        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
-        guard let url = URL(string: "\(value)\(path)") else {
-            throw XCTSkip("Fixture control URL was invalid")
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "no response body"
-            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(body)"])
-        }
+        try await postFixtureRoute(path)
     }
 
     func completeFaceID(
