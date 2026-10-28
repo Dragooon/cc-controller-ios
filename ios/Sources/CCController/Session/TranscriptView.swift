@@ -715,8 +715,7 @@ struct SessionTranscriptView: View {
         }
         if isPinnedToBottom,
            !userIsScrolling,
-           oldMetrics.contentHeight != metrics.contentHeight
-               || oldMetrics.containerHeight != metrics.containerHeight {
+           oldMetrics.contentHeight != metrics.contentHeight {
             scrollToNewest(using: proxy)
         }
         evaluateBlankIfNeeded(using: proxy)

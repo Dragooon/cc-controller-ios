@@ -210,7 +210,7 @@ struct BottomStackView: View {
                     )
                 }
 
-                if !composerFocused, configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
+                if configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
                     StatusLineView(
                         segments: configuration.statusSegments,
                         activitySession: configuration.activitySession,
