@@ -691,7 +691,7 @@ cmd_shots() {
   if [[ -n "${CC_MOCK_LANE:-}" ]]; then shot_root="$shot_root/$CC_MOCK_LANE"; fi
   mkdir -p "$shot_root"
   rm -f "$shot_root/index.html" "$shot_root/fixture-daemon.log"
-  for device in "${DEFAULT_DEVICES[@]}" "${devices[@]}"; do
+  for device in "${DEFAULT_DEVICES[@]}" "${devices[@]+"${devices[@]}"}"; do
     rm -rf "$shot_root/$(echo "$device" | tr ' ()' '---')"
   done
   RUN_DIR=$(mktemp -d -t cc-controller-shot-run.XXXXXX)
@@ -706,7 +706,7 @@ cmd_shots() {
   bearer=$(json_value "$FIXTURE_OUT" bearer)
   local index_file="$shot_root/index.html"
   printf '%s\n' '<!doctype html><meta charset="utf-8"><title>cc-controller iOS shots</title><style>body{font:15px system-ui;background:#121110;color:#eee;margin:24px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}figure{margin:0}img{display:block;max-width:100%;border-radius:16px}figcaption{padding-top:8px;color:#bbb}</style><main>' > "$index_file"
-  for device in "${devices[@]}"; do
+  for device in "${devices[@]+"${devices[@]}"}"; do
     local udid result exported output_dir
     udid=$(ensure_pool_device "$device")
     xcrun simctl ui "$udid" appearance light
@@ -829,7 +829,7 @@ run_flow_shard() {
   local index flow_class flow_method
 
   pool_acquire
-  for device in "${devices[@]}"; do
+  for device in "${devices[@]+"${devices[@]}"}"; do
     shard_udids+=("$(ensure_pool_device "$device")")
   done
 
@@ -840,7 +840,7 @@ run_flow_shard() {
     flow_class=${selected_classes[$index]}
     flow_method=${selected_methods[$index]}
     device_index=0
-    for device in "${devices[@]}"; do
+    for device in "${devices[@]+"${devices[@]}"}"; do
       local method_started=$SECONDS
       local device_key result output_dir exported udid method_status=0
       device_key=$(echo "$device" | tr ' ()' '---')
@@ -924,7 +924,7 @@ cmd_flows() {
 
   local selected_classes=() selected_methods=() selected_count=0
   local index filter selector_class selector_method filter_has_method matched
-  for filter in "${test_filters[@]}"; do
+  for filter in "${test_filters[@]+"${test_filters[@]}"}"; do
     selector_class=$filter
     selector_method=""
     filter_has_method=0
@@ -951,7 +951,7 @@ cmd_flows() {
     flow_class=${flow_method_classes[$index]}
     flow_method=${flow_methods[$index]}
     matched=0
-    for filter in "${test_filters[@]}"; do
+    for filter in "${test_filters[@]+"${test_filters[@]}"}"; do
       selector_class=$filter
       selector_method=""
       filter_has_method=0
@@ -1109,7 +1109,7 @@ cmd_flows() {
     flow_class=${selected_classes[$index]}
     flow_method=${selected_methods[$index]}
     idle_original_count=0
-    for device in "${devices[@]}"; do
+    for device in "${devices[@]+"${devices[@]}"}"; do
       local original_device_key=$(echo "$device" | tr ' ()' '---')
       original_log="$flow_root/$original_device_key/$flow_class/$flow_method/xcodebuild.log"
       if [[ -f "$original_log" ]]; then
