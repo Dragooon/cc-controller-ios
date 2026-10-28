@@ -219,6 +219,7 @@ struct SessionTranscriptView: View {
     @State private var userHasScrolled = false
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
+    @State private var jumpToLatestRequest = 0
     @State private var userIsScrolling = false
     @State private var rowsMounted = false
     @State private var transcriptIsVisible = false
@@ -292,6 +293,23 @@ struct SessionTranscriptView: View {
 #if CC_PERF
         let _ = PerfCounters.shared.hit(.transcriptList)
 #endif
+        if collectionEngineEnabled {
+            transcriptCollectionBody
+        } else {
+            legacyTranscriptBody
+        }
+    }
+
+    private var collectionEngineEnabled: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-CCTranscriptEngine"),
+           arguments.dropFirst(index + 1).first == "collection" {
+            return true
+        }
+        return UserDefaults.standard.string(forKey: "cc-controller.transcriptEngine") == "collection"
+    }
+
+    private var legacyTranscriptBody: some View {
         ScrollViewReader { proxy in
             transcriptScrollView(using: proxy)
             .overlay(alignment: .bottomTrailing) {
@@ -370,6 +388,107 @@ struct SessionTranscriptView: View {
             guard abs(height - availableHeight) >= 1 else { return }
             availableHeight = height
         }
+    }
+
+    private var transcriptCollectionBody: some View {
+        TranscriptCollectionRepresentable(
+            sessionID: sessionID,
+            rows: displayRows,
+            queuedNotes: queuedNotes,
+            sessionState: sessionState,
+            subagents: subagents,
+            liveSession: liveSession,
+            hasMoreEarlier: hasMoreEarlier,
+            loadEarlier: loadEarlier,
+            onPagingError: { pagingError = $0 },
+            onRetryNote: onRetryNote,
+            onEditNote: onEditNote,
+            onDeleteNote: onDeleteNote,
+            onCopyNote: onCopyNote,
+            onSendAgain: onSendAgain,
+            onTool: onTool,
+            onSubagent: onSubagent,
+            onSubagentResult: onSubagentResult,
+            onCompaction: onCompaction,
+            downloadFile: downloadFile,
+            readableContentMaxWidth: readableContentMaxWidth,
+            reduceMotion: reduceMotion,
+            onUnbuiltDiagnostic: {
+                diagnosticWrittenCount += 1
+                diagnosticStatus = "count=\(diagnosticWrittenCount) kind=unbuilt recovered=false"
+            },
+            isPinnedToBottom: $isPinnedToBottom,
+            jumpToLatestRequest: $jumpToLatestRequest
+        )
+        .overlay(alignment: .bottomTrailing) {
+            if !isPinnedToBottom, turns.last != nil {
+                Button {
+                    isPinnedToBottom = true
+                    _ = TranscriptLifecycleDiagnostics.shared.ingest(
+                        .pinned(sessionID: sessionID, pinned: true)
+                    )
+                    jumpToLatestRequest += 1
+                } label: {
+                    Image(systemName: "arrow.down")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.ccAccent)
+                        .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                }
+                .buttonStyle(.plain)
+                .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
+                .contentShape(.rect)
+                .accessibilityLabel("Jump to latest")
+                .padding(.trailing, 16)
+                .padding(.bottom, 12)
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .safeAreaBar(edge: .bottom, spacing: 0) {
+            if showsComposer {
+                let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
+                BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
+                    .frame(maxWidth: readableContentMaxWidth)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .alert(
+            "Couldn't load earlier transcript",
+            isPresented: Binding(
+                get: { pagingError != nil },
+                set: { if !$0 { pagingError = nil } }
+            )
+        ) {
+            Button("OK") { pagingError = nil }
+        } message: {
+            Text(pagingError ?? "The earlier transcript could not be loaded.")
+        }
+        #if DEBUG || CC_PERF
+        .overlay(alignment: .topLeading) {
+            Text(TranscriptPerformance.shared.snapshot)
+                .accessibilityIdentifier("transcript-performance")
+                .accessibilityLabel(TranscriptPerformance.shared.snapshot)
+                .font(.caption2)
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+        }
+        #endif
+        #if DEBUG
+        .overlay(alignment: .topTrailing) {
+            Text(diagnosticStatus)
+                .accessibilityIdentifier("scroll-diagnostics-status")
+                .accessibilityLabel(diagnosticStatus)
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+        }
+        #endif
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.height
+        } action: { _, height in
+            guard abs(height - availableHeight) >= 1 else { return }
+            availableHeight = height
+        }
+        .background(.ccBackground)
     }
 
     private func transcriptStack(using proxy: ScrollViewProxy) -> some View {
@@ -1429,7 +1548,7 @@ private struct ScrollGuardDebugOvershootHook: UIViewRepresentable {
 }
 #endif
 
-private struct PendingPromptView: View {
+struct PendingPromptView: View {
     let sessionID: String
     let note: QueuedNote
     let sessionState: SessionState?

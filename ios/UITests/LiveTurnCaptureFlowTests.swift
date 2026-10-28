@@ -137,7 +137,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
     }
 
     private func visibleTranscriptLabels(in app: XCUIApplication) -> [String] {
-        guard app.scrollViews["transcript-scroll"].exists else { return [] }
+        guard transcriptScroll(in: app).exists else { return [] }
         let textLabels: Set<String> = [
             "Find three good seats for Dune Part Three IMAX.",
             "I found a short list of IMAX sessions and left the final choice to you.",

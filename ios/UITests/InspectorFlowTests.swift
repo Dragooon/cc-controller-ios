@@ -18,7 +18,7 @@ final class InspectorFlowTests: XCTestCase {
         openStaffSession(app)
 
         let engineer = app.buttons["subagent-card-agent-done"]
-        let scrollView = app.scrollViews["transcript-scroll"]
+        let scrollView = transcriptScroll(in: app)
         XCTAssertTrue(scrollView.waitForExistence(timeout: 15), "Transcript did not load")
         let bottomStack = app.descendants(matching: .any)["bottom-stack"]
         XCTAssertTrue(bottomStack.waitForExistence(timeout: 15), "Bottom stack did not load")

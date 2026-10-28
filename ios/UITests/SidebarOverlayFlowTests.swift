@@ -101,7 +101,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let edgeStrip = app.descendants(matching: .any).matching(identifier: "sidebar-edge-strip").firstMatch
         XCTAssertTrue(edgeStrip.exists, "Leading edge strip was not present")
 
-        let transcriptScroll = app.scrollViews["transcript-scroll"]
+        let transcriptScroll = transcriptScroll(in: app)
         XCTAssertTrue(transcriptScroll.waitForExistence(timeout: 20), "Transcript scroll view did not load")
         let newestCheckpoint = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newestCheckpoint.waitForExistence(timeout: 20), "Newest long-session checkpoint did not load")
@@ -187,7 +187,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let hiddenExtent = detailExtent(of: detail, in: app)
         addScreenshot(named: "sidebar-landscape-hidden")
 
-        let transcriptScroll = app.scrollViews["transcript-scroll"]
+        let transcriptScroll = transcriptScroll(in: app)
         XCTAssertTrue(transcriptScroll.waitForExistence(timeout: 20), "Transcript scroll view did not load")
         for _ in 0..<3 {
             transcriptScroll.swipeDown()

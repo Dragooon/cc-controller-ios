@@ -119,7 +119,7 @@ final class RealControllerSmokeTests: XCTestCase {
         sessionRow.tap()
         let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
         let titleLoaded = title.waitForExistence(timeout: 10)
-        let scroll = app.scrollViews["transcript-scroll"]
+        let scroll = transcriptScroll(in: app)
         let bottomStack = app.descendants(matching: .any).matching(identifier: "bottom-stack").firstMatch
         let deadline = tapStarted.addingTimeInterval(10)
         var firstRowMilliseconds: Int?
