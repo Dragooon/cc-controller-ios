@@ -46,6 +46,8 @@ public actor EventStream {
 
     private func run() async {
         var attempt = 0
+        var isFirstAttempt = true
+        let startedAt = clock.now
         while !Task.isCancelled {
             if attempt == 0 {
                 statusContinuation.yield(.connecting)
@@ -78,6 +80,10 @@ public actor EventStream {
                 break
             } catch let error as URLError {
                 if isNetworkRelayError(error) { client.connection.invalidate() }
+                if isFirstAttempt {
+                    isFirstAttempt = false
+                    if shouldRetryImmediately(error, startedAt: startedAt) { continue }
+                }
                 statusContinuation.yield(.offline)
                 if Task.isCancelled { break }
                 attempt += 1
@@ -110,6 +116,17 @@ public actor EventStream {
             return
         }
         if event.name != "hook" { unknownContinuation.yield(event.name) }
+    }
+
+    private func shouldRetryImmediately(_ error: URLError, startedAt: Date) -> Bool {
+        switch error.code {
+        case .timedOut, .cannotConnectToHost:
+            return true
+        case .networkConnectionLost, .notConnectedToInternet:
+            return clock.now.timeIntervalSince(startedAt) <= 2
+        default:
+            return false
+        }
     }
 
     private func backoff(attempt: Int) -> Double {

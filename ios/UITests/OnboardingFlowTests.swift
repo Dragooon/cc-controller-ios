@@ -141,8 +141,8 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
 
         app.buttons["Get started"].tap()
         XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Can't reach the Mac yet"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.staticTexts["Check that Termius is forwarding localhost:47832 and the Mac is awake."].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Can't reach the Mac yet"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts["Check that Termius is forwarding localhost:47832 and the Mac is awake."].waitForExistence(timeout: 12))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] '127.0.0.1:1'")).firstMatch.exists)
         XCTAssertFalse(app.buttons["Continue"].isEnabled)
     }

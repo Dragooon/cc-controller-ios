@@ -173,6 +173,8 @@ final class AppModel {
     private var silentReloginInFlight: Set<ControllerID> = []
     private(set) var currentScenePhase: ScenePhase = .background
     private var connectionTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionPathTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionNoticePolicy = ConnectionNoticePolicy()
     private var pairingTask: Task<Void, Never>?
     private var notificationAuthorizationRequested = false
     private var nativeSecretEnrolledForOnboarding = false
@@ -649,12 +651,16 @@ final class AppModel {
 
     func goBackFromConnect() {
         connectionTask?.cancel()
+        connectionPathTask?.cancel()
+        connectionPathTask = nil
         onboarding = OnboardingFlowState()
         connectionMessage = nil
     }
 
     func goBackToConnect() {
         pairingTask?.cancel()
+        connectionPathTask?.cancel()
+        connectionPathTask = nil
         onboarding.restartPairing()
         connectionMessage = nil
         faceIDMessage = nil
@@ -663,22 +669,32 @@ final class AppModel {
 
     func startConnectionCheck() {
         connectionTask?.cancel()
+        connectionPathTask?.cancel()
+        connectionPathTask = nil
         guard onboardingStep == .connect else { return }
+        connectionNoticePolicy.beginGracePeriod()
         onboarding.markConnectionChecking()
+        connectionPathTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for await _ in self.transport.pathChanges {
+                guard self.phase == .onboarding, self.onboardingStep == .connect else { return }
+                self.connectionNoticePolicy.beginGracePeriod()
+            }
+        }
         connectionTask = Task { @MainActor [weak self] in
-            var failedSince: Date?
             while !Task.isCancelled {
                 guard let self, phase == .onboarding, onboardingStep == .connect else { return }
                 do {
                     let probe = try await auth.probeDaemon()
-                    failedSince = nil
+                    connectionNoticePolicy.markSuccess()
                     onboarding.markConnectionConnected(latency: probe.latency)
                     if relayMode { await updateRelayIdentityWarning() }
                 } catch {
-                    let now = Date()
-                    failedSince = failedSince ?? now
-                    if now.timeIntervalSince(failedSince ?? now) >= 3 {
-                        onboarding.markConnectionUnreachable(since: failedSince ?? now)
+                    switch connectionNoticePolicy.failureDecision() {
+                    case .suppress:
+                        onboarding.markConnectionChecking()
+                    case .show:
+                        onboarding.markConnectionUnreachable(since: Date())
                         if relayMode { await refreshRelayDiagnostics() }
                     }
                 }
@@ -1215,6 +1231,8 @@ final class AppModel {
             recordBackground(at: now)
             unlockExpiryTask?.cancel()
             connectionTask?.cancel()
+            connectionPathTask?.cancel()
+            connectionPathTask = nil
             pairingTask?.cancel()
             stores.forEach { $0.suspend() }
         case .active:

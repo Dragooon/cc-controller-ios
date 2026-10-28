@@ -66,6 +66,9 @@ public final class AppStore {
     @ObservationIgnored private var unknownTask: Task<Void, Never>?
     @ObservationIgnored private var authenticationFailureTask: Task<Void, Never>?
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
+    @ObservationIgnored private var pathTask: Task<Void, Never>?
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored private var noticePolicy: ConnectionNoticePolicy
     @ObservationIgnored private var started = false
     @ObservationIgnored private var latestBootstrap: Bootstrap?
     @ObservationIgnored private var serverEntryCounts: [String: Int] = [:]
@@ -147,6 +150,7 @@ public final class AppStore {
         self.uploadTimeout = uploadTimeout
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.authenticationFailureHandler = authenticationFailureHandler
+        self.noticePolicy = ConnectionNoticePolicy(clock: clock)
         self.controllerInfo = controllerInfo ?? ControllerInfo(id: .mac, name: "Mac", kind: .claudeCode, capabilities: ControllerCapability.all)
     }
 
@@ -157,8 +161,18 @@ public final class AppStore {
     public func start() {
         TranscriptLifecycleLog.shared.record(name: "start")
         guard !started else { return }
+        noticeTask?.cancel()
+        noticeTask = nil
+        noticePolicy.beginGracePeriod()
         started = true
         connection = .connecting
+        pathTask = Task { [weak self] in
+            guard let self else { return }
+            for await _ in self.transport.pathChanges {
+                guard self.started else { continue }
+                self.handleNetworkPathChange()
+            }
+        }
         authenticationFailureTask = Task { [weak self] in
             guard let self else { return }
             for await _ in self.client.authenticationFailures {
@@ -184,6 +198,10 @@ public final class AppStore {
         started = false
         lifecycleTask?.cancel()
         lifecycleTask = nil
+        pathTask?.cancel()
+        pathTask = nil
+        noticeTask?.cancel()
+        noticeTask = nil
         eventTask?.cancel()
         statusTask?.cancel()
         unknownTask?.cancel()
@@ -966,7 +984,7 @@ public final class AppStore {
     public func apply(_ event: LiveEvent) {
         switch event {
         case .connected:
-            connection = .live
+            markConnectionLive()
         case .state(let snapshot):
             #if CC_PERF
             PerfCounters.shared.hit(.sseState)
@@ -1245,11 +1263,59 @@ public final class AppStore {
         case .connecting:
             if started { connection = .connecting }
         case .live:
-            connection = .live
-        case .reconnecting(let attempt):
-            connection = .reconnecting(attempt: attempt, since: reconnectSince ?? clock.now)
+            markConnectionLive()
+        case .reconnecting:
+            guard started else { return }
+            applyFailure(error: nil)
         case .offline:
-            if started { connection = .offline(lastUpdated: lastUpdated, error: nil) }
+            guard started else { return }
+            applyFailure(error: nil)
+        }
+    }
+
+    private func markConnectionLive() {
+        noticePolicy.markSuccess()
+        noticeTask?.cancel()
+        noticeTask = nil
+        reconnectSince = nil
+        connection = .live
+    }
+
+    private func handleNetworkPathChange() {
+        noticeTask?.cancel()
+        noticeTask = nil
+        noticePolicy.beginGracePeriod()
+        guard started else { return }
+        if case .live = connection { return }
+        connection = .connecting
+    }
+
+    private func applyFailure(error: String?) {
+        switch noticePolicy.failureDecision() {
+        case .suppress(let until):
+            connection = .connecting
+            scheduleNotice(at: until)
+        case .show:
+            noticeTask?.cancel()
+            noticeTask = nil
+            connection = .offline(lastUpdated: lastUpdated, error: error)
+        }
+    }
+
+    private func scheduleNotice(at date: Date) {
+        noticeTask?.cancel()
+        let delay = max(0, date.timeIntervalSince(clock.now))
+        let nanoseconds = Int64(min(delay, Double(Int64.max) / 1_000_000_000) * 1_000_000_000)
+        noticeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: .nanoseconds(nanoseconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self.noticeTask = nil
+            self.applyFailure(error: nil)
         }
     }
 
@@ -1755,7 +1821,14 @@ public final class AppStore {
             started = false
             return
         }
-        connection = connectionState(for: error)
+        switch connectionState(for: error) {
+        case .offlineUnreadable(let lastUpdated, let message):
+            connection = .offlineUnreadable(lastUpdated: lastUpdated, error: message)
+        case .offline(_, let message):
+            applyFailure(error: message)
+        default:
+            connection = connectionState(for: error)
+        }
         started = false
     }
 
