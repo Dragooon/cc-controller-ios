@@ -170,6 +170,7 @@ struct MainSplitView: View {
             regularSplitContent(
                 width: proxy.size.width,
                 height: proxy.size.height,
+                topInset: proxy.safeAreaInsets.top,
                 sidebarWidth: sidebarWidth,
                 isOverlay: forceOverlay || remainingWidth < 440
             )
@@ -179,7 +180,7 @@ struct MainSplitView: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityIdentifier("regular-layout-metrics")
-                    .accessibilityValue("width=\(proxy.size.width),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode)")
+                    .accessibilityValue("width=\(proxy.size.width),topInset=\(proxy.safeAreaInsets.top),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode)")
             }
 #endif
         }
@@ -190,6 +191,7 @@ struct MainSplitView: View {
     private func regularSplitContent(
         width: CGFloat,
         height: CGFloat,
+        topInset: CGFloat,
         sidebarWidth: CGFloat,
         isOverlay: Bool
     ) -> some View {
@@ -200,7 +202,7 @@ struct MainSplitView: View {
                 regularSidebarScrim
             }
             if regularSidebarProgress > 0 || isClosingSidebar {
-                regularSidebarColumn(sidebarWidth: sidebarWidth, isOverlay: isOverlay)
+                regularSidebarColumn(sidebarWidth: sidebarWidth, topInset: topInset, isOverlay: isOverlay)
             }
             regularSidebarPanCapture(sidebarWidth: sidebarWidth, height: height)
         }
@@ -263,8 +265,9 @@ struct MainSplitView: View {
             .zIndex(0.5)
     }
 
-    private func regularSidebarColumn(sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
+    private func regularSidebarColumn(sidebarWidth: CGFloat, topInset: CGFloat, isOverlay: Bool) -> some View {
         sessionsList(
+            topInset: topInset,
             onToggleSidebar: toggleSidebar,
             closeOnOpen: isOverlay
         )
@@ -451,6 +454,7 @@ struct MainSplitView: View {
     }
 
     private func sessionsList(
+        topInset: CGFloat = 0,
         onToggleSidebar: (() -> Void)? = nil,
         closeOnOpen: Bool = false
     ) -> some View {
@@ -460,6 +464,7 @@ struct MainSplitView: View {
             subtitleOverride: model.selectedSession == nil ? nil : "",
             notice: sessionNotice,
             canCreateSession: !newSessionChoices.isEmpty,
+            regularHeaderTopInset: topInset,
             onToggleSidebar: onToggleSidebar,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()

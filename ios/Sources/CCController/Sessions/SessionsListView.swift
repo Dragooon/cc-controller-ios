@@ -70,6 +70,7 @@ struct SessionsListView: View {
     let subtitleOverride: String?
     let notice: String?
     let canCreateSession: Bool
+    let regularHeaderTopInset: CGFloat
     let onToggleSidebar: (() -> Void)?
     let onSessionsLoaded: () async -> Void
     let onOpen: (ControllerID, Session) -> Void
@@ -104,6 +105,7 @@ struct SessionsListView: View {
         subtitleOverride: String? = nil,
         notice: String? = nil,
         canCreateSession: Bool = true,
+        regularHeaderTopInset: CGFloat = 0,
         onToggleSidebar: (() -> Void)? = nil,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
@@ -128,6 +130,7 @@ struct SessionsListView: View {
         self.subtitleOverride = subtitleOverride
         self.notice = notice
         self.canCreateSession = canCreateSession
+        self.regularHeaderTopInset = regularHeaderTopInset
         self.onToggleSidebar = onToggleSidebar
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
@@ -299,15 +302,17 @@ struct SessionsListView: View {
     var body: some View {
         NavigationStack {
             if horizontalSizeClass == .regular {
-                list
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        regularHeader
-                    }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        bottomInset
-                    }
-                    .toolbar(.hidden, for: .navigationBar)
-                    .refreshable { await onRefresh() }
+                GeometryReader { proxy in
+                    list
+                        .safeAreaInset(edge: .top, spacing: 0) {
+                            regularHeader(topInset: regularHeaderTopInset)
+                        }
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            bottomInset
+                        }
+                        .toolbar(.hidden, for: .navigationBar)
+                        .refreshable { await onRefresh() }
+                }
             } else {
                 list
                     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -352,7 +357,7 @@ struct SessionsListView: View {
         }
     }
 
-    private var regularHeader: some View {
+    private func regularHeader(topInset: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -399,6 +404,7 @@ struct SessionsListView: View {
             .padding(.horizontal, 16)
             regularSearchField
         }
+        .padding(.top, topInset)
         .background(.ccBackground)
     }
 

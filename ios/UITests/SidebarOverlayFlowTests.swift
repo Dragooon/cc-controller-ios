@@ -23,6 +23,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let detail = transcript(in: app)
         XCTAssertTrue(detail.waitForExistence(timeout: 30), "Transcript detail did not load")
         assertDetailIsBesideSidebar(detail: detail, sidebar: sessionsList, in: app)
+        assertHeaderAlignment(in: app)
         addScreenshot(named: "sidebar-landscape-visible")
 
         let otherSession = app.buttons["session-approval-flow-light-mode"]
@@ -254,6 +255,17 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
     private func transcript(in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: "session-detail-frame").firstMatch
+    }
+
+    private func assertHeaderAlignment(in app: XCUIApplication) {
+        let sidebarToggle = app.buttons["sidebar-toggle"]
+        let sessionInfo = app.buttons["session-info"]
+        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), "Sidebar header toggle did not load")
+        XCTAssertTrue(sessionInfo.waitForExistence(timeout: 10), "Session info button did not load")
+        let sidebarCenterY = sidebarToggle.frame.midY
+        let detailCenterY = sessionInfo.frame.midY
+        print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) session-info-center-y=\(detailCenterY) delta=\(abs(sidebarCenterY - detailCenterY))")
+        XCTAssertLessThanOrEqual(abs(sidebarCenterY - detailCenterY), 2, "Sidebar and detail toolbar rows were vertically misaligned")
     }
 
     private func assertDetailIsBesideSidebar(detail: XCUIElement, sidebar: XCUIElement, in app: XCUIApplication) {
