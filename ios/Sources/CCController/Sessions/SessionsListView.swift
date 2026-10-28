@@ -70,6 +70,7 @@ struct SessionsListView: View {
     let subtitleOverride: String?
     let notice: String?
     let canCreateSession: Bool
+    let onToggleSidebar: (() -> Void)?
     let onSessionsLoaded: () async -> Void
     let onOpen: (ControllerID, Session) -> Void
     let onAllow: (ControllerID, Approval) -> Void
@@ -102,6 +103,7 @@ struct SessionsListView: View {
         subtitleOverride: String? = nil,
         notice: String? = nil,
         canCreateSession: Bool = true,
+        onToggleSidebar: (() -> Void)? = nil,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
         onAllow: @escaping (ControllerID, Approval) -> Void = { _, _ in },
@@ -125,6 +127,7 @@ struct SessionsListView: View {
         self.subtitleOverride = subtitleOverride
         self.notice = notice
         self.canCreateSession = canCreateSession
+        self.onToggleSidebar = onToggleSidebar
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
         self.onAllow = onAllow
@@ -254,7 +257,7 @@ struct SessionsListView: View {
     private var bottomInset: some View {
         VStack(spacing: 8) {
             archiveToastOverlay
-            if canCreateSession && (hasAnySessions || isMultiController) {
+            if horizontalSizeClass == .compact && canCreateSession && (hasAnySessions || isMultiController) {
                 newSessionButton
             }
         }
@@ -298,27 +301,78 @@ struct SessionsListView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     bottomInset
                 }
-                .navigationTitle("Sessions")
-                .navigationSubtitle(subtitle ?? "")
+                .navigationTitle(horizontalSizeClass == .regular ? "" : "Sessions")
+                .navigationBarTitleDisplayMode(horizontalSizeClass == .regular ? .inline : .large)
                 .toolbar {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button {
-                            isSearchPresented = true
-                        } label: {
-                            Image(systemName: "magnifyingglass")
+                    if horizontalSizeClass == .regular {
+                        ToolbarItem(placement: .topBarLeading) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("Sessions")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(.ccLabel)
+                                if let subtitle, !subtitle.isEmpty {
+                                    Text(subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.ccSecondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .fixedSize(horizontal: true, vertical: true)
+                            .scaleEffect(0.9, anchor: .leading)
+                            .frame(width: 84, alignment: .leading)
                         }
-                        .accessibilityLabel("Search sessions")
-                        .accessibilityIdentifier("sessions-search")
-                        Button(action: onSettings) {
-                            Image(systemName: "gearshape")
+                        ToolbarItem(placement: .topBarTrailing) {
+                            HStack(spacing: 2) {
+                                if canCreateSession {
+                                    Button(action: onNewSession) {
+                                        Image(systemName: "square.and.pencil")
+                                            .frame(width: 32, height: 32)
+                                    }
+                                    .accessibilityLabel("New session")
+                                    .accessibilityIdentifier("new-session")
+                                }
+                                Button(action: onSettings) {
+                                    Image(systemName: "gearshape")
+                                        .frame(width: 32, height: 32)
+                                }
+                                .accessibilityLabel("Settings")
+                            }
+                            .padding(.horizontal, 4)
+                            .frame(height: 36)
+                            .glassEffect(.regular.interactive(), in: .capsule)
                         }
-                        .accessibilityLabel("Settings")
+                        if let onToggleSidebar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button(action: onToggleSidebar) {
+                                    Image(systemName: "sidebar.left")
+                                        .frame(width: 32, height: 32)
+                                }
+                                .accessibilityLabel("Toggle sidebar")
+                                .accessibilityIdentifier("sidebar-toggle")
+                            }
+                        }
+                    } else {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            Button {
+                                isSearchPresented = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            .accessibilityLabel("Search sessions")
+                            .accessibilityIdentifier("sessions-search")
+                            Button(action: onSettings) {
+                                Image(systemName: "gearshape")
+                            }
+                            .accessibilityLabel("Settings")
+                        }
                     }
                 }
                 .searchable(
                     text: $searchText,
                     isPresented: $isSearchPresented,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
+                    placement: .navigationBarDrawer(
+                        displayMode: horizontalSizeClass == .regular ? .always : .automatic
+                    ),
                     prompt: "Search sessions"
                 )
                 .onChange(of: isSearchPresented) { _, presented in

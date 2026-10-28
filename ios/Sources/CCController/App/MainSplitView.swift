@@ -6,6 +6,7 @@ struct MainSplitView: View {
     @Bindable var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
@@ -157,71 +158,140 @@ struct MainSplitView: View {
 
     private func regularSplitView() -> some View {
         GeometryReader { proxy in
-            let sidebarWidth = min(360, max(280, proxy.size.width * 0.3))
-            let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
-            ZStack(alignment: .leading) {
-                NavigationStack {
-                    detailView(onToggleSidebar: toggleSidebar)
-                }
-                    .frame(width: max(0, proxy.size.width - sidebarWidth * regularSidebarProgress))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .offset(x: sidebarWidth * regularSidebarProgress)
-
-                if regularSidebarProgress > 0 || isClosingSidebar {
-                    sessionsList()
-                        .frame(width: sidebarWidth)
-                        .offset(x: -sidebarWidth * (1 - regularSidebarProgress))
-                        .simultaneousGesture(sidebarDragGesture(sidebarWidth: sidebarWidth), including: .all)
-                        .zIndex(1)
 #if DEBUG
-                        .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
+            let forceOverlay = ProcessInfo.processInfo.arguments.contains("-CCSidebarLayout")
+                && ProcessInfo.processInfo.arguments.contains("overlay")
+#else
+            let forceOverlay = false
 #endif
-                }
-
-                SidebarPanCapture(
-                    sidebarProgress: regularSidebarProgress,
-                    onChanged: { translationX in
-                        sidebarDragChanged(translationX: translationX, sidebarWidth: sidebarWidth)
-                    },
-                    onEnded: { translationX, velocityX in
-                        sidebarDragEnded(
-                            translationX: translationX,
-                            velocityX: velocityX,
-                            sidebarWidth: sidebarWidth
-                        )
-                    }
-                )
-                .frame(
-                    width: regularSidebarProgress > 0 ? 80 : 20,
-                    height: proxy.size.height
-                )
-                .accessibilityIdentifier(
-                    regularSidebarProgress > 0 ? "sidebar-close-strip" : "sidebar-edge-strip"
-                )
-                .zIndex(2)
-            }
-            .overlay {
-                if regularSidebarDragStartProgress != nil {
-                    Color.black
-                        .opacity(0.18 * regularSidebarProgress)
-                        .allowsHitTesting(false)
-                }
-            }
-            .onChange(of: regularSidebarDragActive) { _, isActive in
-                guard !isActive, regularSidebarDragStartProgress != nil else { return }
-                DispatchQueue.main.async {
-                    guard let startProgress = regularSidebarDragStartProgress else { return }
-                    let translationX = (regularSidebarProgress - startProgress) * sidebarWidth
-                    sidebarDragEnded(
-                        translationX: translationX,
-                        velocityX: 0,
-                        sidebarWidth: sidebarWidth
-                    )
-                }
-            }
+            regularSplitContent(
+                width: proxy.size.width,
+                height: proxy.size.height,
+                sidebarWidth: min(360, max(300, proxy.size.width * 0.3)),
+                isOverlay: forceOverlay || proxy.size.width - min(360, max(300, proxy.size.width * 0.3)) < 520
+            )
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+    }
+
+    private func regularSplitContent(
+        width: CGFloat,
+        height: CGFloat,
+        sidebarWidth: CGFloat,
+        isOverlay: Bool
+    ) -> some View {
+        let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
+        return ZStack(alignment: .leading) {
+            regularDetailColumn(width: width, sidebarWidth: sidebarWidth, isOverlay: isOverlay)
+            if isOverlay && (regularSidebarProgress > 0 || isClosingSidebar) {
+                regularSidebarScrim
+            }
+            if regularSidebarProgress > 0 || isClosingSidebar {
+                regularSidebarColumn(sidebarWidth: sidebarWidth, isOverlay: isOverlay)
+            }
+            regularSidebarPanCapture(sidebarWidth: sidebarWidth, height: height)
+        }
+        .overlay {
+            if regularSidebarDragStartProgress != nil {
+                Color.black
+                    .opacity(0.18 * regularSidebarProgress)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onChange(of: regularSidebarDragActive) { _, isActive in
+            guard !isActive, regularSidebarDragStartProgress != nil else { return }
+            DispatchQueue.main.async {
+                guard let startProgress = regularSidebarDragStartProgress else { return }
+                let translationX = (regularSidebarProgress - startProgress) * sidebarWidth
+                sidebarDragEnded(
+                    translationX: translationX,
+                    velocityX: 0,
+                    sidebarWidth: sidebarWidth
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
+        if isOverlay {
+            regularDetailNavigation()
+                .frame(width: width)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        } else {
+            regularDetailNavigation()
+                .frame(width: max(0, width - sidebarWidth * regularSidebarProgress))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .offset(x: sidebarWidth * regularSidebarProgress)
+        }
+    }
+
+    private func regularDetailNavigation() -> some View {
+        NavigationStack {
+            regularDetailContent()
+        }
+    }
+
+    @ViewBuilder
+    private func regularDetailContent() -> some View {
+        if regularSidebarProgress == 0 {
+            detailView(onToggleSidebar: toggleSidebar)
+        } else {
+            detailView(onToggleSidebar: nil)
+        }
+    }
+
+    private var regularSidebarScrim: some View {
+        Color.black
+            .opacity(0.25 * regularSidebarProgress)
+            .contentShape(Rectangle())
+            .onTapGesture { toggleSidebar() }
+            .zIndex(0.5)
+    }
+
+    private func regularSidebarColumn(sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
+        sessionsList(
+            onToggleSidebar: toggleSidebar,
+            closeOnOpen: isOverlay
+        )
+            .frame(width: sidebarWidth)
+            .offset(x: -sidebarWidth * (1 - regularSidebarProgress))
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(.ccSeparator)
+                    .frame(width: 1 / displayScale)
+                    .frame(maxHeight: .infinity)
+            }
+            .simultaneousGesture(sidebarDragGesture(sidebarWidth: sidebarWidth), including: .all)
+            .zIndex(1)
+#if DEBUG
+            .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
+#endif
+    }
+
+    private func regularSidebarPanCapture(sidebarWidth: CGFloat, height: CGFloat) -> some View {
+        SidebarPanCapture(
+            sidebarProgress: regularSidebarProgress,
+            onChanged: { translationX in
+                sidebarDragChanged(translationX: translationX, sidebarWidth: sidebarWidth)
+            },
+            onEnded: { translationX, velocityX in
+                sidebarDragEnded(
+                    translationX: translationX,
+                    velocityX: velocityX,
+                    sidebarWidth: sidebarWidth
+                )
+            }
+        )
+        .frame(
+            width: regularSidebarProgress > 0 ? 80 : 20,
+            height: height
+        )
+        .accessibilityIdentifier(
+            regularSidebarProgress > 0 ? "sidebar-close-strip" : "sidebar-edge-strip"
+        )
+        .zIndex(2)
     }
 
     @ViewBuilder
@@ -367,17 +437,24 @@ struct MainSplitView: View {
         return .interpolatingSpring(mass: 1, stiffness: 250, damping: 28, initialVelocity: initialVelocity)
     }
 
-    private func sessionsList() -> some View {
+    private func sessionsList(
+        onToggleSidebar: (() -> Void)? = nil,
+        closeOnOpen: Bool = false
+    ) -> some View {
         SessionsListView(
             controllers: listControllers,
             waking: wakingSessionIDs,
             subtitleOverride: model.selectedSession == nil ? nil : "",
             notice: sessionNotice,
             canCreateSession: !newSessionChoices.isEmpty,
+            onToggleSidebar: onToggleSidebar,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
             },
-            onOpen: { controllerID, session in openSession(controllerID, session.id) },
+            onOpen: { controllerID, session in
+                openSession(controllerID, session.id)
+                if closeOnOpen { toggleSidebar() }
+            },
             onAllow: { controllerID, approval in
                 performApprovalDecision(approval, controllerID: controllerID, scope: .once)
             },
