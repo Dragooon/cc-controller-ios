@@ -187,8 +187,12 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let hiddenExtent = detailExtent(of: detail, in: app)
         addScreenshot(named: "sidebar-landscape-hidden")
 
-        detail.swipeUp()
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        let transcriptScroll = app.scrollViews["transcript-scroll"]
+        XCTAssertTrue(transcriptScroll.waitForExistence(timeout: 20), "Transcript scroll view did not load")
+        for _ in 0..<3 {
+            transcriptScroll.swipeDown()
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
         let visibleRows = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
         )
@@ -204,6 +208,8 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let sameRow = app.staticTexts[rowLabelBeforeToggle]
         XCTAssertTrue(sameRow.waitForExistence(timeout: 10), "Transcript row disappeared across sidebar toggle")
         XCTAssertTrue(sameRow.isHittable, "Transcript scroll position changed across sidebar toggle")
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertFalse(newest.isHittable, "Sidebar toggle remounted the transcript at the latest row")
     }
 
     func testApprovalsCapsuleFollowsSidebarVisibility() throws {

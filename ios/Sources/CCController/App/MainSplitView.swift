@@ -238,18 +238,12 @@ struct MainSplitView: View {
         }
     }
 
-    @ViewBuilder
     private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
-        if isOverlay {
-            regularDetailNavigation()
-                .frame(width: width)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        } else {
-            regularDetailNavigation()
-                .frame(width: max(0, width - sidebarWidth * regularSidebarProgress))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .offset(x: sidebarWidth * regularSidebarProgress)
-        }
+        let shift = isOverlay ? 0 : sidebarWidth * regularSidebarProgress
+        return regularDetailNavigation()
+            .frame(width: max(0, width - shift))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .offset(x: shift)
     }
 
     private func regularDetailNavigation() -> some View {
