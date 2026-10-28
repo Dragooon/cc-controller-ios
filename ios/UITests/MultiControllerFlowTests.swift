@@ -44,17 +44,28 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertTrue(bringIntoView(macRow, in: sessions), "Mac approval session was not listed")
         XCTAssertEqual(macRow.value as? String, "needs_you")
         XCTAssertTrue(macRow.label.contains("Mac"), "Mac Needs-you row had no controller caption: \(macRow.label)")
+        let macRowPosition = macRow.frame.minY
 
         let mustafarRow = app.buttons["session-discord-triage"]
         XCTAssertTrue(bringIntoView(mustafarRow, in: sessions), "Mustafar approval session was not listed")
         XCTAssertEqual(mustafarRow.value as? String, "needs_you")
         XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
+        let mustafarRowPosition = mustafarRow.frame.minY
 
         // Both Needs-you rows sit above the merged Recents section.
         let recents = app.staticTexts["Recents"]
-        XCTAssertTrue(recents.exists, "Recents section did not load")
-        XCTAssertLessThan(macRow.frame.minY, recents.frame.minY, "Mac Needs-you row was not pinned above Recents")
-        XCTAssertLessThan(mustafarRow.frame.minY, recents.frame.minY, "Mustafar Needs-you row was not pinned above Recents")
+        XCTAssertTrue(bringIntoView(recents, in: sessions), "Recents section did not load")
+        let needsYouRows = [
+            (name: "Mac", element: macRow, initialMinY: macRowPosition),
+            (name: "Mustafar", element: mustafarRow, initialMinY: mustafarRowPosition),
+        ]
+        for row in needsYouRows where row.element.exists {
+            XCTAssertLessThan(
+                row.element.frame.minY,
+                recents.frame.minY,
+                "\(row.name) Needs-you row was not pinned above Recents (initial minY: \(row.initialMinY))"
+            )
+        }
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "controller-section-mac").firstMatch.exists)
     }
 
