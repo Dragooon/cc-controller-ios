@@ -430,6 +430,51 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.sessions["session-1"]?.subagents, [])
     }
 
+    func testArchiveIsOptimisticAndUndoUnarchives() async throws {
+        var archived = false
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/archive") == true {
+                archived = true
+                return URLProtocolStub.json(Data("{\"id\":\"session-1\",\"archivedAt\":\"2026-10-28T10:20:30.000Z\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+
+        guard case .success = await app.archiveSession(id: "session-1", archived: true) else { return XCTFail("Archive failed") }
+        XCTAssertTrue(archived)
+        XCTAssertNotNil(app.sessions["session-1"]?.archivedAt)
+
+        URLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/sessions/session-1/archive")
+            return URLProtocolStub.json(Data("{\"id\":\"session-1\",\"archivedAt\":null}".utf8))
+        }
+        guard case .success = await app.archiveSession(id: "session-1", archived: false) else { return XCTFail("Undo failed") }
+        XCTAssertNil(app.sessions["session-1"]?.archivedAt)
+    }
+
+    func testArchiveFailureRevertsOptimisticState() async {
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(500, body: Data("{\"error\":\"archive failed\"}".utf8)) }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+
+        guard case .failure(.server(status: 500, message: "archive failed")) = await app.archiveSession(id: "session-1", archived: true) else {
+            return XCTFail("Archive failure was not surfaced")
+        }
+        XCTAssertNil(app.sessions["session-1"]?.archivedAt)
+    }
+
+    func testCloseErrorCodesMapToUserActions() async {
+        let app = makeApp()
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(409, body: Data("{\"error\":\"busy\",\"code\":\"busy\"}".utf8)) }
+        guard case .failure(.sessionBusy) = await app.endSession(id: "session-1") else { return XCTFail("Busy close was not mapped") }
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(409, body: Data("{\"error\":\"unsupported\",\"code\":\"close_unsupported\"}".utf8)) }
+        guard case .failure(.closeUnsupported) = await app.endSession(id: "session-1") else { return XCTFail("Unsupported close was not mapped") }
+        XCTAssertEqual(ActionError.sessionBusy.userMessage, "Approve or stop the current request first.")
+        XCTAssertEqual(ActionError.closeUnsupported.userMessage, "This session can't be ended from here.")
+    }
+
     func testApprovalModeUpdatesSessionFromModeRoute() async {
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/sessions/session-1/mode" {

@@ -2,6 +2,70 @@ import XCTest
 
 @MainActor
 final class SessionsListFlowTests: FixtureFlowTestSupport {
+    func testArchiveRecentsSwipeUndoAndUnarchive() async throws {
+        let app = launchSignedIn()
+        defer { app.terminate() }
+
+        let row = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(row.waitForExistence(timeout: 75), "Recents fixture session was not listed")
+        row.swipeLeft()
+        let archive = app.buttons["session-archive-staff-account-exclusions"]
+        XCTAssertTrue(archive.waitForExistence(timeout: 10), "Archive swipe action did not appear")
+        addScreenshot(named: "archive-swipe-actions")
+        archive.tap()
+
+        let undo = app.buttons["archive-undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 10), "Archive undo toast did not appear")
+        addScreenshot(named: "archive-undo-toast")
+        undo.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Undo did not restore the Recents row")
+
+        row.swipeLeft()
+        XCTAssertTrue(archive.waitForExistence(timeout: 10), "Archive action did not reappear")
+        archive.tap()
+        let header = app.buttons["archived-section-header"]
+        XCTAssertTrue(header.waitForExistence(timeout: 10), "Archived section did not appear")
+        header.tap()
+        addScreenshot(named: "archive-expanded")
+        let archivedRow = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(archivedRow.waitForExistence(timeout: 10), "Archived row did not appear")
+        archivedRow.swipeLeft()
+        let unarchive = app.buttons["session-unarchive-staff-account-exclusions"]
+        XCTAssertTrue(unarchive.waitForExistence(timeout: 10), "Archived row did not expose Unarchive")
+        unarchive.tap()
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "Unarchive did not restore the Recents row")
+    }
+
+    func testEndBackgroundFromContextMenuThenArchiveAsleep() async throws {
+        try await postFixture("/fixture/sleeping-seed")
+        let app = launchSignedIn()
+        defer { app.terminate() }
+
+        let sleeping = app.buttons["sleeping-session-sleeping-dune"]
+        XCTAssertTrue(sleeping.waitForExistence(timeout: 75), "Seeded sleeping session was not listed")
+        sleeping.tap()
+        let live = app.buttons["session-sleeping-dune"]
+        XCTAssertTrue(live.waitForExistence(timeout: 20), "Seeded session did not wake into Recents")
+        app.buttons["BackButton"].tap()
+        XCTAssertTrue(live.waitForExistence(timeout: 20), "Woken background session was not listed")
+        live.press(forDuration: 1)
+        let endAction = app.buttons["session-end-sleeping-dune"]
+        XCTAssertTrue(endAction.waitForExistence(timeout: 10), "End session context action did not appear")
+        endAction.tap()
+        XCTAssertTrue(app.staticTexts["End this session?"].waitForExistence(timeout: 10), "End confirmation dialog did not appear")
+        addScreenshot(named: "end-dialog")
+        app.buttons["End session"].tap()
+
+        let asleep = app.buttons["sleeping-session-sleeping-dune"]
+        XCTAssertTrue(asleep.waitForExistence(timeout: 20), "Ended background session did not appear in Asleep")
+        asleep.swipeLeft()
+        let archive = app.buttons["session-archive-sleeping-dune"]
+        XCTAssertTrue(archive.waitForExistence(timeout: 10), "Asleep archive action did not appear")
+        archive.tap()
+        XCTAssertTrue(app.buttons["archive-undo"].waitForExistence(timeout: 10), "Archive of Asleep session did not complete")
+        XCTAssertTrue(asleep.waitForNonExistence(timeout: 10), "Archived Asleep session remained in Asleep")
+    }
+
     func testCompactRowsShowTitleAgentAndStatus() throws {
         let app = launchSignedIn()
         defer { app.terminate() }

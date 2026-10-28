@@ -253,7 +253,16 @@ struct MainSplitView: View {
             onWake: wakeSession,
             onCopyAttachCommand: { sleeping in
                 UIPasteboard.general.string = claudeAttachCommand(shortId: sleeping.shortId)
-            }
+            },
+            onArchive: { controllerID, sessionID, archived in
+                guard let store = model.connection(for: controllerID)?.store else { return .failure(.network("Controller is unavailable.")) }
+                return await store.archiveSession(id: sessionID, archived: archived)
+            },
+            onEnd: { controllerID, sessionID in
+                guard let store = model.connection(for: controllerID)?.store else { return .failure(.network("Controller is unavailable.")) }
+                return await store.endSession(id: sessionID)
+            },
+            onActionError: { model.actionError = $0 }
         )
     }
 
@@ -300,6 +309,7 @@ struct MainSplitView: View {
             return SessionsListController(
                 id: connection.config.id,
                 name: connection.config.displayName,
+                kind: store.controllerInfo.kind,
                 connection: listConnection(for: store),
                 signInNeeded: store.connection == .unauthorized,
                 sessions: store.sortedSessions,

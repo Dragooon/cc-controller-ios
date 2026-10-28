@@ -73,6 +73,14 @@ public actor APIClient {
         try await post("/api/sessions/\(pathComponent(id))/wake", body: EmptyBody())
     }
 
+    public func archiveSession(id: String, archived: Bool) async throws -> ArchivedSession {
+        try await post("/api/sessions/\(pathComponent(id))/archive", body: ArchiveRequest(archived: archived))
+    }
+
+    public func closeSession(id: String) async throws -> ClosedSession {
+        try await post("/api/sessions/\(pathComponent(id))/close", body: EmptyBody())
+    }
+
     public func transcript(sessionID: String, after: Int? = nil, agent: String? = nil) async throws -> [TranscriptEntry] {
         var query: [URLQueryItem] = []
         if let after { query.append(URLQueryItem(name: "after", value: String(after))) }
@@ -351,6 +359,7 @@ private struct TranscriptEntriesResponse: Decodable {
 }
 
 private struct EmptyBody: Encodable { }
+private struct ArchiveRequest: Encodable { let archived: Bool }
 private struct CreateSessionRequest: Encodable {
     let cwd: String
     let name: String?

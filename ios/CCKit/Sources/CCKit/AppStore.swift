@@ -275,6 +275,45 @@ public final class AppStore {
         return await waitForSession(response.id)
     }
 
+    public func archiveSession(id: String, archived: Bool) async -> Result<Void, ActionError> {
+        let previousSessionArchivedAt = sessions[id]?.archivedAt
+        let previousSleepingArchivedAt = sleeping.first(where: { $0.id == id })?.archivedAt
+        let optimisticDate = archived ? clock.now : nil
+        setArchivedAt(optimisticDate, for: id)
+        do {
+            let response = try await client.archiveSession(id: id, archived: archived)
+            setArchivedAt(response.archivedAt, for: id)
+            return .success(())
+        } catch {
+            if sessions[id] != nil { setArchivedAt(previousSessionArchivedAt, for: id) }
+            if sleeping.contains(where: { $0.id == id }) { setArchivedAt(previousSleepingArchivedAt, for: id) }
+            return .failure(actionError(for: error))
+        }
+    }
+
+    public func endSession(id: String) async -> Result<Void, ActionError> {
+        do {
+            _ = try await client.closeSession(id: id)
+            _ = await refreshStateAndOpenTranscripts()
+            return .success(())
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
+    private func setArchivedAt(_ archivedAt: Date?, for id: String) {
+        if var session = sessions[id] {
+            session.archivedAt = archivedAt
+            sessions[id] = session
+            updateOpenStores(for: session)
+        }
+        if let index = sleeping.firstIndex(where: { $0.id == id }) {
+            sleeping[index].archivedAt = archivedAt
+        }
+        lastUpdated = clock.now
+        scheduleCacheWrite()
+    }
+
     public func closeSubagent(sessionID: String, agentID: String) {
         closeStore(forKey: "\(sessionID)|\(agentID)")
     }
@@ -1107,6 +1146,8 @@ public final class AppStore {
             case .stale: return .alreadyAnswered
             case .staleResponse(let status, let message, let code):
                 if code == "answer_in_terminal" { return .answerInTerminal }
+                if code == "busy" { return .sessionBusy }
+                if code == "close_unsupported" { return .closeUnsupported }
                 if code == "terminal_no_pane" { return .waitingInTerminal }
                 if code == "already_answered" || status == 410 { return .alreadyAnswered }
                 if code == "no_pane" { return .noPane }
@@ -1116,6 +1157,8 @@ public final class AppStore {
                 return urlError.code == .timedOut ? .timeout : .network(urlError.localizedDescription)
             case .http(let status, let message, let code):
                 if code == "answers_required" { return .answersRequired }
+                if code == "busy" { return .sessionBusy }
+                if code == "close_unsupported" { return .closeUnsupported }
                 if code == "answers_invalid" { return .answersInvalid }
                 if code == "answers_keys" { return .answersKeys }
                 if code == "answer_empty" { return .answerEmpty }

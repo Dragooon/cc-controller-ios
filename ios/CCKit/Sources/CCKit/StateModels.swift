@@ -41,6 +41,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     case mode
     case files
     case commands
+    case archive
+    case close
     /// Stockade only: /sudo toggles sudo mode on a writable session.
     case sudo
     /// Lists and revokes owner-approved cross-controller conversations.
@@ -61,6 +63,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case "mode": self = .mode
         case "files": self = .files
         case "commands": self = .commands
+        case "archive": self = .archive
+        case "close": self = .close
         case "sudo": self = .sudo
         case "peer_conversations": self = .peerConversations
         default: self = .unknown(rawValue)
@@ -90,6 +94,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case .mode: "mode"
         case .files: "files"
         case .commands: "commands"
+        case .archive: "archive"
+        case .close: "close"
         case .sudo: "sudo"
         case .peerConversations: "peer_conversations"
         case .unknown(let value): value
@@ -97,7 +103,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     }
 
     public static let all: Set<Self> = [
-        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands, .peerConversations,
+        .list, .transcript, .send, .decide, .questions, .interrupt, .newSession, .wake, .keys, .mode, .files, .commands, .archive, .close, .peerConversations,
     ]
 }
 
@@ -261,6 +267,26 @@ public struct WokenSession: Codable, Sendable, Equatable {
     public init(id: String) { self.id = id }
 }
 
+public struct ArchivedSession: Codable, Sendable, Equatable {
+    public var id: String
+    public var archivedAt: Date?
+
+    public init(id: String, archivedAt: Date? = nil) {
+        self.id = id
+        self.archivedAt = archivedAt
+    }
+}
+
+public struct ClosedSession: Codable, Sendable, Equatable {
+    public var id: String
+    public var closed: Bool
+
+    public init(id: String, closed: Bool = false) {
+        self.id = id
+        self.closed = closed
+    }
+}
+
 public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var shortId: String
@@ -268,9 +294,10 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
     public var cwd: String
     public var project: String
     public var lastActiveAt: Date
+    public var archivedAt: Date?
 
-    public init(id: String, shortId: String, name: String? = nil, cwd: String, project: String, lastActiveAt: Date) {
-        self.id = id; self.shortId = shortId; self.name = name; self.cwd = cwd; self.project = project; self.lastActiveAt = lastActiveAt
+    public init(id: String, shortId: String, name: String? = nil, cwd: String, project: String, lastActiveAt: Date, archivedAt: Date? = nil) {
+        self.id = id; self.shortId = shortId; self.name = name; self.cwd = cwd; self.project = project; self.lastActiveAt = lastActiveAt; self.archivedAt = archivedAt
     }
 }
 
@@ -400,6 +427,8 @@ public struct Session: Codable, Sendable, Equatable {
     public var startedAt: Date?
     public var idleSince: Date?
     public var background: BackgroundSession?
+    public var archivedAt: Date?
+    public var closable: Bool
     /// Stockade (D3b): where the session started: discord, app, peer or terminal.
     public var origin: String?
     public var startedBy: SessionStarter?
@@ -410,7 +439,53 @@ public struct Session: Codable, Sendable, Equatable {
     public var readOnlyReason: String?
     public var sudo: Bool?
     public var agent: SessionAgent?
-    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastUserMessageAt, lastUserMessageAtExact, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
+    }
+
+    public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, archivedAt: Date? = nil, closable: Bool = false, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.archivedAt = archivedAt; self.closable = closable; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decodeIfPresent(String.self, forKey: .id),
+            pid: try container.decodeIfPresent(Int.self, forKey: .pid),
+            name: try container.decodeIfPresent(String.self, forKey: .name),
+            cwd: try container.decodeIfPresent(String.self, forKey: .cwd),
+            project: try container.decodeIfPresent(String.self, forKey: .project),
+            tmuxPane: try container.decodeIfPresent(String.self, forKey: .tmuxPane),
+            tmux: try container.decodeIfPresent(Bool.self, forKey: .tmux),
+            location: try container.decodeIfPresent(String.self, forKey: .location),
+            live: try container.decodeIfPresent(Bool.self, forKey: .live),
+            state: try container.decodeIfPresent(SessionState.self, forKey: .state),
+            action: try container.decodeIfPresent(String.self, forKey: .action),
+            lastTool: try container.decodeIfPresent(String.self, forKey: .lastTool),
+            lastToolInput: try container.decodeIfPresent(JSONValue.self, forKey: .lastToolInput),
+            toolRunning: try container.decodeIfPresent(Bool.self, forKey: .toolRunning),
+            lastText: try container.decodeIfPresent(String.self, forKey: .lastText),
+            pending: try container.decodeIfPresent([Approval].self, forKey: .pending),
+            usage: try container.decodeIfPresent(Usage.self, forKey: .usage),
+            subagents: try container.decodeIfPresent([Subagent].self, forKey: .subagents),
+            shells: try container.decodeIfPresent([Shell].self, forKey: .shells),
+            mode: try container.decodeIfPresent(ApprovalMode.self, forKey: .mode),
+            commandRoute: try container.decodeIfPresent(String.self, forKey: .commandRoute),
+            lastUserMessageAt: try container.decodeIfPresent(Date.self, forKey: .lastUserMessageAt),
+            lastUserMessageAtExact: try container.decodeIfPresent(Bool.self, forKey: .lastUserMessageAtExact),
+            startedAt: try container.decodeIfPresent(Date.self, forKey: .startedAt),
+            idleSince: try container.decodeIfPresent(Date.self, forKey: .idleSince),
+            background: try container.decodeIfPresent(BackgroundSession.self, forKey: .background),
+            archivedAt: try container.decodeIfPresent(Date.self, forKey: .archivedAt),
+            closable: try container.decodeIfPresent(Bool.self, forKey: .closable) ?? false,
+            origin: try container.decodeIfPresent(String.self, forKey: .origin),
+            startedBy: try container.decodeIfPresent(SessionStarter.self, forKey: .startedBy),
+            participants: try container.decodeIfPresent([SessionParticipant].self, forKey: .participants),
+            writable: try container.decodeIfPresent(Bool.self, forKey: .writable),
+            readOnlyReason: try container.decodeIfPresent(String.self, forKey: .readOnlyReason),
+            sudo: try container.decodeIfPresent(Bool.self, forKey: .sudo),
+            agent: try container.decodeIfPresent(SessionAgent.self, forKey: .agent)
+        )
+    }
 }
 
 /// Whether `left` should appear before `right` in the Recents list.

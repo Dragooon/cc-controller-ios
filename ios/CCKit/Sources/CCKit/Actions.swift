@@ -16,6 +16,8 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
     case answerTooLong
     case waitingInTerminal
     case noPane
+    case sessionBusy
+    case closeUnsupported
     case commandsUnavailable(String)
     /// Stockade refused a write to a read-only session. Carries the server's sentence, such as "Answer in Discord."
     case readOnly(String)
@@ -38,6 +40,8 @@ public enum ActionError: Error, Sendable, Equatable, LocalizedError {
         case .answerTooLong: "Answers must be 2,000 characters or fewer."
         case .waitingInTerminal: "This approval is waiting in the terminal and cannot be answered here."
         case .noPane: "This session has no tmux pane for that action."
+        case .sessionBusy: "Approve or stop the current request first."
+        case .closeUnsupported: "This session can't be ended from here."
         case .commandsUnavailable(let message): message
         case .readOnly(let message): message
         case .invalid(let message): message

@@ -159,6 +159,21 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(state.sleeping?.first?.shortId, "sleep-123")
     }
 
+    func testSessionArchiveAndCloseFieldsDecodeWithLegacyDefaults() throws {
+        let current = try JSONDecoder.ccKit().decode(Session.self, from: Data("{\"id\":\"live\",\"archivedAt\":\"2026-10-28T10:20:30.000Z\",\"closable\":true}".utf8))
+        XCTAssertEqual(current.archivedAt, Date(timeIntervalSince1970: 1793182830))
+        XCTAssertTrue(current.closable)
+
+        let legacy = try JSONDecoder.ccKit().decode(Session.self, from: Data("{\"id\":\"legacy\"}".utf8))
+        XCTAssertNil(legacy.archivedAt)
+        XCTAssertFalse(legacy.closable)
+
+        let sleeping = try JSONDecoder.ccKit().decode(SleepingSession.self, from: Data("{\"id\":\"sleep\",\"shortId\":\"sleep\",\"cwd\":\"/tmp/project\",\"project\":\"project\",\"lastActiveAt\":\"2026-10-28T10:20:30.000Z\",\"archivedAt\":\"2026-10-28T10:20:30.000Z\"}".utf8))
+        XCTAssertNotNil(sleeping.archivedAt)
+        let legacySleeping = try JSONDecoder.ccKit().decode(SleepingSession.self, from: Data("{\"id\":\"sleep\",\"shortId\":\"sleep\",\"cwd\":\"/tmp/project\",\"project\":\"project\",\"lastActiveAt\":\"2026-10-28T10:20:30.000Z\"}".utf8))
+        XCTAssertNil(legacySleeping.archivedAt)
+    }
+
     func testCreateAndWakeSessionRoutes() async throws {
         var paths: [String] = []
         StubURLProtocol.handler = { request in
@@ -174,6 +189,27 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(created.id, "session-new")
         XCTAssertEqual(woken.id, "session-new")
         XCTAssertEqual(paths, ["/api/sessions", "/api/sessions/sleep-123/wake"])
+    }
+
+    func testArchiveAndCloseSessionRoutes() async throws {
+        var paths: [String] = []
+        var archiveBody: [String: Any]?
+        StubURLProtocol.handler = { request in
+            paths.append("\(request.httpMethod ?? "") \(request.url?.path ?? "")")
+            if request.url?.path.hasSuffix("/archive") == true {
+                archiveBody = try? JSONSerialization.jsonObject(with: APIClientTests.bodyData(for: request) ?? Data()) as? [String: Any]
+                return StubURLProtocol.response(status: 200, body: Data("{\"id\":\"session-1\",\"archivedAt\":\"2026-10-28T10:20:30.000Z\"}".utf8))
+            }
+            return StubURLProtocol.response(status: 200, body: Data("{\"id\":\"session-1\",\"closed\":true}".utf8))
+        }
+        let client = makeClient()
+        let archived = try await client.archiveSession(id: "session-1", archived: true)
+        let closed = try await client.closeSession(id: "session-1")
+        XCTAssertEqual(archived.id, "session-1")
+        XCTAssertEqual(archived.archivedAt, Date(timeIntervalSince1970: 1793182830))
+        XCTAssertEqual(closed, ClosedSession(id: "session-1", closed: true))
+        XCTAssertEqual(archiveBody?["archived"] as? Bool, true)
+        XCTAssertEqual(paths, ["POST /api/sessions/session-1/archive", "POST /api/sessions/session-1/close"])
     }
 
     func testCreateAgentSessionPostsAgentAndPrompt() async throws {
