@@ -326,9 +326,10 @@ struct SessionScreen: View {
         pendingTurnStart: Date?
     ) -> CCKit.ActivityFooter? {
         guard session.state == .working || session.state == .needsYou || pendingTurnStart != nil else { return nil }
+        let turnStart = pendingTurnStart ?? session.startedAt
         return activityFooterText(
             session,
-            verb: "Thinking",
+            verb: spinnerVerb(sessionID: sessionID, turnStart: turnStart),
             startedAt: pendingTurnStart,
             pendingTurnStart: pendingTurnStart
         )

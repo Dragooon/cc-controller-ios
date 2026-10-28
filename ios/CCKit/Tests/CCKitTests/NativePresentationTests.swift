@@ -2,6 +2,30 @@ import XCTest
 @testable import CCKit
 
 final class NativePresentationTests: XCTestCase {
+    func testSpinnerVerbIsStableForTheSameTurn() {
+        let turnStart = Date(timeIntervalSince1970: 1_735_000_000.123)
+
+        XCTAssertEqual(
+            spinnerVerb(sessionID: "session-1", turnStart: turnStart),
+            spinnerVerb(sessionID: "session-1", turnStart: turnStart)
+        )
+    }
+
+    func testSpinnerVerbVariesAcrossTurnStarts() {
+        let verbs = Set((0..<200).map { offset in
+            spinnerVerb(
+                sessionID: "session-1",
+                turnStart: Date(timeIntervalSince1970: Double(offset))
+            )
+        })
+
+        XCTAssertGreaterThanOrEqual(verbs.count, 50)
+    }
+
+    func testSpinnerVerbWithNilInputsIsKnown() {
+        XCTAssertTrue(spinnerVerbs.contains(spinnerVerb(sessionID: nil, turnStart: nil)))
+    }
+
     func testLatencyTextRoundsToWholeMillisecondsWithMinimum() {
         XCTAssertEqual(latencyText(.microseconds(200)), "1 ms")
         XCTAssertEqual(latencyText(.milliseconds(18) + .microseconds(400)), "18 ms")

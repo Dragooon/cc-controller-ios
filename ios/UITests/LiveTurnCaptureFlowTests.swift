@@ -37,7 +37,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
         let initialRows = visibleTranscriptLabels(in: app)
         XCTAssertTrue(initialRows.contains(prompt), "User message did not appear before the transcript prompt")
-        XCTAssertTrue(initialRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row did not appear immediately after send")
+        XCTAssertTrue(initialRows.contains { isActivityLabel($0) }, "Activity row did not appear immediately after send")
         XCTAssertFalse(initialRows.contains { $0.contains("↓") }, "Activity row showed output tokens before the live turn had assistant usage")
         let pendingPrompt = app.descendants(matching: .any)
             .matching(identifier: "pending-prompt-bubble")
@@ -101,7 +101,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         try await waitUntil(turnStart, hasElapsed: 13.3)
         XCTAssertFalse(app.buttons["composer-stop"].exists, "Stop button remained after Stop hook")
         let stoppedRows = visibleTranscriptLabels(in: app)
-        XCTAssertFalse(stoppedRows.contains { $0.hasPrefix("Thinking") || $0.hasPrefix("Waiting for you") }, "Activity row remained after turn stopped")
+        XCTAssertFalse(stoppedRows.contains { isActivityLabel($0) }, "Activity row remained after turn stopped")
         let finalPromptMatches = app.staticTexts.matching(NSPredicate(format: "label == %@", prompt))
         XCTAssertEqual(finalPromptMatches.count, 1, "The sent prompt appeared more than once in the final transcript")
         assertRowsAppearInOrder(
@@ -130,7 +130,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         add(screenshot)
 
         let rows = visibleTranscriptLabels(in: app)
-        let footer = rows.first { ($0.contains("Thinking") || $0.contains("Waiting for you")) && !$0.hasPrefix("✻ Worked for") } ?? "absent"
+        let footer = rows.first { isActivityLabel($0) && !$0.hasPrefix("✻ Worked for") } ?? "absent"
         let line = "CAPTURE \(scheme)-\(letter)-\(moment) elapsed=\(String(format: "%.3f", elapsed)) rows=[\(rows.joined(separator: " | "))] footer=\(footer)"
         observations.append(line)
         print(line)
@@ -159,7 +159,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             let label = toolMatches.element(boundBy: index).label
             if !label.isEmpty, !labels.contains(label) { labels.append(label) }
         }
-        let activityMatches = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Thinking' OR label BEGINSWITH[c] 'Waiting for you'"))
+        let activityMatches = app.descendants(matching: .any).matching(activityLabelPredicate)
         for index in 0..<activityMatches.count {
             let label = activityMatches.element(boundBy: index).label
             if !label.isEmpty, !labels.contains(label) { labels.append(label) }
@@ -167,6 +167,16 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         let worked = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] '✻ Worked for'")).firstMatch
         if worked.exists, !labels.contains(worked.label) { labels.append(worked.label) }
         return labels
+    }
+
+    private let activityLabelPattern = #"^(?:Waiting for you(?:…)?|\p{Lu}[\p{L}'’-]*…)(?:, .*)?$"#
+
+    private func isActivityLabel(_ label: String) -> Bool {
+        label.range(of: activityLabelPattern, options: .regularExpression) != nil
+    }
+
+    private var activityLabelPredicate: NSPredicate {
+        NSPredicate(format: "label MATCHES %@", activityLabelPattern)
     }
 
     private func assertRowsAppearInOrder(_ expected: [String], in app: XCUIApplication) {

@@ -544,6 +544,18 @@ public func chooseSpinnerVerb(random: Double = Double.random(in: 0..<1)) -> Stri
     return spinnerVerbs[Int(clamped)]
 }
 
+public func spinnerVerb(sessionID: String?, turnStart: Date?) -> String {
+    guard !spinnerVerbs.isEmpty else { return "Working" }
+    let milliseconds = turnStart.map { Int64(($0.timeIntervalSince1970 * 1000).rounded()) } ?? 0
+    let input = "\(sessionID ?? "")|\(milliseconds)"
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in input.utf8 {
+        hash ^= UInt64(byte)
+        hash &*= 1_099_511_628_211
+    }
+    return spinnerVerbs[Int(hash % UInt64(spinnerVerbs.count))]
+}
+
 public func turnOutputTokens(_ entries: [TranscriptEntry]) -> Int? {
     var total = 0
     var found = false

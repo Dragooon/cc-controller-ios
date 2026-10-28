@@ -6,6 +6,7 @@ struct WorkingBarView: View {
     let verb: String
     let frozenNow: Date?
     let onTap: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         session: Session,
@@ -42,6 +43,8 @@ struct WorkingBarView: View {
                         .font(.footnote)
                     Text(primaryText)
                         .font(.footnote.weight(toolIsRunning ? .regular : .semibold))
+                        .contentTransition(.opacity)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: primaryText)
                         .foregroundStyle(.ccLabel)
                         .lineLimit(1)
                         .truncationMode(.tail)

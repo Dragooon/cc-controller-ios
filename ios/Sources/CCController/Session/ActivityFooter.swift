@@ -32,6 +32,8 @@ struct LiveActivityFooterView: View {
             Text(current.primary)
                 .font(.subheadline)
                 .foregroundStyle(current.isWaiting ? .ccAmber : .ccAccent)
+                .contentTransition(.opacity)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: current.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
@@ -53,7 +55,8 @@ struct LiveActivityFooterView: View {
 
     private func currentFooter(now: Date) -> CCKit.ActivityFooter {
         guard let session else { return footer }
-        let verb = footer.primary.components(separatedBy: "…").first ?? "Thinking"
+        let verb = footer.primary.components(separatedBy: "…").first
+            ?? spinnerVerb(sessionID: session.id, turnStart: footer.startedAt)
         let current = activityFooterText(session, now: now, verb: verb, startedAt: footer.startedAt)
         guard let outputTokens = footer.outputTokens, !current.isWaiting, !current.detail.contains("↓") else { return current }
         let detail = current.detail.isEmpty ? "" : "\(current.detail) · ↓ \(formatTokenCount(outputTokens))"
