@@ -187,6 +187,7 @@ struct SessionTranscriptView: View {
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
     let scrollAnchor: UnitPoint
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
     @State private var pagingRowIsVisible = false
@@ -1075,6 +1076,7 @@ struct SessionTranscriptView: View {
         ForEach(startingNotes) { note in
             pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: false)
         }
+        .animation(pendingNoteAnimation, value: startingNotes.map(\.id))
 
         if let currentActivityRow {
             TranscriptRowView(
@@ -1102,6 +1104,7 @@ struct SessionTranscriptView: View {
         ForEach(queuedNotes) { note in
             pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: currentActivityRow != nil)
         }
+        .animation(pendingNoteAnimation, value: queuedNotes.map(\.id))
 
         Color.clear
             .frame(height: 1)
@@ -1184,6 +1187,18 @@ struct SessionTranscriptView: View {
         .onDisappear {
             builtRowDidDisappear(id: note.id)
         }
+        .transition(.asymmetric(insertion: pendingNoteInsertionTransition, removal: .identity))
+    }
+
+    private var pendingNoteInsertionTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .offset(y: 24)
+            .combined(with: .scale(scale: 0.92, anchor: .bottomTrailing))
+            .combined(with: .opacity)
+    }
+
+    private var pendingNoteAnimation: Animation? {
+        reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 1, blendDuration: 0)
     }
 
     private func rowUsesLiveSession(_ row: TranscriptRow) -> Bool {
@@ -1401,22 +1416,19 @@ private struct PendingPromptView: View {
                 attachmentThumbnails: note.attachmentThumbnails,
                 bubbleAccessibilityIdentifier: "pending-prompt-bubble"
             )
-            .opacity(isFailed ? 1 : 0.55)
 
-            HStack(spacing: 4) {
-                if note.state == .sending {
-                    ProgressView()
-                        .controlSize(.mini)
+            if isFailed || needsAttention {
+                HStack(spacing: 4) {
+                    if isFailed {
+                        Image(systemName: "exclamationmark.circle")
+                    }
+                    Text(text)
                 }
-                if isFailed {
-                    Image(systemName: "exclamationmark.circle")
-                }
-                Text(text)
+                .font(.caption)
+                .foregroundStyle(statusColor(needsAttention: needsAttention))
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("pending-prompt-status")
             }
-            .font(.caption)
-            .foregroundStyle(statusColor(needsAttention: needsAttention))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("pending-prompt-status")
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .gesture(
@@ -1426,6 +1438,7 @@ private struct PendingPromptView: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("pending-prompt")
         .accessibilityLabel("\(note.text), \(text)")
+        .accessibilityValue(text)
         .accessibilityAddTraits(actionable ? .isButton : [])
         .accessibilityHint(actionable ? "Shows options for this message" : "")
         .accessibilityAction { presentConfirmationIfNeeded(actionable: actionable) }

@@ -164,7 +164,12 @@ final class ComposerFlowTests: XCTestCase {
             waitForNoButtons(["Dismiss", "Retry", "Copy"], in: app, timeout: 2),
             "Sending bubble exposed an action menu"
         )
+        attach(named: "optimistic-sending-before-delivery")
         XCTAssertTrue(waitForPendingStatus("Sent", message: marker, in: app, timeout: 15), "Held send did not reconcile to Sent")
+        XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Held send did not reconcile into the transcript")
+        let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
+        XCTAssertTrue(delivered.waitForExistence(timeout: 10), "Held send delivered marker did not render")
+        attach(named: "optimistic-sending-after-delivery")
     }
 
     func testFailedSendRetryShowsSentState() async throws {
@@ -340,7 +345,7 @@ final class ComposerFlowTests: XCTestCase {
         let send = app.buttons["composer-queue"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Queue button did not load while working")
         send.tap()
-        XCTAssertTrue(app.staticTexts["Queued"].waitForExistence(timeout: 10), "Queued caption did not render")
+        XCTAssertTrue(waitForPendingStatus("Queued", message: marker, in: app, timeout: 10), "Queued caption did not render")
 
         try await Task.sleep(for: .milliseconds(100))
         let earlyComposerHeight = composer.frame.height
@@ -353,7 +358,8 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(settledComposerHeight - unfocusedComposerHeight), 2, "Composer glass did not settle: unfocused \(unfocusedComposerHeight), at 1.5s \(settledComposerHeight)")
 
         XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
-        XCTAssertTrue(waitForNonExistence(of: app.staticTexts["Queued"], timeout: 10), "Queued caption did not clear after tail delivery")
+        let queuedStatus = pendingPrompt(in: app, status: "Queued", message: marker)
+        XCTAssertTrue(waitForNonExistence(of: queuedStatus, timeout: 10), "Queued caption did not clear after tail delivery")
         let resetField = composerField(in: app)
         XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not remain visible after queue")
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after queue")
@@ -624,18 +630,31 @@ final class ComposerFlowTests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
     }
 
-    private func waitForPendingStatus(_ text: String, message: String? = nil, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        var predicates = [NSPredicate(format: "label CONTAINS %@", text)]
+    private func pendingPrompt(in app: XCUIApplication, status: String? = nil, message: String? = nil) -> XCUIElement {
+        var predicates: [NSPredicate] = []
+        if let status {
+            predicates.append(NSPredicate(format: "value == %@", status))
+        }
         if let message {
             predicates.append(NSPredicate(format: "label BEGINSWITH %@", message))
         }
-        let pending = app.descendants(matching: .any)
-            .matching(identifier: "pending-prompt")
+        let prompts = app.descendants(matching: .any).matching(identifier: "pending-prompt")
+        guard !predicates.isEmpty else { return prompts.firstMatch }
+        return prompts
             .matching(NSCompoundPredicate(andPredicateWithSubpredicates: predicates))
             .firstMatch
+    }
+
+    private func waitForPendingStatus(_ text: String, message: String? = nil, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let pending = pendingPrompt(in: app, status: text, message: message)
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if pending.exists { return true }
+            if pending.exists, pending.value as? String == text {
+                for legacyStatus in ["Queued", "Sending…", "Sent"] {
+                    XCTAssertFalse(app.staticTexts[legacyStatus].exists, "Legacy pending status label \(legacyStatus) was visible")
+                }
+                return true
+            }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         return false
