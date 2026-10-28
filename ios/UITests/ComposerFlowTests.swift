@@ -33,9 +33,7 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not load")
         sessionsBackButton.tap()
-        let clearSearchField = app.searchFields.firstMatch
-        if !clearSearchField.exists { app.buttons["Search"].tap() }
-        XCTAssertTrue(clearSearchField.waitForExistence(timeout: 15), "Session search field did not return")
+        let clearSearchField = openSessionSearch(in: app)
         clearSearchField.tap()
         if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
         clearSearchField.typeText("Dune Part Three")
@@ -76,11 +74,7 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not return after sending")
         sessionsBackButton.tap()
-        let resultSearchButton = app.buttons["Search"]
-        XCTAssertTrue(resultSearchButton.waitForExistence(timeout: 15), "Session search did not return after sending")
-        resultSearchButton.tap()
-        let resultSearch = app.searchFields.firstMatch
-        XCTAssertTrue(resultSearch.waitForExistence(timeout: 15), "Session search field did not return after sending")
+        let resultSearch = openSessionSearch(in: app)
         resultSearch.tap()
         if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
         resultSearch.typeText("Long session")
@@ -615,11 +609,7 @@ final class ComposerFlowTests: XCTestCase {
 
     private func openSession(id: String, in app: XCUIApplication) {
         if id == "session-long-session" || id == "session-dune-part-three-imax-tickets" {
-            let searchButton = app.buttons["Search"]
-            XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search did not load")
-            searchButton.tap()
-            let search = app.searchFields.firstMatch
-            XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search field did not load")
+            let search = openSessionSearch(in: app)
             search.tap()
             if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
             search.typeText(id == "session-long-session" ? "Long session" : "Dune Part Three")

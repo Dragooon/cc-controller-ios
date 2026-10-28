@@ -26,6 +26,19 @@ func dismissLeftoverNotificationPrompt() {
 }
 
 @MainActor
+@discardableResult
+func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> XCUIElement {
+    let search = app.searchFields.firstMatch
+    if !search.exists {
+        let button = app.buttons["sessions-search"]
+        XCTAssertTrue(button.waitForExistence(timeout: timeout), "Session search button did not load")
+        button.tap()
+    }
+    XCTAssertTrue(search.waitForExistence(timeout: timeout), "Session search field did not load")
+    return search
+}
+
+@MainActor
 class FixtureFlowTestSupport: XCTestCase {
     private var auditLines: [String] = []
 

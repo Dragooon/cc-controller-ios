@@ -19,11 +19,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
         try await postFixture("/fixture/disable-live-event")
         try await postFixtureJSON("/fixture/message-behaviour", body: ["promptDelayMs": 2_000])
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search field did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Dune Part Three")
         let session = app.buttons["session-dune-part-three-imax-tickets"]
         XCTAssertTrue(session.waitForExistence(timeout: 30), "Dune session row did not load")

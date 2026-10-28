@@ -256,7 +256,7 @@ final class RealControllerSmokeTests: XCTestCase {
         }
         let navigationBar = app.navigationBars.firstMatch
         let visibleTop = max(list.frame.minY, navigationBar.exists ? navigationBar.frame.maxY : list.frame.minY)
-        let searchButton = app.buttons["Search"]
+        let searchButton = app.buttons["sessions-search"]
         let searchFrame = searchButton.frame
         let hasSearchButton = searchButton.exists && !searchFrame.isEmpty
         let bottomControlsTop = hasSearchButton ? searchFrame.minY : app.windows.firstMatch.frame.maxY - 120

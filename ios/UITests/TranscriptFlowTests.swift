@@ -151,12 +151,7 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "opening-performance")
             app.terminate()
         }
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
@@ -192,11 +187,7 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "opening-bottom-after-reconnect")
             app.terminate()
         }
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
@@ -223,11 +214,7 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "send-bottom-after-reconnect")
             app.terminate()
         }
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
@@ -254,11 +241,7 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "registry-blip-middle")
             app.terminate()
         }
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
@@ -290,12 +273,7 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "paging")
             app.terminate()
         }
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
@@ -370,12 +348,7 @@ final class TranscriptFlowTests: XCTestCase {
             audit(app: app, name: "small-scroll-up")
             app.terminate()
         }
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
@@ -652,11 +625,7 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     private func findLongSession(in app: XCUIApplication) -> XCUIElement {
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search button did not load")
-        searchButton.tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search did not load")
+        let search = openSessionSearch(in: app)
         search.typeText("Long session")
         return app.buttons["session-long-session"]
     }

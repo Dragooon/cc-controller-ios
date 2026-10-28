@@ -360,11 +360,7 @@ final class AttachmentFlowTests: XCTestCase {
     }
 
     private func openLongSession(in app: XCUIApplication) {
-        let searchButton = app.buttons["Search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Session search did not load")
-        searchButton.tap()
-        let search = app.searchFields.firstMatch
-        XCTAssertTrue(search.waitForExistence(timeout: 15), "Session search field did not load")
+        let search = openSessionSearch(in: app)
         search.tap()
         search.typeText("Long session")
         let row = app.buttons["session-long-session"]
