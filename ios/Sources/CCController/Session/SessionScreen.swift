@@ -79,6 +79,7 @@ struct SessionScreen: View {
     @State private var commandToastTask: Task<Void, Never>?
     @State private var lifecycleScreenInstanceID = UUID()
     @State private var sendRevealCoordinator = SendRevealCoordinator()
+    @State private var sendAcceptedRevision = 0
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
@@ -198,6 +199,7 @@ struct SessionScreen: View {
                         ),
                         queuedNotes: store.queuedNotes(for: sessionID),
                         sendRevealCoordinator: sendRevealCoordinator,
+                        sendAcceptedRevision: sendAcceptedRevision,
                         activityFooter: activityFooter(
                             for: currentSession,
                             pendingTurnStart: pendingTurnStart
@@ -464,8 +466,13 @@ struct SessionScreen: View {
     @MainActor
     private func enqueue(text: String, to sessionID: String, now: Bool, using model: AppModel) async -> Result<QueuedNote, ActionError> {
         let result = await store.enqueueMessage(text: text, to: sessionID, now: now)
-        if case .failure(let error) = result, shouldPresentSendError(error) {
-            model.actionError = error
+        switch result {
+        case .success:
+            sendAcceptedRevision += 1
+        case .failure(let error):
+            if shouldPresentSendError(error) {
+                model.actionError = error
+            }
         }
         return result
     }
@@ -476,6 +483,7 @@ struct SessionScreen: View {
         let result = await store.sendComposer(text: text, to: sessionID, now: now)
         switch result {
         case .success(let message):
+            sendAcceptedRevision += 1
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if isSlashCommand(trimmed) {
                 dismissKeyboard()

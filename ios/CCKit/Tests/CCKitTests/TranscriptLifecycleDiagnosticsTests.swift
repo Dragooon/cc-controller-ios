@@ -67,6 +67,79 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
         XCTAssertEqual(engine.ingest(.sentinelCheck(sessionID: session)), [])
     }
 
+    func testSentinelCorrectionIsEligibleAfterResume() {
+        let clock = TestClock()
+        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
+        let session = "session-resume"
+        makeSentinelEligible(&engine, session: session)
+
+        clock.now = date(0.3)
+        let result = engine.ingestWithCorrections(.sentinelCheck(sessionID: session))
+        XCTAssertEqual(result.triggers, [.sentinelUnbuilt(sessionID: session)])
+        XCTAssertEqual(result.corrections, [.sentinelUnbuilt(sessionID: session)])
+    }
+
+    func testSentinelCorrectionIsEligibleAfterSend() {
+        let clock = TestClock()
+        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
+        let session = "session-send"
+        makeSentinelEligible(&engine, session: session)
+
+        clock.now = date(0.3)
+        let result = engine.ingestWithCorrections(.sentinelCheck(sessionID: session))
+        XCTAssertEqual(result.corrections, [.sentinelUnbuilt(sessionID: session)])
+    }
+
+    func testSentinelCorrectionIsNotRateLimitedWithDiagnosticTrigger() {
+        let clock = TestClock()
+        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
+        let session = "session-throttle"
+        makeSentinelEligible(&engine, session: session)
+
+        clock.now = date(0.3)
+        XCTAssertEqual(engine.ingestWithCorrections(.sentinelCheck(sessionID: session)).triggers.count, 1)
+        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: true))
+        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: false))
+        clock.now = date(1)
+        let result = engine.ingestWithCorrections(.sentinelCheck(sessionID: session))
+        XCTAssertEqual(result.triggers, [])
+        XCTAssertEqual(result.corrections, [.sentinelUnbuilt(sessionID: session)])
+    }
+
+    func testCorrectedDiagnosticFieldsRemainHonest() {
+        let entry = ScrollDiagnosticEntry(
+            timestamp: "1970-01-01T00:00:00.000Z",
+            appVersion: "1.0",
+            build: "1",
+            sessionIDPrefix: "session-",
+            kind: .sentinelUnbuilt,
+            geometry: ScrollDiagnosticGeometry(
+                ScrollGuardGeometry(
+                    contentOffsetY: 100,
+                    contentHeight: 500,
+                    containerHeight: 678,
+                    insetTop: 0,
+                    insetBottom: 0,
+                    visibleMinY: 100,
+                    visibleMaxY: 778
+                )
+            ),
+            rowsCount: 20,
+            notesCount: 0,
+            isPinnedToBottom: true,
+            userHasScrolled: false,
+            recentEvents: [ScrollDiagnosticEvent(name: "rebuild", newValue: 1)],
+            corrections: 1,
+            recovered: true,
+            msToRecover: 500
+        )
+
+        XCTAssertEqual(entry.kind, .sentinelUnbuilt)
+        XCTAssertEqual(entry.corrections, 1)
+        XCTAssertTrue(entry.recovered)
+        XCTAssertEqual(entry.msToRecover, 500)
+    }
+
     func testTriggerThrottleIsPerKindForTenSeconds() {
         let clock = TestClock()
         var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
@@ -138,6 +211,16 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
         let json = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
         print("SAMPLE_RECORD \(json)")
         XCTAssertTrue(json.contains("\"kind\":\"remount\""))
+    }
+
+    private func makeSentinelEligible(
+        _ engine: inout TranscriptLifecycleTriggerEngine,
+        session: String
+    ) {
+        _ = engine.ingest(.rowsMounted(sessionID: session, mounted: true))
+        _ = engine.ingest(.pinned(sessionID: session, pinned: true))
+        _ = engine.ingest(.scrollIdle(sessionID: session, idle: true))
+        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: false))
     }
 
     private func date(_ offset: TimeInterval) -> Date {

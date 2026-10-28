@@ -170,6 +170,7 @@ struct SessionTranscriptView: View {
     let bottomStackConfiguration: BottomStackConfiguration?
     let queuedNotes: [QueuedNote]
     let sendRevealCoordinator: SendRevealCoordinator?
+    let sendAcceptedRevision: Int
     let activityFooter: CCKit.ActivityFooter?
     let liveSession: Session?
     let sessionState: SessionState?
@@ -188,6 +189,7 @@ struct SessionTranscriptView: View {
     let scrollAnchor: UnitPoint
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isLoadingEarlier = false
     @State private var didTriggerPaging = false
     @State private var pagingRowIsVisible = false
@@ -220,6 +222,7 @@ struct SessionTranscriptView: View {
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         queuedNotes: [QueuedNote] = [],
         sendRevealCoordinator: SendRevealCoordinator? = nil,
+        sendAcceptedRevision: Int = 0,
         activityFooter: CCKit.ActivityFooter? = nil,
         liveSession: Session? = nil,
         sessionState: SessionState? = nil,
@@ -246,6 +249,7 @@ struct SessionTranscriptView: View {
         self.bottomStackConfiguration = bottomStackConfiguration
         self.queuedNotes = queuedNotes
         self.sendRevealCoordinator = sendRevealCoordinator
+        self.sendAcceptedRevision = sendAcceptedRevision
         self.activityFooter = activityFooter
         self.liveSession = liveSession
         self.sessionState = sessionState ?? liveSession?.state
@@ -348,7 +352,7 @@ struct SessionTranscriptView: View {
     private func transcriptStack(using proxy: ScrollViewProxy) -> some View {
         LazyVStack(alignment: .leading, spacing: 20) {
             pagingRow
-            transcriptRows
+            transcriptRows(using: proxy)
         }
         .id(stackGeneration)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -487,6 +491,13 @@ struct SessionTranscriptView: View {
             }
             .onChange(of: queuedNotes.count) { oldCount, newCount in
                 scrollState.recordEvent(name: "notes", oldValue: Double(oldCount), newValue: Double(newCount))
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                scheduleSentinelCheck(using: proxy)
+            }
+            .onChange(of: sendAcceptedRevision) { _, _ in
+                scheduleSentinelCheck(using: proxy)
             }
 #if DEBUG
         let withKeyboard = withRows
@@ -923,7 +934,7 @@ struct SessionTranscriptView: View {
         }
         occurrence.corrections += 1
         scrollState.blankOccurrence = occurrence
-        if kind == .unbuilt {
+        if kind == .unbuilt || kind == .sentinelUnbuilt {
             withTransaction(Transaction(animation: nil)) {
                 stackGeneration += 1
             }
@@ -1049,7 +1060,7 @@ struct SessionTranscriptView: View {
     }
 
     @ViewBuilder
-    private var transcriptRows: some View {
+    private func transcriptRows(using proxy: ScrollViewProxy) -> some View {
         let currentRows = transcriptContentRows
         let currentActivityRow = activityRow
         let startingNotes = turnStartingNotes
@@ -1125,7 +1136,7 @@ struct SessionTranscriptView: View {
                 sentinelDidAppear()
             }
             .onDisappear {
-                sentinelDidDisappear()
+                sentinelDidDisappear(using: proxy)
             }
             .accessibilityHidden(true)
             #if DEBUG
@@ -1144,10 +1155,14 @@ struct SessionTranscriptView: View {
         )
     }
 
-    private func sentinelDidDisappear() {
+    private func sentinelDidDisappear(using proxy: ScrollViewProxy) {
         _ = TranscriptLifecycleDiagnostics.shared.ingest(
             .sentinelBuilt(sessionID: sessionID, built: false)
         )
+        scheduleSentinelCheck(using: proxy)
+    }
+
+    private func scheduleSentinelCheck(using proxy: ScrollViewProxy?) {
         scrollState.cancelSentinelCheck()
         scrollState.sentinelCheckTask = Task { @MainActor in
             do {
@@ -1156,11 +1171,13 @@ struct SessionTranscriptView: View {
                 return
             }
             guard !Task.isCancelled, transcriptIsVisible else { return }
-            let triggers = TranscriptLifecycleDiagnostics.shared.ingest(
+            let evaluation = TranscriptLifecycleDiagnostics.shared.ingestWithCorrections(
                 .sentinelCheck(sessionID: sessionID)
             )
+            let correctionTriggers = evaluation.corrections
+            let diagnosticTriggers = evaluation.triggers.filter { !correctionTriggers.contains($0) }
             writeLifecycleTriggers(
-                triggers,
+                diagnosticTriggers,
                 sessionID: sessionID,
                 recorder: scrollState.recorder,
                 geometry: scrollState.lastScrollGeometry,
@@ -1169,6 +1186,11 @@ struct SessionTranscriptView: View {
                 isPinnedToBottom: isPinnedToBottom,
                 userHasScrolled: userHasScrolled
             )
+            if let proxy,
+               evaluation.corrections.contains(where: { $0.kind == .sentinelUnbuilt }),
+               let geometry = scrollState.lastScrollGeometry {
+                startCorrection(for: .sentinelUnbuilt, geometry: geometry, using: proxy)
+            }
             scrollState.sentinelCheckTask = nil
         }
     }

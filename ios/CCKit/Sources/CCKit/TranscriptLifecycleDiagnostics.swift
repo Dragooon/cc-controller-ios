@@ -115,6 +115,19 @@ public enum TranscriptLifecycleTriggerInput: Sendable {
     case sentinelCheck(sessionID: String)
 }
 
+public struct TranscriptLifecycleIngestResult: Equatable, Sendable {
+    public let triggers: [TranscriptLifecycleTrigger]
+    public let corrections: [TranscriptLifecycleTrigger]
+
+    public init(
+        triggers: [TranscriptLifecycleTrigger],
+        corrections: [TranscriptLifecycleTrigger]
+    ) {
+        self.triggers = triggers
+        self.corrections = corrections
+    }
+}
+
 /// Pure trigger state machine. The caller supplies time so lifecycle behavior is deterministic in tests.
 public struct TranscriptLifecycleTriggerEngine {
     public typealias Clock = @Sendable () -> Date
@@ -133,12 +146,19 @@ public struct TranscriptLifecycleTriggerEngine {
     private var screenBranches: [String: TranscriptScreenBranch] = [:]
     private var sentinels: [String: SentinelState] = [:]
     private var lastTriggerAt: [ScrollBlankKind: Date] = [:]
+    private var pendingCorrections: [TranscriptLifecycleTrigger] = []
 
     public init(clock: @escaping Clock = { Date() }) {
         self.clock = clock
     }
 
+    public mutating func ingestWithCorrections(_ input: TranscriptLifecycleTriggerInput) -> TranscriptLifecycleIngestResult {
+        let triggers = ingest(input)
+        return TranscriptLifecycleIngestResult(triggers: triggers, corrections: pendingCorrections)
+    }
+
     public mutating func ingest(_ input: TranscriptLifecycleTriggerInput) -> [TranscriptLifecycleTrigger] {
+        pendingCorrections = []
         let now = clock()
         switch input {
         case .transcriptDisappear(let sessionID):
@@ -198,7 +218,9 @@ public struct TranscriptLifecycleTriggerEngine {
             }
             state.emitted = true
             sentinels[sessionID] = state
-            return emit(.sentinelUnbuilt(sessionID: sessionID), at: now)
+            let trigger = TranscriptLifecycleTrigger.sentinelUnbuilt(sessionID: sessionID)
+            pendingCorrections = [trigger]
+            return emit(trigger, at: now)
         }
     }
 
@@ -231,6 +253,10 @@ public final class TranscriptLifecycleDiagnostics {
 
     public func ingest(_ input: TranscriptLifecycleTriggerInput) -> [TranscriptLifecycleTrigger] {
         engine.ingest(input)
+    }
+
+    public func ingestWithCorrections(_ input: TranscriptLifecycleTriggerInput) -> TranscriptLifecycleIngestResult {
+        engine.ingestWithCorrections(input)
     }
 
     public func reset() {
