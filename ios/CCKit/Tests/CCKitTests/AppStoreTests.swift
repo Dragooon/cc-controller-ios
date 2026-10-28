@@ -186,15 +186,16 @@ final class AppStoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(stateRequests, 3)
     }
 
-    func testWakeFlowMovesSessionIntoLiveState() async throws {
+    func testWakeFlowReturnsAfterWakeRouteWithoutPolling() async throws {
         var wakeCalled = false
+        var stateRequests = 0
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/sessions/sleep-1/wake" {
                 wakeCalled = true
                 return URLProtocolStub.json(Data("{\"id\":\"sleep-1\"}".utf8))
             }
             if request.url?.path == "/api/state" {
-                return URLProtocolStub.json(Data("{\"sessions\":[{\"id\":\"sleep-1\",\"live\":true,\"state\":\"idle\"}],\"sleeping\":[]}".utf8))
+                stateRequests += 1
             }
             return URLProtocolStub.json(Data("{}".utf8))
         }
@@ -202,7 +203,42 @@ final class AppStoreTests: XCTestCase {
         let appeared = try await app.wakeSession(id: "sleep-1")
         XCTAssertTrue(appeared)
         XCTAssertTrue(wakeCalled)
+        XCTAssertEqual(stateRequests, 0)
+
+        app.apply(.state(StateSnapshot(sessions: [Session(id: "sleep-1", live: true, state: .idle)], entries: [:], sleeping: [])))
         XCTAssertNotNil(app.sessions["sleep-1"])
+    }
+
+    func testWakeFailureKeepsSleepingTranscriptReadable() async throws {
+        let sleeping = SleepingSession(
+            id: "sleep-1",
+            shortId: "sleep",
+            name: "Sleeping",
+            cwd: "/tmp/sleeping",
+            project: "sleeping",
+            lastActiveAt: Date()
+        )
+        let transcript = Self.entriesJSON([Self.entry(id: "sleeping-entry")])
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/sessions/sleep-1/transcript" {
+                return URLProtocolStub.json(transcript)
+            }
+            if request.url?.path == "/api/sessions/sleep-1/wake" {
+                return URLProtocolStub.json(502, body: Data("{\"error\":\"wake failed\"}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [], sleeping: [sleeping])))
+        let store = try XCTUnwrap(app.openSession("sleep-1"))
+        try await waitUntil { store.isLoaded }
+
+        do {
+            _ = try await app.wakeSession(id: "sleep-1")
+            XCTFail("Wake unexpectedly succeeded")
+        } catch {
+            XCTAssertEqual(store.entries.map(\.id), ["sleeping-entry"])
+        }
     }
 
     func testStateEventAppliesSnapshot() {

@@ -18,7 +18,7 @@ struct MainSplitView: View {
     @State private var newSessionPrompt = ""
     /// Keys from `sleepingSessionKey(controllerID:sessionID:)`.
     @State private var wakingSessionIDs: Set<String> = []
-    @State private var wakeError: String?
+    @State private var wakeFailures: [String: String] = [:]
     @State private var sessionNotice: String?
 
     init(model: AppModel) {
@@ -60,19 +60,6 @@ struct MainSplitView: View {
         }
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
-        .alert(
-            "Couldn't wake session",
-            isPresented: Binding(
-                get: { wakeError != nil },
-                set: { isPresented in
-                    if !isPresented { wakeError = nil }
-                }
-            )
-        ) {
-            Button("OK") { wakeError = nil }
-        } message: {
-            Text(wakeError ?? "The session could not be woken.")
-        }
         .alert(
             "Mac identity changed",
             isPresented: $model.isRelayWarningPresented
@@ -269,6 +256,15 @@ struct MainSplitView: View {
                 store: selectedConnection.store,
                 model: model,
                 approvalsElsewhereCount: approvalsElsewhereCount,
+                isWaking: wakingSessionIDs.contains(sleepingSessionKey(controllerID: selectedSession.controllerID, sessionID: selectedSession.sessionID))
+                    && selectedConnection.store.sessions[selectedSession.sessionID]?.live != true,
+                wakeError: selectedConnection.store.sessions[selectedSession.sessionID]?.live == true
+                    ? nil
+                    : wakeFailures[sleepingSessionKey(controllerID: selectedSession.controllerID, sessionID: selectedSession.sessionID)],
+                onRetryWake: {
+                    guard let sleeping = selectedConnection.store.sleeping.first(where: { $0.id == selectedSession.sessionID }) else { return }
+                    wakeSession(selectedSession.controllerID, sleeping)
+                },
                 onShowApprovalsElsewhere: {
                     if horizontalSizeClass == .regular {
                         showSidebar()
@@ -514,17 +510,33 @@ struct MainSplitView: View {
         guard let store = model.connection(for: controllerID)?.store else { return }
         let key = sleepingSessionKey(controllerID: controllerID, sessionID: sleeping.id)
         guard wakingSessionIDs.insert(key).inserted else { return }
-        Task { @MainActor in
-            defer { wakingSessionIDs.remove(key) }
+        wakeFailures.removeValue(forKey: key)
+        openSession(controllerID, sleeping.id)
+
+        let timeoutTask = Task { @MainActor in
             do {
-                let appeared = try await store.wakeSession(id: sleeping.id)
-                guard appeared else {
-                    wakeError = "The session did not appear after waking."
-                    return
-                }
-                openSession(controllerID, sleeping.id)
+                try await Task.sleep(for: .seconds(10))
             } catch {
-                wakeError = (error as? APIError)?.daemonMessage ?? error.localizedDescription
+                return
+            }
+            guard store.sessions[sleeping.id]?.live != true else {
+                wakingSessionIDs.remove(key)
+                return
+            }
+            wakingSessionIDs.remove(key)
+            wakeFailures[key] = "The session did not appear after waking."
+        }
+        Task { @MainActor in
+            do {
+                _ = try await store.wakeSession(id: sleeping.id)
+                guard store.sessions[sleeping.id]?.live == true else { return }
+                timeoutTask.cancel()
+                wakingSessionIDs.remove(key)
+                wakeFailures.removeValue(forKey: key)
+            } catch {
+                timeoutTask.cancel()
+                wakingSessionIDs.remove(key)
+                wakeFailures[key] = (error as? APIError)?.daemonMessage ?? error.localizedDescription
             }
         }
     }

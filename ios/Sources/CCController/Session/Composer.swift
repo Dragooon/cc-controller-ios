@@ -27,6 +27,7 @@ struct ComposerConfiguration: Equatable {
     let modelName: String?
     let placeholder: String
     let isWorking: Bool
+    let canSend: Bool
     let canInterrupt: Bool
     /// False when the owning controller does not advertise `files`.
     let canAttach: Bool
@@ -40,6 +41,7 @@ struct ComposerConfiguration: Equatable {
         lhs.modelName == rhs.modelName
             && lhs.placeholder == rhs.placeholder
             && lhs.isWorking == rhs.isWorking
+            && lhs.canSend == rhs.canSend
             && lhs.canInterrupt == rhs.canInterrupt
             && lhs.canAttach == rhs.canAttach
             && lhs.canRunCommands == rhs.canRunCommands
@@ -53,6 +55,7 @@ struct ComposerConfiguration: Equatable {
         modelName: String? = "Fable 5.1",
         placeholder: String = "Message",
         isWorking: Bool = false,
+        canSend: Bool = true,
         canInterrupt: Bool = false,
         canAttach: Bool = true,
         canRunCommands: Bool = true,
@@ -65,6 +68,7 @@ struct ComposerConfiguration: Equatable {
         self.modelName = modelName
         self.placeholder = placeholder
         self.isWorking = isWorking
+        self.canSend = canSend
         self.canInterrupt = canInterrupt
         self.canAttach = canAttach
         self.canRunCommands = canRunCommands
@@ -318,7 +322,7 @@ struct ComposerView: View, Equatable {
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
         .contentShape(Rectangle())
-        .disabled(configuration.isSending || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !configuration.hasAttachments))
+        .disabled(!configuration.canSend || configuration.isSending || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !configuration.hasAttachments))
         .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")
         .accessibilityIdentifier(configuration.isWorking ? "composer-queue" : "composer-send")
 

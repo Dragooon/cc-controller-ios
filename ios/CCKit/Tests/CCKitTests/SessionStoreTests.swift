@@ -23,6 +23,67 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.turns.flatMap(\.items).count, 1)
     }
 
+    func testTranscriptOnlyStoreLoadsSleepingTranscript() async throws {
+        let client = makeClient()
+        let sleepingEntries = entries(from: 1, through: 2)
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: sleepingEntries, total: 2, hasMore: false),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "sleeping-1", live: false, state: .idle),
+            client: client,
+            transcriptOnly: true
+        )
+
+        try await store.loadInitial()
+
+        XCTAssertEqual(store.entries.map(\.id), ["entry-1", "entry-2"])
+        XCTAssertTrue(store.isLoaded)
+    }
+
+    func testTranscriptOnlyStoreContinuesLiveWithoutDuplicatingEntryIDs() async throws {
+        let client = makeClient()
+        let sleepingEntries = entries(from: 1, through: 2)
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: sleepingEntries, total: 2, hasMore: false),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "sleeping-1", live: false, state: .idle),
+            client: client,
+            transcriptOnly: true
+        )
+        try await store.loadInitial()
+        store.updateSession(Session(id: "sleeping-1", live: true, state: .idle))
+
+        store.merge(entries(from: 2, through: 3), appendNewEntries: true)
+
+        XCTAssertEqual(store.entries.map(\.id), ["entry-1", "entry-2", "entry-3"])
+        XCTAssertEqual(Set(store.entries.compactMap(\.id)).count, 3)
+    }
+
+    func testTranscriptOnlyStoreKeepsEntriesWhenWakeFails() async throws {
+        let client = makeClient()
+        let sleepingEntries = entries(from: 1, through: 2)
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: sleepingEntries, total: 2, hasMore: false),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "sleeping-1", live: false, state: .idle),
+            client: client,
+            transcriptOnly: true
+        )
+        try await store.loadInitial()
+
+        XCTAssertEqual(store.entries.map(\.id), ["entry-1", "entry-2"])
+        XCTAssertFalse(store.session.live == true)
+    }
+
     func testLoadInitialMergesOverlappingPageAndKeepsCachedEntries() async throws {
         let cached = entries(from: 0, through: 1)
         let fresh = entries(from: 1, through: 2)

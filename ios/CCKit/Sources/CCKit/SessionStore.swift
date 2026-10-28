@@ -17,6 +17,7 @@ public final class SessionStore {
     @ObservationIgnored private let onTranscriptChange: (([TranscriptEntry]) -> Void)?
     @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private let initialTranscriptTail: Int
+    @ObservationIgnored private var transcriptOnly: Bool
     @ObservationIgnored private var loadingEarlier = false
     @ObservationIgnored private var inFlightTranscriptFetch: TranscriptFetch?
     @ObservationIgnored private var pendingRefetch: PendingRefetch?
@@ -48,7 +49,8 @@ public final class SessionStore {
         agentID: String? = nil,
         entries: [TranscriptEntry] = [],
         onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
-        initialTranscriptTail: Int = 100
+        initialTranscriptTail: Int = 100,
+        transcriptOnly: Bool = false
     ) {
         self.init(
             session: session,
@@ -57,6 +59,7 @@ public final class SessionStore {
             entries: entries,
             onTranscriptChange: onTranscriptChange,
             initialTranscriptTail: initialTranscriptTail,
+            transcriptOnly: transcriptOnly,
             clock: Date.init
         )
     }
@@ -68,6 +71,7 @@ public final class SessionStore {
         entries: [TranscriptEntry] = [],
         onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
         initialTranscriptTail: Int = 100,
+        transcriptOnly: Bool = false,
         clock: @escaping () -> Date
     ) {
         self.session = session
@@ -77,6 +81,7 @@ public final class SessionStore {
         self.onTranscriptChange = onTranscriptChange
         self.clock = clock
         self.initialTranscriptTail = max(1, initialTranscriptTail)
+        self.transcriptOnly = transcriptOnly
         self.transcriptStore = TranscriptStore(entries: entries)
         self.totalEntries = entries.count
         self.hasLoaded = !entries.isEmpty
@@ -86,6 +91,7 @@ public final class SessionStore {
     public func updateSession(_ session: Session) {
         let wasWorking = self.session.state == .working
         self.session = session
+        if session.live == true { transcriptOnly = false }
         if wasWorking != (session.state == .working) { refreshTurns(forceFull: true) }
     }
 
@@ -328,7 +334,7 @@ public final class SessionStore {
 
     public var isLoaded: Bool { hasLoaded }
 
-    private var canFetch: Bool { session.live == true && !sessionID.isEmpty }
+    private var canFetch: Bool { !sessionID.isEmpty && (session.live == true || transcriptOnly) }
 
     private func notify(_ change: TranscriptChangeSet) {
         onTranscriptChange?(change.changed)

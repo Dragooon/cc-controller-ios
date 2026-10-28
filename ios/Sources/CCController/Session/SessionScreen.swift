@@ -30,6 +30,9 @@ struct SessionScreen: View {
     let store: AppStore
     @Bindable var model: AppModel
     let approvalsElsewhereCount: Int
+    let isWaking: Bool
+    let wakeError: String?
+    let onRetryWake: () -> Void
     let onShowApprovalsElsewhere: () -> Void
     let onToggleSidebar: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -39,6 +42,9 @@ struct SessionScreen: View {
         store: AppStore,
         model: AppModel,
         approvalsElsewhereCount: Int = 0,
+        isWaking: Bool = false,
+        wakeError: String? = nil,
+        onRetryWake: @escaping () -> Void = {},
         onShowApprovalsElsewhere: @escaping () -> Void = {},
         onToggleSidebar: (() -> Void)? = nil
     ) {
@@ -46,6 +52,9 @@ struct SessionScreen: View {
         self.store = store
         self.model = model
         self.approvalsElsewhereCount = approvalsElsewhereCount
+        self.isWaking = isWaking
+        self.wakeError = wakeError
+        self.onRetryWake = onRetryWake
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
         self.onToggleSidebar = onToggleSidebar
     }
@@ -368,6 +377,7 @@ struct SessionScreen: View {
                 modelName: composerModelName(modelName),
                 placeholder: current.state == .working ? "Queue for after this turn…" : "Message",
                 isWorking: current.state == .working,
+                canSend: current.live == true,
                 canInterrupt: store.supports(.interrupt)
                     && (current.tmuxPane?.isEmpty == false || current.commandRoute == "mod"),
                 canAttach: composerCapabilities.canAttach,
@@ -375,6 +385,9 @@ struct SessionScreen: View {
             ),
             statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
+            waking: isWaking,
+            wakeError: wakeError,
+            onRetryWake: onRetryWake,
             onActivity: { activityPresented = true },
             slashCommands: slashCommands(commands, for: current),
             attachments: (store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
@@ -630,7 +643,7 @@ struct SessionScreen: View {
     private var sessionLoadKey: SessionLoadKey {
         SessionLoadKey(
             sessionID: sessionID,
-            hasSession: store.sessions[sessionID] != nil,
+            hasSession: store.sessions[sessionID] != nil || store.sleeping.contains(where: { $0.id == sessionID }),
             isLive: store.sessions[sessionID]?.live == true
         )
     }

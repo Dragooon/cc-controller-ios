@@ -172,6 +172,40 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertEqual(title.label, "Sleeping Dune")
     }
 
+    func testAsleepRowShowsHistoryWhileWakeIsHeld() async throws {
+        let app = launch()
+        try await postFixture("/fixture/sleeping-seed")
+        try await setWakeBehaviour(delayMs: 3_000)
+        revealAsleep(in: app)
+        let row = app.buttons["sleeping-session-sleeping-dune"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30), "Sleeping session row did not load")
+        row.tap()
+
+        let reply = app.staticTexts["I found a short list of IMAX sessions and left the final choice to you."]
+        XCTAssertTrue(reply.waitForExistence(timeout: 1.5), "Sleeping transcript did not open before wake completed")
+        let waking = app.descendants(matching: .any).matching(identifier: "session-waking").firstMatch
+        let visibleDeadline = Date().addingTimeInterval(0.8)
+        while !reply.isHittable && Date() < visibleDeadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(reply.isHittable, "Sleeping transcript row was not visible during the held wake")
+        XCTAssertTrue(waking.exists, "Wake did not remain in progress after the sleeping transcript opened")
+        addScreenshot(named: "wake-open-held")
+
+        let composer = app.textFields["composer-text"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "Composer did not stay visible while waking")
+        let send = app.buttons["composer-send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "Composer send button did not appear while waking")
+        XCTAssertFalse(send.isEnabled, "Send was enabled before the session became live")
+
+        XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not remain available after wake")
+        composer.tap()
+        composer.typeText("Wake test")
+        XCTAssertTrue(send.isEnabled, "Send did not become enabled after wake")
+        XCTAssertEqual(reply.label, "I found a short list of IMAX sessions and left the final choice to you.")
+        addScreenshot(named: "wake-open-live")
+    }
+
     func testAsleepRowCopiesAttachCommand() async throws {
         let app = launch()
         try await postFixture("/fixture/sleeping-seed")
@@ -223,6 +257,19 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(prompt.waitForExistence(timeout: 15), "New session prompt did not load")
         prompt.tap()
         prompt.typeText(text)
+    }
+
+    private func setWakeBehaviour(delayMs: Int) async throws {
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        let url = try XCTUnwrap(URL(string: "\(value)/fixture/wake-behaviour"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["delayMs": delayMs])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw NSError(domain: "WakeOpenFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "fixture request failed"])
+        }
     }
 
     private func getFixtureJSON(path: String) async throws -> [String: Any] {

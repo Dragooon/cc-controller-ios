@@ -72,6 +72,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let composer: ComposerConfiguration
     let statusSegments: [String]
     let activitySession: Session?
+    let waking: Bool
+    let wakeError: String?
+    let onRetryWake: () -> Void
     let onActivity: () -> Void
     let slashCommands: [SlashCommand]
     let attachments: [ComposerAttachment]
@@ -107,6 +110,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
         composer: ComposerConfiguration = ComposerConfiguration(),
         statusSegments: [String] = [],
         activitySession: Session? = nil,
+        waking: Bool = false,
+        wakeError: String? = nil,
+        onRetryWake: @escaping () -> Void = {},
         onActivity: @escaping () -> Void = {},
         slashCommands: [SlashCommand] = [],
         attachments: [ComposerAttachment] = [],
@@ -139,6 +145,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.composer = composer
         self.statusSegments = statusSegments
         self.activitySession = activitySession
+        self.waking = waking
+        self.wakeError = wakeError
+        self.onRetryWake = onRetryWake
         self.onActivity = onActivity
         self.slashCommands = slashCommands
         self.attachments = attachments
@@ -174,6 +183,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
             composer: composer,
             statusSegments: statusSegments,
             activitySession: activitySession,
+            waking: waking,
+            wakeError: wakeError,
+            onRetryWake: onRetryWake,
             onActivity: onActivity,
             slashCommands: slashCommands,
             attachments: attachments,
@@ -276,13 +288,20 @@ struct BottomStackView: View {
                     )
                 }
 
-                if configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
+                if configuration.approvals.isEmpty, configuration.waking {
+                    WakeStatusLine()
+                        .transition(.opacity)
+                } else if configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
                     StatusLineView(
                         segments: configuration.statusSegments,
                         activitySession: configuration.activitySession,
                         onActivity: configuration.onActivity
                     )
                         .transition(.opacity)
+                }
+
+                if configuration.approvals.isEmpty, let wakeError = configuration.wakeError {
+                    WakeErrorBanner(message: wakeError, onRetry: configuration.onRetryWake)
                 }
 
                 if configuration.approvals.isEmpty, let readOnlyLabel = configuration.readOnlyLabel {
@@ -335,6 +354,7 @@ struct BottomStackView: View {
             modelName: configuration.composer.modelName,
             placeholder: configuration.composer.placeholder,
             isWorking: configuration.composer.isWorking,
+            canSend: configuration.composer.canSend,
             canInterrupt: configuration.composer.canInterrupt,
             canAttach: configuration.composer.canAttach,
             canRunCommands: configuration.composer.canRunCommands,
@@ -443,6 +463,46 @@ struct BottomStackView: View {
         Task { @MainActor in
             _ = await configuration.onStop()
         }
+    }
+}
+
+private struct WakeStatusLine: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Waking…")
+        }
+        .font(.caption.monospaced())
+        .foregroundStyle(.ccSecondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 7)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("session-waking")
+    }
+}
+
+private struct WakeErrorBanner: View {
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.ccRed)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Retry", action: onRetry)
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.ccAccent)
+                .accessibilityIdentifier("wake-retry")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.ccRed.opacity(0.12), in: .rect(cornerRadius: 12))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("wake-error")
     }
 }
 

@@ -271,8 +271,8 @@ public final class AppStore {
     }
 
     public func wakeSession(id: String) async throws -> Bool {
-        let response = try await client.wakeSession(id: id)
-        return await waitForSession(response.id)
+        _ = try await client.wakeSession(id: id)
+        return true
     }
 
     public func archiveSession(id: String, archived: Bool) async -> Result<Void, ActionError> {
@@ -1579,7 +1579,26 @@ public final class AppStore {
         if let store = openStores[key] {
             return store
         }
-        guard let session = sessions[sessionID], session.live == true else { return nil }
+        let session: Session
+        let transcriptOnly: Bool
+        if let liveSession = sessions[sessionID], liveSession.live == true {
+            session = liveSession
+            transcriptOnly = false
+        } else if agentID == nil, let sleepingSession = sleeping.first(where: { $0.id == sessionID }) {
+            session = Session(
+                id: sleepingSession.id,
+                name: sleepingSession.name,
+                cwd: sleepingSession.cwd,
+                project: sleepingSession.project,
+                live: false,
+                state: .idle,
+                idleSince: sleepingSession.lastActiveAt,
+                archivedAt: sleepingSession.archivedAt
+            )
+            transcriptOnly = true
+        } else {
+            return nil
+        }
         let hasCachedTranscript = cachedTranscripts[key] != nil
         let entries = cachedTranscripts[key] ?? []
         TranscriptLifecycleLog.shared.record(
@@ -1598,7 +1617,8 @@ public final class AppStore {
                 guard agentID == nil, !changedEntries.isEmpty else { return }
                 self.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
             },
-            initialTranscriptTail: initialTranscriptTail
+            initialTranscriptTail: initialTranscriptTail,
+            transcriptOnly: transcriptOnly
         )
         openStores[key] = store
         if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
@@ -1710,7 +1730,8 @@ public final class AppStore {
     private var validCacheKeys: Set<String> {
         Set(cachedTranscripts.keys.filter { key in
             guard let sessionID = key.split(separator: "|", maxSplits: 1).first else { return false }
-            return sessions[String(sessionID)] != nil
+            let id = String(sessionID)
+            return sessions[id] != nil || sleeping.contains(where: { $0.id == id })
         })
     }
 
