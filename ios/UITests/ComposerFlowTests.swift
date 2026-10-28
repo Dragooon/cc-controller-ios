@@ -165,7 +165,7 @@ final class ComposerFlowTests: XCTestCase {
             "Sending bubble exposed an action menu"
         )
         attach(named: "optimistic-sending-before-delivery")
-        XCTAssertTrue(waitForPendingStatus("Sent", message: marker, in: app, timeout: 15), "Held send did not reconcile to Sent")
+        XCTAssertTrue(waitForDelivered(message: marker, in: app, timeout: 15), "Held send did not reconcile to Sent")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Held send did not reconcile into the transcript")
         let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
         XCTAssertTrue(delivered.waitForExistence(timeout: 10), "Held send delivered marker did not render")
@@ -556,7 +556,7 @@ final class ComposerFlowTests: XCTestCase {
         field.tap()
         field.typeText("while sending")
         XCTAssertTrue(waitForValue(of: field, equalTo: "while sending", timeout: 3), "Text typed during send did not appear")
-        XCTAssertTrue(waitForPendingStatus("Sent", message: heldMarker, in: app, timeout: 15), "Held send did not reconcile to Sent")
+        XCTAssertTrue(waitForDelivered(message: heldMarker, in: app, timeout: 15), "Held send did not reconcile to Sent")
         XCTAssertTrue(waitForValue(of: field, equalTo: "while sending", timeout: 3), "Text typed during send was wiped when the send succeeded")
     }
 
@@ -655,6 +655,26 @@ final class ComposerFlowTests: XCTestCase {
                 }
                 return true
             }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return false
+    }
+
+    private func waitForDelivered(message: String, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let pending = pendingPrompt(in: app, status: "Sent", message: message)
+        let delivered = app.descendants(matching: .any)
+            .matching(identifier: "prompt-bubble")
+            .matching(NSPredicate(format: "label == %@", message))
+            .firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if pending.exists, pending.value as? String == "Sent" {
+                for legacyStatus in ["Queued", "Sending…", "Sent"] {
+                    XCTAssertFalse(app.staticTexts[legacyStatus].exists, "Legacy pending status label \(legacyStatus) was visible")
+                }
+                return true
+            }
+            if delivered.exists { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         return false

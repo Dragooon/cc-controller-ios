@@ -40,7 +40,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         XCTAssertTrue(initialRows.contains { isActivityLabel($0) }, "Activity row did not appear immediately after send")
         XCTAssertFalse(initialRows.contains { $0.contains("↓") }, "Activity row showed output tokens before the live turn had assistant usage")
         let pendingPrompt = app.descendants(matching: .any)
-            .matching(identifier: "pending-prompt-bubble")
+            .matching(identifier: "pending-prompt")
             .matching(NSPredicate(format: "label CONTAINS[c] %@", prompt))
             .firstMatch
         let initialActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
