@@ -78,6 +78,89 @@ final class SidebarOverlayFlowTests: XCTestCase {
         addScreenshot(named: "sessions-search-portrait")
     }
 
+    func testLandscapeEdgeSwipeOpensAndClosesSidebar() throws {
+        let app = launch(orientation: .landscapeRight, sessionID: "long-session")
+        defer { app.terminate() }
+        assertRegularLandscape(in: app)
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Toolbar toggle did not hide the sidebar")
+        let edgeStrip = app.descendants(matching: .any).matching(identifier: "sidebar-edge-strip").firstMatch
+        XCTAssertTrue(edgeStrip.exists, "Leading edge strip was not present")
+
+        let transcriptScroll = app.scrollViews["transcript-scroll"]
+        XCTAssertTrue(transcriptScroll.waitForExistence(timeout: 20), "Transcript scroll view did not load")
+        let newestCheckpoint = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newestCheckpoint.waitForExistence(timeout: 20), "Newest long-session checkpoint did not load")
+        XCTAssertTrue(newestCheckpoint.isHittable, "Newest long-session checkpoint was not visible before the swipe")
+        transcriptScroll.swipeDown(velocity: .fast)
+        XCTAssertFalse(newestCheckpoint.isHittable, "Vertical transcript swipe did not move the transcript")
+
+        let transcriptMiddle = transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        transcriptMiddle.press(
+            forDuration: 0.1,
+            thenDragTo: transcriptMiddle.withOffset(CGVector(dx: -160, dy: 0)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0
+        )
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Horizontal transcript swipe opened the sidebar")
+
+        let window = app.windows.firstMatch
+        let leadingEdge = edgeStrip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let halfOpen = leadingEdge.withOffset(CGVector(dx: 160, dy: 0))
+        leadingEdge.press(forDuration: 0.1, thenDragTo: halfOpen)
+        addScreenshot(named: "sidebar-swipe-mid-drag")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Edge swipe did not open the sidebar")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        addScreenshot(named: "sidebar-swipe-open")
+
+        let otherSession = app.buttons["session-approval-flow-light-mode"]
+        XCTAssertTrue(otherSession.waitForExistence(timeout: 20), "Other session did not appear in the visible list")
+        let closeStrip = app.descendants(matching: .any).matching(identifier: "sidebar-close-strip").firstMatch
+        XCTAssertTrue(closeStrip.waitForExistence(timeout: 10), "Sidebar close strip was not present")
+        let rowOffsetX = closeStrip.frame.minX + 30 - otherSession.frame.midX
+        otherSession.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .withOffset(CGVector(dx: rowOffsetX, dy: 0))
+            .tap()
+        let selectedTitle = app.descendants(matching: .any)
+            .matching(identifier: "selected-session-name")
+            .firstMatch
+        XCTAssertTrue(selectedTitle.waitForExistence(timeout: 20), "Leading-edge session-row tap did not open a session")
+        XCTAssertEqual(selectedTitle.label, "Approval Flow Light Mode")
+
+        sidebar.swipeUp()
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertTrue(sidebar.exists, "Vertical sessions-list swipe closed the sidebar")
+
+        let sidebarEdge = sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let closed = window.coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.5))
+        sidebarEdge.press(forDuration: 0.1, thenDragTo: closed)
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 20), "Left swipe did not close the sidebar")
+        addScreenshot(named: "sidebar-swipe-closed")
+
+        let shortDrag = transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let shortRelease = window.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5))
+        shortDrag.press(
+            forDuration: 0.1,
+            thenDragTo: shortRelease,
+            withVelocity: .slow,
+            thenHoldForDuration: 0
+        )
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Short edge swipe opened the sidebar")
+
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sidebar toggle did not reopen the sidebar")
+        let searchButton = app.buttons["sessions-search"]
+        XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sidebar search button did not load")
+        searchButton.tap()
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 20), "Sidebar search field did not load")
+        searchField.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Leading-edge search-field tap did not focus the field")
+    }
+
     func testLandscapeSidebarToggleResizesDetail() throws {
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")
         defer { app.terminate() }

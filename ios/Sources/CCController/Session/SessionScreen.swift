@@ -31,6 +31,7 @@ struct SessionScreen: View {
     @Bindable var model: AppModel
     let approvalsElsewhereCount: Int
     let onShowApprovalsElsewhere: () -> Void
+    let onToggleSidebar: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     init(
@@ -38,13 +39,15 @@ struct SessionScreen: View {
         store: AppStore,
         model: AppModel,
         approvalsElsewhereCount: Int = 0,
-        onShowApprovalsElsewhere: @escaping () -> Void = {}
+        onShowApprovalsElsewhere: @escaping () -> Void = {},
+        onToggleSidebar: (() -> Void)? = nil
     ) {
         self.sessionID = sessionID
         self.store = store
         self.model = model
         self.approvalsElsewhereCount = approvalsElsewhereCount
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
+        self.onToggleSidebar = onToggleSidebar
     }
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
@@ -705,6 +708,15 @@ struct SessionScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if let onToggleSidebar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: onToggleSidebar) {
+                            Image(systemName: "sidebar.left")
+                        }
+                        .accessibilityLabel("Toggle sidebar")
+                        .accessibilityIdentifier("sidebar-toggle")
+                    }
+                }
                 if approvalsElsewhereCount > 0 {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: onShowApprovalsElsewhere) {

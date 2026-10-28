@@ -5,8 +5,12 @@ import UIKit
 struct MainSplitView: View {
     @Bindable var model: AppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
+    @State private var regularSidebarProgress: CGFloat = 1
+    @State private var regularSidebarDragStartProgress: CGFloat?
+    @GestureState private var regularSidebarDragActive = false
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
     @State private var isNewSessionPresented = false
@@ -152,6 +156,7 @@ struct MainSplitView: View {
             if newSizeClass == .regular {
                 columnVisibility = .all
                 preferredCompactColumn = .sidebar
+                regularSidebarProgress = 1
             } else {
                 synchronizeColumnVisibility()
             }
@@ -161,10 +166,7 @@ struct MainSplitView: View {
     @ViewBuilder
     private func splitView() -> some View {
         if horizontalSizeClass == .regular {
-            splitViewContent()
-                .navigationSplitViewStyle(.balanced)
-                .tint(.ccAccent)
-                .background(.ccBackground)
+            regularSplitView()
         } else {
             splitViewContent()
                 .navigationSplitViewStyle(.prominentDetail)
@@ -178,38 +180,190 @@ struct MainSplitView: View {
             columnVisibility: $columnVisibility,
             preferredCompactColumn: $preferredCompactColumn
         ) {
-            if horizontalSizeClass == .regular {
-                sessionsList()
-#if DEBUG
-                    .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
-#endif
-                    .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 360)
-            } else {
-                sessionsList()
-            }
+            sessionsList()
         } detail: {
-            if let selectedSession = model.selectedSession,
-               let selectedConnection = model.connection(for: selectedSession.controllerID) {
-                SessionScreen(
-                    sessionID: selectedSession.sessionID,
-                    store: selectedConnection.store,
-                    model: model,
-                    approvalsElsewhereCount: approvalsElsewhereCount,
-                    onShowApprovalsElsewhere: { columnVisibility = .all }
-                )
-                .id(selectedSession)
+            detailView(onToggleSidebar: nil)
+        }
+    }
+
+    private func regularSplitView() -> some View {
+        GeometryReader { proxy in
+            let sidebarWidth = min(360, max(280, proxy.size.width * 0.3))
+            let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
+            ZStack(alignment: .leading) {
+                NavigationStack {
+                    detailView(onToggleSidebar: toggleSidebar)
+                }
+                    .frame(width: max(0, proxy.size.width - sidebarWidth * regularSidebarProgress))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .offset(x: sidebarWidth * regularSidebarProgress)
+
+                if regularSidebarProgress > 0 || isClosingSidebar {
+                    sessionsList()
+                        .frame(width: sidebarWidth)
+                        .offset(x: -sidebarWidth * (1 - regularSidebarProgress))
+                        .simultaneousGesture(sidebarDragGesture(sidebarWidth: sidebarWidth), including: .all)
+                        .zIndex(1)
 #if DEBUG
-                .overlay { LayoutFrameProbe(identifier: "session-detail-frame") }
+                        .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
 #endif
-            } else {
-                ContentUnavailableView(
-                    "No session selected",
-                    systemImage: "rectangle.stack",
-                    description: Text("Choose a session to view its transcript.")
+                }
+
+                SidebarPanCapture(
+                    sidebarProgress: regularSidebarProgress,
+                    onChanged: { translationX in
+                        sidebarDragChanged(translationX: translationX, sidebarWidth: sidebarWidth)
+                    },
+                    onEnded: { translationX, velocityX in
+                        sidebarDragEnded(
+                            translationX: translationX,
+                            velocityX: velocityX,
+                            sidebarWidth: sidebarWidth
+                        )
+                    }
                 )
-                .background(.ccBackground)
+                .frame(
+                    width: regularSidebarProgress > 0 ? 80 : 20,
+                    height: proxy.size.height
+                )
+                .accessibilityIdentifier(
+                    regularSidebarProgress > 0 ? "sidebar-close-strip" : "sidebar-edge-strip"
+                )
+                .zIndex(2)
+            }
+            .overlay {
+                if regularSidebarDragStartProgress != nil {
+                    Color.black
+                        .opacity(0.18 * regularSidebarProgress)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onChange(of: regularSidebarDragActive) { _, isActive in
+                guard !isActive, regularSidebarDragStartProgress != nil else { return }
+                DispatchQueue.main.async {
+                    guard let startProgress = regularSidebarDragStartProgress else { return }
+                    let translationX = (regularSidebarProgress - startProgress) * sidebarWidth
+                    sidebarDragEnded(
+                        translationX: translationX,
+                        velocityX: 0,
+                        sidebarWidth: sidebarWidth
+                    )
+                }
             }
         }
+        .tint(.ccAccent)
+        .background(.ccBackground)
+    }
+
+    @ViewBuilder
+    private func detailView(onToggleSidebar: (() -> Void)?) -> some View {
+        if let selectedSession = model.selectedSession,
+           let selectedConnection = model.connection(for: selectedSession.controllerID) {
+            SessionScreen(
+                sessionID: selectedSession.sessionID,
+                store: selectedConnection.store,
+                model: model,
+                approvalsElsewhereCount: approvalsElsewhereCount,
+                onShowApprovalsElsewhere: {
+                    if horizontalSizeClass == .regular {
+                        showSidebar()
+                    } else {
+                        columnVisibility = .all
+                    }
+                },
+                onToggleSidebar: onToggleSidebar
+            )
+            .id(selectedSession)
+#if DEBUG
+            .overlay { LayoutFrameProbe(identifier: "session-detail-frame") }
+#endif
+        } else {
+            ContentUnavailableView(
+                "No session selected",
+                systemImage: "rectangle.stack",
+                description: Text("Choose a session to view its transcript.")
+            )
+            .background(.ccBackground)
+        }
+    }
+
+    private func sidebarDragGesture(sidebarWidth: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($regularSidebarDragActive) { _, state, _ in
+                state = true
+            }
+            .onChanged { value in
+                guard horizontalSizeClass == .regular else { return }
+                if regularSidebarDragStartProgress == nil {
+                    guard abs(value.translation.width) >= 12,
+                          abs(value.translation.width) > abs(value.translation.height) else { return }
+                    let startsAtLeadingEdge = regularSidebarProgress < 0.001 && value.translation.width > 0
+                    let startsInSidebar = regularSidebarProgress > 0.5 && value.translation.width < 0
+                    guard startsAtLeadingEdge || startsInSidebar else { return }
+                    regularSidebarDragStartProgress = regularSidebarProgress
+                }
+                sidebarDragChanged(translationX: value.translation.width, sidebarWidth: sidebarWidth)
+            }
+            .onEnded { value in
+                if regularSidebarDragStartProgress == nil,
+                   abs(value.translation.width) >= 12,
+                   abs(value.translation.width) > abs(value.translation.height),
+                   regularSidebarProgress > 0.5,
+                   value.translation.width < 0 {
+                    regularSidebarDragStartProgress = regularSidebarProgress
+                }
+                sidebarDragEnded(
+                    translationX: value.translation.width,
+                    velocityX: (value.predictedEndTranslation.width - value.translation.width) / 0.2,
+                    sidebarWidth: sidebarWidth
+                )
+            }
+    }
+
+    private func sidebarDragChanged(translationX: CGFloat, sidebarWidth: CGFloat) {
+        guard horizontalSizeClass == .regular else { return }
+        if regularSidebarDragStartProgress == nil {
+            regularSidebarDragStartProgress = regularSidebarProgress
+        }
+        guard let startProgress = regularSidebarDragStartProgress else { return }
+        regularSidebarProgress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
+    }
+
+    private func sidebarDragEnded(translationX: CGFloat, velocityX: CGFloat, sidebarWidth: CGFloat) {
+        guard let startProgress = regularSidebarDragStartProgress else { return }
+        regularSidebarDragStartProgress = nil
+        let isOpening = startProgress == 0
+        let progress = min(1, max(0, startProgress + translationX / sidebarWidth))
+        let targetProgress: CGFloat
+        if isOpening {
+            targetProgress = progress > 0.4 || velocityX > 500 ? 1 : 0
+        } else {
+            targetProgress = progress < 0.6 || velocityX < -500 ? 0 : 1
+        }
+        withAnimation(sidebarAnimation(initialVelocity: Double(velocityX / sidebarWidth))) {
+            regularSidebarProgress = targetProgress
+            columnVisibility = targetProgress == 1 ? .all : .detailOnly
+        }
+    }
+
+    private func toggleSidebar() {
+        let target: CGFloat = regularSidebarProgress == 0 ? 1 : 0
+        withAnimation(sidebarAnimation(initialVelocity: 0)) {
+            regularSidebarProgress = target
+            columnVisibility = target == 1 ? .all : .detailOnly
+        }
+    }
+
+    private func showSidebar() {
+        withAnimation(sidebarAnimation(initialVelocity: 0)) {
+            regularSidebarProgress = 1
+            columnVisibility = .all
+        }
+    }
+
+    private func sidebarAnimation(initialVelocity: Double) -> Animation {
+        if reduceMotion { return .linear(duration: 0.01) }
+        return .interpolatingSpring(mass: 1, stiffness: 250, damping: 28, initialVelocity: initialVelocity)
     }
 
     private func sessionsList() -> some View {
@@ -423,6 +577,149 @@ struct MainSplitView: View {
         }
     }
     #endif
+}
+
+private struct SidebarPanCapture: UIViewRepresentable {
+    let sidebarProgress: CGFloat
+    let onChanged: (CGFloat) -> Void
+    let onEnded: (CGFloat, CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> SidebarCaptureView {
+        let view = SidebarCaptureView()
+        let coordinator = context.coordinator
+        view.onWindowChange = { [weak coordinator] view, window in
+            coordinator?.updateAttachment(for: view, in: window)
+        }
+        return view
+    }
+
+    func updateUIView(_ view: SidebarCaptureView, context: Context) {
+        context.coordinator.sidebarProgress = sidebarProgress
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+        context.coordinator.updateAttachment(for: view, in: view.window)
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var sidebarProgress: CGFloat
+        var onChanged: (CGFloat) -> Void
+        var onEnded: (CGFloat, CGFloat) -> Void
+        weak var captureView: SidebarCaptureView?
+        weak var pan: SidebarPanGestureRecognizer?
+
+        init(_ parent: SidebarPanCapture) {
+            sidebarProgress = parent.sidebarProgress
+            onChanged = parent.onChanged
+            onEnded = parent.onEnded
+        }
+
+        func updateAttachment(for captureView: SidebarCaptureView, in window: UIWindow?) {
+            self.captureView = captureView
+            guard let window else {
+                detachPan()
+                return
+            }
+            let host = window
+            if let pan, pan.view !== host {
+                pan.view?.removeGestureRecognizer(pan)
+                self.pan = nil
+            }
+            guard pan == nil else { return }
+            let pan = SidebarPanGestureRecognizer(
+                target: self,
+                action: #selector(handlePan(_:))
+            )
+            pan.delegate = self
+            pan.cancelsTouchesInView = false
+            pan.requiresExclusiveTouchType = false
+            host.addGestureRecognizer(pan)
+            self.pan = pan
+        }
+
+        private func detachPan() {
+            guard let pan else { return }
+            pan.view?.removeGestureRecognizer(pan)
+            self.pan = nil
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? SidebarPanGestureRecognizer,
+                  let view = pan.view,
+                  let captureView else { return false }
+            let initialLocation = pan.initialLocation ?? pan.location(in: view)
+            let stripFrame = captureView.convert(captureView.bounds, to: view)
+            guard stripFrame.contains(initialLocation) else { return false }
+            let velocity = pan.velocity(in: view)
+            guard abs(velocity.x) > abs(velocity.y) else { return false }
+            return sidebarProgress <= 0.001 && velocity.x > 0
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            guard otherGestureRecognizer is UIPanGestureRecognizer else { return false }
+            return !(otherGestureRecognizer is UIScreenEdgePanGestureRecognizer)
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            gestureRecognizer is SidebarPanGestureRecognizer
+                && otherGestureRecognizer is UIScreenEdgePanGestureRecognizer
+        }
+
+        @objc func handlePan(_ recognizer: SidebarPanGestureRecognizer) {
+            guard let view = recognizer.view else { return }
+            let translation = recognizer.translation(in: view)
+            switch recognizer.state {
+            case .began, .changed:
+                onChanged(translation.x)
+            case .ended, .cancelled, .failed:
+                onEnded(translation.x, recognizer.velocity(in: view).x)
+            default:
+                break
+            }
+        }
+    }
+}
+
+private final class SidebarCaptureView: UIView {
+    var onWindowChange: ((SidebarCaptureView, UIWindow?) -> Void)?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        nil
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        onWindowChange?(self, newWindow)
+        super.willMove(toWindow: newWindow)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onWindowChange?(self, window)
+    }
+}
+
+private final class SidebarPanGestureRecognizer: UIPanGestureRecognizer {
+    var initialLocation: CGPoint?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        guard let touch = touches.first, let view else { return }
+        initialLocation = touch.location(in: view)
+    }
+
+    override func reset() {
+        initialLocation = nil
+        super.reset()
+    }
 }
 
 #if DEBUG
