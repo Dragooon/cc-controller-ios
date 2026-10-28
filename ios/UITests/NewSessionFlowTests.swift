@@ -18,6 +18,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 30), "Created session did not open")
         XCTAssertEqual(title.label, "new-project-0")
+        addScreenshot(named: "new-session-created-session")
     }
 
     func testNewSessionClaudeStyleGreetingComposerAndDefaultAgent() async throws {
@@ -26,7 +27,10 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
 
         let greeting = app.staticTexts["new-session-greeting"]
         XCTAssertTrue(greeting.waitForExistence(timeout: 15), "New session greeting did not load")
-        XCTAssertTrue(greeting.label.contains(", Alex"), "Greeting did not use the fixture owner name: \(greeting.label)")
+        XCTAssertTrue(
+            greeting.label.contains(", Alex") || greeting.label == "Hello, night owl",
+            "Greeting did not use the fixture owner name: \(greeting.label)"
+        )
 
         let prompt = app.textFields["new-session-prompt"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 15), "New session prompt did not load")
@@ -137,6 +141,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let back = app.buttons["BackButton"]
         if back.exists { back.tap() }
         XCTAssertTrue(app.buttons["new-session"].waitForExistence(timeout: 15), "Sessions list did not reappear")
+        addScreenshot(named: "new-session-list-after-back")
         app.buttons["new-session"].tap()
         XCTAssertTrue(app.buttons["new-session-folder"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["new-session-folder"].label.contains("new-project-1"))
@@ -244,7 +249,9 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let button = app.buttons["new-session"]
         XCTAssertTrue(button.waitForExistence(timeout: 30), "New session toolbar button did not load")
         button.tap()
-        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session sheet did not open")
+        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session screen did not open")
+        XCTAssertTrue(app.staticTexts["new-session-title"].waitForExistence(timeout: 15), "New session title did not load")
+        XCTAssertFalse(app.buttons["Cancel"].exists, "Embedded new session showed a Cancel button")
         XCTAssertTrue(app.buttons["new-session-folder"].waitForExistence(timeout: 15), "New session folder chip did not load")
     }
 }

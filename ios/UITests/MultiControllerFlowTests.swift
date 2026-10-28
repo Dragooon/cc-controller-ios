@@ -297,7 +297,7 @@ final class MultiControllerFlowTests: XCTestCase {
         let button = app.buttons["new-session"]
         XCTAssertTrue(button.waitForExistence(timeout: 30), "New session toolbar button did not load")
         button.tap()
-        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session sheet did not open")
+        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session screen did not open")
         let controller = app.buttons["new-session-host"]
         XCTAssertTrue(controller.waitForExistence(timeout: 15), "Host picker did not load")
         let draft = app.textFields["new-session-prompt"]

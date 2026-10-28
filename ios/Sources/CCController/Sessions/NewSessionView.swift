@@ -11,6 +11,9 @@ struct NewSessionView: View {
     let store: AppStore
     var controllerChoices: [NewSessionControllerChoice] = []
     var selectedControllerID: Binding<ControllerID>? = nil
+    var promptBinding: Binding<String>? = nil
+    var isEmbedded = false
+    var onToggleSidebar: (() -> Void)? = nil
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -64,70 +67,106 @@ struct NewSessionView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                if let greeting {
-                    VStack(spacing: 12) {
-                        SpinnerGlyph(active: true, frozen: true)
-                            .font(.system(size: 36))
-                        Text(greeting)
-                            .font(.system(size: 30, weight: .regular, design: .serif))
-                            .multilineTextAlignment(.center)
-                            .minimumScaleFactor(0.7)
-                            .padding(.horizontal, 24)
-                            .accessibilityIdentifier("new-session-greeting")
-                    }
+        Group {
+            if isEmbedded {
+                page
+            } else {
+                NavigationStack {
+                    page
                 }
-                Spacer(minLength: 0)
+                .presentationDetents([.large])
+                .interactiveDismissDisabled(isCreating)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .onTapGesture { promptFocused = false }
-            .background(.ccBackground)
-            .safeAreaBar(edge: .bottom, spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let message = loadError ?? createError {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(message)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityIdentifier("new-session-error")
-                            if loadError != nil {
-                                Button("Retry", action: loadOptions)
-                                    .font(.footnote.weight(.semibold))
-                                    .accessibilityIdentifier("new-session-retry")
-                            }
+        }
+    }
+
+    private var page: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            if let greeting {
+                VStack(spacing: 12) {
+                    SpinnerGlyph(active: true, frozen: true)
+                        .font(.system(size: 36))
+                    Text(greeting)
+                        .font(.system(size: 30, weight: .regular, design: .serif))
+                        .multilineTextAlignment(.center)
+                        .minimumScaleFactor(0.7)
+                        .padding(.horizontal, 24)
+                        .accessibilityIdentifier("new-session-greeting")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { promptFocused = false }
+        .background(.ccBackground)
+        .safeAreaBar(edge: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let message = loadError ?? createError {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("new-session-error")
+                        if loadError != nil {
+                            Button("Retry", action: loadOptions)
+                                .font(.footnote.weight(.semibold))
+                                .accessibilityIdentifier("new-session-retry")
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    composer
-                        .offset(y: verticalSizeClass == .compact ? 0 : 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.ccBackground)
+                composer
+                    .offset(y: verticalSizeClass == .compact ? 0 : 12)
             }
-            .toolbar {
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ccBackground)
+        }
+        .toolbar {
+            if isEmbedded {
+                if let onToggleSidebar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: onToggleSidebar) {
+                            Image(systemName: "sidebar.left")
+                        }
+                        .accessibilityLabel("Toggle sidebar")
+                        .accessibilityIdentifier("sidebar-toggle")
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    Text("New session")
+                        .font(.headline)
+                        .accessibilityIdentifier("new-session-title")
+                }
+            } else {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(isCreating)
                 }
             }
-            .tint(.ccAccent)
         }
-        .presentationDetents([.large])
-        .interactiveDismissDisabled(isCreating)
+        .tint(.ccAccent)
         .onAppear {
+            if let promptBinding {
+                prompt = promptBinding.wrappedValue
+            }
             selectInitialController()
             loadOptions()
             focusPrompt()
         }
+        .onDisappear {
+            promptBinding?.wrappedValue = prompt
+        }
         .onChange(of: selectedControllerID?.wrappedValue) { _, _ in
             loadOptions()
+        }
+        .onChange(of: prompt) { _, value in
+            promptBinding?.wrappedValue = value
         }
         .sheet(isPresented: $isCustomFolderPresented) {
             customFolderSheet
@@ -471,7 +510,9 @@ struct NewSessionView: View {
             }
             saveSelections(controllerID: currentControllerID)
             let appeared = await store.waitForSession(created.id)
-            dismiss()
+            if !isEmbedded {
+                dismiss()
+            }
             onCreated(created.id, appeared)
         } catch {
             createError = errorMessage(error)

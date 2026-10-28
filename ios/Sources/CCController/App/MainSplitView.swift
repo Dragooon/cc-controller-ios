@@ -15,6 +15,7 @@ struct MainSplitView: View {
     @State private var denyFeedbackCount = 0
     @State private var isNewSessionPresented = false
     @State private var newSessionControllerID: ControllerID = .mac
+    @State private var newSessionPrompt = ""
     /// Keys from `sleepingSessionKey(controllerID:sessionID:)`.
     @State private var wakingSessionIDs: Set<String> = []
     @State private var wakeError: String?
@@ -129,25 +130,6 @@ struct MainSplitView: View {
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }
         }
-        .sheet(isPresented: $isNewSessionPresented) {
-            let store = model.connection(for: newSessionControllerID)?.store ?? model.primaryStore
-            let controllerID = newSessionControllerID
-            NewSessionView(
-                store: store,
-                controllerChoices: newSessionChoices,
-                selectedControllerID: $newSessionControllerID
-            ) { id, appeared in
-                openSession(controllerID, id)
-                if !appeared {
-                    sessionNotice = "Session started; it will appear shortly."
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .seconds(5))
-                        sessionNotice = nil
-                    }
-                }
-            }
-            .presentationDetents([.large])
-        }
         .onAppear(perform: synchronizeColumnVisibility)
         .onChange(of: model.selectedSession) { _, _ in
             synchronizeColumnVisibility()
@@ -257,8 +239,31 @@ struct MainSplitView: View {
 
     @ViewBuilder
     private func detailView(onToggleSidebar: (() -> Void)?) -> some View {
-        if let selectedSession = model.selectedSession,
-           let selectedConnection = model.connection(for: selectedSession.controllerID) {
+        if isNewSessionPresented {
+            let store = model.connection(for: newSessionControllerID)?.store ?? model.primaryStore
+            let controllerID = newSessionControllerID
+            NewSessionView(
+                store: store,
+                controllerChoices: newSessionChoices,
+                selectedControllerID: $newSessionControllerID,
+                promptBinding: $newSessionPrompt,
+                isEmbedded: true,
+                onToggleSidebar: onToggleSidebar
+            ) { id, appeared in
+                openSession(controllerID, id)
+                if !appeared {
+                    sessionNotice = "Session started; it will appear shortly."
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(5))
+                        sessionNotice = nil
+                    }
+                }
+            }
+#if DEBUG
+            .overlay { LayoutFrameProbe(identifier: "session-detail-frame") }
+#endif
+        } else if let selectedSession = model.selectedSession,
+                  let selectedConnection = model.connection(for: selectedSession.controllerID) {
             SessionScreen(
                 sessionID: selectedSession.sessionID,
                 store: selectedConnection.store,
@@ -422,6 +427,7 @@ struct MainSplitView: View {
 
     private func openSession(_ controllerID: ControllerID, _ id: String?) {
         guard let id else { return }
+        isNewSessionPresented = false
         model.selectedSession = SessionRef(controllerID: controllerID, sessionID: id)
         preferredCompactColumn = .detail
         if horizontalSizeClass == .compact {
@@ -488,7 +494,14 @@ struct MainSplitView: View {
         if !choices.contains(where: { $0.id == newSessionControllerID }) {
             newSessionControllerID = first.id
         }
+        if !isNewSessionPresented {
+            newSessionPrompt = ""
+        }
         isNewSessionPresented = true
+        preferredCompactColumn = .detail
+        if horizontalSizeClass == .compact {
+            columnVisibility = .detailOnly
+        }
     }
 
     private var actionErrorTitle: String {
