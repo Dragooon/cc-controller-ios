@@ -84,6 +84,7 @@ struct SessionsListView: View {
 
     @State private var searchText = ""
     @State private var isSearchPresented = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     init(
         controllers: [SessionsListController],
@@ -283,52 +284,60 @@ struct SessionsListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.ccBackground)
+        } else if horizontalSizeClass == .regular {
+            sessionList
+                .listStyle(.sidebar)
         } else {
-            List {
-                if let notice {
-                    Section {
-                        Text(notice)
-                            .font(.footnote)
-                            .foregroundStyle(.ccSecondary)
-                    }
+            sessionList
+                .listStyle(.plain)
+        }
+    }
+
+    private var sessionList: some View {
+        List {
+            if let notice {
+                Section {
+                    Text(notice)
+                        .font(.footnote)
+                        .foregroundStyle(.ccSecondary)
+                        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
                 }
-                statusRows
-                if !needsYouItems.isEmpty {
-                    Section("Needs you") {
-                        ForEach(needsYouItems) { item in
-                            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController)
-                        }
-                    }
-                }
-                if !recentItems.isEmpty {
-                    Section("Recents") {
-                        ForEach(recentItems) { item in
-                            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController)
-                        }
-                    }
-                }
-                if !sleepingItems.isEmpty {
-                    Section("Asleep") {
-                        ForEach(sleepingItems) { item in
-                            sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController)
-                        }
-                    }
-                }
-                if needsYouItems.isEmpty && recentItems.isEmpty && sleepingItems.isEmpty {
-                    Section {
-                        Text(query.isEmpty ? "No sessions" : "No matches")
-                            .font(.subheadline)
-                            .foregroundStyle(.ccTertiary)
-                            .listRowBackground(Color.ccCard)
-                            .accessibilityIdentifier("sessions-empty")
+            }
+            statusRows
+            if !needsYouItems.isEmpty {
+                Section("Needs you") {
+                    ForEach(needsYouItems) { item in
+                        sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController)
                     }
                 }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(.ccBackground)
-            .animation(.smooth, value: listAnimationKey)
+            if !recentItems.isEmpty {
+                Section("Recents") {
+                    ForEach(recentItems) { item in
+                        sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController)
+                    }
+                }
+            }
+            if !sleepingItems.isEmpty {
+                Section("Asleep") {
+                    ForEach(sleepingItems) { item in
+                        sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController)
+                    }
+                }
+            }
+            if needsYouItems.isEmpty && recentItems.isEmpty && sleepingItems.isEmpty {
+                Section {
+                    Text(query.isEmpty ? "No sessions" : "No matches")
+                        .font(.subheadline)
+                        .foregroundStyle(.ccTertiary)
+                        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
+                        .accessibilityIdentifier("sessions-empty")
+                }
+            }
         }
+        .scrollContentBackground(.hidden)
+        .background(.ccBackground)
+        .animation(.smooth, value: listAnimationKey)
     }
 
     // MARK: Merged list layout
@@ -341,7 +350,7 @@ struct SessionsListView: View {
                 onSignIn: { onSignIn(controller.id) },
                 onRetry: { onRetry(controller.id) }
             )
-            .listRowBackground(Color.ccCard)
+            .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
             .listRowSeparatorTint(.ccSeparator)
         }
     }
@@ -357,7 +366,8 @@ struct SessionsListView: View {
             onWake: { onWake(controller.id, session) },
             onCopyAttachCommand: { onCopyAttachCommand(session) }
         )
-        .listRowBackground(Color.ccCard)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
         .listRowSeparatorTint(.ccSeparator)
     }
 
@@ -379,7 +389,8 @@ struct SessionsListView: View {
             onCopySessionID: { onCopySessionID(session) }
         )
         .opacity(isMultiController && controller.connection.isFrozen ? 0.6 : 1)
-        .listRowBackground(Color.ccCard)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .modifier(SessionsListRowBackground(isCompact: horizontalSizeClass == .compact))
         .listRowSeparatorTint(.ccSeparator)
     }
 
@@ -423,6 +434,19 @@ private struct ControllerSleepingItem: Identifiable {
     let session: SleepingSession
 
     var id: String { sleepingSessionKey(controllerID: controller.id, sessionID: session.id) }
+}
+
+private struct SessionsListRowBackground: ViewModifier {
+    let isCompact: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isCompact {
+            content.listRowBackground(Color.ccBackground)
+        } else {
+            content
+        }
+    }
 }
 
 /// A controller section header: name, status dot, and the status text.
@@ -514,15 +538,13 @@ private struct SessionRow: View {
     let onSetApprovalMode: (ApprovalMode) -> Void
     let onCopySessionID: () -> Void
 
-    @ScaledMetric(relativeTo: .title3) private var glyphWidth = 28
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button(action: onOpen) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    SessionGlyph(session: session, frozen: frozen, dimmed: dimmed)
-                        .frame(width: glyphWidth, alignment: .center)
+                HStack(alignment: .center, spacing: 8) {
                     SessionText(session: session, approval: approval, controllerName: controllerName)
+                    Spacer(minLength: 4)
+                    SessionStatusIndicator(session: session, frozen: frozen, dimmed: dimmed)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -544,7 +566,7 @@ private struct SessionRow: View {
                 .disabled(isDeciding(approval))
             }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
         .contextMenu {
             Button("Open", action: onOpen)
             if canInterrupt, session.tmuxPane != nil {
@@ -584,37 +606,36 @@ private struct SleepingSessionRow: View {
     let onWake: () -> Void
     let onCopyAttachCommand: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         Button(action: onWake) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                if isWaking {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 28)
-                } else {
-                    Image(systemName: "moon.zzz")
-                        .font(.title3)
-                        .frame(width: 28)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    if let controllerName {
-                        Label(controllerName, systemImage: "desktopcomputer")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.ccSecondary)
-                            .lineLimit(1)
-                    }
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(displayName)
                         .font(.headline)
-                        .lineLimit(2)
-                    Text(meta)
+                        .foregroundStyle(.ccLabel)
+                        .lineLimit(dynamicTypeSize >= .accessibility1 ? 2 : 1)
+                        .accessibilityIdentifier("sleeping-session-title-\(session.id)")
+                    Text(projectLine)
                         .font(.subheadline)
                         .foregroundStyle(.ccSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
+                Group {
+                    if isWaking {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "moon.zzz")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.ccTertiary)
+                    }
+                }
+                .frame(width: 22, height: 22)
             }
-            .foregroundStyle(.ccLabel)
             .opacity(0.58)
             .contentShape(Rectangle())
         }
@@ -625,7 +646,7 @@ private struct SleepingSessionRow: View {
         .contextMenu {
             Button("Copy attach command", action: onCopyAttachCommand)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 6)
     }
 
     private var displayName: String {
@@ -633,34 +654,65 @@ private struct SleepingSessionRow: View {
         return name.isEmpty ? session.project : name
     }
 
-    private var meta: String {
-        let status = isWaking ? "waking…" : "asleep \(formatListDuration(max(0, Date().timeIntervalSince(session.lastActiveAt) * 1000)))"
-        return session.project.localizedCaseInsensitiveCompare(displayName) == .orderedSame
-            ? status
-            : "\(session.project) · \(status)"
+    private var projectLine: String {
+        controllerName.map { "\(session.project) · \($0)" } ?? session.project
     }
 }
 
-private struct SessionGlyph: View {
+private struct SessionStatusIndicator: View {
     let session: Session
     let frozen: Bool
     let dimmed: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
+        Group {
+            if isVisible {
+                statusView
+            }
+        }
+        .frame(width: 22, height: 22)
+        .animation(.easeInOut(duration: 0.2), value: statusKey)
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
         switch sessionActivity(session) {
         case .working, .background:
             SpinnerGlyph(active: true, frozen: frozen, dimmed: dimmed)
-                .font(.title3.weight(.medium))
-                .accessibilityHidden(true)
+                .font(.subheadline.weight(.medium))
+                .accessibilityIdentifier("session-status-\(session.id ?? "")")
+                .transition(statusTransition)
         case .needsYou:
-            Text("●")
-                .font(.title3.weight(.medium))
-                .foregroundStyle(.ccAccent)
+            Circle()
+                .fill(.ccAccent)
+                .frame(width: 8, height: 8)
+                .accessibilityIdentifier("session-status-\(session.id ?? "")")
+                .transition(statusTransition)
         case .idle:
-            Text("○")
-                .font(.title3.weight(.medium))
-                .foregroundStyle(.ccTertiary)
+            EmptyView()
         }
+    }
+
+    private var isVisible: Bool {
+        switch sessionActivity(session) {
+        case .idle: false
+        case .working, .background, .needsYou: true
+        }
+    }
+
+    private var statusKey: String {
+        switch sessionActivity(session) {
+        case .working: "working"
+        case .background: "background"
+        case .needsYou: "needs-you"
+        case .idle: "idle"
+        }
+    }
+
+    private var statusTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.8))
     }
 }
 
@@ -672,89 +724,33 @@ private struct SessionText: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if let controllerName {
-                Label(controllerName, systemImage: "desktopcomputer")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.ccSecondary)
-                    .lineLimit(1)
-            }
+        VStack(alignment: .leading, spacing: 2) {
             Text(session.name ?? "Untitled session")
                 .font(.headline)
                 .foregroundStyle(.ccLabel)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(dynamicTypeSize >= .accessibility1 ? 2 : 1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("session-title-\(session.id ?? "")")
 
-            meta
-
-            if !activity.isEmpty {
-                Text(activity)
-                    .font(.footnote.weight(isAsking || session.state == .needsYou ? .semibold : .regular))
-                    .foregroundStyle(isAsking || session.state == .needsYou ? Color.ccAccent : Color.ccSecondary)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(subtitleColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("session-agent-\(session.id ?? "")")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var meta: some View {
-        Group {
-            if let stockadeMeta = stockadeSessionMeta(for: session) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(stockadeMeta)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityIdentifier("session-meta-\(session.id ?? "")")
-                    Text("·")
-                    SessionStateSegmentView(session: session)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else if shouldWrapMeta {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.project ?? "unknown project")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    SessionStateSegmentView(session: session)
-                        .lineLimit(dynamicTypeSize >= .accessibility1 ? 2 : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(session.project ?? "unknown project")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text("·")
-                    SessionStateSegmentView(session: session)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+    private var subtitle: String {
+        if let approval, approval.questions != nil {
+            return approvalCaption(approval)
         }
-        .font(.subheadline)
-        .foregroundStyle(.ccSecondary)
+        let agent = session.agent?.name ?? session.agent?.id ?? session.project ?? "unknown project"
+        return controllerName.map { "\(agent) · \($0)" } ?? agent
     }
 
-    private var isAsking: Bool {
-        approval?.questions != nil
+    private var subtitleColor: Color {
+        approval?.questions != nil ? .ccAccent : .ccSecondary
     }
-
-    private var shouldWrapMeta: Bool {
-        (session.project ?? "").count > 10 || dynamicTypeSize >= .accessibility1
-    }
-
-    private var activity: String {
-        if let approval, approval.questions != nil { return approvalCaption(approval) }
-        if session.state == .needsYou, approval != nil { return "" }
-        if session.state == .needsYou {
-            return "\(session.lastTool ?? "Tool") command waiting"
-        }
-        if session.state == .working, session.toolRunning == true {
-            return "Running \(activityLineText(session))"
-        }
-        return activityLineText(session)
-    }
-
 }

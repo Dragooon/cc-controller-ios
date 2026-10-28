@@ -26,9 +26,9 @@ final class MultiControllerFlowTests: XCTestCase {
         let dune = app.buttons["session-dune-relay"]
         XCTAssertTrue(bringIntoView(dune, in: sessions), "Mustafar session was not listed")
         XCTAssertTrue(dune.label.contains("Mustafar"), "Mustafar session had no controller caption: \(dune.label)")
-        let meta = app.descendants(matching: .any).matching(identifier: "session-meta-dune-relay").firstMatch
-        XCTAssertTrue(bringIntoView(meta, in: sessions), "Stockade session had no meta line")
-        XCTAssertEqual(meta.label, "Madge · Started by Kepler")
+        let agent = app.descendants(matching: .any).matching(identifier: "session-agent-dune-relay").firstMatch
+        XCTAssertTrue(bringIntoView(agent, in: sessions), "Stockade session had no agent line")
+        XCTAssertEqual(agent.label, "Madge · Mustafar")
     }
 
     func testNeedsYouMergesControllersWithCaptions() throws {
