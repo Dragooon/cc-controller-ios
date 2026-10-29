@@ -4,6 +4,9 @@ options:
   deploymentTarget:
     iOS: "27.0"
   defaultConfig: Debug
+configFiles:
+  Debug: Config/App.xcconfig
+  Release: Config/App.xcconfig
 packages:
   CCKit:
     path: CCKit
@@ -15,7 +18,6 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "$(DEVELOPMENT_TEAM)"
-    CC_RELAY_ENDPOINTS: "https://192.0.2.10:47833 https://100.64.0.10:47833"
 targets:
   CCController:
     type: application
@@ -30,7 +32,7 @@ targets:
       - package: CCKit
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller
+        PRODUCT_BUNDLE_IDENTIFIER: "$(CC_BUNDLE_ID)"
         PRODUCT_NAME: cc-controller
       configs:
         Debug:
@@ -45,7 +47,7 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleIdentifier: com.example.cc-controller
+        CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)"
         CFBundleExecutable: "$(EXECUTABLE_NAME)"
         CFBundleDisplayName: Code
         CFBundleShortVersionString: "0.1.0"
@@ -95,7 +97,7 @@ targets:
       - target: CCController
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.cc-controller.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: "$(CC_BUNDLE_ID).uitests"
         TEST_TARGET_NAME: CCController
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "6.0"

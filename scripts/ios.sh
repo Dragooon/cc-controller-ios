@@ -3,6 +3,36 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 IOS="$ROOT/ios"
+# The daemon, fixture daemon and their node_modules live in the controller repo. Inside the controller
+# checkout that is ROOT; from the standalone app repo it is CC_CONTROLLER_ROOT, or a sibling cc-controller.
+if [[ -n "${CC_CONTROLLER_ROOT:-}" ]]; then
+  CONTROLLER_ROOT=$(cd "$CC_CONTROLLER_ROOT" && pwd -P)
+elif [[ -f "$ROOT/src/daemon.js" ]]; then
+  CONTROLLER_ROOT=$ROOT
+else
+  CONTROLLER_ROOT="$(cd "$ROOT/.." && pwd -P)/cc-controller"
+fi
+
+# Reads one setting from an xcconfig file, ignoring comments and quotes.
+xcconfig_value() {
+  local key=$1 file=$2
+  [[ -f "$file" ]] || return 0
+  awk -F= -v key="$key" '
+    $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+      value = $2
+      sub(/[[:space:]]*\/\/.*$/, "", value)
+      gsub(/[[:space:]"]/, "", value)
+      found = value
+    }
+    END { if (found != "") print found }
+  ' "$file"
+}
+
+# The app's bundle ID comes from ios/Config/App.local.xcconfig, falling back to App.xcconfig's default.
+BUNDLE_ID=$(xcconfig_value CC_BUNDLE_ID "$IOS/Config/App.local.xcconfig")
+BUNDLE_ID=${BUNDLE_ID:-$(xcconfig_value CC_BUNDLE_ID "$IOS/Config/App.xcconfig")}
+# The real daemon's LaunchAgent label.
+DAEMON_LABEL=${CC_DAEMON_LABEL:-$BUNDLE_ID}
 PROJECT="$IOS/CCController.xcodeproj"
 DERIVED="$IOS/build"
 RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
@@ -334,6 +364,11 @@ main_checkout() {
 }
 
 ensure_node_modules() {
+  if [[ "$CONTROLLER_ROOT" != "$ROOT" ]]; then
+    [[ -d "$CONTROLLER_ROOT/node_modules" ]] && return 0
+    printf 'controller node_modules is missing; run npm ci in %s\n' "$CONTROLLER_ROOT" >&2
+    return 1
+  fi
   [[ -e "$ROOT/node_modules" ]] && return 0
   NODE_MODULES_SOURCE="$(main_checkout)/node_modules"
   [[ -d "$NODE_MODULES_SOURCE" ]] || {
@@ -439,11 +474,11 @@ start_fixture_daemon() {
   local private_fixture=${4:-}
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture.XXXXXX)
   if [[ "$scenario" == 'perf' && -n "$private_fixture" ]]; then
-    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" CC_FIXTURE_LONG_SESSION_PATH="$private_fixture" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" CC_FIXTURE_LONG_SESSION_PATH="$private_fixture" node "$CONTROLLER_ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
   elif [[ "$scenario" == 'perf' ]]; then
-    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" node "$ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" CC_PERF_MODE="$mode" node "$CONTROLLER_ROOT/scripts/fixture-daemon.mjs" --scenario perf --mode "$mode" --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
   else
-    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
+    CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$CONTROLLER_ROOT/scripts/fixture-daemon.mjs" --scenario default --out "$FIXTURE_OUT" --relay >"$FIXTURE_LOG" 2>&1 &
   fi
   STARTED_DAEMON=$!
   for _ in {1..100}; do [[ -s "$FIXTURE_OUT" ]] && break; sleep 0.1; done
@@ -453,7 +488,7 @@ start_fixture_daemon() {
   fi
 
   FIXTURE_SECOND_OUT=$(mktemp -t cc-controller-fixture-mustafar.XXXXXX)
-  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-daemon.mjs" \
+  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$CONTROLLER_ROOT/scripts/fixture-daemon.mjs" \
     --scenario default --session-set mustafar --controller-id mustafar --controller-name Mustafar \
     --controller-kind stockade --out "$FIXTURE_SECOND_OUT" \
     >"$FIXTURE_LOG.mustafar" 2>&1 &
@@ -475,7 +510,7 @@ start_fixture_supervisor() {
   FIXTURE_LOG=$1
   FIXTURE_OUT=$(mktemp -t cc-controller-fixture-supervisor.XXXXXX)
   FIXTURE_SECOND_OUT=$(mktemp -t cc-controller-fixture-supervisor-mustafar.XXXXXX)
-  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$ROOT/scripts/fixture-supervisor.mjs" \
+  CC_FIXTURE_SIM_UDID="$FIXTURE_SIM_UDID" node "$CONTROLLER_ROOT/scripts/fixture-supervisor.mjs" \
     --out "$FIXTURE_OUT" --second-out "$FIXTURE_SECOND_OUT" --log "$FIXTURE_LOG" \
     --simulator "$FIXTURE_SIM_UDID" >"$FIXTURE_LOG.supervisor" 2>&1 &
   STARTED_DAEMON=$!
@@ -718,8 +753,8 @@ ensure_pool_device() {
 reset_flow_state() {
   local udid=$1
   xcrun simctl keychain "$udid" reset
-  xcrun simctl privacy "$udid" reset all com.example.cc-controller
-  xcrun simctl uninstall "$udid" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl privacy "$udid" reset all "$BUNDLE_ID"
+  xcrun simctl uninstall "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   xcrun simctl spawn "$udid" notifyutil -s com.apple.BiometricKit.enrollmentChanged 1
   xcrun simctl spawn "$udid" notifyutil -p com.apple.BiometricKit.enrollmentChanged
 }
@@ -831,7 +866,7 @@ cleanup_run() {
     REAL_PERF_COMMAND_PID=""
   fi
   if [[ -n "$REAL_PERF_UDID" ]]; then
-    xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+    xcrun simctl terminate "$REAL_PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   fi
   for sample_pid in "${PERF_SAMPLE_PIDS[@]:-}"; do
     [[ -z "$sample_pid" ]] || { kill "$sample_pid" 2>/dev/null || true; wait "$sample_pid" 2>/dev/null || true; }
@@ -847,7 +882,7 @@ cleanup_run() {
       cp "$FIXTURE_LOG.mustafar" "$DIAG_DIR/fixture-daemon-mustafar.log" 2>/dev/null || true
     fi
     while read -r udid; do
-      [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate 'subsystem == "com.example.cc-controller"' > "$DIAG_DIR/app-$udid.log" 2>&1 || true
+      [[ -z "$udid" ]] || xcrun simctl spawn "$udid" log show --last 10m --style compact --predicate "subsystem == \"$BUNDLE_ID\"" > "$DIAG_DIR/app-$udid.log" 2>&1 || true
     done < <(pool_booted_udids)
     mkdir -p "$DIAG_DIR/attachments"
     for result in "$IOS"/build/*.xcresult; do
@@ -911,7 +946,7 @@ cleanup_on_exit() {
   fi
   cleanup_run "$status" || true
   if (( REAL_SCRATCH_STARTED )); then
-    if ! "$ROOT/scripts/perf-scratch-session.sh" stop; then
+    if ! "$CONTROLLER_ROOT/scripts/perf-scratch-session.sh" stop; then
       printf '%s\n' 'perf-real scratch session cleanup failed' >&2
       status=1
     fi
@@ -1835,7 +1870,7 @@ cmd_motion() {
       stop_motion_video
       sleep 1
       stop_fixture_daemon
-      container=$(xcrun simctl get_app_container "$MOTION_UDID" com.example.cc-controller data)
+      container=$(xcrun simctl get_app_container "$MOTION_UDID" "$BUNDLE_ID" data)
       trace_source=$(find "$container" -type f -name "$trace_name" -print -quit)
       if [[ -n "$trace_source" && -f "$trace_source" ]]; then
         cp "$trace_source" "$run_dir/$trace_name"
@@ -1844,8 +1879,8 @@ cmd_motion() {
         case_status=1
       fi
       trace_path="$run_dir/$trace_name"
-      if [[ -f "$trace_path" && -f "$ROOT/scripts/motion/analyze.js" ]]; then
-        if ! node "$ROOT/scripts/motion/analyze.js" "$trace_path" --json "$run_dir/$run.analysis.json" >"$run_dir/$run.analysis.stdout" 2>&1; then
+      if [[ -f "$trace_path" && -f "$CONTROLLER_ROOT/scripts/motion/analyze.js" ]]; then
+        if ! node "$CONTROLLER_ROOT/scripts/motion/analyze.js" "$trace_path" --json "$run_dir/$run.analysis.json" >"$run_dir/$run.analysis.stdout" 2>&1; then
           printf 'motion analyzer did not pass for %s; see %s\n' "$run" "$run_dir/$run.analysis.stdout" >&2
         fi
       fi
@@ -2004,7 +2039,7 @@ real_authenticate() {
 
 real_select_sessions() {
   local status_file=$1 output_file=$2 sessions_count=$3 skip_file=${4:-}
-  node "$ROOT/scripts/real-smoke-selection.mjs" "$status_file" "$output_file" "$sessions_count" "$skip_file"
+  node "$CONTROLLER_ROOT/scripts/real-smoke-selection.mjs" "$status_file" "$output_file" "$sessions_count" "$skip_file"
 }
 
 cmd_real_smoke() {
@@ -2337,7 +2372,7 @@ perf_host_pid() {
     return 0
   fi
   if [[ "$target" == 'daemon' ]]; then
-    launchctl list 2>/dev/null | awk '$3 == "com.example.cc-controller" && $1 ~ /^[0-9]+$/ { print $1; exit }' || true
+    launchctl list 2>/dev/null | awk -v label="$DAEMON_LABEL" '$3 == label && $1 ~ /^[0-9]+$/ { print $1; exit }' || true
     return 0
   fi
   ps -axo pid=,command= | awk -v target="$target" '$0 ~ target { print $1; exit }' || true
@@ -2378,11 +2413,11 @@ perf_run_case() {
   web_port=$(json_value "$FIXTURE_OUT" webPort)
   bearer=$(json_value "$FIXTURE_OUT" bearer)
 
-  xcrun simctl terminate "$PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
-  xcrun simctl uninstall "$PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl terminate "$PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$PERF_UDID" "$app_bundle"
   local launch_output host_app_pid
-  launch_output=$(SIMCTL_CHILD_CCBearer="$bearer" SIMCTL_CHILD_CC_PERF_SCENARIO="$label" xcrun simctl launch "$PERF_UDID" com.example.cc-controller \
+  launch_output=$(SIMCTL_CHILD_CCBearer="$bearer" SIMCTL_CHILD_CC_PERF_SCENARIO="$label" xcrun simctl launch "$PERF_UDID" "$BUNDLE_ID" \
     -CCServer "http://127.0.0.1:$web_port" \
     -CCSession long-session \
     -CCColorScheme light)
@@ -2452,9 +2487,9 @@ raise SystemExit(0 if float(sys.argv[1]) > 0 else 1)
 PY
   then rendering=true; fi
 
-  xcrun simctl terminate "$PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl terminate "$PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   local container counter_file
-  container=$(xcrun simctl get_app_container "$PERF_UDID" com.example.cc-controller data)
+  container=$(xcrun simctl get_app_container "$PERF_UDID" "$BUNDLE_ID" data)
   counter_file="$container/Library/cc-perf.json"
   local json_file="$case_dir/result.json"
   PERF_LABEL="$label" PERF_RUN_NUMBER="$PERF_RUN_NUMBER" PERF_MODE="$mode" PERF_DURATION="$duration" PERF_WALL="$wall" PERF_APP_CPU="$app_cpu" PERF_RENDER_CPU="$render_cpu" PERF_PEAK_RSS="$peak_rss" PERF_RENDERING="$rendering" PERF_COUNTER_FILE="$counter_file" PERF_JSON_FILE="$json_file" python3 - <<'PY'
@@ -2795,7 +2830,7 @@ real_start_scratch() {
     return 1
   fi
   REAL_SCRATCH_STARTED=1
-  if ! output=$("$ROOT/scripts/perf-scratch-session.sh" start); then
+  if ! output=$("$CONTROLLER_ROOT/scripts/perf-scratch-session.sh" start); then
     REAL_SCRATCH_STARTED=0
     printf '%s\n' 'real perf turn: scratch session start failed' >&2
     return 1
@@ -2889,11 +2924,11 @@ real_perf_launch_app() {
   [[ -z "$selected_id" ]] || launch_args+=( -CCSession "$selected_id" )
   launch_args+=( -CCColorScheme light )
   bearer=$(<"$REAL_BEARER_FILE")
-  xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
-  xcrun simctl uninstall "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+  xcrun simctl terminate "$REAL_PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$REAL_PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$REAL_PERF_UDID" "$app_bundle"
   launch_output=$(SIMCTL_CHILD_CCBearer="$bearer" SIMCTL_CHILD_CC_PERF_SCENARIO="real-$phase" \
-    xcrun simctl launch "$REAL_PERF_UDID" com.example.cc-controller "${launch_args[@]}")
+    xcrun simctl launch "$REAL_PERF_UDID" "$BUNDLE_ID" "${launch_args[@]}")
   PERF_HOST_APP_PID=$(printf '%s\n' "$launch_output" | awk -F': ' 'NF == 2 && $2 ~ /^[0-9]+$/ { print $2; exit }')
   [[ "$PERF_HOST_APP_PID" =~ ^[0-9]+$ ]] || { printf 'real perf %s app did not launch\n' "$phase" >&2; return 1; }
   app_pid=''
@@ -2989,7 +3024,7 @@ PY
   REAL_PERF_RENDER_CPU=$(real_cpu_or_null "$before_render_cpu" "$after_render_cpu" "$wall")
   REAL_PERF_DAEMON_CPU=$(real_cpu_or_null "$before_daemon_cpu" "$after_daemon_cpu" "$wall")
   REAL_PERF_PEAK_RSS=$(perf_peak_rss "$samples")
-  container=$(xcrun simctl get_app_container "$REAL_PERF_UDID" com.example.cc-controller data)
+  container=$(xcrun simctl get_app_container "$REAL_PERF_UDID" "$BUNDLE_ID" data)
   counter_file="$container/Library/cc-perf.json"
   real_summarize_events "$raw_events" "$phase_dir/events-summary.json" "$wall"
   if ! real_write_cpu_timeline "$samples" "$phase_dir/cpu-timeline.json"; then
@@ -3031,7 +3066,7 @@ real_perf_finish_phase() {
   local phase_dir="$REAL_OUTPUT_DIR/$phase" bearer
   bearer=$(<"$REAL_BEARER_FILE")
   if [[ "$terminate" == 1 ]]; then
-    xcrun simctl terminate "$REAL_PERF_UDID" com.example.cc-controller >/dev/null 2>&1 || true
+    xcrun simctl terminate "$REAL_PERF_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
   fi
   if ! node "$(main_checkout)/src/cli.js" status >"$REAL_SECRET_DIR/status-after-$phase.json"; then
     printf 'real perf %s failed to read status after phase\n' "$phase" >&2
@@ -3103,7 +3138,7 @@ NODE
   }
   before_count=$(real_state_entry_count "$before_state" "$REAL_SCRATCH_SESSION_ID") || return 1
   printf '%s\n' "$before_count" > "$phase_dir/entry-count-before.txt"
-  prompt=$("$ROOT/scripts/perf-scratch-session.sh" prompt)
+  prompt=$("$CONTROLLER_ROOT/scripts/perf-scratch-session.sh" prompt)
   printf '%s' "$prompt" > "$REAL_SECRET_DIR/turn-prompt.txt"
   node - -- "$REAL_SECRET_DIR/turn-prompt.txt" "$body_file" <<'NODE'
 const fs = require('node:fs');
@@ -3121,7 +3156,7 @@ NODE
   fi
   cp "$send_file" "$phase_dir/send.json"
   chmod 600 "$phase_dir/send.json"
-  "$ROOT/scripts/perf-scratch-session.sh" wait-idle 300 > "$raw_phase_dir/wait-idle.log" 2>&1 || wait_status=$?
+  "$CONTROLLER_ROOT/scripts/perf-scratch-session.sh" wait-idle 300 > "$raw_phase_dir/wait-idle.log" 2>&1 || wait_status=$?
   real_state_request "$after_state" || return 1
   after_count=$(real_state_entry_count "$after_state" "$REAL_SCRATCH_SESSION_ID") || return 1
   printf '%s\n' "$after_count" > "$phase_dir/entry-count-after.txt"
@@ -3187,7 +3222,7 @@ real_perf_run_turn() {
     phase_status=1
   fi
   real_perf_finish_phase turn-after 1 || phase_status=1
-  if ! "$ROOT/scripts/perf-scratch-session.sh" stop; then
+  if ! "$CONTROLLER_ROOT/scripts/perf-scratch-session.sh" stop; then
     printf '%s\n' 'real perf turn: scratch session stop failed' >&2
     phase_status=1
   fi

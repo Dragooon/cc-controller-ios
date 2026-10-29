@@ -146,7 +146,7 @@ import OSLog
 import Security
 
 private let credentialMigrationLogger = Logger(
-    subsystem: "com.example.cc-controller",
+    subsystem: Bundle.main.bundleIdentifier ?? "cc-controller",
     category: "credential-migration"
 )
 

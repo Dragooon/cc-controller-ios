@@ -120,7 +120,7 @@ struct ComposerView: View, Equatable {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var pickedFeedbackCount = 0
     @State private var restoreFocus = false
-    private let focusLogger = Logger(subsystem: "com.example.cc-controller", category: "composer")
+    private let focusLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "composer")
     @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
     @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
 

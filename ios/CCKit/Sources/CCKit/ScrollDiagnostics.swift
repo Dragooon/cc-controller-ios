@@ -233,7 +233,7 @@ public actor ScrollDiagnosticsFileStore {
 
 @MainActor
 public final class ScrollDiagnosticsRecorder {
-    private static let logger = Logger(subsystem: "com.example.cc-controller", category: "scroll-guard")
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "scroll-guard")
     private static let timestampFormatter = ISO8601DateFormatter()
 
     private let fileStore: ScrollDiagnosticsFileStore

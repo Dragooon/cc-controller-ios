@@ -29,7 +29,7 @@ final class MotionTrace: NSObject {
     private var displayLink: CADisplayLink?
     private var displayLinkTarget: DisplayLinkTarget?
     private var flushTimer: Timer?
-    private let writeQueue = DispatchQueue(label: "com.example.cc-controller.motion-trace", qos: .utility)
+    private let writeQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier ?? "cc-controller").motion-trace", qos: .utility)
     private let fileURL: URL?
     private var pendingLines: [String] = []
     private var lastTimestamp: CFTimeInterval?

@@ -8,7 +8,7 @@ import os
 import UserNotifications
 
 private let authLogger = Logger(
-    subsystem: "com.example.cc-controller",
+    subsystem: Bundle.main.bundleIdentifier ?? "cc-controller",
     category: "auth"
 )
 

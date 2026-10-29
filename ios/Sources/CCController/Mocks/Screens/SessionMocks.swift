@@ -341,7 +341,7 @@ enum MockSessionData {
         toolUseId: "tool-detail-edit",
         tool: "Edit",
         args: .object([
-            "file_path": .string("/Users/owner/Documents/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift"),
+            "file_path": .string("/Users/sam/dev/cc-controller/ios/Sources/CCController/Session/SessionTranscriptView.swift"),
             "old_string": .string("let status = \\\"loading\\\"\\nText(status)"),
             "new_string": .string("let status = \\\"ready\\\"\\nText(status).foregroundStyle(.ccGreen)")
         ]),

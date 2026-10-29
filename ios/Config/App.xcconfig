@@ -1,0 +1,8 @@
+// App build settings. Owner-specific values (bundle ID, relay endpoints) go in
+// App.local.xcconfig next to this file, which git ignores. Example:
+//   CC_BUNDLE_ID = com.yourname.cc-controller
+//   CC_RELAY_ENDPOINTS = https:/$()/192.0.2.10:47833 https:/$()/100.64.0.10:47833
+CC_BUNDLE_ID = com.example.cc-controller
+CC_RELAY_ENDPOINTS =
+
+#include? "App.local.xcconfig"

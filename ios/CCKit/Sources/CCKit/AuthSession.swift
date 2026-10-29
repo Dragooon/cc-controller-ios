@@ -3,7 +3,7 @@ import Observation
 import OSLog
 
 private let authSessionLogger = Logger(
-    subsystem: "com.example.cc-controller",
+    subsystem: Bundle.main.bundleIdentifier ?? "cc-controller",
     category: "auth"
 )
 

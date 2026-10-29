@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-private let transcriptLogger = Logger(subsystem: "com.example.cc-controller", category: "transcript")
+private let transcriptLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "transcript")
 
 public struct Paste: Codable, Sendable, Equatable { public var lines: Int?; public var text: String?; public init(lines: Int? = nil, text: String? = nil) { self.lines = lines; self.text = text } }
 

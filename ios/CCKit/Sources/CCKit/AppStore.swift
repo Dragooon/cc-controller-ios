@@ -3,7 +3,7 @@ import Observation
 import OSLog
 
 #if DEBUG
-private let appLogger = Logger(subsystem: "com.example.cc-controller", category: "app")
+private let appLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "app")
 #endif
 
 private func subagentIdentity(_ value: Subagent) -> String? {

@@ -1604,7 +1604,7 @@ private struct TranscriptMountReader: UIViewRepresentable {
 
 #if DEBUG
 private let transcriptLogger = Logger(
-    subsystem: "com.example.cc-controller",
+    subsystem: Bundle.main.bundleIdentifier ?? "cc-controller",
     category: "transcript"
 )
 
