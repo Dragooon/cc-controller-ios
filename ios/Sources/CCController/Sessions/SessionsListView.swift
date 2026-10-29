@@ -315,7 +315,7 @@ struct SessionsListView: View {
                 GeometryReader { proxy in
                     list
                         .safeAreaInset(edge: .top, spacing: 0) {
-                            regularHeader(topInset: regularHeaderTopInset)
+                            regularHeader(topInset: max(0, regularHeaderTopInset - proxy.safeAreaInsets.top))
                         }
                         .safeAreaInset(edge: .bottom, spacing: 0) {
                             bottomInset
