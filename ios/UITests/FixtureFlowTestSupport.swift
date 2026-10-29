@@ -23,6 +23,19 @@ func transcriptScroll(in app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: "transcript-scroll").firstMatch
 }
 
+/// The collection transcript builds rows only on or near the screen, so an older row has to be scrolled to.
+@discardableResult
+func revealInTranscript(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
+    let scroll = transcriptScroll(in: app)
+    guard scroll.waitForExistence(timeout: 15) else { return false }
+    if element.waitForExistence(timeout: 3) { return true }
+    for _ in 0..<maxSwipes {
+        scroll.swipeDown()
+        if element.waitForExistence(timeout: 1) { return true }
+    }
+    return false
+}
+
 /// Dismisses a notification prompt left on SpringBoard by an earlier test or another simulator lane.
 /// An app launched under that prompt never becomes active, so it never connects, and a test that only waits
 /// for elements never triggers XCTest's interruption handling.
