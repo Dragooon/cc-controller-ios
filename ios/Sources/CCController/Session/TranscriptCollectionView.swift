@@ -36,6 +36,7 @@ final class TranscriptCollectionView: UICollectionView {
     var isAnimatingJump = false
     private var didRegisterTraitChanges = false
     private var previousBoundsHeight: CGFloat?
+    private var pinnedOffsetAnimationCounter = 0
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -104,12 +105,15 @@ final class TranscriptCollectionView: UICollectionView {
             offsetAnimation.toValue = NSValue(cgPoint: .zero)
             offsetAnimation.isAdditive = true
             let currentMediaTime = CACurrentMediaTime()
-            layer.add(offsetAnimation, forKey: "cc-pinned-offset")
+            pinnedOffsetAnimationCounter += 1
+            let animationKey = "cc-pinned-offset-\(pinnedOffsetAnimationCounter)"
+            layer.add(offsetAnimation, forKey: animationKey)
             #if DEBUG
             MotionTrace.shared.recordEvent("pin", data: [
                 "before": before,
                 "after": target.y,
                 "reason": "keyboardOffsetAnimation",
+                "key": animationKey,
                 "copiedClass": String(describing: type(of: offsetAnimation)),
                 "beginTime": offsetAnimation.beginTime,
                 "currentMediaTime": currentMediaTime,
