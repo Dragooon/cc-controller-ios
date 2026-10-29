@@ -676,7 +676,7 @@ final class AppModel {
         onboarding.markConnectionChecking()
         connectionPathTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await _ in self.transport.pathChanges {
+            for await _ in self.transport.pathChangeEvents() {
                 guard self.phase == .onboarding, self.onboardingStep == .connect else { return }
                 self.connectionNoticePolicy.beginGracePeriod()
             }

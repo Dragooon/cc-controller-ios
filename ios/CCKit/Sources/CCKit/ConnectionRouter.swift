@@ -26,7 +26,6 @@ public enum ConnectionRouterError: Error, Sendable, Equatable, LocalizedError {
 /// Owns the transport selected for the daemon API and event stream.
 public final class ConnectionRouter: @unchecked Sendable {
     public let mode: Mode
-    public nonisolated let pathChanges: AsyncStream<Void>
 
     public enum Mode: Sendable, Equatable {
         case direct
@@ -36,8 +35,8 @@ public final class ConnectionRouter: @unchecked Sendable {
     private let directURL: URL?
     private let directSession: URLSession?
     private let pinLoader: (@Sendable () async -> RelayPin?)?
-    private let pathChangeContinuation: AsyncStream<Void>.Continuation
     private let lock = NSLock()
+    private var pathSubscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private var endpoints: [URL]
     private var relaySession: RelaySession?
     private var selector: RelayEndpointSelector?
@@ -53,15 +52,26 @@ public final class ConnectionRouter: @unchecked Sendable {
         return body()
     }
 
+    public func pathChangeEvents() -> AsyncStream<Void> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            continuation.onTermination = { [weak self] _ in
+                self?.removePathSubscriber(id)
+            }
+            self.withLock { self.pathSubscribers[id] = continuation }
+        }
+    }
+
+    private func removePathSubscriber(_ id: UUID) {
+        withLock { pathSubscribers.removeValue(forKey: id) }
+    }
+
     public init(baseURL: URL, session: URLSession = .shared) {
-        var pathChangeContinuation: AsyncStream<Void>.Continuation!
-        pathChanges = AsyncStream { pathChangeContinuation = $0 }
         mode = .direct
         endpoints = [baseURL]
         directURL = baseURL
         directSession = session
         pinLoader = nil
-        self.pathChangeContinuation = pathChangeContinuation
         pinResolved = true
         startPathMonitor()
     }
@@ -71,14 +81,11 @@ public final class ConnectionRouter: @unchecked Sendable {
         pin: RelayPin? = nil,
         pinLoader: (@Sendable () async -> RelayPin?)? = nil
     ) {
-        var pathChangeContinuation: AsyncStream<Void>.Continuation!
-        pathChanges = AsyncStream { pathChangeContinuation = $0 }
         mode = .relay
         self.endpoints = endpoints
         directURL = nil
         directSession = nil
         self.pinLoader = pinLoader
-        self.pathChangeContinuation = pathChangeContinuation
         resolvedPin = pin
         pinResolved = pin != nil || pinLoader == nil
         let relay = RelaySessionFactory.make(
@@ -92,7 +99,12 @@ public final class ConnectionRouter: @unchecked Sendable {
 
     deinit {
         pathMonitor?.cancel()
-        pathChangeContinuation.finish()
+        let subscribers = withLock {
+            let current = Array(pathSubscribers.values)
+            pathSubscribers.removeAll()
+            return current
+        }
+        subscribers.forEach { $0.finish() }
     }
 
     public var configuredEndpoints: [URL] {
@@ -223,12 +235,20 @@ public final class ConnectionRouter: @unchecked Sendable {
         oldSession?.finishTasksAndInvalidate()
     }
 
+    internal func emitPathChangeForTesting() {
+        emitPathChange()
+    }
+
+    private func emitPathChange() {
+        invalidate()
+        let subscribers = withLock { Array(pathSubscribers.values) }
+        subscribers.forEach { $0.yield() }
+    }
+
     private func startPathMonitor() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] _ in
-            guard let self else { return }
-            self.invalidate()
-            self.pathChangeContinuation.yield()
+            self?.emitPathChange()
         }
         monitor.start(queue: DispatchQueue(label: "com.cc-controller.connection-path"))
         pathMonitor = monitor

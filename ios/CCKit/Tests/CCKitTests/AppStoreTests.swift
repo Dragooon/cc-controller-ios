@@ -31,6 +31,107 @@ final class AppStoreTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
     }
 
+    func testBootstrapFailureRetriesWithinGraceAndBecomesLive() async throws {
+        let clock = BootstrapClock()
+        var bootstrapCalls = 0
+        URLProtocolStub.requestFailure = { request in
+            guard request.url?.path == "/api/bootstrap" else { return nil }
+            bootstrapCalls += 1
+            return bootstrapCalls == 1 ? .cannotConnectToHost : nil
+        }
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" {
+                let body = "event: state\ndata: {\"sessions\":[],\"entries\":{}}\n\n"
+                return URLProtocolStub.json(Data(body.utf8), contentType: "text/event-stream")
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        URLProtocolStub.keepEvents = true
+        defer {
+            URLProtocolStub.requestFailure = nil
+            URLProtocolStub.keepEvents = false
+        }
+        let app = AppStore(
+            serverURL: URL(string: "http://localhost:47832")!,
+            bearerProvider: { "test-token" },
+            session: URLProtocolStub.session,
+            clock: clock,
+            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+        app.start()
+        try await waitUntil { bootstrapCalls == 1 && clock.sleepDurations.contains(.milliseconds(500)) }
+        clock.advance(by: 0.5)
+        try await waitUntil("second bootstrap") { bootstrapCalls == 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil("live connection") {
+            if case .live = app.connection { return true }
+            return false
+        }
+        XCTAssertEqual(bootstrapCalls, 2)
+        if case .offline = app.connection { XCTFail("Transient bootstrap failure became offline") }
+        app.suspend()
+    }
+
+    func testBootstrapFailuresShowOfflineAtEightSecondsAndKeepRetrying() async throws {
+        let clock = BootstrapClock()
+        var bootstrapCalls = 0
+        URLProtocolStub.requestFailure = { request in
+            guard request.url?.path == "/api/bootstrap" else { return nil }
+            bootstrapCalls += 1
+            return .cannotConnectToHost
+        }
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(Data("{}".utf8)) }
+        defer { URLProtocolStub.requestFailure = nil }
+        let app = AppStore(
+            serverURL: URL(string: "http://localhost:47832")!,
+            bearerProvider: { "test-token" },
+            session: URLProtocolStub.session,
+            clock: clock,
+            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+        app.start()
+        try await waitUntil { bootstrapCalls == 1 && clock.sleepDurations.contains(.milliseconds(500)) }
+        for delay in [0.5, 1.0, 2.0, 4.0] {
+            clock.advance(by: delay)
+            try await waitUntil { bootstrapCalls >= 1 + [0.5, 1.0, 2.0, 4.0].prefix(while: { $0 <= delay }).count }
+        }
+        clock.advance(by: 0.5)
+        try await waitUntil {
+            if case .offline = app.connection { return true }
+            return false
+        }
+        let callsWhenOffline = bootstrapCalls
+        clock.advance(by: 8)
+        try await waitUntil { bootstrapCalls > callsWhenOffline }
+        app.suspend()
+    }
+
+    func testSuspendingCancelsPendingBootstrapRetry() async throws {
+        let clock = BootstrapClock()
+        var bootstrapCalls = 0
+        URLProtocolStub.requestFailure = { request in
+            guard request.url?.path == "/api/bootstrap" else { return nil }
+            bootstrapCalls += 1
+            return .cannotConnectToHost
+        }
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(Data("{}".utf8)) }
+        defer { URLProtocolStub.requestFailure = nil }
+        let app = AppStore(
+            serverURL: URL(string: "http://localhost:47832")!,
+            bearerProvider: { "test-token" },
+            session: URLProtocolStub.session,
+            clock: clock,
+            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+        app.start()
+        try await waitUntil { bootstrapCalls == 1 && clock.sleepDurations.contains(.milliseconds(500)) }
+        app.suspend()
+        clock.advance(by: 1)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(bootstrapCalls, 1)
+    }
+
     func testReconnectBackoffSequenceUsesInjectedClock() async throws {
         URLProtocolStub.handler = { _ in URLProtocolStub.json(500, body: Data("{}".utf8)) }
         let clock = RecordingClock()
@@ -1349,12 +1450,12 @@ final class AppStoreTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(300))
     }
 
-    private func waitUntil(_ predicate: @escaping () -> Bool) async throws {
+    private func waitUntil(_ message: String = "app state", _ predicate: @escaping () -> Bool) async throws {
         for _ in 0..<50 {
             if predicate() { return }
             try await Task.sleep(for: .milliseconds(20))
         }
-        XCTFail("Timed out waiting for app state")
+        XCTFail("Timed out waiting for \(message)")
     }
 
     private func makeApp() -> AppStore {
@@ -1443,6 +1544,43 @@ private final class ManualClock: CCKitClock, @unchecked Sendable {
     }
 }
 
+private final class BootstrapClock: CCKitClock, @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_800_000_000)
+    private var waiters: [CheckedContinuation<Void, Error>] = []
+    private var durations: [Duration] = []
+
+    var now: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
+    var sleepDurations: [Duration] {
+        lock.lock()
+        defer { lock.unlock() }
+        return durations
+    }
+
+    func sleep(for duration: Duration) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            durations.append(duration)
+            waiters.append(continuation)
+            lock.unlock()
+        }
+    }
+
+    func advance(by seconds: TimeInterval) {
+        lock.lock()
+        current = current.addingTimeInterval(seconds)
+        let currentWaiters = waiters
+        waiters.removeAll()
+        lock.unlock()
+        currentWaiters.forEach { $0.resume() }
+    }
+}
+
 private actor RecordingClock: CCKitClock {
     nonisolated let now = Date(timeIntervalSince1970: 1)
     private var recorded: [Duration] = []
@@ -1457,6 +1595,7 @@ private actor RecordingClock: CCKitClock {
 
 private final class URLProtocolStub: URLProtocol {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (HTTPURLResponse, Data))?
+    nonisolated(unsafe) static var requestFailure: ((URLRequest) -> URLError.Code?)?
     nonisolated(unsafe) static var keepEvents = false
     nonisolated(unsafe) static var requestPaths: [String] = []
     static let session: URLSession = {
@@ -1468,6 +1607,10 @@ private final class URLProtocolStub: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        if let code = Self.requestFailure?(request) {
+            client?.urlProtocol(self, didFailWithError: URLError(code))
+            return
+        }
         guard let handler = Self.handler else { fatalError("No URLProtocol handler") }
         Self.requestPaths.append(request.url?.path ?? "")
         let (response, data) = handler(request)

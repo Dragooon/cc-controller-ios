@@ -68,6 +68,8 @@ public final class AppStore {
     @ObservationIgnored private var lifecycleTask: Task<Void, Never>?
     @ObservationIgnored private var pathTask: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored private var bootstrapRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var bootstrapRetryAttempt = 0
     @ObservationIgnored private var noticePolicy: ConnectionNoticePolicy
     @ObservationIgnored private var started = false
     @ObservationIgnored private var latestBootstrap: Bootstrap?
@@ -168,7 +170,7 @@ public final class AppStore {
         connection = .connecting
         pathTask = Task { [weak self] in
             guard let self else { return }
-            for await _ in self.transport.pathChanges {
+            for await _ in self.transport.pathChangeEvents() {
                 guard self.started else { continue }
                 self.handleNetworkPathChange()
             }
@@ -202,6 +204,9 @@ public final class AppStore {
         pathTask = nil
         noticeTask?.cancel()
         noticeTask = nil
+        bootstrapRetryTask?.cancel()
+        bootstrapRetryTask = nil
+        bootstrapRetryAttempt = 0
         eventTask?.cancel()
         statusTask?.cancel()
         unknownTask?.cancel()
@@ -1212,10 +1217,18 @@ public final class AppStore {
     private func connectInitially() async {
         await loadCache()
         guard started else { return }
+        await attemptBootstrapConnection()
+    }
+
+    private func attemptBootstrapConnection() async {
+        guard started else { return }
         do {
             try await authenticate()
             try await bootstrapAndReconcile(resetTranscripts: false)
             guard started else { return }
+            bootstrapRetryTask?.cancel()
+            bootstrapRetryTask = nil
+            bootstrapRetryAttempt = 0
             openEventStream()
         } catch {
             handleConnectionError(error)
@@ -1299,6 +1312,24 @@ public final class AppStore {
             noticeTask?.cancel()
             noticeTask = nil
             connection = .offline(lastUpdated: lastUpdated, error: error)
+        }
+    }
+
+    private func scheduleBootstrapRetry() {
+        guard started, bootstrapRetryTask == nil else { return }
+        bootstrapRetryAttempt += 1
+        let delay = ConnectionBackoff.seconds(attempt: bootstrapRetryAttempt)
+        let nanoseconds = Int64(delay * 1_000_000_000)
+        bootstrapRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: .nanoseconds(nanoseconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, self.started else { return }
+            self.bootstrapRetryTask = nil
+            await self.attemptBootstrapConnection()
         }
     }
 
@@ -1819,17 +1850,28 @@ public final class AppStore {
         if let apiError = error as? APIError, apiError == .unauthorized {
             connection = .unauthorized
             started = false
+            bootstrapRetryTask?.cancel()
+            bootstrapRetryTask = nil
+            bootstrapRetryAttempt = 0
             return
         }
         switch connectionState(for: error) {
         case .offlineUnreadable(let lastUpdated, let message):
             connection = .offlineUnreadable(lastUpdated: lastUpdated, error: message)
+            started = false
+            bootstrapRetryTask?.cancel()
+            bootstrapRetryTask = nil
+            bootstrapRetryAttempt = 0
         case .offline(_, let message):
             applyFailure(error: message)
+            scheduleBootstrapRetry()
         default:
             connection = connectionState(for: error)
+            started = false
+            bootstrapRetryTask?.cancel()
+            bootstrapRetryTask = nil
+            bootstrapRetryAttempt = 0
         }
-        started = false
     }
 
     private func storeKey(sessionID: String, agentID: String?) -> String {
