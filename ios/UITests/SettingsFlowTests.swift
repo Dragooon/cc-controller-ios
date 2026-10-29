@@ -112,10 +112,10 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         openSettings(app)
         app.buttons["Lock now"].tap()
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Lock now did not show the lock screen")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 10), "Lock now did not show the lock screen")
         XCTAssertFalse(app.staticTexts["Sessions"].exists, "Sessions remained visible after Lock now")
         let unlockButton = app.buttons["Unlock with Face ID"]
-        XCTAssertTrue(unlockButton.waitForExistence(timeout: 10), "Lock screen unlock button did not appear")
+        XCTAssertTrue(unlockButton.waitToExist(timeout: 10), "Lock screen unlock button did not appear")
         XCTAssertEqual(unlockButton.value as? String, "idle", "Lock now unexpectedly started Face ID")
         addScreenshot(named: "settings-lock-now")
 
@@ -139,9 +139,9 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
 
         openSettings(app)
         let picker = element(app, "settings-lock-interval")
-        XCTAssertTrue(picker.waitForExistence(timeout: 10), "Lock interval picker did not appear")
+        XCTAssertTrue(picker.waitToExist(timeout: 10), "Lock interval picker did not appear")
         picker.tap()
-        XCTAssertTrue(app.buttons["Immediately"].waitForExistence(timeout: 5), "Immediately option did not appear")
+        XCTAssertTrue(app.buttons["Immediately"].waitToExist(timeout: 5), "Immediately option did not appear")
         app.buttons["Immediately"].tap()
         try await expectValue(app, "settings-lock-interval", equals: "Immediately")
         app.buttons["Done"].tap()
@@ -151,7 +151,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(1))
         app.activate()
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Immediate interval did not lock after backgrounding")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 10), "Immediate interval did not lock after backgrounding")
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after interval lock")
 
         openSettings(app)
@@ -159,7 +159,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
 
         let persistedPicker = element(app, "settings-lock-interval")
         persistedPicker.tap()
-        XCTAssertTrue(app.buttons["After 1 hour"].waitForExistence(timeout: 5), "After 1 hour option did not appear")
+        XCTAssertTrue(app.buttons["After 1 hour"].waitToExist(timeout: 5), "After 1 hour option did not appear")
         app.buttons["After 1 hour"].tap()
         try await expectValue(app, "settings-lock-interval", equals: "After 1 hour")
         app.buttons["Done"].tap()
@@ -182,7 +182,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         try await expectValue(app, "settings-address", equals: "127.0.0.1:1")
         try await expectValue(app, "settings-latency", equals: "Unreachable")
         let help = element(app, "settings-unreachable-help")
-        XCTAssertTrue(help.waitForExistence(timeout: 10), "Unreachable guidance did not appear")
+        XCTAssertTrue(help.waitToExist(timeout: 10), "Unreachable guidance did not appear")
         XCTAssertEqual(help.label, "Code can't reach 127.0.0.1:1. Check that Termius is forwarding 127.0.0.1:1 and the Mac is awake.")
 
         element(app, "settings-test-connection").tap()
@@ -229,7 +229,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(5))
         app.activate()
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 10), "Foreground interval did not lock the app")
         try await expectNoProbes(for: .seconds(4), "while the app was locked")
         try await completeFaceID(
             app,
@@ -242,18 +242,18 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         let unpair = element(app, "settings-unpair")
         reveal(unpair, in: app)
         unpair.tap()
-        XCTAssertTrue(app.staticTexts["Unpair this iPhone?"].waitForExistence(timeout: 5), "Unpair did not ask for confirmation")
+        XCTAssertTrue(app.staticTexts["Unpair this iPhone?"].waitToExist(timeout: 5), "Unpair did not ask for confirmation")
         let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Unpair this iPhone", "settings-unpair")).firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Confirmation had no Unpair button")
+        XCTAssertTrue(confirm.waitToExist(timeout: 5), "Confirmation had no Unpair button")
         confirm.tap()
-        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 20), "Unpair did not return to onboarding")
+        XCTAssertTrue(app.buttons["Get started"].waitToExist(timeout: 20), "Unpair did not return to onboarding")
         let logouts = try await requestCount("POST /api/auth/logout 200")
         XCTAssertEqual(logouts, 1, "Unpair did not log out on the daemon")
         addScreenshot(named: "settings-unpaired-welcome")
 
         app.terminate()
         app = launchCold()
-        XCTAssertTrue(app.buttons["Get started"].waitForExistence(timeout: 15), "Cold launch after unpair did not show onboarding")
+        XCTAssertTrue(app.buttons["Get started"].waitToExist(timeout: 15), "Cold launch after unpair did not show onboarding")
         try await Task.sleep(for: .seconds(3))
         XCTAssertFalse(app.staticTexts["Code is locked"].exists, "Cold launch after unpair found Keychain credentials")
         XCTAssertTrue(app.buttons["Get started"].exists)
@@ -277,9 +277,9 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
 
     private func openSettings(_ app: XCUIApplication) {
         let button = app.buttons["Settings"]
-        XCTAssertTrue(button.waitForExistence(timeout: 30), "Settings button did not appear")
+        XCTAssertTrue(button.waitToExist(timeout: 30), "Settings button did not appear")
         button.tap()
-        XCTAssertTrue(element(app, "settings-address").waitForExistence(timeout: 10), "Settings did not open")
+        XCTAssertTrue(element(app, "settings-address").waitToExist(timeout: 10), "Settings did not open")
     }
 
     private func element(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
@@ -302,14 +302,12 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
     }
 
     private func expect(_ element: XCUIElement, _ predicate: NSPredicate, _ description: String) async throws {
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        let result = await XCTWaiter().fulfillment(of: [expectation], timeout: 15)
-        XCTAssertEqual(result, .completed, "Expected \(description); found \(String(describing: element.exists ? element.value : "no element"))")
+        let result = pollUntil(timeout: 15) { predicate.evaluate(with: element) }
+        XCTAssertEqual(result, true, "Expected \(description); found \(String(describing: element.exists ? element.value : "no element"))")
     }
 
     private func waitUntilGone(_ element: XCUIElement) async -> Bool {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
-        return await XCTWaiter().fulfillment(of: [expectation], timeout: 10) == .completed
+        pollUntil(timeout: 10) { !element.exists }
     }
 
     private func expectProbeCount(atLeast target: Int, _ message: String) async throws -> Int {

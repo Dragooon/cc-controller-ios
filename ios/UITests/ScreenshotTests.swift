@@ -40,8 +40,8 @@ final class ScreenshotTests: XCTestCase {
                 let needsYou = app.staticTexts["Needs you"]
                 let staffRow = app.buttons["session-staff-account-exclusions"]
                 let approvalRow = app.buttons["session-approval-flow-light-mode"]
-                XCTAssertTrue(needsYou.waitForExistence(timeout: 75), "Needs you section did not load")
-                XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff approval row did not load")
+                XCTAssertTrue(needsYou.waitToExist(timeout: 75), "Needs you section did not load")
+                XCTAssertTrue(staffRow.waitToExist(timeout: 75), "Staff approval row did not load")
 
                 if only == nil || only == "sessions" {
                     attach(named: "sessions-\(scheme)-\(sizeName)")
@@ -51,34 +51,36 @@ final class ScreenshotTests: XCTestCase {
                 if !approvalRow.exists {
                     for _ in 0..<4 where !approvalRow.exists { list.swipeUp() }
                 }
-                XCTAssertTrue(approvalRow.waitForExistence(timeout: 15), "Approval flow row did not load")
+                XCTAssertTrue(approvalRow.waitToExist(timeout: 15), "Approval flow row did not load")
                 for _ in 0..<4 where !staffRow.exists { list.swipeDown() }
-                XCTAssertTrue(staffRow.waitForExistence(timeout: 15), "Staff approval row did not return")
+                XCTAssertTrue(staffRow.waitToExist(timeout: 15), "Staff approval row did not return")
                 staffRow.tap()
                 let selectedName = app.descendants(matching: .any)
                     .matching(identifier: "selected-session-name")
                     .firstMatch
-                XCTAssertTrue(selectedName.waitForExistence(timeout: 15), "Selected session title did not load")
+                XCTAssertTrue(selectedName.waitToExist(timeout: 15), "Selected session title did not load")
                 let assistantText = app.descendants(matching: .any)
                     .matching(NSPredicate(format: "label CONTAINS[c] %@", "The exclusion is ready for monitored rollout"))
                     .firstMatch
-                XCTAssertTrue(assistantText.waitForExistence(timeout: 15), "Final fixture assistant text did not load")
+                XCTAssertTrue(assistantText.waitToExist(timeout: 15), "Final fixture assistant text did not load")
 
                 if only == nil || only == "session-detail" {
                     attach(named: "session-detail-\(scheme)-\(sizeName)")
                 }
 
                 let sessionsBackButton = app.navigationBars.buttons["Sessions"]
-                XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 15), "Sessions back button did not load")
+                XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 15), "Sessions back button did not load")
                 sessionsBackButton.tap()
                 let liveRow = app.buttons["session-dune-part-three-imax-tickets"]
                 let liveList = app.collectionViews.firstMatch
-                XCTAssertTrue(liveList.waitForExistence(timeout: 15), "Sessions list did not return")
+                XCTAssertTrue(liveList.waitToExist(timeout: 15), "Sessions list did not return")
                 for _ in 0..<5 where !liveRow.exists { liveList.swipeUp() }
-                XCTAssertTrue(liveRow.waitForExistence(timeout: 15), "Dune session row did not load")
+                XCTAssertTrue(liveRow.waitToExist(timeout: 15), "Dune session row did not load")
                 let livePredicate = NSPredicate(format: "value == %@", "working")
-                let liveExpectation = XCTNSPredicateExpectation(predicate: livePredicate, object: liveRow)
-                XCTAssertEqual(XCTWaiter.wait(for: [liveExpectation], timeout: 45), .completed, "Live event did not change Dune session to working")
+                XCTAssertTrue(
+                    pollUntil(timeout: 45) { livePredicate.evaluate(with: liveRow) },
+                    "Live event did not change Dune session to working"
+                )
                 if only == nil || only == "sessions" {
                     attach(named: "sessions-live-\(scheme)-\(sizeName)")
                 }

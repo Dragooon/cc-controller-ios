@@ -20,9 +20,9 @@ final class MultiControllerFlowTests: XCTestCase {
         let sessions = app.descendants(matching: .any)
             .matching(identifier: "sessions-list")
             .firstMatch
-        XCTAssertTrue(sessions.waitForExistence(timeout: 20), "Sessions list did not load")
+        XCTAssertTrue(sessions.waitToExist(timeout: 20), "Sessions list did not load")
         XCTAssertTrue(
-            app.buttons["session-staff-account-exclusions"].waitForExistence(timeout: 20),
+            app.buttons["session-staff-account-exclusions"].waitToExist(timeout: 20),
             "Primary session was not visible"
         )
         let mac = app.buttons["session-staff-account-exclusions"]
@@ -44,7 +44,7 @@ final class MultiControllerFlowTests: XCTestCase {
         let sessions = app.descendants(matching: .any)
             .matching(identifier: "sessions-list")
             .firstMatch
-        XCTAssertTrue(sessions.waitForExistence(timeout: 20), "Sessions list did not load")
+        XCTAssertTrue(sessions.waitToExist(timeout: 20), "Sessions list did not load")
         let macRow = app.buttons["session-approval-flow-light-mode"]
         XCTAssertTrue(bringIntoView(macRow, in: sessions), "Mac approval session was not listed")
         XCTAssertEqual(macRow.value as? String, "needs_you")
@@ -82,10 +82,10 @@ final class MultiControllerFlowTests: XCTestCase {
         let sessions = app.descendants(matching: .any)
             .matching(identifier: "sessions-list")
             .firstMatch
-        XCTAssertTrue(sessions.waitForExistence(timeout: 20), "Sessions list did not load")
+        XCTAssertTrue(sessions.waitToExist(timeout: 20), "Sessions list did not load")
 
         let needsYou = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(needsYou.waitForExistence(timeout: 20), "Needs-you session was not listed")
+        XCTAssertTrue(needsYou.waitToExist(timeout: 20), "Needs-you session was not listed")
         let recents = app.staticTexts["Recents"]
         XCTAssertTrue(bringIntoView(recents, in: sessions), "Recents section did not load")
         XCTAssertLessThan(needsYou.frame.minY, recents.frame.minY, "Needs-you session was not pinned above Recents")
@@ -112,7 +112,7 @@ final class MultiControllerFlowTests: XCTestCase {
         waitForLiveControllers(in: app)
 
         let allow = app.buttons["approval-moonlight-build-allow"]
-        XCTAssertTrue(allow.waitForExistence(timeout: 30), "Mustafar compact approval card did not load")
+        XCTAssertTrue(allow.waitToExist(timeout: 30), "Mustafar compact approval card did not load")
         allow.tap()
 
         let decided = "POST /api/sessions/moonlight-build/decision 200"
@@ -139,11 +139,11 @@ final class MultiControllerFlowTests: XCTestCase {
         let subtitle = app.descendants(matching: .any)
             .matching(identifier: "selected-session-subtitle")
             .firstMatch
-        XCTAssertTrue(subtitle.waitForExistence(timeout: 75), "Mustafar session did not open")
+        XCTAssertTrue(subtitle.waitToExist(timeout: 75), "Mustafar session did not open")
         XCTAssertTrue(subtitle.label.hasPrefix("Mustafar · "), "Subtitle was not prefixed with the controller: \(subtitle.label)")
 
         let allow = app.buttons["approval-moonlight-build-allow"]
-        XCTAssertTrue(allow.waitForExistence(timeout: 30), "Mustafar approval card did not load")
+        XCTAssertTrue(allow.waitToExist(timeout: 30), "Mustafar approval card did not load")
         let caption = app.descendants(matching: .any)
             .matching(identifier: "approval-controller-moonlight-build")
             .firstMatch
@@ -154,7 +154,7 @@ final class MultiControllerFlowTests: XCTestCase {
         let composer = app.descendants(matching: .any)
             .matching(identifier: "composer-text")
             .firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 30), "Composer did not load")
+        XCTAssertTrue(composer.waitToExist(timeout: 30), "Composer did not load")
         XCTAssertTrue(app.buttons["Add attachment"].exists, "Composer did not offer attachments with the files capability")
         XCTAssertEqual(
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Model ")).count,
@@ -163,10 +163,10 @@ final class MultiControllerFlowTests: XCTestCase {
         )
 
         let info = app.buttons["session-info"]
-        XCTAssertTrue(info.waitForExistence(timeout: 10), "Session info button did not load")
+        XCTAssertTrue(info.waitToExist(timeout: 10), "Session info button did not load")
         info.tap()
         let elapsed = app.descendants(matching: .any).matching(identifier: "inspector-elapsed").firstMatch
-        XCTAssertTrue(elapsed.waitForExistence(timeout: 20), "Inspector did not open")
+        XCTAssertTrue(elapsed.waitToExist(timeout: 20), "Inspector did not open")
         let picker = app.descendants(matching: .any).matching(identifier: "approval-mode-picker").firstMatch
         XCTAssertFalse(picker.exists, "Inspector offered an approval mode without the mode capability")
         addScreenshot(named: "multi-controller-stockade-session")
@@ -179,7 +179,7 @@ final class MultiControllerFlowTests: XCTestCase {
         let peer = app.descendants(matching: .any)
             .matching(identifier: "peer-message")
             .firstMatch
-        XCTAssertTrue(peer.waitForExistence(timeout: 75), "Peer prompt did not render as a peer message")
+        XCTAssertTrue(peer.waitToExist(timeout: 75), "Peer prompt did not render as a peer message")
         XCTAssertTrue(peer.label.contains("From Kepler · macbook"), "Peer header was wrong: \(peer.label)")
         XCTAssertTrue(peer.label.contains("Is the Mustafar direct TLS listener available?"), "Peer text was missing: \(peer.label)")
         addScreenshot(named: "multi-controller-peer-message")
@@ -193,24 +193,22 @@ final class MultiControllerFlowTests: XCTestCase {
         let sizeClass = app.descendants(matching: .any)
             .matching(identifier: "horizontal-size-class")
             .firstMatch
-        XCTAssertTrue(sizeClass.waitForExistence(timeout: 30), "Horizontal size-class probe did not load")
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
         XCTAssertEqual(sizeClass.label, "regular", "Landscape pool device did not report regular horizontal size class")
         waitForLiveControllers(in: app)
 
         let sidebarToggle = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] 'sidebar'"))
             .firstMatch
-        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 20), "Sidebar toggle did not load")
+        XCTAssertTrue(sidebarToggle.waitToExist(timeout: 20), "Sidebar toggle did not load")
         sidebarToggle.tap()
-        expectation(for: NSPredicate(format: "value == %@", "detailOnly"), evaluatedWith: sizeClass)
-        waitForExpectations(timeout: 20)
+        XCTAssertTrue(pollUntil(timeout: 20) { sizeClass.value as? String == "detailOnly" })
 
         let capsule = app.buttons["approvals-elsewhere"]
-        XCTAssertTrue(capsule.waitForExistence(timeout: 75), "Approvals-elsewhere capsule did not load")
+        XCTAssertTrue(capsule.waitToExist(timeout: 75), "Approvals-elsewhere capsule did not load")
         // One Mac approval, plus Mustafar's writable approval and its Discord one (answered in Discord, still waiting).
         let both = NSPredicate(format: "label == %@", "3 sessions need you")
-        expectation(for: both, evaluatedWith: capsule)
-        waitForExpectations(timeout: 30)
+        XCTAssertTrue(pollUntil(timeout: 30) { both.evaluate(with: capsule) })
         addScreenshot(named: "multi-controller-approvals-elsewhere")
     }
 
@@ -221,7 +219,7 @@ final class MultiControllerFlowTests: XCTestCase {
         let answerIn = app.descendants(matching: .any)
             .matching(identifier: "approval-discord-triage-answer-in")
             .firstMatch
-        XCTAssertTrue(answerIn.waitForExistence(timeout: 75), "Discord approval did not say where to answer")
+        XCTAssertTrue(answerIn.waitToExist(timeout: 75), "Discord approval did not say where to answer")
         XCTAssertEqual(answerIn.label, "Answer in Discord")
         XCTAssertFalse(app.buttons["approval-discord-triage-allow"].exists, "Discord approval offered Allow")
         XCTAssertFalse(app.buttons["approval-discord-triage-deny"].exists, "Discord approval offered Deny")
@@ -231,7 +229,7 @@ final class MultiControllerFlowTests: XCTestCase {
         )
 
         let info = app.buttons["session-info"]
-        XCTAssertTrue(info.waitForExistence(timeout: 10), "Session info button did not load")
+        XCTAssertTrue(info.waitToExist(timeout: 10), "Session info button did not load")
         info.tap()
         let inspector = app.collectionViews.firstMatch
         let people = app.descendants(matching: .any).matching(identifier: "inspector-participants").firstMatch
@@ -250,11 +248,11 @@ final class MultiControllerFlowTests: XCTestCase {
         let answerIn = app.descendants(matching: .any)
             .matching(identifier: "approval-discord-triage-answer-in")
             .firstMatch
-        XCTAssertTrue(answerIn.waitForExistence(timeout: 75), "Discord approval did not load")
+        XCTAssertTrue(answerIn.waitToExist(timeout: 75), "Discord approval did not load")
         try await postStockade("/fixture/stockade/answered-elsewhere/discord-triage-approval")
 
         let bar = app.descendants(matching: .any).matching(identifier: "read-only-bar").firstMatch
-        XCTAssertTrue(bar.waitForExistence(timeout: 30), "Read-only bar did not replace the composer")
+        XCTAssertTrue(bar.waitToExist(timeout: 30), "Read-only bar did not replace the composer")
         XCTAssertEqual(bar.label, "Read-only · Discord")
         XCTAssertFalse(
             app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch.exists,
@@ -268,11 +266,11 @@ final class MultiControllerFlowTests: XCTestCase {
         defer { app.terminate() }
 
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 75), "Composer did not load on the writable Stockade session")
+        XCTAssertTrue(composer.waitToExist(timeout: 75), "Composer did not load on the writable Stockade session")
         composer.tap()
         composer.typeText("/su")
         XCTAssertTrue(
-            app.buttons["/sudo, Toggle sudo mode"].waitForExistence(timeout: 10),
+            app.buttons["/sudo, Toggle sudo mode"].waitToExist(timeout: 10),
             "Composer did not suggest /sudo"
         )
         composer.typeText("do")
@@ -280,11 +278,10 @@ final class MultiControllerFlowTests: XCTestCase {
         if send.exists { send.tap() } else { app.buttons["composer-queue"].tap() }
 
         let toast = app.descendants(matching: .any).matching(identifier: "command-toast").firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 20), "No toast after /sudo")
+        XCTAssertTrue(toast.waitToExist(timeout: 20), "No toast after /sudo")
         XCTAssertEqual(toast.label, "Sudo on")
         let subtitle = app.descendants(matching: .any).matching(identifier: "selected-session-subtitle").firstMatch
-        let sudoSubtitle = expectation(for: NSPredicate(format: "label ENDSWITH %@", "· sudo"), evaluatedWith: subtitle)
-        await fulfillment(of: [sudoSubtitle], timeout: 20)
+        XCTAssertTrue(pollUntil(timeout: 20) { subtitle.label.hasSuffix("· sudo") })
 
         let stockade = try await stockadeFixture()
         let sudo = try XCTUnwrap(stockade["sudoRequests"] as? [[String: Any]])
@@ -300,13 +297,13 @@ final class MultiControllerFlowTests: XCTestCase {
         waitForLiveControllers(in: app)
 
         let button = app.buttons["new-session"]
-        XCTAssertTrue(button.waitForExistence(timeout: 30), "New session toolbar button did not load")
+        XCTAssertTrue(button.waitToExist(timeout: 30), "New session toolbar button did not load")
         button.tap()
-        XCTAssertTrue(app.buttons["new-session-send"].waitForExistence(timeout: 15), "New session screen did not open")
+        XCTAssertTrue(app.buttons["new-session-send"].waitToExist(timeout: 15), "New session screen did not open")
         let controller = app.buttons["new-session-host"]
-        XCTAssertTrue(controller.waitForExistence(timeout: 15), "Host picker did not load")
+        XCTAssertTrue(controller.waitToExist(timeout: 15), "Host picker did not load")
         let draft = app.textFields["new-session-prompt"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 10), "Prompt field did not load")
+        XCTAssertTrue(draft.waitToExist(timeout: 10), "Prompt field did not load")
         draft.tap()
         draft.typeText("Check the Moonlight build")
         if UIDevice.current.name.localizedCaseInsensitiveContains("Duo") {
@@ -323,23 +320,23 @@ final class MultiControllerFlowTests: XCTestCase {
         }
         controller.tap()
         let mustafar = app.buttons["Mustafar"]
-        XCTAssertTrue(mustafar.waitForExistence(timeout: 10), "Mustafar was not offered")
+        XCTAssertTrue(mustafar.waitToExist(timeout: 10), "Mustafar was not offered")
         mustafar.tap()
 
         let agent = app.buttons["new-session-agent"]
-        XCTAssertTrue(agent.waitForExistence(timeout: 20), "Agent picker did not load for Mustafar")
+        XCTAssertTrue(agent.waitToExist(timeout: 20), "Agent picker did not load for Mustafar")
         XCTAssertTrue(agent.label.contains("Madge"), "Agent picker did not default to Madge: \(agent.label)")
         XCTAssertFalse(app.buttons["new-session-folder"].exists, "Stockade New Session showed a folder")
         XCTAssertTrue(app.buttons["new-session-send"].isEnabled, "Send was not enabled after the draft survived host switch")
 
         let message = app.textFields["new-session-prompt"]
-        XCTAssertTrue(message.waitForExistence(timeout: 10), "Prompt field did not load")
+        XCTAssertTrue(message.waitToExist(timeout: 10), "Prompt field did not load")
         XCTAssertEqual(message.value as? String, "Check the Moonlight build", "Prompt draft did not survive host switch")
         addScreenshot(named: "multi-controller-new-session-agent")
         app.buttons["new-session-send"].tap()
 
         let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
-        XCTAssertTrue(title.waitForExistence(timeout: 30), "Created Stockade session did not open")
+        XCTAssertTrue(title.waitToExist(timeout: 30), "Created Stockade session did not open")
         XCTAssertEqual(title.label, "Check the Moonlight build")
 
         let stockade = try await stockadeFixture()
@@ -354,7 +351,7 @@ final class MultiControllerFlowTests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(
-            app.buttons["session-staff-account-exclusions"].waitForExistence(timeout: 75),
+            app.buttons["session-staff-account-exclusions"].waitToExist(timeout: 75),
             "Primary session was not visible"
         )
         let sessions = app.descendants(matching: .any)
@@ -363,8 +360,7 @@ final class MultiControllerFlowTests: XCTestCase {
         let header = sectionHeader("mustafar", in: app)
         XCTAssertTrue(bringIntoView(header, in: sessions), "Unreachable controller had no status row")
         let notLive = NSPredicate(format: "value == %@ OR value == %@", "offline", "reconnecting")
-        expectation(for: notLive, evaluatedWith: header)
-        waitForExpectations(timeout: 30)
+        XCTAssertTrue(pollUntil(timeout: 30) { notLive.evaluate(with: header) })
         let retry = app.buttons["controller-retry-mustafar"]
         XCTAssertTrue(retry.exists, "Unreachable controller status row had no Retry action")
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "controller-section-mac").firstMatch.exists)
@@ -450,10 +446,9 @@ final class MultiControllerFlowTests: XCTestCase {
         let probe = app.descendants(matching: .any)
             .matching(identifier: "controller-connections")
             .firstMatch
-        XCTAssertTrue(probe.waitForExistence(timeout: 75), "Controller connection probe did not load")
+        XCTAssertTrue(probe.waitToExist(timeout: 75), "Controller connection probe did not load")
         let liveStates = "mac=live,mustafar=live"
-        expectation(for: NSPredicate(format: "value == %@", liveStates), evaluatedWith: probe)
-        waitForExpectations(timeout: 75)
+        XCTAssertTrue(pollUntil(timeout: 75) { probe.value as? String == liveStates })
         XCTAssertEqual(probe.value as? String, liveStates)
     }
 

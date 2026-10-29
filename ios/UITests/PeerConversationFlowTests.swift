@@ -10,7 +10,7 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
         openApprovalSession(in: app)
 
         let request = element(app, "peer-conversation-request")
-        XCTAssertTrue(request.waitForExistence(timeout: 20), "Peer conversation request did not appear")
+        XCTAssertTrue(request.waitToExist(timeout: 20), "Peer conversation request did not appear")
         XCTAssertTrue(request.label.contains("Stockade"), "Request omitted the sender controller")
         XCTAssertTrue(request.label.contains("wants to message"), "Request omitted the conversation sentence")
         XCTAssertTrue(element(app, "peer-conversation-preview").exists, "Message preview did not appear")
@@ -21,7 +21,7 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(allow.exists, "Peer conversation did not offer Allow")
         XCTAssertTrue(deny.exists, "Peer conversation did not offer Deny")
         allow.tap()
-        XCTAssertTrue(allow.waitForNonExistence(timeout: 30), "Allow did not settle the peer conversation")
+        XCTAssertTrue(allow.waitToDisappear(timeout: 30), "Allow did not settle the peer conversation")
         try await waitForDecision("allow")
     }
 
@@ -32,19 +32,19 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
         openApprovalSession(in: app)
 
         let deny = app.buttons["approval-approval-flow-light-mode-deny"]
-        XCTAssertTrue(deny.waitForExistence(timeout: 20), "Peer conversation Deny did not appear")
+        XCTAssertTrue(deny.waitToExist(timeout: 20), "Peer conversation Deny did not appear")
         XCTAssertFalse(app.buttons["Allow for this session"].exists, "Peer conversation offered a session-scoped Allow")
         deny.tap()
-        XCTAssertTrue(deny.waitForNonExistence(timeout: 30), "Deny did not settle the peer conversation")
+        XCTAssertTrue(deny.waitToDisappear(timeout: 30), "Deny did not settle the peer conversation")
         try await waitForDecision("deny")
     }
 
     func testSettingsListsAndRevokesPeerConversation() async throws {
         let app = launchSignedIn()
         defer { app.terminate() }
-        XCTAssertTrue(app.buttons["Settings"].waitForExistence(timeout: 30), "Settings button did not load")
+        XCTAssertTrue(app.buttons["Settings"].waitToExist(timeout: 30), "Settings button did not load")
         app.buttons["Settings"].tap()
-        XCTAssertTrue(element(app, "settings-address").waitForExistence(timeout: 10), "Settings did not open")
+        XCTAssertTrue(element(app, "settings-address").waitToExist(timeout: 10), "Settings did not open")
         let controller = element(app, "settings-controller-mac")
         reveal(controller, in: app, "Controller list did not load")
         controller.tap()
@@ -57,9 +57,9 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(revoke.exists, "Peer conversation did not offer Revoke")
         revoke.tap()
         let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Revoke", "peer-conversation-revoke-\(conversationID)")).firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "Revoke confirmation did not appear")
+        XCTAssertTrue(confirm.waitToExist(timeout: 10), "Revoke confirmation did not appear")
         confirm.tap()
-        XCTAssertTrue(row.waitForNonExistence(timeout: 30), "Revoked conversation remained in Settings")
+        XCTAssertTrue(row.waitToDisappear(timeout: 30), "Revoked conversation remained in Settings")
     }
 
     private let conversationID = "74dca0e9cd297800"
@@ -79,7 +79,7 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
 
     private func openApprovalSession(in app: XCUIApplication) {
         let session = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(session.waitForExistence(timeout: 75), "Approval fixture session did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 75), "Approval fixture session did not load")
         session.tap()
     }
 

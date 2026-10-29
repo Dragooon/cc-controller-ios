@@ -25,18 +25,18 @@ final class TranscriptFlowTests: XCTestCase {
             app.terminate()
         }
         let staffRow = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(staffRow.waitForExistence(timeout: 75), "Staff session row did not load")
+        XCTAssertTrue(staffRow.waitToExist(timeout: 75), "Staff session row did not load")
         staffRow.tap()
 
         let assistantText = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "The exclusion is ready for monitored rollout"))
             .firstMatch
-        XCTAssertTrue(assistantText.waitForExistence(timeout: 15), "Assistant reply did not load")
+        XCTAssertTrue(assistantText.waitToExist(timeout: 15), "Assistant reply did not load")
         XCTAssertTrue(assistantText.isHittable, "Assistant reply is not visible")
         assistantText.press(forDuration: 1.0)
 
         let copyAction = app.menuItems["Copy"]
-        XCTAssertTrue(copyAction.waitForExistence(timeout: 10), "Assistant reply context menu did not offer Copy")
+        XCTAssertTrue(copyAction.waitToExist(timeout: 10), "Assistant reply context menu did not offer Copy")
     }
 
     func testToolGroupAndDetailSheet() throws {
@@ -46,7 +46,7 @@ final class TranscriptFlowTests: XCTestCase {
             app.terminate()
         }
         let richSession = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(richSession.waitForExistence(timeout: 75), "Rich fixture session did not load")
+        XCTAssertTrue(richSession.waitToExist(timeout: 75), "Rich fixture session did not load")
         richSession.tap()
 
         let toolGroup = app.buttons.matching(
@@ -67,22 +67,22 @@ final class TranscriptFlowTests: XCTestCase {
         let expandedToolGroup = app.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools' AND value == 'Expanded'")
         ).firstMatch
-        XCTAssertTrue(expandedToolGroup.waitForExistence(timeout: 10), "Tool group did not expand")
+        XCTAssertTrue(expandedToolGroup.waitToExist(timeout: 10), "Tool group did not expand")
 
         let bash = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Bash'")
         ).firstMatch
-        XCTAssertTrue(bash.waitForExistence(timeout: 15), "Expanded Bash row did not load")
+        XCTAssertTrue(bash.waitToExist(timeout: 15), "Expanded Bash row did not load")
         bash.tap()
 
         let output = app.staticTexts["OUTPUT"]
-        XCTAssertTrue(output.waitForExistence(timeout: 15), "Tool detail output section did not load")
+        XCTAssertTrue(output.waitToExist(timeout: 15), "Tool detail output section did not load")
         attach(named: "transcript-tool-sheet")
 
         let close = app.navigationBars.buttons["Close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 10), "Tool detail close button did not load")
+        XCTAssertTrue(close.waitToExist(timeout: 10), "Tool detail close button did not load")
         close.tap()
-        XCTAssertTrue(toolGroup.waitForExistence(timeout: 10), "Transcript did not return after closing tool detail")
+        XCTAssertTrue(toolGroup.waitToExist(timeout: 10), "Transcript did not return after closing tool detail")
     }
 
     func testSubagentResultSheetAndTranscript() throws {
@@ -92,7 +92,7 @@ final class TranscriptFlowTests: XCTestCase {
             app.terminate()
         }
         let session = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(session.waitForExistence(timeout: 75), "Subagent fixture session did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 75), "Subagent fixture session did not load")
         session.tap()
 
         let resultRow = app.buttons.matching(
@@ -107,17 +107,17 @@ final class TranscriptFlowTests: XCTestCase {
         resultRow.tap()
 
         let sheetTitle = app.navigationBars["engineer result"]
-        XCTAssertTrue(sheetTitle.waitForExistence(timeout: 15), "Subagent result sheet did not load")
+        XCTAssertTrue(sheetTitle.waitToExist(timeout: 15), "Subagent result sheet did not load")
         let fullResult = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Audit evidence is complete and the rule is ready")
         ).firstMatch
-        XCTAssertTrue(fullResult.waitForExistence(timeout: 15), "Subagent full result did not load")
+        XCTAssertTrue(fullResult.waitToExist(timeout: 15), "Subagent full result did not load")
 
         let viewTranscript = app.buttons["View transcript"]
-        XCTAssertTrue(viewTranscript.waitForExistence(timeout: 10), "View transcript action did not load")
+        XCTAssertTrue(viewTranscript.waitToExist(timeout: 10), "View transcript action did not load")
         viewTranscript.tap()
         XCTAssertTrue(
-            app.navigationBars["engineer"].waitForExistence(timeout: 15),
+            app.navigationBars["engineer"].waitToExist(timeout: 15),
             "Subagent transcript did not open"
         )
     }
@@ -129,11 +129,11 @@ final class TranscriptFlowTests: XCTestCase {
             app.terminate()
         }
         let session = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(session.waitForExistence(timeout: 75), "Compaction fixture session did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 75), "Compaction fixture session did not load")
         session.tap()
 
         let divider = app.buttons["compaction-divider"]
-        XCTAssertTrue(divider.waitForExistence(timeout: 20), "Compaction divider did not load")
+        XCTAssertTrue(divider.waitToExist(timeout: 20), "Compaction divider did not load")
         XCTAssertTrue(
             divider.label.range(of: #"^Context compacted [0-2][0-9]:[0-5][0-9]$"#, options: .regularExpression) != nil,
             "Compaction divider caption was not a short timestamped label: \(divider.label)"
@@ -149,10 +149,10 @@ final class TranscriptFlowTests: XCTestCase {
         divider.tap()
 
         XCTAssertTrue(
-            app.navigationBars["Context compacted"].waitForExistence(timeout: 15),
+            app.navigationBars["Context compacted"].waitToExist(timeout: 15),
             "Compaction summary sheet did not open"
         )
-        XCTAssertTrue(summaryMarker.waitForExistence(timeout: 15), "Compaction summary did not load in the sheet")
+        XCTAssertTrue(summaryMarker.waitToExist(timeout: 15), "Compaction summary did not load in the sheet")
     }
 
     func testOpeningPerformance() async throws {
@@ -165,11 +165,11 @@ final class TranscriptFlowTests: XCTestCase {
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        XCTAssertTrue(longSession.waitToExist(timeout: 75), "Long fixture session did not load")
         longSession.tap()
 
         let performance = app.staticTexts["transcript-performance"]
-        XCTAssertTrue(performance.waitForExistence(timeout: 60), "Transcript performance probe did not load")
+        XCTAssertTrue(performance.waitToExist(timeout: 60), "Transcript performance probe did not load")
         let before = performance.label
         XCTAssertTrue(before.contains("first_rows="), "Opening phases were incomplete: \(before)")
         let firstRows = try XCTUnwrap(
@@ -201,10 +201,10 @@ final class TranscriptFlowTests: XCTestCase {
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        XCTAssertTrue(longSession.waitToExist(timeout: 75), "Long fixture session did not load")
         longSession.tap()
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest long-session entry did not load")
         attach(named: "collection-long-session-open")
         try await postFixture("/fixture/registry-event")
         try await Task.sleep(for: .seconds(3))
@@ -229,20 +229,20 @@ final class TranscriptFlowTests: XCTestCase {
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        XCTAssertTrue(longSession.waitToExist(timeout: 75), "Long fixture session did not load")
         longSession.tap()
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest long-session entry did not load")
         let stackGeneration = app.staticTexts["transcript-stack-generation"]
-        XCTAssertTrue(stackGeneration.waitForExistence(timeout: 10), "Transcript stack generation probe did not load")
+        XCTAssertTrue(stackGeneration.waitToExist(timeout: 10), "Transcript stack generation probe did not load")
         let generationBeforeSend = stackGeneration.label
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 10), "Transcript composer did not load")
+        XCTAssertTrue(composer.waitToExist(timeout: 10), "Transcript composer did not load")
         composer.tap()
         composer.typeText("scroll-stability-send")
         app.buttons["composer-send"].tap()
         let sentMessage = app.staticTexts["scroll-stability-send"]
-        XCTAssertTrue(sentMessage.waitForExistence(timeout: 15), "Sent message did not land in the transcript")
+        XCTAssertTrue(sentMessage.waitToExist(timeout: 15), "Sent message did not land in the transcript")
         try await Task.sleep(for: .seconds(3))
 
         XCTAssertEqual(
@@ -267,17 +267,17 @@ final class TranscriptFlowTests: XCTestCase {
         search.typeText("Long session")
 
         let longSession = app.buttons["session-long-session"]
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        XCTAssertTrue(longSession.waitToExist(timeout: 75), "Long fixture session did not load")
         longSession.tap()
         let initialRow = app.staticTexts["Long-session prompt 499: inspect the next checkpoint."]
-        XCTAssertTrue(initialRow.waitForExistence(timeout: 30), "Newest long-session row did not load")
+        XCTAssertTrue(initialRow.waitToExist(timeout: 30), "Newest long-session row did not load")
         let visibleRow = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
         let scrollView = transcriptScroll(in: app)
         for _ in 0..<80 {
             scrollView.swipeDown(velocity: .fast)
             if visibleRow.exists && visibleRow.isHittable { break }
         }
-        XCTAssertTrue(visibleRow.waitForExistence(timeout: 20), "Middle transcript row did not load after user paging")
+        XCTAssertTrue(visibleRow.waitToExist(timeout: 20), "Middle transcript row did not load after user paging")
         XCTAssertTrue(visibleRow.isHittable, "Middle transcript row was not visible before registry blip")
 
         let blip = Task { try? await postFixture("/fixture/registry-blip") }
@@ -297,11 +297,11 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest long-session entry did not load")
         let jump = app.buttons["Jump to latest"]
         XCTAssertFalse(jump.exists, "Jump to latest is visible while the long session is bottom-anchored")
         let scrollView = transcriptScroll(in: app)
-        XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
+        XCTAssertTrue(scrollView.waitToExist(timeout: 10), "Transcript scroll view did not load")
 
         let older = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
         var sawJump = false
@@ -312,7 +312,7 @@ final class TranscriptFlowTests: XCTestCase {
         }
         XCTAssertTrue(sawJump, "Jump to latest did not appear while paging through older history")
         XCTAssertTrue(
-            older.waitForExistence(timeout: 20),
+            older.waitToExist(timeout: 20),
             "Paging did not load prompt 485 below the initial boundary of 490"
         )
         XCTAssertTrue(older.isHittable, "Paging did not make prompt 485 visible")
@@ -329,12 +329,12 @@ final class TranscriptFlowTests: XCTestCase {
         )
         attach(named: "transcript-paging")
 
-        XCTAssertTrue(jump.waitForExistence(timeout: 10), "Jump to latest did not appear")
+        XCTAssertTrue(jump.waitToExist(timeout: 10), "Jump to latest did not appear")
         jump.tap()
-        XCTAssertTrue(jump.waitForNonExistence(timeout: 10), "Jump to latest did not disappear after tapping")
+        XCTAssertTrue(jump.waitToDisappear(timeout: 10), "Jump to latest did not disappear after tapping")
         XCTAssertTrue(newest.isHittable, "Jump to latest did not make newest entry visible")
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 10), "Transcript composer did not load")
+        XCTAssertTrue(composer.waitToExist(timeout: 10), "Transcript composer did not load")
         XCTAssertLessThanOrEqual(
             newest.frame.maxY,
             composer.frame.minY,
@@ -351,9 +351,9 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest long-session entry did not load")
         let scrollView = transcriptScroll(in: app)
-        XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
+        XCTAssertTrue(scrollView.waitToExist(timeout: 10), "Transcript scroll view did not load")
         try await Task.sleep(for: .seconds(3))
         let visibleRows = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
@@ -371,7 +371,7 @@ final class TranscriptFlowTests: XCTestCase {
         attach(named: "transcript-small-scroll-up")
 
         let sameRow = app.staticTexts[rowLabel]
-        XCTAssertTrue(sameRow.waitForExistence(timeout: 5), "The row visible before the small scroll disappeared")
+        XCTAssertTrue(sameRow.waitToExist(timeout: 5), "The row visible before the small scroll disappeared")
         XCTAssertTrue(sameRow.isHittable, "The row visible before the small scroll is no longer visible")
         let paths = try await fixtureRequestPaths()
         XCTAssertFalse(paths.contains { $0.contains("before=") }, "Small upward scroll unexpectedly paged earlier: \(paths)")
@@ -380,33 +380,33 @@ final class TranscriptFlowTests: XCTestCase {
     func testWarmOpenRendersCacheBeforeDelayedResponseAndKeepsPlace() async throws {
         var app = launchFixture(resetCache: true, initialTranscriptTail: 20)
         let longSession = findLongSession(in: app)
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        XCTAssertTrue(longSession.waitToExist(timeout: 75), "Long fixture session did not load")
         let coldStart = Date()
         longSession.tap()
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 15), "Cold transcript did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 15), "Cold transcript did not load")
         let coldInApp = try await firstRowsMilliseconds(in: app)
         print("INSTANT_OPEN_COLD_MS \(Int(Date().timeIntervalSince(coldStart) * 1000))")
         print("INSTANT_OPEN_COLD_IN_APP_MS \(String(format: "%.1f", coldInApp))")
         let coldScroll = transcriptScroll(in: app)
-        XCTAssertTrue(coldScroll.waitForExistence(timeout: 10), "Cold transcript scroll view did not load")
+        XCTAssertTrue(coldScroll.waitToExist(timeout: 10), "Cold transcript scroll view did not load")
         let cacheSeedRow = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
         for _ in 0..<80 where !cacheSeedRow.isHittable {
             coldScroll.swipeDown(velocity: .fast)
         }
-        XCTAssertTrue(cacheSeedRow.waitForExistence(timeout: 20), "Paging did not fill the cache with a middle row")
-        XCTAssertTrue(app.navigationBars.buttons["Sessions"].waitForExistence(timeout: 10), "Sessions back button did not load")
+        XCTAssertTrue(cacheSeedRow.waitToExist(timeout: 20), "Paging did not fill the cache with a middle row")
+        XCTAssertTrue(app.navigationBars.buttons["Sessions"].waitToExist(timeout: 10), "Sessions back button did not load")
         app.navigationBars.buttons["Sessions"].tap()
-        XCTAssertTrue(longSession.waitForExistence(timeout: 10), "Long session did not return to the list")
+        XCTAssertTrue(longSession.waitToExist(timeout: 10), "Long session did not return to the list")
         app.terminate()
 
         app = launchFixture(resetCache: false, initialTranscriptTail: 20)
         let warmSession = findLongSession(in: app)
-        XCTAssertTrue(warmSession.waitForExistence(timeout: 75), "Long fixture session did not load after relaunch")
+        XCTAssertTrue(warmSession.waitToExist(timeout: 75), "Long fixture session did not load after relaunch")
         let warmStart = Date()
         warmSession.tap()
         let warmNewest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(warmNewest.waitForExistence(timeout: 0.5), "Cached transcript was not visible before delayed response")
+        XCTAssertTrue(warmNewest.waitToExist(timeout: 0.5), "Cached transcript was not visible before delayed response")
         let warmInApp = try await firstRowsMilliseconds(in: app)
         print("INSTANT_OPEN_WARM_MS \(Int(Date().timeIntervalSince(warmStart) * 1000))")
         print("INSTANT_OPEN_WARM_IN_APP_MS \(String(format: "%.1f", warmInApp))")
@@ -417,12 +417,12 @@ final class TranscriptFlowTests: XCTestCase {
 
         app = launchFixture(resetCache: false, initialTranscriptTail: 20)
         let middleSession = findLongSession(in: app)
-        XCTAssertTrue(middleSession.waitForExistence(timeout: 75), "Long fixture session did not load for middle-scroll check")
+        XCTAssertTrue(middleSession.waitToExist(timeout: 75), "Long fixture session did not load for middle-scroll check")
         middleSession.tap()
         let cachedRow = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(cachedRow.waitForExistence(timeout: 1), "Cached transcript was not visible for middle-scroll check")
+        XCTAssertTrue(cachedRow.waitToExist(timeout: 1), "Cached transcript was not visible for middle-scroll check")
         let scrollView = transcriptScroll(in: app)
-        XCTAssertTrue(scrollView.waitForExistence(timeout: 10), "Transcript scroll view did not load")
+        XCTAssertTrue(scrollView.waitToExist(timeout: 10), "Transcript scroll view did not load")
         let visibleRows = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")
         )
@@ -452,15 +452,15 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let session = findLongSession(in: app)
-        XCTAssertTrue(session.waitForExistence(timeout: 75), "Long session did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 75), "Long session did not load")
         session.tap()
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Initial transcript did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Initial transcript did not load")
 
         let back = app.navigationBars.buttons["Sessions"]
-        XCTAssertTrue(back.waitForExistence(timeout: 10), "Sessions back button did not load")
+        XCTAssertTrue(back.waitToExist(timeout: 10), "Sessions back button did not load")
         back.tap()
-        XCTAssertTrue(session.waitForExistence(timeout: 10), "Long session did not return to the list")
+        XCTAssertTrue(session.waitToExist(timeout: 10), "Long session did not return to the list")
         session.tap()
 
         let loading = app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch
@@ -493,15 +493,15 @@ final class TranscriptFlowTests: XCTestCase {
 
         let originalText = "Checkpoint 499 is complete; the fixture remains responsive."
         let session = findLongSession(in: app)
-        XCTAssertTrue(session.waitForExistence(timeout: 75), "Long session did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 75), "Long session did not load")
         session.tap()
-        XCTAssertTrue(app.staticTexts[originalText].waitForExistence(timeout: 30), "Initial transcript did not load")
+        XCTAssertTrue(app.staticTexts[originalText].waitToExist(timeout: 30), "Initial transcript did not load")
 
         let back = app.navigationBars.buttons["Sessions"]
-        XCTAssertTrue(back.waitForExistence(timeout: 10), "Sessions back button did not load")
+        XCTAssertTrue(back.waitToExist(timeout: 10), "Sessions back button did not load")
         back.tap()
-        XCTAssertTrue(back.waitForNonExistence(timeout: 5), "Session detail did not disappear after navigating back")
-        XCTAssertTrue(session.waitForExistence(timeout: 10), "Long session did not return to the list")
+        XCTAssertTrue(back.waitToDisappear(timeout: 5), "Session detail did not disappear after navigating back")
+        XCTAssertTrue(session.waitToExist(timeout: 10), "Long session did not return to the list")
         try await Task.sleep(for: .seconds(1))
         app.terminate()
 
@@ -514,11 +514,11 @@ final class TranscriptFlowTests: XCTestCase {
 
         app = launchFixture(resetCache: false, initialTranscriptTail: 20)
         let reopenedSession = findLongSession(in: app)
-        XCTAssertTrue(reopenedSession.waitForExistence(timeout: 75), "Long session did not load after relaunch")
+        XCTAssertTrue(reopenedSession.waitToExist(timeout: 75), "Long session did not load after relaunch")
         reopenedSession.tap()
 
         let loading = app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch
-        XCTAssertTrue(loading.waitForExistence(timeout: 2), "Changed session did not show the syncing glyph")
+        XCTAssertTrue(loading.waitToExist(timeout: 2), "Changed session did not show the syncing glyph")
         XCTAssertEqual(loading.label, "Loading messages")
         let staleNewest = app.staticTexts[originalText]
         let loadingDeadline = Date().addingTimeInterval(2)
@@ -526,9 +526,9 @@ final class TranscriptFlowTests: XCTestCase {
             XCTAssertFalse(staleNewest.exists, "Cached newest row was visible before the transcript became current")
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTAssertTrue(loading.waitForNonExistence(timeout: 8), "Syncing glyph did not clear after the delayed transcript")
+        XCTAssertTrue(loading.waitToDisappear(timeout: 8), "Syncing glyph did not clear after the delayed transcript")
         let changedEntry = app.staticTexts[marker]
-        XCTAssertTrue(changedEntry.waitForExistence(timeout: 10), "Newest changed entry did not render")
+        XCTAssertTrue(changedEntry.waitToExist(timeout: 10), "Newest changed entry did not render")
         XCTAssertTrue(changedEntry.isHittable, "Newest changed entry is not visible")
     }
 
@@ -540,11 +540,11 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let approvalSession = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(approvalSession.waitForExistence(timeout: 75), "Approval fixture session did not load")
+        XCTAssertTrue(approvalSession.waitToExist(timeout: 75), "Approval fixture session did not load")
         approvalSession.tap()
 
         let transcript = app.staticTexts["The session is ready to ask the owner before running the verification command."]
-        XCTAssertTrue(transcript.waitForExistence(timeout: 20), "Short-session transcript did not load")
+        XCTAssertTrue(transcript.waitToExist(timeout: 20), "Short-session transcript did not load")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Jump to latest is visible for a fully visible short transcript")
     }
 
@@ -555,23 +555,23 @@ final class TranscriptFlowTests: XCTestCase {
             app.terminate()
         }
         let longSession = findLongSession(in: app)
-        XCTAssertTrue(longSession.waitForExistence(timeout: 75), "Long fixture session did not load")
+        XCTAssertTrue(longSession.waitToExist(timeout: 75), "Long fixture session did not load")
         longSession.tap()
 
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest long-session entry did not load")
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 10), "Transcript composer did not load")
+        XCTAssertTrue(composer.waitToExist(timeout: 10), "Transcript composer did not load")
         composer.tap()
         let marker = "keyboard-reconnect-\(UUID().uuidString)"
         composer.typeText(marker + String(repeating: " wrap", count: 30))
         app.buttons["composer-send"].tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Delayed delivery did not show a pending prompt")
+        XCTAssertTrue(pending.waitToExist(timeout: 10), "Delayed delivery did not show a pending prompt")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
         let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
-        XCTAssertTrue(delivered.waitForExistence(timeout: 15), "Delayed delivered prompt did not render")
+        XCTAssertTrue(delivered.waitToExist(timeout: 15), "Delayed delivered prompt did not render")
         XCTAssertTrue(waitForHittable(delivered, timeout: 15), "Delayed delivered prompt was not visible at the bottom")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Reconnect and delayed delivery moved the transcript away from the bottom")
         let paths = try await fixtureRequestPaths()
@@ -586,22 +586,20 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let liveRow = app.buttons["session-dune-part-three-imax-tickets"]
-        XCTAssertTrue(liveRow.waitForExistence(timeout: 30), "Dune session row did not load")
+        XCTAssertTrue(liveRow.waitToExist(timeout: 30), "Dune session row did not load")
         let workingPredicate = NSPredicate(format: "value == %@", "working")
-        let workingExpectation = XCTNSPredicateExpectation(predicate: workingPredicate, object: liveRow)
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [workingExpectation], timeout: 45),
-            .completed,
+        XCTAssertTrue(
+            pollUntil(timeout: 45) { workingPredicate.evaluate(with: liveRow) },
             "Live event did not change Dune session to working"
         )
         liveRow.tap()
 
         let prompt = app.staticTexts["Find three good seats for Dune Part Three IMAX."]
-        XCTAssertTrue(prompt.waitForExistence(timeout: 20), "Dune transcript did not load")
+        XCTAssertTrue(prompt.waitToExist(timeout: 20), "Dune transcript did not load")
         let workingStatus = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH[c] 'working '")
         ).firstMatch
-        XCTAssertTrue(workingStatus.waitForExistence(timeout: 15), "Working Dune status did not load")
+        XCTAssertTrue(workingStatus.waitToExist(timeout: 15), "Working Dune status did not load")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Jump to latest is visible after a live append at the bottom")
     }
 
@@ -613,11 +611,11 @@ final class TranscriptFlowTests: XCTestCase {
         }
 
         let liveRow = app.buttons["session-pull-up-agentic-uw"]
-        XCTAssertTrue(liveRow.waitForExistence(timeout: 30), "Working underwriting session did not load")
+        XCTAssertTrue(liveRow.waitToExist(timeout: 30), "Working underwriting session did not load")
         liveRow.tap()
 
         let paragraphText = "I am checking the active underwriting run while the agents continue. The latest model routing and fixture coverage checks are still running while the owner reviews the newest underwriting decision evidence."
-        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 20), "Working underwriting transcript did not load")
+        XCTAssertTrue(app.staticTexts.firstMatch.waitToExist(timeout: 20), "Working underwriting transcript did not load")
         guard let paragraph = app.staticTexts.allElementsBoundByIndex.first(where: { $0.label == paragraphText }) else {
             XCTFail("Working underwriting assistant paragraph did not load")
             return
@@ -708,7 +706,7 @@ final class TranscriptFlowTests: XCTestCase {
 
     private func firstRowsMilliseconds(in app: XCUIApplication) async throws -> Double {
         let performance = app.staticTexts["transcript-performance"]
-        XCTAssertTrue(performance.waitForExistence(timeout: 10), "Transcript performance probe did not load")
+        XCTAssertTrue(performance.waitToExist(timeout: 10), "Transcript performance probe did not load")
         let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
             let label = performance.label
@@ -772,11 +770,7 @@ final class TranscriptFlowTests: XCTestCase {
 
 @MainActor
 private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
-    let expectation = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "exists == false"),
-        object: element
-    )
-    return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    pollUntil(timeout: timeout) { !element.exists }
 }
 
 @MainActor

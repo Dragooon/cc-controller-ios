@@ -30,30 +30,25 @@ final class SessionsApprovalFlowTests: XCTestCase {
         defer { app.terminate() }
 
         let needsYou = app.staticTexts["Needs you"]
-        XCTAssertTrue(needsYou.waitForExistence(timeout: 75), "Needs you section did not load")
+        XCTAssertTrue(needsYou.waitToExist(timeout: 75), "Needs you section did not load")
         let staffCard = app.descendants(matching: .any)
             .matching(identifier: "approval-card-staff-account-exclusions")
             .firstMatch
-        XCTAssertTrue(staffCard.waitForExistence(timeout: 20), "Staff Read approval card did not load")
+        XCTAssertTrue(staffCard.waitToExist(timeout: 20), "Staff Read approval card did not load")
         let staffDeny = app.buttons["approval-staff-account-exclusions-deny"]
-        XCTAssertTrue(staffDeny.waitForExistence(timeout: 10), "Staff Read Deny button did not load")
+        XCTAssertTrue(staffDeny.waitToExist(timeout: 10), "Staff Read Deny button did not load")
         attach(named: "list-approval-card")
 
         staffDeny.tap()
 
-        let denied = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == false"),
-            object: staffDeny
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [denied], timeout: 30),
-            .completed,
+        XCTAssertTrue(
+            pollUntil(timeout: 30) { !staffDeny.exists },
             "Staff Read approval did not leave the Sessions list"
         )
         let bashCard = app.descendants(matching: .any)
             .matching(identifier: "approval-card-approval-flow-light-mode")
             .firstMatch
-        XCTAssertTrue(bashCard.waitForExistence(timeout: 15), "Bash approval disappeared with the denied Read approval")
+        XCTAssertTrue(bashCard.waitToExist(timeout: 15), "Bash approval disappeared with the denied Read approval")
         attach(named: "list-approval-denied")
 
         do {

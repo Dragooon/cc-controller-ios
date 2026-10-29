@@ -3638,7 +3638,7 @@ cmd_gate() {
   prune_scratch
   local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0 flows_label
   flows_started=$SECONDS
-  cmd_flows --shards 2 || flows_status=$?
+  cmd_flows --shards "${CC_GATE_SHARDS:-$POOL_SLOTS}" || flows_status=$?
   if [[ $flows_status -ne 0 ]]; then
     flows_label=FAIL
   elif [[ $FLOWS_FLAKY_COUNT -gt 0 ]]; then
@@ -4035,5 +4035,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac

@@ -24,20 +24,20 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         defer { app.terminate() }
 
         let probe = element(app, "controller-connections")
-        XCTAssertTrue(probe.waitForExistence(timeout: 75), "Controller connection probe did not load")
+        XCTAssertTrue(probe.waitToExist(timeout: 75), "Controller connection probe did not load")
         try await expectValue(probe, "mac=live", timeout: 75)
 
         let settingsButton = app.buttons["Settings"]
-        XCTAssertTrue(settingsButton.waitForExistence(timeout: 30), "Settings button did not appear")
+        XCTAssertTrue(settingsButton.waitToExist(timeout: 30), "Settings button did not appear")
         settingsButton.tap()
-        XCTAssertTrue(element(app, "settings-address").waitForExistence(timeout: 10), "Settings did not open")
+        XCTAssertTrue(element(app, "settings-address").waitToExist(timeout: 10), "Settings did not open")
 
         let addButton = element(app, "settings-add-controller")
         reveal(addButton, in: app)
         addButton.tap()
 
         let name = element(app, "add-controller-name")
-        XCTAssertTrue(name.waitForExistence(timeout: 10), "Add controller did not open")
+        XCTAssertTrue(name.waitToExist(timeout: 10), "Add controller did not open")
         name.tap()
         name.typeText("Mustafar")
         let addresses = element(app, "add-controller-addresses")
@@ -48,12 +48,12 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         connect.tap()
 
         let codeElement = element(app, "add-controller-pairing-code")
-        XCTAssertTrue(codeElement.waitForExistence(timeout: 30), "Pairing code did not appear")
+        XCTAssertTrue(codeElement.waitToExist(timeout: 30), "Pairing code did not appear")
         let code = codeElement.label.replacingOccurrences(of: " ", with: "")
         XCTAssertEqual(code.count, 6)
         let check = String(tlsPin.lowercased().prefix(8))
         let command = element(app, "add-controller-pairing-command")
-        XCTAssertTrue(command.waitForExistence(timeout: 5))
+        XCTAssertTrue(command.waitToExist(timeout: 5))
         XCTAssertTrue(command.label.contains(code), "Pairing command did not include the code: \(command.label)")
         XCTAssertTrue(
             command.label.replacingOccurrences(of: " ", with: "").lowercased().hasSuffix(check),
@@ -63,7 +63,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         try await approvePairing(code, check: check, controlURL: controlURL)
 
         let faceIDButton = element(app, "add-controller-face-id")
-        XCTAssertTrue(faceIDButton.waitForExistence(timeout: 20), "Pair confirmation did not reach Face ID")
+        XCTAssertTrue(faceIDButton.waitToExist(timeout: 20), "Pair confirmation did not reach Face ID")
         faceIDButton.tap()
         let row = element(app, "settings-controller-mustafar")
         try await completeFaceID(app, until: row, timeout: 45, "Add controller did not finish after Face ID")
@@ -78,13 +78,12 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         reveal(remove, in: app)
         remove.tap()
         let confirm = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "Remove Mustafar", "controller-detail-remove")).firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 10), "Remove confirmation did not appear")
+        XCTAssertTrue(confirm.waitToExist(timeout: 10), "Remove confirmation did not appear")
         confirm.tap()
 
-        let rowGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: row)
-        let goneResult = await XCTWaiter().fulfillment(of: [rowGone], timeout: 20)
-        XCTAssertEqual(goneResult, .completed, "Removed controller still listed in Settings")
-        XCTAssertTrue(element(app, "settings-controller-mac").waitForExistence(timeout: 10), "Primary controller row disappeared")
+        let goneResult = pollUntil(timeout: 20) { !row.exists }
+        XCTAssertEqual(goneResult, true, "Removed controller still listed in Settings")
+        XCTAssertTrue(element(app, "settings-controller-mac").waitToExist(timeout: 10), "Primary controller row disappeared")
         try await expectValue(probe, "mac=live", timeout: 20)
     }
 
@@ -116,8 +115,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
     }
 
     private func expectValue(_ element: XCUIElement, _ expected: String, timeout: TimeInterval) async throws {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: element)
-        let result = await XCTWaiter().fulfillment(of: [expectation], timeout: timeout)
-        XCTAssertEqual(result, .completed, "Expected \(expected); found \(String(describing: element.exists ? element.value : "no element"))")
+        let result = pollUntil(timeout: timeout) { element.value as? String == expected }
+        XCTAssertEqual(result, true, "Expected \(expected); found \(String(describing: element.exists ? element.value : "no element"))")
     }
 }

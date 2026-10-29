@@ -28,15 +28,15 @@ final class ComposerFlowTests: XCTestCase {
         }
 
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
-        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Warm session B model chip did not load")
+        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitToExist(timeout: 10), "Warm session B model chip did not load")
         let sessionsBackButton = app.navigationBars.buttons["Sessions"]
-        XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not load after warming B")
+        XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 10), "Sessions back button did not load after warming B")
         sessionsBackButton.tap()
 
         openSession(id: "session-long-session", in: app)
-        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Session A model chip did not load")
+        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitToExist(timeout: 10), "Session A model chip did not load")
 
-        XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not load")
+        XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 10), "Sessions back button did not load")
         sessionsBackButton.tap()
         let clearSearchField = openSessionSearch(in: app)
         clearSearchField.tap()
@@ -44,20 +44,15 @@ final class ComposerFlowTests: XCTestCase {
         clearSearchField.typeText("Dune Part Three")
 
         let sessionB = app.buttons["session-dune-part-three-imax-tickets"]
-        XCTAssertTrue(sessionB.waitForExistence(timeout: 15), "Session B row did not load")
-        let idleExpectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "idle"),
-            object: sessionB
-        )
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [idleExpectation], timeout: 10),
-            .completed,
+        XCTAssertTrue(sessionB.waitToExist(timeout: 15), "Session B row did not load")
+        XCTAssertTrue(
+            pollUntil(timeout: 10) { sessionB.value as? String == "idle" },
             "Session B did not remain idle with the same model as session A"
         )
         sessionB.tap()
 
         let field = composerField(in: app)
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "Session B composer did not load")
+        XCTAssertTrue(field.waitToExist(timeout: 20), "Session B composer did not load")
         print("COMPOSER_DRAFT_CARRY_OVER sessionB=\(field.value ?? "<nil>")")
         XCTAssertEqual(field.value as? String, "", "Session A draft carried into session B")
 
@@ -69,7 +64,7 @@ final class ComposerFlowTests: XCTestCase {
         app.buttons["composer-send"].tap()
 
         let sentInB = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker1)).firstMatch
-        XCTAssertTrue(sentInB.waitForExistence(timeout: 10), "Marker 1 did not appear in session B")
+        XCTAssertTrue(sentInB.waitToExist(timeout: 10), "Marker 1 did not appear in session B")
         let resetField = composerField(in: app)
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer did not reset after marker 1")
         resetField.tap()
@@ -77,20 +72,20 @@ final class ComposerFlowTests: XCTestCase {
         app.buttons["composer-send"].tap()
         try await Task.sleep(for: .seconds(1))
 
-        XCTAssertTrue(sessionsBackButton.waitForExistence(timeout: 10), "Sessions back button did not return after sending")
+        XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 10), "Sessions back button did not return after sending")
         sessionsBackButton.tap()
         let resultSearch = openSessionSearch(in: app)
         resultSearch.tap()
         if app.buttons["Clear text"].exists { app.buttons["Clear text"].tap() }
         resultSearch.typeText("Long session")
         let sessionARow = app.buttons["session-long-session"]
-        XCTAssertTrue(sessionARow.waitForExistence(timeout: 15), "Session A row did not return after sending")
+        XCTAssertTrue(sessionARow.waitToExist(timeout: 15), "Session A row did not return after sending")
         sessionARow.tap()
-        XCTAssertTrue(composerField(in: app).waitForExistence(timeout: 20), "Session A did not reopen after sending")
+        XCTAssertTrue(composerField(in: app).waitToExist(timeout: 20), "Session A did not reopen after sending")
         let sessionAResult = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", marker1, marker2)
         ).firstMatch
-        XCTAssertFalse(sessionAResult.waitForExistence(timeout: 7), "A marker was delivered to session A")
+        XCTAssertFalse(sessionAResult.waitToExist(timeout: 7), "A marker was delivered to session A")
     }
 
     func testSendFromIdleSession() throws {
@@ -114,18 +109,18 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertGreaterThan(wrappedHeight ?? initialHeight, initialHeight)
 
         let send = app.buttons["composer-send"]
-        XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not load for an idle session")
+        XCTAssertTrue(send.waitToExist(timeout: 10), "Send button did not load for an idle session")
         send.tap()
 
         let pending = app.descendants(matching: .any)
             .matching(identifier: "pending-prompt")
             .matching(NSPredicate(format: "label CONTAINS[c] %@", marker))
             .firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Sent marker did not appear as a pending prompt")
+        XCTAssertTrue(pending.waitToExist(timeout: 10), "Sent marker did not appear as a pending prompt")
         XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 10), "Optimistic prompt did not reach Sent state")
 
         let resetField = composerField(in: app)
-        XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not reappear after send")
+        XCTAssertTrue(resetField.waitToExist(timeout: 10), "Composer did not reappear after send")
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after send")
         let resetHeight = resetField.frame.height
         XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height: initial \(initialHeight), reset \(resetHeight)")
@@ -135,11 +130,11 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertEqual(app.keyboards.count, 0, "Keyboard reappeared after send")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
         let prompt = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
-        XCTAssertTrue(prompt.waitForExistence(timeout: 15), "Delivered sent marker did not render in the transcript")
+        XCTAssertTrue(prompt.waitToExist(timeout: 15), "Delivered sent marker did not render in the transcript")
         XCTAssertTrue(waitForHittable(prompt, timeout: 15), "Delivered sent marker was not hittable in the transcript")
         let matchingPrompts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker))
         XCTAssertEqual(matchingPrompts.count, 1, "Sent marker appeared in both pending and delivered prompts")
-        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitForExistence(timeout: 10), "Model chip did not render")
+        XCTAssertTrue(app.buttons["Model Fable 5.1"].waitToExist(timeout: 10), "Model chip did not render")
     }
 
     func testHeldSendShowsSendingAndClearsComposer() async throws {
@@ -161,7 +156,7 @@ final class ComposerFlowTests: XCTestCase {
             .matching(identifier: "pending-prompt")
             .matching(NSPredicate(format: "label BEGINSWITH %@", marker))
             .firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 3), "Held send did not show an optimistic bubble")
+        XCTAssertTrue(pending.waitToExist(timeout: 3), "Held send did not show an optimistic bubble")
         XCTAssertTrue(waitForPendingStatus("Sending…", message: marker, in: app, timeout: 3), "Held send did not show Sending…")
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Composer did not clear while send was held")
         pending.press(forDuration: 1.0)
@@ -173,7 +168,7 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(waitForDelivered(message: marker, in: app, timeout: 15), "Held send did not reconcile to Sent")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Held send did not reconcile into the transcript")
         let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
-        XCTAssertTrue(delivered.waitForExistence(timeout: 10), "Held send delivered marker did not render")
+        XCTAssertTrue(delivered.waitToExist(timeout: 10), "Held send delivered marker did not render")
         attach(named: "optimistic-sending-after-delivery")
     }
 
@@ -194,7 +189,7 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(waitForPendingStatus("Not sent · Tap to retry", in: app, timeout: 10), "Failed send did not show its inline error")
         app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch.tap()
-        XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 5), "Failed send confirmation did not offer Retry")
+        XCTAssertTrue(app.buttons["Retry"].waitToExist(timeout: 5), "Failed send confirmation did not offer Retry")
         app.buttons["Retry"].tap()
         XCTAssertTrue(waitForPendingStatus("Sent", in: app, timeout: 10), "Retry did not transition the note to Sent")
     }
@@ -216,7 +211,7 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(waitForPendingStatus("Not sent · Tap to retry", in: app, timeout: 10), "Failed send did not show its inline error")
         app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch.tap()
-        XCTAssertTrue(app.buttons["Edit message"].waitForExistence(timeout: 5), "Failed send confirmation did not offer Edit message")
+        XCTAssertTrue(app.buttons["Edit message"].waitToExist(timeout: 5), "Failed send confirmation did not offer Edit message")
         app.buttons["Edit message"].tap()
         XCTAssertTrue(waitForValue(of: field, equalTo: marker, timeout: 5), "Edit message did not restore the composer")
         XCTAssertTrue(waitForNonExistence(of: app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch, timeout: 5), "Edited message bubble remained visible")
@@ -276,7 +271,7 @@ final class ComposerFlowTests: XCTestCase {
         app.buttons["composer-send"].tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Trailing-space send did not appear as a pending prompt")
+        XCTAssertTrue(pending.waitToExist(timeout: 10), "Trailing-space send did not appear as a pending prompt")
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 10), "Composer retained trailing whitespace after successful send")
     }
 
@@ -296,7 +291,7 @@ final class ComposerFlowTests: XCTestCase {
         app.buttons["composer-send"].tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 10), "Leading-space send did not appear as a pending prompt")
+        XCTAssertTrue(pending.waitToExist(timeout: 10), "Leading-space send did not appear as a pending prompt")
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 10), "Composer retained leading whitespace after successful send")
     }
 
@@ -313,7 +308,7 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(field.waitForPlaceholder("Queue for after this turn…", timeout: 45), "Dune fixture session did not become working")
 
         let stop = app.buttons["composer-stop"]
-        XCTAssertTrue(stop.waitForExistence(timeout: 10), "Stop button did not load for a working mod session")
+        XCTAssertTrue(stop.waitToExist(timeout: 10), "Stop button did not load for a working mod session")
         stop.tap()
 
         let requests = try await waitForKeyRequests(timeout: 10)
@@ -321,7 +316,7 @@ final class ComposerFlowTests: XCTestCase {
             requests.contains { $0.sessionID == "dune-part-three-imax-tickets" && $0.key == "escape" },
             "Tapping Stop did not send escape: \(requests)"
         )
-        XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 1), "An idle Stop response showed an error alert")
+        XCTAssertFalse(app.alerts.firstMatch.waitToExist(timeout: 1), "An idle Stop response showed an error alert")
     }
 
     func testQueueWhileWorking() async throws {
@@ -348,7 +343,7 @@ final class ComposerFlowTests: XCTestCase {
         field.typeText(marker)
         try await postFixture("/fixture/tail-only")
         let send = app.buttons["composer-queue"]
-        XCTAssertTrue(send.waitForExistence(timeout: 10), "Queue button did not load while working")
+        XCTAssertTrue(send.waitToExist(timeout: 10), "Queue button did not load while working")
         let queuedPrompt = app.descendants(matching: .any)
             .matching(identifier: "pending-prompt")
             .matching(NSPredicate(format: "label BEGINSWITH %@", marker))
@@ -386,11 +381,11 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(earlyComposerHeight - unfocusedComposerHeight), 2, "Composer glass grew during queue reset: unfocused \(unfocusedComposerHeight), at 0.1s \(earlyComposerHeight)")
         XCTAssertLessThanOrEqual(abs(settledComposerHeight - unfocusedComposerHeight), 2, "Composer glass did not settle: unfocused \(unfocusedComposerHeight), at 1.5s \(settledComposerHeight)")
 
-        XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 15), "Queued marker did not render")
+        XCTAssertTrue(app.staticTexts[marker].waitToExist(timeout: 15), "Queued marker did not render")
         let queuedStatus = pendingPrompt(in: app, status: "Queued", message: marker)
         XCTAssertTrue(waitForNonExistence(of: queuedStatus, timeout: 10), "Queued caption did not clear after tail delivery")
         let resetField = composerField(in: app)
-        XCTAssertTrue(resetField.waitForExistence(timeout: 10), "Composer did not remain visible after queue")
+        XCTAssertTrue(resetField.waitToExist(timeout: 10), "Composer did not remain visible after queue")
         XCTAssertTrue(waitForValue(of: resetField, equalTo: "", timeout: 10), "Composer text did not clear after queue")
         let resetHeight = resetField.frame.height
         XCTAssertLessThanOrEqual(abs(resetHeight - initialHeight), 2, "Composer did not reset height while queueing: initial \(initialHeight), reset \(resetHeight)")
@@ -398,7 +393,7 @@ final class ComposerFlowTests: XCTestCase {
         print("composer queue heights fieldInitial=\(initialHeight) fieldReset=\(resetHeight) glassUnfocused=\(unfocusedComposerHeight) glassReset=\(resetComposerHeight)")
         XCTAssertLessThanOrEqual(abs(resetComposerHeight - unfocusedComposerHeight), 2, "Composer glass did not reset height while queueing: unfocused \(unfocusedComposerHeight), reset \(resetComposerHeight)")
         let contextSubtitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "ctx 6%")).firstMatch
-        XCTAssertTrue(contextSubtitle.waitForExistence(timeout: 10), "Navigation subtitle did not show ctx 6%")
+        XCTAssertTrue(contextSubtitle.waitToExist(timeout: 10), "Navigation subtitle did not show ctx 6%")
     }
 
     func testQueuedMessageActionsDismissAndPersistAcrossRelaunch() async throws {
@@ -418,9 +413,9 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(waitForPendingStatus("Queued", message: marker, in: app, timeout: 10), "Queued message did not render")
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", marker)).firstMatch
-        XCTAssertTrue(pending.waitForExistence(timeout: 5), "Queued message bubble was not found")
+        XCTAssertTrue(pending.waitToExist(timeout: 5), "Queued message bubble was not found")
         pending.tap()
-        XCTAssertTrue(app.buttons["Copy"].waitForExistence(timeout: 5), "Queued message menu did not offer Copy")
+        XCTAssertTrue(app.buttons["Copy"].waitToExist(timeout: 5), "Queued message menu did not offer Copy")
         XCTAssertTrue(app.buttons["Edit message"].exists, "Queued message menu did not offer Edit message")
         XCTAssertTrue(app.buttons["Dismiss"].exists, "Queued message menu did not offer Dismiss")
         attach(named: "queued-actions-menu")
@@ -433,9 +428,9 @@ final class ComposerFlowTests: XCTestCase {
         app.buttons["composer-queue"].tap()
         XCTAssertTrue(waitForPendingStatus("Queued", message: longPressMarker, in: app, timeout: 10), "Long-press queued message did not render")
         let longPressPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", longPressMarker)).firstMatch
-        XCTAssertTrue(longPressPending.waitForExistence(timeout: 5), "Long-press queued message bubble was not found")
+        XCTAssertTrue(longPressPending.waitToExist(timeout: 5), "Long-press queued message bubble was not found")
         longPressPending.press(forDuration: 1.0)
-        XCTAssertTrue(app.buttons["Dismiss"].waitForExistence(timeout: 5), "Long-press queued message menu did not offer Dismiss")
+        XCTAssertTrue(app.buttons["Dismiss"].waitToExist(timeout: 5), "Long-press queued message menu did not offer Dismiss")
         app.buttons["Dismiss"].tap()
         XCTAssertTrue(waitForNonExistence(of: longPressPending, timeout: 5), "Long-press dismissed queued message bubble remained visible")
         attach(named: "queued-actions-dismissed")
@@ -444,9 +439,9 @@ final class ComposerFlowTests: XCTestCase {
         app.launch()
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let relaunchedPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", marker)).firstMatch
-        XCTAssertFalse(relaunchedPending.waitForExistence(timeout: 5), "Dismissed queued message returned after relaunch")
+        XCTAssertFalse(relaunchedPending.waitToExist(timeout: 5), "Dismissed queued message returned after relaunch")
         let relaunchedLongPressPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", longPressMarker)).firstMatch
-        XCTAssertFalse(relaunchedLongPressPending.waitForExistence(timeout: 5), "Long-press dismissed queued message returned after relaunch")
+        XCTAssertFalse(relaunchedLongPressPending.waitToExist(timeout: 5), "Long-press dismissed queued message returned after relaunch")
         attach(named: "queued-actions-relaunch")
     }
 
@@ -496,7 +491,7 @@ final class ComposerFlowTests: XCTestCase {
         let compact = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/compact,'")).firstMatch
         let cost = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/cost,'")).firstMatch
         let clear = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/clear,'")).firstMatch
-        XCTAssertTrue(compact.waitForExistence(timeout: 10), "/compact suggestion did not load")
+        XCTAssertTrue(compact.waitToExist(timeout: 10), "/compact suggestion did not load")
         XCTAssertTrue(cost.exists, "/cost suggestion did not load")
         XCTAssertFalse(clear.exists, "/clear must not match /co")
         XCTAssertTrue(waitForStableFrame(compact), "/compact suggestion frame did not stabilize before tap")
@@ -529,20 +524,20 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(resultRow.isHittable, "Subagent result row did not become tappable for draft navigation")
         resultRow.tap()
         let viewTranscript = app.buttons["View transcript"]
-        XCTAssertTrue(viewTranscript.waitForExistence(timeout: 10), "Subagent result sheet did not load")
+        XCTAssertTrue(viewTranscript.waitToExist(timeout: 10), "Subagent result sheet did not load")
         viewTranscript.tap()
-        XCTAssertTrue(app.navigationBars["engineer"].waitForExistence(timeout: 15), "Subagent transcript did not open")
+        XCTAssertTrue(app.navigationBars["engineer"].waitToExist(timeout: 15), "Subagent transcript did not open")
         let back = app.navigationBars["engineer"].buttons.firstMatch
-        XCTAssertTrue(back.waitForExistence(timeout: 10), "Subagent transcript did not expose a back button")
+        XCTAssertTrue(back.waitToExist(timeout: 10), "Subagent transcript did not expose a back button")
         back.tap()
 
         let returnedField = composerField(in: app)
-        XCTAssertTrue(returnedField.waitForExistence(timeout: 10), "Composer did not return after subagent navigation")
+        XCTAssertTrue(returnedField.waitToExist(timeout: 10), "Composer did not return after subagent navigation")
         XCTAssertEqual(returnedField.value as? String, marker, "Draft was lost after subagent navigation")
 
         XCUIDevice.shared.press(.home)
         app.activate()
-        XCTAssertTrue(returnedField.waitForExistence(timeout: 10), "Composer did not return after foregrounding")
+        XCTAssertTrue(returnedField.waitToExist(timeout: 10), "Composer did not return after foregrounding")
         XCTAssertEqual(returnedField.value as? String, marker, "Draft was lost after backgrounding")
 
         try await postFixture("/fixture/registry-event")
@@ -554,7 +549,7 @@ final class ComposerFlowTests: XCTestCase {
         app.launch()
         openSession(id: "session-staff-account-exclusions", in: app)
         let relaunchedField = composerField(in: app)
-        XCTAssertTrue(relaunchedField.waitForExistence(timeout: 15), "Composer did not load after relaunch")
+        XCTAssertTrue(relaunchedField.waitToExist(timeout: 15), "Composer did not load after relaunch")
         XCTAssertEqual(relaunchedField.value as? String, marker, "Draft was not restored after relaunch")
     }
 
@@ -577,9 +572,9 @@ final class ComposerFlowTests: XCTestCase {
 
         XCTAssertTrue(waitForPendingStatus("Not sent · Tap to retry", message: marker, in: app, timeout: 10), "Rejected send did not keep the message as Not sent")
         let failedMessage = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
-        XCTAssertTrue(failedMessage.waitForExistence(timeout: 5), "Rejected message text is not visible")
+        XCTAssertTrue(failedMessage.waitToExist(timeout: 5), "Rejected message text is not visible")
         XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 3), "Composer kept the rejected text instead of moving it to the bubble")
-        XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 1), "Rejected send also showed an alert")
+        XCTAssertFalse(app.alerts.firstMatch.waitToExist(timeout: 1), "Rejected send also showed an alert")
 
         try await setMessageBehaviour(delayMs: 8_000)
         let heldMarker = "held-send-\(UUID().uuidString)"
@@ -657,9 +652,9 @@ final class ComposerFlowTests: XCTestCase {
             search.typeText(id == "session-long-session" ? "Long session" : "Dune Part Three")
         }
         let row = app.buttons[id]
-        XCTAssertTrue(row.waitForExistence(timeout: 75), "Fixture session \(id) did not load")
+        XCTAssertTrue(row.waitToExist(timeout: 75), "Fixture session \(id) did not load")
         row.tap()
-        XCTAssertTrue(composerField(in: app).waitForExistence(timeout: 20), "Composer did not load")
+        XCTAssertTrue(composerField(in: app).waitToExist(timeout: 20), "Composer did not load")
     }
 
     private func composerField(in app: XCUIApplication) -> XCUIElement {
@@ -758,58 +753,39 @@ private struct FixtureKeyRequest: Decodable, CustomStringConvertible {
 
 @MainActor
 private func waitForKeyboardDismissal(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    repeat {
-        if app.keyboards.count == 0 { return true }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-    } while Date() < deadline
-    return false
+    pollUntil(timeout: timeout) { app.keyboards.count == 0 }
 }
 
 @MainActor
 private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
-    let expectation = XCTNSPredicateExpectation(
-        predicate: NSPredicate(format: "exists == false"),
-        object: element
-    )
-    return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    pollUntil(timeout: timeout) { !element.exists }
 }
 
 @MainActor
 private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    repeat {
-        if element.exists && element.isHittable { return true }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-    } while Date() < deadline
-    return false
+    pollUntil(timeout: timeout) { element.exists && element.isHittable }
 }
 
 @MainActor
 private func waitForHeight(of element: XCUIElement, greaterThan height: CGFloat, timeout: TimeInterval) -> CGFloat? {
-    let deadline = Date().addingTimeInterval(timeout)
-    repeat {
-        let currentHeight = element.frame.height
-        if currentHeight > height { return currentHeight }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-    } while Date() < deadline
-    return nil
+    var currentHeight: CGFloat?
+    let reached = pollUntil(timeout: timeout) {
+        let current = element.frame.height
+        guard current > height else { return false }
+        currentHeight = current
+        return true
+    }
+    return reached ? currentHeight : nil
 }
 
 @MainActor
 private func waitForValue(of element: XCUIElement, equalTo expected: String, timeout: TimeInterval) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
-    repeat {
-        if element.value as? String == expected { return true }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-    } while Date() < deadline
-    return false
+    pollUntil(timeout: timeout) { element.value as? String == expected }
 }
 
 private extension XCUIElement {
     func waitForPlaceholder(_ expected: String, timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate(format: "placeholderValue == %@", expected)
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
-        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+        return pollUntil(timeout: timeout) { predicate.evaluate(with: self) }
     }
 }

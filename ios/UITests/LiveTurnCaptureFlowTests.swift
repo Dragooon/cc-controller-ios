@@ -27,16 +27,16 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         let search = openSessionSearch(in: app)
         search.typeText("Dune Part Three")
         let session = app.buttons["session-dune-part-three-imax-tickets"]
-        XCTAssertTrue(session.waitForExistence(timeout: 30), "Dune session row did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 30), "Dune session row did not load")
         session.tap()
 
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 20), "Composer did not load")
+        XCTAssertTrue(composer.waitToExist(timeout: 20), "Composer did not load")
         let prompt = "Find a late-night IMAX screening for Moonlight Duo tonight."
         composer.tap()
         composer.typeText(prompt)
         let send = app.buttons["composer-send"]
-        XCTAssertTrue(send.waitForExistence(timeout: 10), "Send button did not load")
+        XCTAssertTrue(send.waitToExist(timeout: 10), "Send button did not load")
         send.tap()
         let sentAt = Date()
 
@@ -60,7 +60,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         capture("a", moment: "right-after-send", sentAt: sentAt, in: app, scheme: scheme)
         let turnStart = try await postLiveTurn(prompt: prompt)
         let workingButton = app.buttons["composer-queue"]
-        XCTAssertTrue(workingButton.waitForExistence(timeout: 3), "Working composer state did not arrive")
+        XCTAssertTrue(workingButton.waitToExist(timeout: 3), "Working composer state did not arrive")
         let workingElapsed = Date().timeIntervalSince(sentAt)
         let workingLine = "WORKING_STATE_FLIP elapsed=\(String(format: "%.3f", workingElapsed)) daemon_turn_start_delta=\(String(format: "%.3f", turnStart.timeIntervalSince(sentAt)))"
         observations.append(workingLine)
@@ -270,10 +270,6 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
     }
 
     private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == false"),
-            object: element
-        )
-        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+        pollUntil(timeout: timeout) { !element.exists }
     }
 }

@@ -14,12 +14,12 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.buttons["session-staff-account-exclusions"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Sessions"].waitToExist(timeout: 30))
+        XCTAssertTrue(app.buttons["session-staff-account-exclusions"].waitToExist(timeout: 30))
         let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        XCTAssertTrue(settings.waitToExist(timeout: 10))
         settings.tap()
-        XCTAssertTrue(app.staticTexts["Connection"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Connection"].waitToExist(timeout: 10))
         addScreenshot(named: "relay-settings-connection")
     }
 
@@ -30,7 +30,7 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["Your Mac's identity changed"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Your Mac's identity changed"].waitToExist(timeout: 20))
         let body = app.staticTexts.matching(NSPredicate(format: "label == %@", "The relay presented a different key from the one this iPhone paired with. Someone may be intercepting the connection, or the Mac's relay key was reset.")).firstMatch
         XCTAssertTrue(body.exists)
     }
@@ -43,8 +43,8 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
         }
 
         app.buttons["Get started"].tap()
-        XCTAssertTrue(app.staticTexts["Can't reach your Mac"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["Not reachable"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Can't reach your Mac"].waitToExist(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Not reachable"].waitToExist(timeout: 15))
     }
 
     func testRelayPairingShowsCheckCommand() throws {
@@ -55,14 +55,14 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
         }
 
         app.buttons["Get started"].tap()
-        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitToExist(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitToExist(timeout: 20))
         app.buttons["Continue"].tap()
-        XCTAssertTrue(app.staticTexts["Pair this iPhone"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Pair this iPhone"].waitToExist(timeout: 15))
         let check = String(relayPin.prefix(8)).uppercased()
         let expectedCheck = "\(check.prefix(4)) \(check.dropFirst(4))"
         let command = app.descendants(matching: .any).matching(identifier: "pairing-command").firstMatch
-        XCTAssertTrue(command.waitForExistence(timeout: 5))
+        XCTAssertTrue(command.waitToExist(timeout: 5))
         XCTAssertTrue(command.label.hasSuffix(expectedCheck), "Expected check \(expectedCheck), got \(command.label)")
     }
 

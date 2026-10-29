@@ -20,16 +20,16 @@ final class LockFlowTests: FixtureFlowTestSupport {
         try await Task.sleep(for: .seconds(1))
         app.activate()
 
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 10), "App locked before the interval elapsed")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitToExist(timeout: 10), "App locked before the interval elapsed")
         XCTAssertFalse(app.staticTexts["Code is locked"].exists, "Foreground interval locked the app too early")
 
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(5))
         app.activate()
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 10), "Foreground interval did not lock the app")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 10), "Foreground interval did not lock the app")
         let unlockButton = app.buttons["Unlock with Face ID"]
-        XCTAssertTrue(unlockButton.waitForExistence(timeout: 10), "Lock screen button did not appear")
+        XCTAssertTrue(unlockButton.waitToExist(timeout: 10), "Lock screen button did not appear")
         print("Lock prompt check SpringBoard alert labels: \(springboard.alerts.allElementsBoundByIndex.map(\.label))")
         XCTAssertEqual(unlockButton.value as? String, "authenticating", "Auto-prompt did not mark the lock button authenticating")
         XCTAssertFalse(unlockButton.isEnabled, "Unlock button was enabled during auto-prompt")
@@ -52,15 +52,15 @@ final class LockFlowTests: FixtureFlowTestSupport {
         dismissNotificationAuthorizationPromptIfPresent(in: springboard)
 
         let session = app.buttons["session-pull-up-agentic-uw"]
-        XCTAssertTrue(session.waitForExistence(timeout: 30), "Fixture session did not load")
+        XCTAssertTrue(session.waitToExist(timeout: 30), "Fixture session did not load")
         session.tap()
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(composer.waitForExistence(timeout: 20), "Composer did not load")
+        XCTAssertTrue(composer.waitToExist(timeout: 20), "Composer did not load")
         let draft = "draft survives biometric lock"
         composer.tap()
         composer.typeText(draft)
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 15), "Unlock age did not expire while active")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 15), "Unlock age did not expire while active")
         try await completeFaceID(app, until: composer, "Face ID did not unlock after active expiry")
         XCTAssertEqual(composer.value as? String, draft, "Composer draft was lost across the lock")
     }
@@ -80,16 +80,16 @@ final class LockFlowTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitForExistence(timeout: 15), "Cold launch after the unlock window did not show the lock screen")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 15), "Cold launch after the unlock window did not show the lock screen")
         try await postFixture("/fixture/biometric/nomatch")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         print("Cold-launch prompt check SpringBoard alert labels: \(springboard.alerts.allElementsBoundByIndex.map(\.label))")
         let cancel = springboard.buttons["Cancel"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 10), "Face ID Cancel button did not appear")
+        XCTAssertTrue(cancel.waitToExist(timeout: 10), "Face ID Cancel button did not appear")
         cancel.tap()
 
-        XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitForExistence(timeout: 10), "Cancel message did not appear on the lock screen")
+        XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitToExist(timeout: 10), "Cancel message did not appear on the lock screen")
         addScreenshot(named: "lock-screen-cancel")
         app.buttons["Unlock with Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after cancel")
@@ -109,8 +109,8 @@ final class LockFlowTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["Sessions"].waitForExistence(timeout: 15), "Cold launch within the unlock window did not open Sessions")
-        XCTAssertTrue(app.buttons["session-pull-up-agentic-uw"].waitForExistence(timeout: 30), "Cold launch did not restore the fixture session list")
+        XCTAssertTrue(app.staticTexts["Sessions"].waitToExist(timeout: 15), "Cold launch within the unlock window did not open Sessions")
+        XCTAssertTrue(app.buttons["session-pull-up-agentic-uw"].waitToExist(timeout: 30), "Cold launch did not restore the fixture session list")
         XCTAssertFalse(app.staticTexts["Code is locked"].exists, "Cold launch within the unlock window showed the lock screen")
     }
 }

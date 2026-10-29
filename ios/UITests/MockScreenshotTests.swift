@@ -86,7 +86,7 @@ final class MockScreenshotTests: XCTestCase {
         app.launch()
 
         let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
-        XCTAssertTrue(ready.waitForExistence(timeout: 15), "Mock \(screen) did not load")
+        XCTAssertTrue(ready.waitToExist(timeout: 15), "Mock \(screen) did not load")
         if ready.exists {
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = "\(screen)-\(scheme)-\(size)"

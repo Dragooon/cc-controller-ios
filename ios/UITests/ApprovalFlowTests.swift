@@ -25,12 +25,12 @@ final class ApprovalFlowTests: XCTestCase {
         defer { app.terminate() }
 
         let approvalSession = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(approvalSession.waitForExistence(timeout: 75), "Approval fixture session did not load")
+        XCTAssertTrue(approvalSession.waitToExist(timeout: 75), "Approval fixture session did not load")
         approvalSession.tap()
         assertNoRuntimeErrors()
 
         let bash = app.staticTexts["Bash"]
-        XCTAssertTrue(bash.waitForExistence(timeout: 20), "Approval card did not show Bash")
+        XCTAssertTrue(bash.waitToExist(timeout: 20), "Approval card did not show Bash")
         let requestCopy = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS[c] 'engineer wants to run this'")
         ).firstMatch
@@ -44,21 +44,17 @@ final class ApprovalFlowTests: XCTestCase {
         attach(named: "approval-session-card")
 
         let allow = app.buttons["Allow"]
-        XCTAssertTrue(allow.waitForExistence(timeout: 10), "Allow button did not load")
+        XCTAssertTrue(allow.waitToExist(timeout: 10), "Allow button did not load")
         allow.tap()
         assertNoRuntimeErrors()
 
-        let gone = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == false"),
-            object: allow
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 30), .completed, "Allow button did not disappear after the decision")
-        XCTAssertTrue(composer.waitForExistence(timeout: 30), "Composer did not return after Allow")
+        XCTAssertTrue(pollUntil(timeout: 30) { !allow.exists }, "Allow button did not disappear after the decision")
+        XCTAssertTrue(composer.waitToExist(timeout: 30), "Composer did not return after Allow")
 
         let decision = app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS[c] 'Allowed from this device'")
         ).firstMatch
-        if !decision.waitForExistence(timeout: 10) {
+        if !decision.waitToExist(timeout: 10) {
             XCTAssertTrue(composer.exists, "After Allow the app showed neither the decision caption nor the composer")
         }
         attach(named: "approval-session-allowed")

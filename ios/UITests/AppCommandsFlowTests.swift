@@ -16,7 +16,7 @@ final class AppCommandsFlowTests: XCTestCase {
         field.tap()
         field.typeText("/re")
         let rename = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/rename,'")).firstMatch
-        XCTAssertTrue(rename.waitForExistence(timeout: 10), "Rename suggestion did not load")
+        XCTAssertTrue(rename.waitToExist(timeout: 10), "Rename suggestion did not load")
         XCTAssertTrue(waitForStableFrame(rename), "Rename suggestion frame did not stabilize before tap")
         rename.tap()
 
@@ -32,19 +32,19 @@ final class AppCommandsFlowTests: XCTestCase {
         field.tap()
         field.typeText("/mo")
         let modelSuggestion = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch
-        XCTAssertTrue(modelSuggestion.waitForExistence(timeout: 10), "Model suggestion did not load")
+        XCTAssertTrue(modelSuggestion.waitToExist(timeout: 10), "Model suggestion did not load")
         XCTAssertTrue(waitForStableFrame(modelSuggestion), "Model suggestion frame did not stabilize before tap")
         modelSuggestion.tap()
 
-        XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not open")
+        XCTAssertTrue(app.navigationBars["Model"].waitToExist(timeout: 10), "Model sheet did not open")
         let firstOption = app.buttons["model-option-claude-fable-5-1[1m]"]
         let secondOption = app.buttons["model-option-claude-fable-5-2[1m]"]
-        XCTAssertTrue(firstOption.waitForExistence(timeout: 10), "First model option did not load")
+        XCTAssertTrue(firstOption.waitToExist(timeout: 10), "First model option did not load")
         XCTAssertTrue(app.images["current-model-claude-fable-5-1[1m]"].exists, "Current model checkmark was not on Fable 5.1")
         XCTAssertFalse(app.images["current-model-claude-fable-5-2[1m]"].exists, "Fable 5.2 was incorrectly checked")
         addScreenshot(named: "model-sheet")
         secondOption.tap()
-        XCTAssertTrue(app.navigationBars["Model"].waitForNonExistence(timeout: 10), "Model sheet did not dismiss")
+        XCTAssertTrue(app.navigationBars["Model"].waitToDisappear(timeout: 10), "Model sheet did not dismiss")
 
         let requests = try await commandRequests()
         XCTAssertTrue(requests.contains { $0.text == "/model claude-fable-5-2[1m]" }, "Selected model was not sent: \(requests)")
@@ -54,8 +54,8 @@ final class AppCommandsFlowTests: XCTestCase {
         let reopenedModelSuggestion = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch
         XCTAssertTrue(waitForStableFrame(reopenedModelSuggestion), "Reopened model suggestion frame did not stabilize before tap")
         reopenedModelSuggestion.tap()
-        XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not reopen")
-        XCTAssertTrue(app.images["current-model-claude-fable-5-2[1m]"].waitForExistence(timeout: 10), "Current model checkmark did not move to Fable 5.2")
+        XCTAssertTrue(app.navigationBars["Model"].waitToExist(timeout: 10), "Model sheet did not reopen")
+        XCTAssertTrue(app.images["current-model-claude-fable-5-2[1m]"].waitToExist(timeout: 10), "Current model checkmark did not move to Fable 5.2")
         addScreenshot(named: "model-sheet-after-select")
     }
 
@@ -71,11 +71,11 @@ final class AppCommandsFlowTests: XCTestCase {
         let modelSuggestion = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/model,'")).firstMatch
         XCTAssertTrue(waitForStableFrame(modelSuggestion), "Model suggestion frame did not stabilize before tap")
         modelSuggestion.tap()
-        XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10), "Model sheet did not open")
+        XCTAssertTrue(app.navigationBars["Model"].waitToExist(timeout: 10), "Model sheet did not open")
         app.buttons["model-option-claude-fable-5-2[1m]"].tap()
 
         let error = app.staticTexts["Commands need the cc-controller plugin in this session. Run /reload-plugins in its terminal, or restart it."]
-        XCTAssertTrue(error.waitForExistence(timeout: 10), "Model selection error did not render inline")
+        XCTAssertTrue(error.waitToExist(timeout: 10), "Model selection error did not render inline")
         XCTAssertTrue(app.navigationBars["Model"].exists, "Model sheet dismissed after selection failure")
         addScreenshot(named: "model-sheet-error")
     }
@@ -90,9 +90,9 @@ final class AppCommandsFlowTests: XCTestCase {
         field.typeText("/context")
         tapSend(in: app)
 
-        XCTAssertTrue(app.navigationBars["/context"].waitForExistence(timeout: 10), "Output sheet did not open")
+        XCTAssertTrue(app.navigationBars["/context"].waitToExist(timeout: 10), "Output sheet did not open")
         XCTAssertEqual(app.keyboards.count, 0, "Keyboard remained visible over the output sheet")
-        XCTAssertTrue(app.staticTexts["Context use: 42%"].waitForExistence(timeout: 10), "Command output did not render")
+        XCTAssertTrue(app.staticTexts["Context use: 42%"].waitToExist(timeout: 10), "Command output did not render")
         addScreenshot(named: "command-output-sheet")
         app.buttons["Done"].tap()
     }
@@ -109,7 +109,7 @@ final class AppCommandsFlowTests: XCTestCase {
         tapSend(in: app)
 
         let toast = app.descendants(matching: .any).matching(identifier: "command-toast").firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 10), "Queued command toast did not appear")
+        XCTAssertTrue(toast.waitToExist(timeout: 10), "Queued command toast did not appear")
         XCTAssertTrue(toast.label.contains("Runs when the current turn ends."))
         addScreenshot(named: "command-queued-toast")
     }
@@ -126,7 +126,7 @@ final class AppCommandsFlowTests: XCTestCase {
         tapSend(in: app)
 
         let alert = app.alerts["Commands unavailable"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 10), "No-route alert did not appear")
+        XCTAssertTrue(alert.waitToExist(timeout: 10), "No-route alert did not appear")
         XCTAssertTrue(alert.staticTexts["Commands need the cc-controller plugin in this session. Run /reload-plugins in its terminal, or restart it."].exists)
         addScreenshot(named: "commands-unavailable-alert")
         alert.buttons["OK"].tap()
@@ -143,11 +143,10 @@ final class AppCommandsFlowTests: XCTestCase {
         tapSend(in: app)
 
         let selectedSession = app.staticTexts["selected-session-name"]
-        let followed = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "pull-up-agentic-uw-cleared"),
-            object: selectedSession
+        XCTAssertTrue(
+            pollUntil(timeout: 10) { selectedSession.value as? String == "pull-up-agentic-uw-cleared" },
+            "Session screen did not follow the rotated session id"
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [followed], timeout: 10), .completed, "Session screen did not follow the rotated session id")
         XCTAssertTrue(waitForValue(of: composerField(in: app), equalTo: "", timeout: 10), "Composer was not empty after clear")
     }
 
@@ -163,9 +162,9 @@ final class AppCommandsFlowTests: XCTestCase {
 
     private func openSession(id: String, in app: XCUIApplication) {
         let row = app.buttons[id]
-        XCTAssertTrue(row.waitForExistence(timeout: 75), "Fixture session \(id) did not load")
+        XCTAssertTrue(row.waitToExist(timeout: 75), "Fixture session \(id) did not load")
         row.tap()
-        XCTAssertTrue(composerField(in: app).waitForExistence(timeout: 20), "Composer did not load")
+        XCTAssertTrue(composerField(in: app).waitToExist(timeout: 20), "Composer did not load")
     }
 
     private func composerField(in app: XCUIApplication) -> XCUIElement {
@@ -209,11 +208,6 @@ final class AppCommandsFlowTests: XCTestCase {
     }
 
     private func waitForValue(of element: XCUIElement, equalTo value: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if element.value as? String == value { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-        } while Date() < deadline
-        return false
+        pollUntil(timeout: timeout) { element.value as? String == value }
     }
 }

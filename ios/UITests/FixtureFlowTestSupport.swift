@@ -24,14 +24,15 @@ func transcriptScroll(in app: XCUIApplication) -> XCUIElement {
 }
 
 /// The collection transcript builds rows only on or near the screen, so an older row has to be scrolled to.
+@MainActor
 @discardableResult
 func revealInTranscript(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
     let scroll = transcriptScroll(in: app)
-    guard scroll.waitForExistence(timeout: 15) else { return false }
-    if element.waitForExistence(timeout: 3) { return true }
+    guard scroll.waitToExist(timeout: 15) else { return false }
+    if element.waitToExist(timeout: 3) { return true }
     for _ in 0..<maxSwipes {
         scroll.swipeDown()
-        if element.waitForExistence(timeout: 1) { return true }
+        if element.waitToExist(timeout: 1) { return true }
     }
     return false
 }
@@ -48,7 +49,7 @@ func dismissLeftoverNotificationPrompt() {
     guard prompt.exists else { return }
     let label = prompt.label
     prompt.buttons["Don’t Allow"].tap()
-    let dismissed = prompt.waitForNonExistence(timeout: 5)
+    let dismissed = prompt.waitToDisappear(timeout: 5)
     print("Dismissed leftover notification prompt before launch: \(label) (gone: \(dismissed))")
 }
 
@@ -113,13 +114,13 @@ func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> X
     }
 
     let button = app.buttons["sessions-search"]
-    if button.waitForExistence(timeout: min(timeout, 2)) {
+    if button.waitToExist(timeout: min(timeout, 2)) {
         button.tap()
-        XCTAssertTrue(search.waitForExistence(timeout: timeout), "Session search field did not load")
+        XCTAssertTrue(search.waitToExist(timeout: timeout), "Session search field did not load")
         return search
     }
 
-    XCTAssertTrue(regularField.waitForExistence(timeout: timeout), "Session search field did not load")
+    XCTAssertTrue(regularField.waitToExist(timeout: timeout), "Session search field did not load")
     regularField.tap()
     return regularField
 }
@@ -184,22 +185,22 @@ class FixtureFlowTestSupport: XCTestCase {
 
     func reachFaceID(_ app: XCUIApplication) async throws {
         app.buttons["Get started"].tap()
-        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitToExist(timeout: 10))
         let connected = app.staticTexts["Connected to cc-controller"]
-        XCTAssertTrue(connected.waitForExistence(timeout: 15), "Live whoami check did not turn green")
+        XCTAssertTrue(connected.waitToExist(timeout: 15), "Live whoami check did not turn green")
         let latency = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*· [0-9]+ ms")).firstMatch
-        XCTAssertTrue(latency.waitForExistence(timeout: 10), "Connected card did not show round-trip latency")
+        XCTAssertTrue(latency.waitToExist(timeout: 10), "Connected card did not show round-trip latency")
         addScreenshot(named: "onboarding-connect-connected")
         XCTAssertTrue(app.buttons["Continue"].isEnabled)
         app.buttons["Continue"].tap()
 
         let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
-        XCTAssertTrue(codeElement.waitForExistence(timeout: 10), "Pairing code did not appear")
+        XCTAssertTrue(codeElement.waitToExist(timeout: 10), "Pairing code did not appear")
         addScreenshot(named: "onboarding-pair-waiting")
         let code = codeElement.label.replacingOccurrences(of: " ", with: "")
         XCTAssertEqual(code.count, 6)
         try await approvePairing(code)
-        XCTAssertTrue(app.staticTexts["Protect with Face ID"].waitForExistence(timeout: 15), "Pair confirmation did not reach Face ID")
+        XCTAssertTrue(app.staticTexts["Protect with Face ID"].waitToExist(timeout: 15), "Pair confirmation did not reach Face ID")
         addScreenshot(named: "onboarding-faceid-prompt")
     }
 
@@ -208,7 +209,7 @@ class FixtureFlowTestSupport: XCTestCase {
         let prompt = springboard.alerts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
         ).firstMatch
-        XCTAssertTrue(prompt.waitForExistence(timeout: timeout), "Notification authorization prompt did not appear")
+        XCTAssertTrue(prompt.waitToExist(timeout: timeout), "Notification authorization prompt did not appear")
         return prompt
     }
 
@@ -216,7 +217,7 @@ class FixtureFlowTestSupport: XCTestCase {
         let prompt = springboard.alerts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
         ).firstMatch
-        guard prompt.waitForExistence(timeout: timeout) else { return }
+        guard prompt.waitToExist(timeout: timeout) else { return }
         prompt.buttons["Don’t Allow"].tap()
     }
 
@@ -235,7 +236,7 @@ class FixtureFlowTestSupport: XCTestCase {
             try await postFixture("/fixture/biometric/match")
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
-            _ = target.waitForExistence(timeout: min(3, remaining))
+            _ = target.waitToExist(timeout: min(3, remaining))
         }
         XCTAssertTrue(target.exists, message)
     }

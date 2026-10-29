@@ -12,14 +12,14 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
             app.terminate()
         }
 
-        XCTAssertTrue(app.staticTexts["Code"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Code"].waitToExist(timeout: 15))
         addScreenshot(named: "onboarding-welcome")
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Native login did not load Sessions")
         let sessionRow = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(sessionRow.waitForExistence(timeout: 30), "Native login did not load a session row")
+        XCTAssertTrue(sessionRow.waitToExist(timeout: 30), "Native login did not load a session row")
         addScreenshot(named: "onboarding-sessions-arrival")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -28,7 +28,7 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         let notificationPrompt = springboard.alerts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
         ).firstMatch
-        guard notificationPrompt.waitForExistence(timeout: 5) else { return }
+        guard notificationPrompt.waitToExist(timeout: 5) else { return }
         XCTAssertTrue(sessionRow.exists, "Session row disappeared behind notification authorization prompt")
         addScreenshot(named: "onboarding-notification-prompt")
         notificationPrompt.buttons["Don’t Allow"].tap()
@@ -62,10 +62,10 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
             XCTAssertTrue(springboard.staticTexts["Face Not Recognised"].exists)
             XCTAssertTrue(springboard.buttons["Try Face ID Again"].exists || springboard.buttons["Cancel"].exists)
             springboard.buttons["Cancel"].firstMatch.tap()
-            XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitToExist(timeout: 10))
             XCTAssertTrue(app.buttons["Try again"].exists)
         } else {
-            XCTAssertTrue(app.staticTexts["Face ID didn't match. Try again."].waitForExistence(timeout: 10), dump)
+            XCTAssertTrue(app.staticTexts["Face ID didn't match. Try again."].waitToExist(timeout: 10), dump)
             XCTAssertTrue(app.buttons["Try again"].exists)
         }
         addScreenshot(named: "onboarding-faceid-failure")
@@ -94,7 +94,7 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         try await reachFaceID(app)
         app.buttons["Turn on Face ID"].tap()
         let blocked = app.staticTexts["Set up Face ID in Settings to use this app."]
-        guard blocked.waitForExistence(timeout: 10) else {
+        guard blocked.waitToExist(timeout: 10) else {
             throw XCTSkip("Simulator biometric unenrollment is not currently drivable; the Face ID not-enrolled state could not be isolated.")
         }
         XCTAssertTrue(blocked.exists)
@@ -110,30 +110,28 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         }
 
         app.buttons["Get started"].tap()
-        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitToExist(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitToExist(timeout: 15))
         let latency = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", ".*· [0-9]+ ms")).firstMatch
-        XCTAssertTrue(latency.waitForExistence(timeout: 10), "Connected card did not show round-trip latency")
+        XCTAssertTrue(latency.waitToExist(timeout: 10), "Connected card did not show round-trip latency")
         app.buttons["Continue"].tap()
-        XCTAssertTrue(app.staticTexts["Pair this iPhone"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["This code expired"].waitForExistence(timeout: 10), "The short client expiry did not render")
+        XCTAssertTrue(app.staticTexts["Pair this iPhone"].waitToExist(timeout: 10))
+        XCTAssertTrue(app.staticTexts["This code expired"].waitToExist(timeout: 10), "The short client expiry did not render")
         addScreenshot(named: "onboarding-pair-expired")
         let codeElement = app.descendants(matching: .any).matching(identifier: "pairing-code").firstMatch
         let oldCode = codeElement.label
         app.buttons["Get a new pairing code"].tap()
         XCTAssertTrue(app.staticTexts["Pair this iPhone"].exists)
 
-        let newCodeExpectation = expectation(for: NSPredicate(format: "label != %@", oldCode), evaluatedWith: codeElement)
-        wait(for: [newCodeExpectation], timeout: 10)
+        XCTAssertTrue(pollUntil(timeout: 10) { codeElement.label != oldCode })
         let newCode = codeElement.label.replacingOccurrences(of: " ", with: "")
         XCTAssertEqual(newCode.count, 6)
         XCTAssertNotEqual(newCode, oldCode.replacingOccurrences(of: " ", with: ""))
 
         let expired = app.staticTexts["This code expired"]
-        let expiredGone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: expired)
-        wait(for: [expiredGone], timeout: 10)
+        XCTAssertTrue(pollUntil(timeout: 10) { !expired.exists })
         let expiryLabel = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Expires in")).firstMatch
-        XCTAssertTrue(expiryLabel.waitForExistence(timeout: 10))
+        XCTAssertTrue(expiryLabel.waitToExist(timeout: 10))
     }
 
     func testUnreachableDaemonExplainsWhatToFix() throws {
@@ -145,9 +143,9 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         }
 
         app.buttons["Get started"].tap()
-        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Can't reach the Mac yet"].waitForExistence(timeout: 12))
-        XCTAssertTrue(app.staticTexts["Check that Termius is forwarding localhost:47832 and the Mac is awake."].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.staticTexts["Connect to your Mac"].waitToExist(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Can't reach the Mac yet"].waitToExist(timeout: 12))
+        XCTAssertTrue(app.staticTexts["Check that Termius is forwarding localhost:47832 and the Mac is awake."].waitToExist(timeout: 12))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] '127.0.0.1:1'")).firstMatch.exists)
         XCTAssertFalse(app.buttons["Continue"].isEnabled)
     }

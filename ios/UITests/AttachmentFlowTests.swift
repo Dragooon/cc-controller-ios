@@ -29,13 +29,13 @@ final class AttachmentFlowTests: XCTestCase {
         }
 
         let field = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "Composer did not load")
+        XCTAssertTrue(field.waitToExist(timeout: 20), "Composer did not load")
         field.tap()
         field.typeText("delivered-attachment-flow-marker")
         app.buttons["composer-send"].tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        if pending.waitForExistence(timeout: 5) {
+        if pending.waitToExist(timeout: 5) {
             XCTAssertTrue(waitForNonExistence(of: pending, timeout: 20), "Prompt attachment assertions ran against the pending bubble")
         }
 
@@ -43,14 +43,14 @@ final class AttachmentFlowTests: XCTestCase {
         let markerPredicate = NSPredicate(format: "label CONTAINS[c] %@", marker)
         let bubbles = app.descendants(matching: .any).matching(identifier: "prompt-bubble")
         let markerBubbles = bubbles.matching(markerPredicate)
-        XCTAssertTrue(markerBubbles.firstMatch.waitForExistence(timeout: 30), "Delivered prompt bubble did not appear")
+        XCTAssertTrue(markerBubbles.firstMatch.waitToExist(timeout: 30), "Delivered prompt bubble did not appear")
         XCTAssertEqual(markerBubbles.count, 1, "Expected exactly one bubble to contain the delivered marker")
         let delivered = markerBubbles.firstMatch
 
         let image = delivered.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] 'attachment.png'"))
             .firstMatch
-        XCTAssertTrue(image.waitForExistence(timeout: 30), "Delivered image attachment did not appear")
+        XCTAssertTrue(image.waitToExist(timeout: 30), "Delivered image attachment did not appear")
         XCTAssertEqual(image.label, "attachment.png, image")
         XCTAssertEqual(image.identifier, "prompt-attachment")
         XCTAssertEqual(image.value as? String, "loaded")
@@ -58,7 +58,7 @@ final class AttachmentFlowTests: XCTestCase {
         let csv = delivered.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] 'evidence.csv'"))
             .firstMatch
-        XCTAssertTrue(csv.waitForExistence(timeout: 30), "Delivered CSV attachment did not appear")
+        XCTAssertTrue(csv.waitToExist(timeout: 30), "Delivered CSV attachment did not appear")
         XCTAssertEqual(csv.label, "evidence.csv, file")
         XCTAssertEqual(csv.identifier, "prompt-attachment")
 
@@ -66,13 +66,13 @@ final class AttachmentFlowTests: XCTestCase {
         image.tap()
 
         let quickLook = app.otherElements["QLPreviewControllerView"]
-        guard quickLook.waitForExistence(timeout: 15) else {
+        guard quickLook.waitToExist(timeout: 15) else {
             XCTFail("Quick Look controller did not appear")
             return
         }
 
         let canvas = app.otherElements["Image canvas"]
-        guard canvas.waitForExistence(timeout: 10) else {
+        guard canvas.waitToExist(timeout: 10) else {
             let debug = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
             debug.name = "prompt-attachment-quicklook-debug.txt"
             debug.lifetime = .keepAlways
@@ -92,9 +92,9 @@ final class AttachmentFlowTests: XCTestCase {
         openStaffSession(in: app)
 
         let file = app.buttons["Open review.png"]
-        XCTAssertTrue(file.waitForExistence(timeout: 30), "Agent-sent review.png file did not appear")
+        XCTAssertTrue(file.waitToExist(timeout: 30), "Agent-sent review.png file did not appear")
         let imageTile = app.descendants(matching: .any).matching(identifier: "agent-file-image").firstMatch
-        XCTAssertTrue(imageTile.waitForExistence(timeout: 10), "Agent-sent image tile did not appear")
+        XCTAssertTrue(imageTile.waitToExist(timeout: 10), "Agent-sent image tile did not appear")
         XCTAssertEqual(imageTile.frame.width, 277.0 * 280.0 / 600.0, accuracy: 1)
         XCTAssertEqual(imageTile.frame.height, 280, accuracy: 1)
         XCTAssertLessThan(imageTile.frame.width, 220)
@@ -102,13 +102,13 @@ final class AttachmentFlowTests: XCTestCase {
         file.tap()
 
         let quickLook = app.otherElements["QLPreviewControllerView"]
-        guard quickLook.waitForExistence(timeout: 15) else {
+        guard quickLook.waitToExist(timeout: 15) else {
             XCTFail("Quick Look controller did not appear for agent-sent file")
             return
         }
 
         let canvas = app.otherElements["Image canvas"]
-        guard canvas.waitForExistence(timeout: 10) else {
+        guard canvas.waitToExist(timeout: 10) else {
             let debug = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
             debug.name = "agent-sent-quicklook-debug.txt"
             debug.lifetime = .keepAlways
@@ -129,12 +129,11 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
 
         let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
-        XCTAssertTrue(tray.waitForExistence(timeout: 10), "Attachment tray did not appear")
+        XCTAssertTrue(tray.waitToExist(timeout: 10), "Attachment tray did not appear")
         let tile = app.descendants(matching: .any).matching(identifier: "attachment-tile").firstMatch
-        XCTAssertTrue(tile.waitForExistence(timeout: 10), "Attachment tile did not appear")
+        XCTAssertTrue(tile.waitToExist(timeout: 10), "Attachment tile did not appear")
         let attached = NSPredicate(format: "label ENDSWITH[c] %@", "attached")
-        expectation(for: attached, evaluatedWith: tile)
-        waitForExpectations(timeout: 10)
+        XCTAssertTrue(pollUntil(timeout: 10) { attached.evaluate(with: tile) })
 
         let field = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
         field.tap()
@@ -153,11 +152,11 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
 
         let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
-        XCTAssertTrue(tray.waitForExistence(timeout: 10), "Attachment tray did not appear")
+        XCTAssertTrue(tray.waitToExist(timeout: 10), "Attachment tray did not appear")
         let csv = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'evidence.csv'")).firstMatch
-        XCTAssertTrue(csv.waitForExistence(timeout: 10), "CSV attachment chip did not appear")
+        XCTAssertTrue(csv.waitToExist(timeout: 10), "CSV attachment chip did not appear")
         let attached = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'attached'")).firstMatch
-        XCTAssertTrue(attached.waitForExistence(timeout: 10), "PNG attachment did not finish uploading")
+        XCTAssertTrue(attached.waitToExist(timeout: 10), "PNG attachment did not finish uploading")
     }
 
     func testUploadWaitingStateShowsIndeterminateTile() throws {
@@ -173,7 +172,7 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
 
         let waiting = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'waiting for server'")).firstMatch
-        XCTAssertTrue(waiting.waitForExistence(timeout: 3), "Upload did not reach the all-bytes-sent waiting state")
+        XCTAssertTrue(waiting.waitToExist(timeout: 3), "Upload did not reach the all-bytes-sent waiting state")
         addScreenshot(named: "attachment-upload-waiting")
     }
 
@@ -191,9 +190,9 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
 
         let failed = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'failed'")).firstMatch
-        XCTAssertTrue(failed.waitForExistence(timeout: 10), "Too-large attachment did not fail")
+        XCTAssertTrue(failed.waitToExist(timeout: 10), "Too-large attachment did not fail")
         let tileCaption = app.staticTexts["Too large (max 25 MB)"]
-        XCTAssertTrue(tileCaption.waitForExistence(timeout: 10), "Too-large attachment tile caption did not appear")
+        XCTAssertTrue(tileCaption.waitToExist(timeout: 10), "Too-large attachment tile caption did not appear")
         app.buttons["composer-send"].tap()
         XCTAssertFalse(app.staticTexts["Remove the file that is too large"].exists, "Tray-level too-large caption appeared")
         XCTAssertFalse(app.alerts["Action failed"].exists, "Blocked attachment send showed an alert")
@@ -213,13 +212,13 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
 
         let failed = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'failed'")).firstMatch
-        XCTAssertTrue(failed.waitForExistence(timeout: 10), "Retryable image attachment did not fail")
+        XCTAssertTrue(failed.waitToExist(timeout: 10), "Retryable image attachment did not fail")
         let tile = app.descendants(matching: .any).matching(identifier: "attachment-tile").firstMatch
         let badge = app.descendants(matching: .any).matching(identifier: "attachment-failure-badge").firstMatch
-        XCTAssertTrue(badge.waitForExistence(timeout: 10), "Retryable image failure badge did not appear")
+        XCTAssertTrue(badge.waitToExist(timeout: 10), "Retryable image failure badge did not appear")
         XCTAssertTrue(tile.frame.contains(badge.frame), "Failure badge frame \(badge.frame) was not inside tile frame \(tile.frame)")
         let tileCaption = app.staticTexts["Tap to retry"]
-        XCTAssertTrue(tileCaption.waitForExistence(timeout: 10), "Retryable attachment tile caption did not appear")
+        XCTAssertTrue(tileCaption.waitToExist(timeout: 10), "Retryable attachment tile caption did not appear")
         XCTAssertEqual(tile.label, "fail-attachment.png, upload failed, double-tap to retry")
         XCTAssertFalse(app.staticTexts["Remove or retry the failed attachment"].exists, "Tray-level failed caption appeared")
     }
@@ -233,11 +232,11 @@ final class AttachmentFlowTests: XCTestCase {
         }
         openLongSession(in: app)
         let tray = app.descendants(matching: .any).matching(identifier: "attachment-tray").firstMatch
-        XCTAssertTrue(tray.waitForExistence(timeout: 10), "Attachment tray did not appear")
+        XCTAssertTrue(tray.waitToExist(timeout: 10), "Attachment tray did not appear")
         let tile = app.descendants(matching: .any).matching(identifier: "attachment-tile").firstMatch
-        XCTAssertTrue(tile.waitForExistence(timeout: 10), "Attachment tile did not appear")
+        XCTAssertTrue(tile.waitToExist(timeout: 10), "Attachment tile did not appear")
         let remove = tile.descendants(matching: .button).firstMatch
-        XCTAssertTrue(remove.waitForExistence(timeout: 10), "Remove badge did not appear")
+        XCTAssertTrue(remove.waitToExist(timeout: 10), "Remove badge did not appear")
         remove.tap()
         XCTAssertTrue(waitForNonExistence(of: tray, timeout: 10), "Attachment tray remained after removing tile")
     }
@@ -252,7 +251,7 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
         app.buttons["Add attachment"].tap()
         let photos = app.buttons["Photos"]
-        XCTAssertTrue(photos.waitForExistence(timeout: 5), "Photos menu item did not appear")
+        XCTAssertTrue(photos.waitToExist(timeout: 5), "Photos menu item did not appear")
         photos.tap()
         addDebugDescription(app, named: "photos-picker-app-hierarchy")
 
@@ -265,16 +264,16 @@ final class AttachmentFlowTests: XCTestCase {
         let photoCell = app.collectionViews
             .matching(NSPredicate(format: "identifier != %@", "transcript-scroll"))
             .firstMatch.cells.firstMatch
-        guard photoCell.waitForExistence(timeout: 10) else {
+        guard photoCell.waitToExist(timeout: 10) else {
             throw XCTSkip("Photos picker presented, but no photo cell was accessible through the app accessibility hierarchy")
         }
         photoCell.tap()
         let add = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Add' OR label CONTAINS[c] 'Done'" )).firstMatch
-        guard add.waitForExistence(timeout: 5) else {
+        guard add.waitToExist(timeout: 5) else {
             throw XCTSkip("Photos picker presented and a photo cell was accessible, but its Add/Done control was not accessible")
         }
         add.tap()
-        XCTAssertTrue(app.otherElements["attachment-tray"].waitForExistence(timeout: 10), "Photos attachment was not added")
+        XCTAssertTrue(app.otherElements["attachment-tray"].waitToExist(timeout: 10), "Photos attachment was not added")
     }
 
     func testCameraPickerUsesSimulatorCamera() throws {
@@ -287,11 +286,11 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
         app.buttons["Add attachment"].tap()
         let camera = app.buttons["Camera"]
-        XCTAssertTrue(camera.waitForExistence(timeout: 5), "Camera menu item did not appear")
+        XCTAssertTrue(camera.waitToExist(timeout: 5), "Camera menu item did not appear")
         camera.tap()
 
         let takePicture = app.buttons["Take Picture"]
-        XCTAssertTrue(takePicture.waitForExistence(timeout: 10), "Simulator camera UI did not appear")
+        XCTAssertTrue(takePicture.waitToExist(timeout: 10), "Simulator camera UI did not appear")
         let dismiss = app.buttons["Dismiss"]
         XCTAssertTrue(dismiss.isHittable, "Simulator camera dismiss control was not hittable")
         dismiss.tap()
@@ -308,7 +307,7 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
         app.buttons["Add attachment"].tap()
         let files = app.buttons["Files"]
-        XCTAssertTrue(files.waitForExistence(timeout: 5), "Files menu item did not appear")
+        XCTAssertTrue(files.waitToExist(timeout: 5), "Files menu item did not appear")
         files.tap()
         addDebugDescription(app, named: "files-picker-app-hierarchy")
 
@@ -365,10 +364,10 @@ final class AttachmentFlowTests: XCTestCase {
 
     private func openStaffSession(in app: XCUIApplication) {
         let row = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(row.waitForExistence(timeout: 75), "Staff session did not load")
+        XCTAssertTrue(row.waitToExist(timeout: 75), "Staff session did not load")
         row.tap()
         XCTAssertTrue(
-            app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitForExistence(timeout: 30),
+            app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitToExist(timeout: 30),
             "Staff session did not open"
         )
     }
@@ -378,9 +377,9 @@ final class AttachmentFlowTests: XCTestCase {
         search.tap()
         search.typeText("Long session")
         let row = app.buttons["session-long-session"]
-        XCTAssertTrue(row.waitForExistence(timeout: 75), "Long session did not load")
+        XCTAssertTrue(row.waitToExist(timeout: 75), "Long session did not load")
         row.tap()
-        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch.waitForExistence(timeout: 20), "Composer did not load")
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch.waitToExist(timeout: 20), "Composer did not load")
     }
 
     private func fixture(_ name: String) -> String {
@@ -419,10 +418,6 @@ final class AttachmentFlowTests: XCTestCase {
     }
 
     private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == false"),
-            object: element
-        )
-        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+        pollUntil(timeout: timeout) { !element.exists }
     }
 }

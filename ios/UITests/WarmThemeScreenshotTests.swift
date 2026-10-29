@@ -18,17 +18,17 @@ final class WarmThemeScreenshotTests: XCTestCase {
         for variant in variants {
             let app = launchMock(screen: "warm-theme", scheme: variant.scheme)
             let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
-            XCTAssertTrue(ready.waitForExistence(timeout: 15), "Warm theme mock did not load: \(variant.name)")
+            XCTAssertTrue(ready.waitToExist(timeout: 15), "Warm theme mock did not load: \(variant.name)")
             let prose = app.staticTexts.containing(
                 NSPredicate(format: "label CONTAINS[c] %@", "Linen theme review")
             ).firstMatch
-            XCTAssertTrue(prose.waitForExistence(timeout: 15), "Warm theme transcript did not mount: \(variant.name)")
+            XCTAssertTrue(prose.waitToExist(timeout: 15), "Warm theme transcript did not mount: \(variant.name)")
             let code = app.buttons["Copy code"]
             let tool = app.descendants(matching: .any).matching(
                 NSPredicate(format: "label CONTAINS[c] %@", "Read Colors.swift")
             ).firstMatch
-            let codeMounted = code.waitForExistence(timeout: 15)
-            let toolMounted = tool.waitForExistence(timeout: 15)
+            let codeMounted = code.waitToExist(timeout: 15)
+            let toolMounted = tool.waitToExist(timeout: 15)
             if !codeMounted || !toolMounted {
                 print("warm-theme content variant=\(variant.name) code=\(codeMounted) tool=\(toolMounted)")
             }
@@ -51,9 +51,9 @@ final class WarmThemeScreenshotTests: XCTestCase {
         for variant in variants {
             let app = launchMock(screen: "sessions", scheme: variant.scheme)
             let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
-            XCTAssertTrue(ready.waitForExistence(timeout: 15), "Session list mock did not load: \(variant.name)")
+            XCTAssertTrue(ready.waitToExist(timeout: 15), "Session list mock did not load: \(variant.name)")
             let title = app.staticTexts["Sessions"]
-            XCTAssertTrue(title.waitForExistence(timeout: 15), "Session list title did not load: \(variant.name)")
+            XCTAssertTrue(title.waitToExist(timeout: 15), "Session list title did not load: \(variant.name)")
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = variant.name
             attachment.lifetime = .keepAlways

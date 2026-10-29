@@ -20,23 +20,23 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let selectedTitle = app.descendants(matching: .any)
             .matching(identifier: "selected-session-name")
             .firstMatch
-        XCTAssertTrue(selectedTitle.waitForExistence(timeout: 75), "Selected session did not open in landscape")
+        XCTAssertTrue(selectedTitle.waitToExist(timeout: 75), "Selected session did not open in landscape")
         XCTAssertEqual(selectedTitle.label, "Staff Account Exclusions Atlas Monitoring")
 
         let sessionsList = sessionsList(in: app)
-        XCTAssertTrue(sessionsList.waitForExistence(timeout: 20), "Sessions list was not visible beside the detail")
+        XCTAssertTrue(sessionsList.waitToExist(timeout: 20), "Sessions list was not visible beside the detail")
         let detail = transcript(in: app)
-        XCTAssertTrue(detail.waitForExistence(timeout: 30), "Transcript detail did not load")
+        XCTAssertTrue(detail.waitToExist(timeout: 30), "Transcript detail did not load")
         assertDetailIsBesideSidebar(detail: detail, sidebar: sessionsList, in: app)
         assertHeaderAlignment(in: app, sidebarOpen: true)
         addScreenshot(named: "sidebar-landscape-visible")
 
         let otherSession = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(otherSession.waitForExistence(timeout: 20), "Other session did not appear in the visible list")
+        XCTAssertTrue(otherSession.waitToExist(timeout: 20), "Other session did not appear in the visible list")
         otherSession.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(selectedTitle.waitForExistence(timeout: 30), "Second session did not open")
+        XCTAssertTrue(selectedTitle.waitToExist(timeout: 30), "Second session did not open")
         XCTAssertEqual(selectedTitle.label, "Approval Flow Light Mode")
-        XCTAssertTrue(sessionsList.waitForExistence(timeout: 10), "Sessions list disappeared after switching sessions")
+        XCTAssertTrue(sessionsList.waitToExist(timeout: 10), "Sessions list disappeared after switching sessions")
         assertDetailIsBesideSidebar(detail: transcript(in: app), sidebar: sessionsList, in: app)
     }
 
@@ -46,13 +46,13 @@ final class SidebarOverlayFlowTests: XCTestCase {
         assertRegularLandscape(in: app)
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
         let newSession = app.buttons["new-session"]
-        XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Sidebar new-session button did not load")
+        XCTAssertTrue(newSession.waitToExist(timeout: 20), "Sidebar new-session button did not load")
         XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Landscape new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
         addScreenshot(named: "sessions-search-landscape-before")
         let field = app.textFields["sessions-search-field"]
-        XCTAssertTrue(field.waitForExistence(timeout: 20), "Permanent sessions search field did not load")
+        XCTAssertTrue(field.waitToExist(timeout: 20), "Permanent sessions search field did not load")
         XCTAssertTrue(sidebar.frame.contains(field.frame), "Landscape search field escaped sessions sidebar: field=\(field.frame), sidebar=\(sidebar.frame)")
         addScreenshot(named: "sessions-search-landscape")
     }
@@ -62,33 +62,33 @@ final class SidebarOverlayFlowTests: XCTestCase {
         defer { app.terminate() }
 
         let sidebar = sessionsList(in: app)
-        if !sidebar.waitForExistence(timeout: 15) {
+        if !sidebar.waitToExist(timeout: 15) {
             let back = app.buttons["BackButton"]
-            XCTAssertTrue(back.waitForExistence(timeout: 30), "Portrait sessions navigation did not load")
+            XCTAssertTrue(back.waitToExist(timeout: 30), "Portrait sessions navigation did not load")
             back.tap()
         }
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions sidebar did not load after opening the overlay")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions sidebar did not load after opening the overlay")
         let sizeClass = app.descendants(matching: .any)
             .matching(identifier: "horizontal-size-class")
             .firstMatch
-        XCTAssertTrue(sizeClass.waitForExistence(timeout: 20), "Horizontal size-class probe did not load")
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 20), "Horizontal size-class probe did not load")
         addScreenshot(named: "sessions-search-portrait-before")
         if sizeClass.label == "regular" {
             let newSession = app.buttons["new-session"]
-            XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Sidebar new-session button did not load")
+            XCTAssertTrue(newSession.waitToExist(timeout: 20), "Sidebar new-session button did not load")
             XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
             let field = app.textFields["sessions-search-field"]
-            XCTAssertTrue(field.waitForExistence(timeout: 20), "Permanent sessions search field did not load")
+            XCTAssertTrue(field.waitToExist(timeout: 20), "Permanent sessions search field did not load")
             XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
         } else {
             let newSession = app.buttons["new-session"]
-            XCTAssertTrue(newSession.waitForExistence(timeout: 20), "Floating new-session button did not load")
+            XCTAssertTrue(newSession.waitToExist(timeout: 20), "Floating new-session button did not load")
             XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
             let searchButton = app.buttons["sessions-search"]
-            XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "Sessions search button did not load")
+            XCTAssertTrue(searchButton.waitToExist(timeout: 20), "Sessions search button did not load")
             searchButton.tap()
             let field = app.searchFields.firstMatch
-            XCTAssertTrue(field.waitForExistence(timeout: 20), "Presented sessions search field did not load")
+            XCTAssertTrue(field.waitToExist(timeout: 20), "Presented sessions search field did not load")
             XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
         }
         addScreenshot(named: "sessions-search-portrait")
@@ -100,16 +100,16 @@ final class SidebarOverlayFlowTests: XCTestCase {
         assertRegularLandscape(in: app)
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
         sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Toolbar toggle did not hide the sidebar")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Toolbar toggle did not hide the sidebar")
         let edgeStrip = app.descendants(matching: .any).matching(identifier: "sidebar-edge-strip").firstMatch
         XCTAssertTrue(edgeStrip.exists, "Leading edge strip was not present")
 
         let transcriptScroll = transcriptScroll(in: app)
-        XCTAssertTrue(transcriptScroll.waitForExistence(timeout: 20), "Transcript scroll view did not load")
+        XCTAssertTrue(transcriptScroll.waitToExist(timeout: 20), "Transcript scroll view did not load")
         let newestCheckpoint = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(newestCheckpoint.waitForExistence(timeout: 20), "Newest long-session checkpoint did not load")
+        XCTAssertTrue(newestCheckpoint.waitToExist(timeout: 20), "Newest long-session checkpoint did not load")
         XCTAssertTrue(newestCheckpoint.isHittable, "Newest long-session checkpoint was not visible before the swipe")
         transcriptScroll.swipeDown(velocity: .fast)
         XCTAssertFalse(newestCheckpoint.isHittable, "Vertical transcript swipe did not move the transcript")
@@ -121,21 +121,21 @@ final class SidebarOverlayFlowTests: XCTestCase {
             withVelocity: .slow,
             thenHoldForDuration: 0
         )
-        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Horizontal transcript swipe opened the sidebar")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Horizontal transcript swipe opened the sidebar")
 
         let window = app.windows.firstMatch
         let leadingEdge = edgeStrip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let halfOpen = leadingEdge.withOffset(CGVector(dx: 160, dy: 0))
         leadingEdge.press(forDuration: 0.1, thenDragTo: halfOpen)
         addScreenshot(named: "sidebar-swipe-mid-drag")
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Edge swipe did not open the sidebar")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Edge swipe did not open the sidebar")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         addScreenshot(named: "sidebar-swipe-open")
 
         let otherSession = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(otherSession.waitForExistence(timeout: 20), "Other session did not appear in the visible list")
+        XCTAssertTrue(otherSession.waitToExist(timeout: 20), "Other session did not appear in the visible list")
         let closeStrip = app.descendants(matching: .any).matching(identifier: "sidebar-close-strip").firstMatch
-        XCTAssertTrue(closeStrip.waitForExistence(timeout: 10), "Sidebar close strip was not present")
+        XCTAssertTrue(closeStrip.waitToExist(timeout: 10), "Sidebar close strip was not present")
         let rowOffsetX = closeStrip.frame.minX + 30 - otherSession.frame.midX
         otherSession.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .withOffset(CGVector(dx: rowOffsetX, dy: 0))
@@ -143,7 +143,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let selectedTitle = app.descendants(matching: .any)
             .matching(identifier: "selected-session-name")
             .firstMatch
-        XCTAssertTrue(selectedTitle.waitForExistence(timeout: 20), "Leading-edge session-row tap did not open a session")
+        XCTAssertTrue(selectedTitle.waitToExist(timeout: 20), "Leading-edge session-row tap did not open a session")
         XCTAssertEqual(selectedTitle.label, "Approval Flow Light Mode")
 
         sidebar.swipeUp()
@@ -153,7 +153,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let sidebarEdge = sidebar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         let closed = window.coordinate(withNormalizedOffset: CGVector(dx: 0.0, dy: 0.5))
         sidebarEdge.press(forDuration: 0.1, thenDragTo: closed)
-        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 20), "Left swipe did not close the sidebar")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 20), "Left swipe did not close the sidebar")
         addScreenshot(named: "sidebar-swipe-closed")
 
         let shortDrag = transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
@@ -164,14 +164,14 @@ final class SidebarOverlayFlowTests: XCTestCase {
             withVelocity: .slow,
             thenHoldForDuration: 0
         )
-        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Short edge swipe opened the sidebar")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Short edge swipe opened the sidebar")
 
         sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sidebar toggle did not reopen the sidebar")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sidebar toggle did not reopen the sidebar")
         let searchField = app.textFields["sessions-search-field"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 20), "Sidebar search field did not load")
+        XCTAssertTrue(searchField.waitToExist(timeout: 20), "Sidebar search field did not load")
         searchField.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Leading-edge search-field tap did not focus the field")
+        XCTAssertTrue(app.keyboards.firstMatch.waitToExist(timeout: 10), "Leading-edge search-field tap did not focus the field")
     }
 
     func testLandscapeSidebarToggleResizesDetail() throws {
@@ -180,20 +180,20 @@ final class SidebarOverlayFlowTests: XCTestCase {
         assertRegularLandscape(in: app)
 
         let detail = transcript(in: app)
-        XCTAssertTrue(detail.waitForExistence(timeout: 75), "Transcript did not load")
+        XCTAssertTrue(detail.waitToExist(timeout: 75), "Transcript did not load")
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sessions list did not load")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sessions list did not load")
         let visibleExtent = detailExtent(of: detail, in: app)
 
         let toggle = sidebarToggle(in: app)
-        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Sidebar toggle did not load")
+        XCTAssertTrue(toggle.waitToExist(timeout: 10), "Sidebar toggle did not load")
         toggle.tap()
         XCTAssertTrue(waitForExtent(of: detail, greaterThan: visibleExtent + 20, in: app, timeout: 10), "Hiding the sidebar did not widen the detail")
         let hiddenExtent = detailExtent(of: detail, in: app)
         addScreenshot(named: "sidebar-landscape-hidden")
 
         let transcriptScroll = transcriptScroll(in: app)
-        XCTAssertTrue(transcriptScroll.waitForExistence(timeout: 20), "Transcript scroll view did not load")
+        XCTAssertTrue(transcriptScroll.waitToExist(timeout: 20), "Transcript scroll view did not load")
         for _ in 0..<3 {
             transcriptScroll.swipeDown()
             RunLoop.current.run(until: Date().addingTimeInterval(1))
@@ -211,7 +211,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         sidebarToggle(in: app).tap()
         XCTAssertTrue(waitForExtent(of: detail, lessThan: hiddenExtent - 20, in: app, timeout: 10), "Showing the sidebar did not narrow the detail")
         let sameRow = app.staticTexts[rowLabelBeforeToggle]
-        XCTAssertTrue(sameRow.waitForExistence(timeout: 10), "Transcript row disappeared across sidebar toggle")
+        XCTAssertTrue(sameRow.waitToExist(timeout: 10), "Transcript row disappeared across sidebar toggle")
         XCTAssertTrue(sameRow.isHittable, "Transcript scroll position changed across sidebar toggle")
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertFalse(newest.isHittable, "Sidebar toggle remounted the transcript at the latest row")
@@ -223,21 +223,21 @@ final class SidebarOverlayFlowTests: XCTestCase {
         assertRegularLandscape(in: app)
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
         assertHeaderAlignment(in: app, sidebarOpen: true)
         let toggles = app.buttons.matching(identifier: "sidebar-toggle")
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while open")
         let openFrame = toggles.firstMatch.frame
 
         toggles.firstMatch.tap()
-        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Sidebar did not close")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while closed")
         assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while closing")
         assertHeaderAlignment(in: app)
 
         toggles.firstMatch.tap()
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sidebar did not reopen")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sidebar did not reopen")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle after reopening")
         assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while reopening")
@@ -251,15 +251,15 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let sizeClass = app.descendants(matching: .any)
             .matching(identifier: "horizontal-size-class")
             .firstMatch
-        XCTAssertTrue(sizeClass.waitForExistence(timeout: 30), "Horizontal size-class probe did not load")
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
         try XCTSkipUnless(sizeClass.label == "regular", "Portrait navigation-title alignment is only applicable to regular layouts")
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Portrait sessions list did not load")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
         assertHeaderAlignment(in: app, sidebarOpen: true)
 
         sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Portrait sidebar did not close")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Portrait sidebar did not close")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         assertHeaderAlignment(in: app)
     }
@@ -270,15 +270,15 @@ final class SidebarOverlayFlowTests: XCTestCase {
         assertRegularLandscape(in: app)
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
         let capsule = app.buttons["approvals-elsewhere"]
-        XCTAssertFalse(capsule.waitForExistence(timeout: 5), "Approvals capsule was visible while the sidebar was shown")
+        XCTAssertFalse(capsule.waitToExist(timeout: 5), "Approvals capsule was visible while the sidebar was shown")
 
         sidebarToggle(in: app).tap()
-        XCTAssertTrue(capsule.waitForExistence(timeout: 20), "Approvals capsule did not appear after hiding the sidebar")
+        XCTAssertTrue(capsule.waitToExist(timeout: 20), "Approvals capsule did not appear after hiding the sidebar")
         XCTAssertEqual(capsule.label, "1 session needs you")
         capsule.tap()
-        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Approvals capsule did not show the sidebar")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Approvals capsule did not show the sidebar")
         XCTAssertFalse(capsule.exists, "Approvals capsule remained visible with the sidebar shown")
     }
 
@@ -290,11 +290,11 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let landscapeComposer = app.descendants(matching: .any)
             .matching(identifier: "composer-text")
             .firstMatch
-        XCTAssertTrue(landscapeComposer.waitForExistence(timeout: 75), "Landscape composer did not load")
+        XCTAssertTrue(landscapeComposer.waitToExist(timeout: 75), "Landscape composer did not load")
         XCTAssertLessThanOrEqual(landscapeComposer.frame.width, 760, "Landscape composer exceeded readable width")
 
         XCUIDevice.shared.orientation = .portrait
-        XCTAssertTrue(landscapeComposer.waitForExistence(timeout: 30), "Portrait composer did not load")
+        XCTAssertTrue(landscapeComposer.waitToExist(timeout: 30), "Portrait composer did not load")
         let portraitWidth = app.windows.firstMatch.frame.width
         XCTAssertGreaterThan(
             landscapeComposer.frame.width,
@@ -308,12 +308,12 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let sizeClass = app.descendants(matching: .any)
             .matching(identifier: "horizontal-size-class")
             .firstMatch
-        XCTAssertTrue(sizeClass.waitForExistence(timeout: 30), "Horizontal size-class probe did not load")
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
         XCTAssertEqual(sizeClass.label, "regular", "Landscape pool device did not report regular horizontal size class")
         let metrics = app.descendants(matching: .any)
             .matching(identifier: "regular-layout-metrics")
             .firstMatch
-        XCTAssertTrue(metrics.waitForExistence(timeout: 10), "Regular layout metrics did not load")
+        XCTAssertTrue(metrics.waitToExist(timeout: 10), "Regular layout metrics did not load")
         print("REGULAR_LAYOUT_METRICS \(metrics.value ?? metrics.label)")
         print("LANDSCAPE_HORIZONTAL_SIZE_CLASS \(sizeClass.label) VISIBILITY \(sizeClass.value ?? "nil")")
     }
@@ -329,8 +329,8 @@ final class SidebarOverlayFlowTests: XCTestCase {
     private func assertHeaderAlignment(in app: XCUIApplication, sidebarOpen: Bool = false) {
         let sidebarToggle = app.buttons["sidebar-toggle"]
         let navigationTitle = app.staticTexts["selected-session-name"]
-        XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), "Sidebar header toggle did not load")
-        XCTAssertTrue(navigationTitle.waitForExistence(timeout: 10), "Navigation title did not load")
+        XCTAssertTrue(sidebarToggle.waitToExist(timeout: 10), "Sidebar header toggle did not load")
+        XCTAssertTrue(navigationTitle.waitToExist(timeout: 10), "Navigation title did not load")
         let sidebarCenterY = sidebarToggle.frame.midY
         let titleCenterY = navigationTitle.frame.midY
         print("NAVIGATION_TITLE_FRAME \(navigationTitle.frame)")
@@ -338,7 +338,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertLessThanOrEqual(abs(sidebarCenterY - titleCenterY), 1, "Sidebar toggle and navigation title were vertically misaligned")
         guard sidebarOpen else { return }
         let sidebarSettings = app.buttons["Settings"]
-        XCTAssertTrue(sidebarSettings.waitForExistence(timeout: 10), "Sidebar settings control did not load")
+        XCTAssertTrue(sidebarSettings.waitToExist(timeout: 10), "Sidebar settings control did not load")
         let settingsCenterY = sidebarSettings.frame.midY
         print("SIDEBAR_HEADER_SETTINGS_FRAME \(sidebarSettings.frame)")
         print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) sidebar-settings-center-y=\(settingsCenterY) navigation-title-center-y=\(titleCenterY) sidebar-delta=\(abs(sidebarCenterY - settingsCenterY))")

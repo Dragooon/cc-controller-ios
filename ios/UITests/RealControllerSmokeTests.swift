@@ -118,7 +118,7 @@ final class RealControllerSmokeTests: XCTestCase {
         let tapStarted = Date()
         sessionRow.tap()
         let title = app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
-        let titleLoaded = title.waitForExistence(timeout: 10)
+        let titleLoaded = title.waitToExist(timeout: 10)
         let scroll = transcriptScroll(in: app)
         let bottomStack = app.descendants(matching: .any).matching(identifier: "bottom-stack").firstMatch
         let deadline = tapStarted.addingTimeInterval(10)
@@ -148,7 +148,7 @@ final class RealControllerSmokeTests: XCTestCase {
             firstRowMilliseconds = nil
         }
         let performance = app.staticTexts["transcript-performance"]
-        if performance.waitForExistence(timeout: 1) {
+        if performance.waitToExist(timeout: 1) {
             let snapshot = performanceSnapshot(from: performance.label)
             phases = snapshot.phases
             responseBytes = snapshot.responseBytes
@@ -242,7 +242,7 @@ final class RealControllerSmokeTests: XCTestCase {
         let back = app.navigationBars.buttons["Sessions"]
         guard back.exists && back.isHittable else { return }
         back.tap()
-        _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH[c] 'session-'")).firstMatch.waitForExistence(timeout: 10)
+        _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH[c] 'session-'")).firstMatch.waitToExist(timeout: 10)
     }
 
     private struct SessionRowReveal {
@@ -252,7 +252,7 @@ final class RealControllerSmokeTests: XCTestCase {
 
     private func revealSessionRow(_ row: XCUIElement, in app: XCUIApplication) -> SessionRowReveal {
         let list = app.collectionViews.firstMatch
-        guard list.waitForExistence(timeout: 30) else {
+        guard list.waitToExist(timeout: 30) else {
             return SessionRowReveal(reachable: false, path: "direct")
         }
         let navigationBar = app.navigationBars.firstMatch
