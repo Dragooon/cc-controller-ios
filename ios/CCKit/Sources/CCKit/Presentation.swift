@@ -821,11 +821,8 @@ public func earlierTurnCount(totalTurns: Int, visibleTurns: Int = 20) -> Int {
 }
 
 // A home directory (/Users/<name>, /home/<name>, /var/home/<name>) reads as ~.
-private let homeDirectoryPattern = try! NSRegularExpression(pattern: #"(?<![A-Za-z0-9_.-])(?:/var)?/(?:Users|home)/[^/\s'"`]+"#)
-
 public func displayText(_ value: String?) -> String {
-    let text = value ?? ""
-    return homeDirectoryPattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "~")
+    (value ?? "").replacingOccurrences(of: #"(?<![A-Za-z0-9_.-])(?:/var)?/(?:Users|home)/[^/\s'"`]+"#, with: "~", options: .regularExpression)
 }
 
 public func firstMeaningfulLine(_ value: String?) -> String {
