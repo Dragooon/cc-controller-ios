@@ -428,7 +428,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         let minimumY = -inset.top
         let maximumY = max(
             minimumY,
-            collectionView.contentSize.height + inset.bottom - collectionView.bounds.height
+            collectionViewContentSize.height + inset.bottom - collectionView.bounds.height
         )
         let targetY: CGFloat
         let reason: String
