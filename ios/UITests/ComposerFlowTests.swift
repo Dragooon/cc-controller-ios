@@ -344,8 +344,32 @@ final class ComposerFlowTests: XCTestCase {
         try await postFixture("/fixture/tail-only")
         let send = app.buttons["composer-queue"]
         XCTAssertTrue(send.waitForExistence(timeout: 10), "Queue button did not load while working")
+        let queuedPrompt = app.descendants(matching: .any)
+            .matching(identifier: "pending-prompt")
+            .matching(NSPredicate(format: "label BEGINSWITH %@", marker))
+            .firstMatch
+        let workingIndicator = app.descendants(matching: .any)
+            .matching(identifier: "live-activity-row")
+            .firstMatch
         send.tap()
-        XCTAssertTrue(waitForPendingStatus("Queued", message: marker, in: app, timeout: 10), "Queued caption did not render")
+        let orderDeadline = Date().addingTimeInterval(10)
+        var sawQueueOrder = false
+        repeat {
+            if queuedPrompt.exists,
+               queuedPrompt.value as? String == "Queued",
+               workingIndicator.exists {
+                XCTAssertLessThanOrEqual(
+                    queuedPrompt.frame.maxY,
+                    workingIndicator.frame.minY,
+                    "Working indicator rendered above the queued prompt"
+                )
+                attach(named: "composer-queued-order")
+                sawQueueOrder = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        } while Date() < orderDeadline
+        XCTAssertTrue(sawQueueOrder, "Queued prompt and working indicator did not overlap")
 
         try await Task.sleep(for: .milliseconds(100))
         let earlyComposerHeight = composer.frame.height
@@ -607,6 +631,7 @@ final class ComposerFlowTests: XCTestCase {
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
+        configureTranscriptEngine(app)
         app.launchEnvironment["CCBearer"] = bearer
         configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)
         dismissLeftoverNotificationPrompt()

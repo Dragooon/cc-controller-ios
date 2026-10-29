@@ -111,13 +111,20 @@ private final class TranscriptScrollState {
         rebuildCooldownMilliseconds > 0
     }
 
-    func updateRowIndices(displayRows: [TranscriptRow], queuedNotes: [QueuedNote]) {
-        let displayRowsChanged = displayRowIDs.count != displayRows.count
-            || zip(displayRowIDs, displayRows).contains { $0 != $1.id }
-        if displayRowsChanged {
-            displayRowIDs = displayRows.map(\.id)
-            displayRowIndices = Dictionary(uniqueKeysWithValues: displayRowIDs.enumerated().map { ($1, $0) })
+    func updateRowIndices(
+        displayRows: [TranscriptRow],
+        queuedNotes: [QueuedNote],
+        activityRow: TranscriptRow?
+    ) {
+        let newDisplayRowIDs = displayRows.map(\.id) + (activityRow.map { [$0.id] } ?? [])
+        if displayRowIDs != newDisplayRowIDs {
+            displayRowIDs = newDisplayRowIDs
         }
+        displayRowIndices = Dictionary(uniqueKeysWithValues: displayRows.enumerated().map { ($1.id, $0) })
+        if let activityRow {
+            displayRowIndices[activityRow.id] = displayRows.count + queuedNotes.count
+        }
+
         let queuedNotesChanged = queuedNoteIDs.count != queuedNotes.count
             || zip(queuedNoteIDs, queuedNotes).contains { $0 != $1.id }
         if queuedNotesChanged {
@@ -793,8 +800,8 @@ struct SessionTranscriptView: View {
     private func builtRowDidDisappear(id: String) {
         scrollState.builtRowDidDisappear(
             id: id,
-            displayRowCount: displayRows.count,
-            queuedNoteCount: queuedNotes.count
+            displayRowCount: transcriptContentRows.count + (activityRow == nil ? 0 : 1),
+            queuedNoteCount: renderedQueuedNotes.count
         )
     }
 
@@ -1246,8 +1253,11 @@ struct SessionTranscriptView: View {
         let startingNotes = turnStartingNotes
         let queuedNotes = afterTurnNotes
         let orderedNotes = startingNotes + queuedNotes
-        let indexRows = currentRows + (currentActivityRow.map { [$0] } ?? [])
-        let _ = scrollState.updateRowIndices(displayRows: indexRows, queuedNotes: orderedNotes)
+        let _ = scrollState.updateRowIndices(
+            displayRows: currentRows,
+            queuedNotes: orderedNotes,
+            activityRow: currentActivityRow
+        )
 
         ForEach(currentRows) { row in
             TranscriptRowView(
@@ -1278,7 +1288,11 @@ struct SessionTranscriptView: View {
         }
 
         ForEach(startingNotes) { note in
-            pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: false)
+            pendingNoteView(note, displayRowCount: currentRows.count)
+        }
+
+        ForEach(queuedNotes) { note in
+            pendingNoteView(note, displayRowCount: currentRows.count)
         }
 
         if let currentActivityRow {
@@ -1302,10 +1316,6 @@ struct SessionTranscriptView: View {
             .onDisappear {
                 builtRowDidDisappear(id: currentActivityRow.id)
             }
-        }
-
-        ForEach(queuedNotes) { note in
-            pendingNoteView(note, displayRowCount: currentRows.count, activityInserted: currentActivityRow != nil)
         }
 
         Color.clear
@@ -1386,8 +1396,7 @@ struct SessionTranscriptView: View {
     @ViewBuilder
     private func pendingNoteView(
         _ note: QueuedNote,
-        displayRowCount: Int,
-        activityInserted: Bool
+        displayRowCount: Int
     ) -> some View {
         PendingPromptView(
             sessionID: sessionID,
@@ -1402,8 +1411,7 @@ struct SessionTranscriptView: View {
         )
         .onAppear {
             let index = scrollState.queuedNoteIndex(for: note.id) ?? 0
-            let activityOffset = note.startsTurn ? 0 : (activityInserted ? 1 : 0)
-            builtRowDidAppear(id: note.id, index: displayRowCount + index + activityOffset)
+            builtRowDidAppear(id: note.id, index: displayRowCount + index)
         }
         .onDisappear {
             builtRowDidDisappear(id: note.id)

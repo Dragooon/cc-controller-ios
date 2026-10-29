@@ -16,7 +16,7 @@ enum TranscriptCollectionItem: Hashable {
 private enum TranscriptCollectionContent: Equatable {
     case paging(isLoading: Bool)
     case row(TranscriptRow, subagents: [Subagent], liveSession: Session?)
-    case note(QueuedNote, sessionState: SessionState?, activityInserted: Bool)
+    case note(QueuedNote, sessionState: SessionState?)
 }
 
 final class TranscriptCollectionView: UICollectionView {
@@ -354,32 +354,41 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 content[.paging] = .paging(isLoading: isLoadingEarlier)
             }
 
-            let activityInserted = representable.rows.contains {
-                if case .liveActivityFooter = $0.kind { return true }
+            let activityRow = representable.rows.first { row in
+                if case .liveActivityFooter = row.kind { return true }
                 return false
             }
-            for row in representable.rows {
+            let contentRows = representable.rows.filter { row in
+                if case .liveActivityFooter = row.kind { return false }
+                return true
+            }
+            for row in contentRows {
                 let item = TranscriptCollectionItem.row(row.id)
                 items.append(item)
                 let rowSubagents: [Subagent] = {
                     guard case .item(let item) = row.kind else { return [] }
                     return rowSubagentIndex.matchingSubagents(for: item)
                 }()
-                let rowSession: Session? = {
-                    if case .liveActivityFooter = row.kind { return representable.liveSession }
-                    return nil
-                }()
-                content[item] = .row(row, subagents: rowSubagents, liveSession: rowSession)
+                content[item] = .row(row, subagents: rowSubagents, liveSession: nil)
             }
             for note in representable.queuedNotes where note.startsTurn {
                 let item = TranscriptCollectionItem.startingNote(note.id)
                 items.append(item)
-                content[item] = .note(note, sessionState: representable.sessionState, activityInserted: false)
+                content[item] = .note(note, sessionState: representable.sessionState)
             }
             for note in representable.queuedNotes where !note.startsTurn {
                 let item = TranscriptCollectionItem.queuedNote(note.id)
                 items.append(item)
-                content[item] = .note(note, sessionState: representable.sessionState, activityInserted: activityInserted)
+                content[item] = .note(note, sessionState: representable.sessionState)
+            }
+            if let activityRow {
+                let item = TranscriptCollectionItem.row(activityRow.id)
+                items.append(item)
+                content[item] = .row(
+                    activityRow,
+                    subagents: [],
+                    liveSession: representable.liveSession
+                )
             }
             return (items, content)
         }
@@ -511,7 +520,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     downloadFile: downloadFile
                 )
                 .equatable()
-            case .note(let note, let sessionState, let activityInserted):
+            case .note(let note, let sessionState):
                 PendingPromptView(
                     sessionID: sessionIDForView,
                     note: note,
@@ -524,7 +533,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     onSendAgain: onSendAgain
                 )
                 .transition(.identity)
-                .id(note.id + (activityInserted ? "-activity" : "-starting"))
             }
         }
     }
