@@ -1533,13 +1533,16 @@ public final class AppStore {
     private func applyTranscript(_ event: TranscriptEvent) {
         guard let sessionID = event.sessionId else { return }
         let key = storeKey(sessionID: sessionID, agentID: nil)
+        let previousServerRev = serverRevs[sessionID]
+        let store = openStores[key]
+        let wasInSync = if let store {
+            store.syncedRev != nil &&
+                store.syncedRev == previousServerRev &&
+                store.syncedEpoch == daemonEpoch
+        } else {
+            false
+        }
         if let rev = event.rev { serverRevs[sessionID] = rev }
-        openStores[key]?.updateReadiness(
-            isStateCurrent: isStateCurrent,
-            daemonEpoch: daemonEpoch,
-            serverRev: serverRevs[sessionID],
-            isOffline: isOfflineConnection
-        )
         if event.reset == true {
             TranscriptLifecycleLog.shared.record(name: "transcript-event-reset", sessionID: sessionID)
             if let entryCount = event.entryCount {
@@ -1553,13 +1556,13 @@ public final class AppStore {
             }
             return
         }
-        guard let entry = event.entry else { return }
-        guard let store = openStores[key] else { return }
+        guard let entry = event.entry, let store else { return }
         _ = store.mergeLive(
             [entry],
             replace: event.replace == true,
             entryCount: event.entryCount,
-            rev: event.rev
+            rev: event.rev,
+            wasInSync: wasInSync
         )
         #if DEBUG
         if let id = entry.id, let text = entry.text, !text.isEmpty {

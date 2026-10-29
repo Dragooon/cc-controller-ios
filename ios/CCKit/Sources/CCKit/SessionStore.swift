@@ -307,24 +307,22 @@ public final class SessionStore {
         _ incoming: [TranscriptEntry],
         replace: Bool = false,
         entryCount: Int?,
-        rev: Int? = nil
+        rev: Int? = nil,
+        wasInSync: Bool = false
     ) -> TranscriptChangeSet {
         let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: true)
         if let entryCount {
             serverTotal = max(0, entryCount)
-            guard hasConfirmedTotal else {
-                if let rev { setSyncedRevision(rev) }
-                publish(change)
-                return change
-            }
-            let allowedTotal = confirmedTotal + (change.inserted.isEmpty ? 0 : 1)
-            if entryCount <= allowedTotal {
-                confirmedTotal = max(confirmedTotal, entryCount)
-            } else {
-                markTranscriptGap()
+            if hasConfirmedTotal {
+                let allowedTotal = confirmedTotal + (change.inserted.isEmpty ? 0 : 1)
+                if entryCount <= allowedTotal {
+                    confirmedTotal = max(confirmedTotal, entryCount)
+                } else {
+                    markTranscriptGap()
+                }
             }
         }
-        if !hasTranscriptGap, let rev { setSyncedRevision(rev) }
+        if wasInSync, !hasTranscriptGap, let rev { setSyncedRevision(rev) }
         publish(change)
         return change
     }

@@ -522,7 +522,7 @@ final class SessionStoreTests: XCTestCase {
         _ = try await client.bootstrap()
         let store = SessionStore(session: Session(id: "session-1", live: true), client: client)
         try await store.loadInitial()
-        _ = store.mergeLive(entries(from: 2, through: 2), entryCount: 2, rev: 11)
+        _ = store.mergeLive(entries(from: 2, through: 2), entryCount: 2, rev: 11, wasInSync: true)
         XCTAssertEqual(store.syncedRev, 11)
         store.observeServerTotal(5)
         XCTAssertTrue(store.hasTranscriptGap)
@@ -549,7 +549,7 @@ final class SessionStoreTests: XCTestCase {
         )
         let initial = Task { try await store.loadInitial() }
         await waitForRequest(count: 2)
-        _ = store.mergeLive(entries(from: 2, through: 2), entryCount: 2, rev: 12)
+        _ = store.mergeLive(entries(from: 2, through: 2), entryCount: 2, rev: 12, wasInSync: true)
         XCTAssertEqual(store.syncedRev, 12)
         SessionStoreURLProtocol.completeNext(.succeed(pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false, rev: 10)))
         _ = try await initial.value

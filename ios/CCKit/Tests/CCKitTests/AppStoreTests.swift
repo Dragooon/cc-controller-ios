@@ -1651,7 +1651,7 @@ final class AppStoreTests: XCTestCase {
                 return URLProtocolStub.json(Data(), contentType: "text/event-stream")
             case let path where path?.hasSuffix("/transcript") == true:
                 Thread.sleep(forTimeInterval: 2)
-                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "fresh")], total: 1, hasMore: false, rev: 8))
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "fresh")], total: 1, hasMore: false, rev: 9))
             default:
                 return URLProtocolStub.json(Data("{}".utf8))
             }
@@ -1665,9 +1665,98 @@ final class AppStoreTests: XCTestCase {
         try await waitUntil("changed bootstrap") { app.isStateCurrent && app.sessions["session-1"] != nil }
         let store = try XCTUnwrap(app.openSession("session-1"))
         try await waitUntil("delayed transcript request") { URLProtocolStub.requestPaths.contains { $0.hasSuffix("/transcript") } }
+        app.apply(.transcript(TranscriptEvent(
+            sessionId: "session-1",
+            entry: Self.entry(id: "live-before-tail"),
+            entryCount: 2,
+            rev: 9
+        )))
         XCTAssertEqual(store.readiness, .syncing)
         try await Task.sleep(for: .milliseconds(2_200))
         XCTAssertEqual(store.readiness, .ready)
+    }
+
+    func testInSyncStoreAdvancesRevisionFromLiveEventAndStaysReady() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let epoch = Date(timeIntervalSince1970: 44)
+        await writeReadinessCache(directory: directory, rev: 10, epoch: epoch)
+        URLProtocolStub.requestPaths = []
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/api/bootstrap":
+                return URLProtocolStub.json(Self.readinessBootstrapJSON(rev: 10, startedAt: epoch))
+            case "/api/events":
+                return URLProtocolStub.json(Data(), contentType: "text/event-stream")
+            case let path where path?.hasSuffix("/transcript") == true:
+                Thread.sleep(forTimeInterval: 2)
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "fresh")], total: 1, hasMore: false, rev: 11))
+            default:
+                return URLProtocolStub.json(Data("{}".utf8))
+            }
+        }
+        let app = makeApp(cacheDirectory: directory)
+        defer {
+            app.suspend()
+            URLProtocolStub.keepEvents = false
+        }
+        app.start()
+        try await waitUntil("in-sync bootstrap") { app.isStateCurrent && app.sessions["session-1"] != nil }
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("delayed transcript request") { URLProtocolStub.requestPaths.contains { $0.hasSuffix("/transcript") } }
+        XCTAssertEqual(store.readiness, .ready)
+        app.apply(.transcript(TranscriptEvent(
+            sessionId: "session-1",
+            entry: Self.entry(id: "live-in-sync"),
+            entryCount: 2,
+            rev: 11
+        )))
+        XCTAssertEqual(store.syncedRev, 11)
+        XCTAssertEqual(store.readiness, .ready)
+    }
+
+    func testBehindCacheWritesItsOldRevisionAfterLiveEvent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let epoch = Date(timeIntervalSince1970: 45)
+        await writeReadinessCache(directory: directory, rev: 100, epoch: epoch)
+        URLProtocolStub.requestPaths = []
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/api/bootstrap":
+                return URLProtocolStub.json(Self.readinessBootstrapJSON(rev: 110, startedAt: epoch))
+            case "/api/events":
+                return URLProtocolStub.json(Data(), contentType: "text/event-stream")
+            case let path where path?.hasSuffix("/transcript") == true:
+                Thread.sleep(forTimeInterval: 2)
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "fresh")], total: 1, hasMore: false, rev: 111))
+            default:
+                return URLProtocolStub.json(Data("{}".utf8))
+            }
+        }
+        let app = makeApp(cacheDirectory: directory)
+        defer {
+            app.suspend()
+            URLProtocolStub.keepEvents = false
+        }
+        app.start()
+        try await waitUntil("behind bootstrap") { app.isStateCurrent && app.sessions["session-1"] != nil }
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("delayed transcript request") { URLProtocolStub.requestPaths.contains { $0.hasSuffix("/transcript") } }
+        app.apply(.transcript(TranscriptEvent(
+            sessionId: "session-1",
+            entry: Self.entry(id: "live-behind"),
+            entryCount: 2,
+            rev: 111
+        )))
+        XCTAssertEqual(store.readiness, .syncing)
+        app.closeSession("session-1")
+        for _ in 0..<50 {
+            if (try? await DiskCache(directory: directory).load()?.transcriptMetadata["session-1"]?.rev) == 100 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let loaded = try await DiskCache(directory: directory).load()
+        XCTAssertEqual(loaded?.transcriptMetadata["session-1"]?.rev, 100)
     }
 
     func testClosingStoreFlushesTranscriptCacheWithoutDebounce() async throws {
