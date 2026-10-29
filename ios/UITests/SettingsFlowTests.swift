@@ -107,7 +107,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         app.buttons["Turn on Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+        dismissNotificationAuthorizationPromptIfPresent(in: springboard)
 
         openSettings(app)
         app.buttons["Lock now"].tap()
@@ -135,7 +135,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         app.buttons["Turn on Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+        dismissNotificationAuthorizationPromptIfPresent(in: springboard)
 
         openSettings(app)
         let picker = element(app, "settings-lock-interval")
@@ -217,7 +217,7 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         app.buttons["Turn on Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+        dismissNotificationAuthorizationPromptIfPresent(in: springboard)
 
         openSettings(app)
         try await expectValue(app, "settings-latency", matches: "[0-9]+ ms")

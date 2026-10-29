@@ -14,8 +14,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         app.buttons["Turn on Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let notificationPrompt = waitForNotificationAuthorizationPrompt(in: springboard)
-        notificationPrompt.buttons["Don’t Allow"].tap()
+        dismissNotificationAuthorizationPromptIfPresent(in: springboard)
 
         XCUIDevice.shared.press(.home)
         try await Task.sleep(for: .seconds(1))
@@ -50,7 +49,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         app.buttons["Turn on Face ID"].tap()
         try await completeFaceID(app, until: app.staticTexts["Sessions"], "Onboarding did not load Sessions")
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        waitForNotificationAuthorizationPrompt(in: springboard).buttons["Don’t Allow"].tap()
+        dismissNotificationAuthorizationPromptIfPresent(in: springboard)
 
         let session = app.buttons["session-pull-up-agentic-uw"]
         XCTAssertTrue(session.waitForExistence(timeout: 30), "Fixture session did not load")

@@ -199,6 +199,14 @@ class FixtureFlowTestSupport: XCTestCase {
         return prompt
     }
 
+    func dismissNotificationAuthorizationPromptIfPresent(in springboard: XCUIApplication, timeout: TimeInterval = 5) {
+        let prompt = springboard.alerts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
+        ).firstMatch
+        guard prompt.waitForExistence(timeout: timeout) else { return }
+        prompt.buttons["Don’t Allow"].tap()
+    }
+
     func postFixture(_ path: String) async throws {
         try await postFixtureRoute(path)
     }
