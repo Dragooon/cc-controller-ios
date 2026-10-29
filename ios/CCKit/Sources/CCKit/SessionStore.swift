@@ -1,6 +1,16 @@
 import Foundation
 import Observation
 
+#if DEBUG
+func postCCMotionTraceEvent(_ name: String, data: [String: Any] = [:]) {
+    NotificationCenter.default.post(
+        name: Notification.Name("CCMotionTraceEvent"),
+        object: nil,
+        userInfo: ["name": name, "data": data]
+    )
+}
+#endif
+
 @MainActor @Observable
 public final class SessionStore {
     public let sessionID: String
@@ -320,6 +330,9 @@ public final class SessionStore {
 
     public func resetTranscript() {
         TranscriptLifecycleLog.shared.record(name: "transcript-reset", sessionID: sessionID)
+        #if DEBUG
+        postCCMotionTraceEvent("entriesRemoved", data: ["ids": transcriptStore.entries.map { $0.id ?? "" }])
+        #endif
         transcriptStore = TranscriptStore()
         turns = []
         rows = []
@@ -337,6 +350,14 @@ public final class SessionStore {
     private var canFetch: Bool { !sessionID.isEmpty && (session.live == true || transcriptOnly) }
 
     private func notify(_ change: TranscriptChangeSet) {
+        #if DEBUG
+        if !change.inserted.isEmpty {
+            postCCMotionTraceEvent("entriesInserted", data: ["ids": change.inserted.map { $0.id ?? "" }])
+        }
+        if !change.updatedIDs.isEmpty {
+            postCCMotionTraceEvent("entriesUpdated", data: ["ids": change.updatedIDs])
+        }
+        #endif
         onTranscriptChange?(change.changed)
     }
 

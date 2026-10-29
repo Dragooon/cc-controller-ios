@@ -114,14 +114,22 @@ class FixtureFlowTestSupport: XCTestCase {
 
     func launchCold(
         server: String? = nil,
+        openingSession: String? = nil,
         maxUnlockAge: TimeInterval? = nil,
-        freezeLiveIndicators: Bool = true
+        freezeLiveIndicators: Bool = true,
+        motionTraceFile: String? = nil,
+        motionScenario: String? = nil,
+        motionOrientation: UIDeviceOrientation? = nil
     ) -> XCUIApplication {
         launchFixture(
             server: server,
             onboarding: false,
+            openingSession: openingSession,
             maxUnlockAge: maxUnlockAge,
-            freezeLiveIndicators: freezeLiveIndicators
+            freezeLiveIndicators: freezeLiveIndicators,
+            motionTraceFile: motionTraceFile,
+            motionScenario: motionScenario,
+            motionOrientation: motionOrientation
         )
     }
 
@@ -213,17 +221,38 @@ class FixtureFlowTestSupport: XCTestCase {
     private func launchFixture(
         server: String?,
         onboarding: Bool,
+        openingSession: String? = nil,
         expirySeconds: Int? = nil,
         lockInterval: TimeInterval? = nil,
         maxUnlockAge: TimeInterval? = nil,
         probeInterval: TimeInterval? = nil,
-        freezeLiveIndicators: Bool = true
+        freezeLiveIndicators: Bool = true,
+        motionTraceFile: String? = nil,
+        motionScenario: String? = nil,
+        motionOrientation: UIDeviceOrientation? = nil
     ) -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
+        if let motionOrientation { XCUIDevice.shared.orientation = motionOrientation }
         let app = XCUIApplication()
+        if let bearer = environment["TEST_RUNNER_BEARER"], !bearer.isEmpty {
+            app.launchEnvironment["CCBearer"] = bearer
+        }
         app.launchArguments = [
             "-CCServer", server ?? requiredRunnerVariable("TEST_RUNNER_SERVER_URL"),
         ]
+        if let openingSession { app.launchArguments += ["-CCSession", openingSession] }
+        if let motionTraceFile {
+            app.launchArguments += ["-CCMotionTrace", motionTraceFile]
+        }
+        if let motionScenario {
+            app.launchArguments += ["-CCMotionScenario", motionScenario]
+        }
+        if let sha = environment["CCMotionBuildSHA"], !sha.isEmpty {
+            app.launchArguments += ["-CCMotionSHA", sha]
+        }
+        if let device = environment["CCMotionDevice"], !device.isEmpty {
+            app.launchArguments += ["-CCMotionDevice", device]
+        }
         if onboarding {
             app.launchArguments += ["-CCOnboarding", "-CCResetCache"]
         }

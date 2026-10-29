@@ -29,6 +29,7 @@ private final class TranscriptScrollState {
     var lastBuiltRowID: String?
     var lastScrollGeometry: ScrollGuardGeometry?
     var latestUIKitMetrics: UIKitScrollMetrics?
+    var pinned = true
     let bridgeHandle = TranscriptScrollBridgeHandle()
     var blankCandidate: ScrollBlankKind?
     var blankCandidateStartedAt: Date?
@@ -349,6 +350,9 @@ struct SessionTranscriptView: View {
                     BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
                         .frame(maxWidth: readableContentMaxWidth)
                         .frame(maxWidth: .infinity)
+                        #if DEBUG
+                        .background(MotionTraceProbe(id: "composer"))
+                        #endif
                 }
             }
             .alert(
@@ -457,6 +461,9 @@ struct SessionTranscriptView: View {
                 BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
                     .frame(maxWidth: readableContentMaxWidth)
                     .frame(maxWidth: .infinity)
+                    #if DEBUG
+                    .background(MotionTraceProbe(id: "composer"))
+                    #endif
             }
         }
         .alert(
@@ -526,9 +533,13 @@ struct SessionTranscriptView: View {
     }
 
     private func transcriptScrollBridge(using proxy: ScrollViewProxy) -> some View {
-        TranscriptScrollBridge(handle: scrollState.bridgeHandle) { metrics in
-            handleUIKitScrollMetrics(metrics, using: proxy)
-        }
+        TranscriptScrollBridge(
+            handle: scrollState.bridgeHandle,
+            onMetrics: { metrics in
+                handleUIKitScrollMetrics(metrics, using: proxy)
+            },
+            isPinned: { scrollState.pinned }
+        )
     }
 
     private func transcriptScrollView(using proxy: ScrollViewProxy) -> some View {
@@ -648,6 +659,9 @@ struct SessionTranscriptView: View {
             .onChange(of: queuedNotes.count) { oldCount, newCount in
                 scrollState.recordEvent(name: "notes", oldValue: Double(oldCount), newValue: Double(newCount))
             }
+            .onChange(of: isPinnedToBottom) { _, pinned in
+                scrollState.pinned = pinned
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 scheduleSentinelCheck(using: proxy)
@@ -719,6 +733,9 @@ struct SessionTranscriptView: View {
                 pagingRowIsVisible = false
                 didTriggerPaging = false
             }
+            #if DEBUG
+            .background(MotionTraceProbe(id: "paging"))
+            #endif
         }
     }
 
@@ -1195,6 +1212,9 @@ struct SessionTranscriptView: View {
 
     private func scrollToNewest(using proxy: ScrollViewProxy) {
         scrollState.recordEvent(name: "scrollToNewest", newValue: 1)
+        #if DEBUG
+        MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "scheduled", "animated": false])
+        #endif
         #if CC_PERF
         PerfCounters.shared.hit(.scrollToBottom)
         #endif
@@ -1203,6 +1223,9 @@ struct SessionTranscriptView: View {
         newestScrollTask = Task { @MainActor in
             await Task.yield()
             guard !Task.isCancelled, isPinnedToBottom, !userIsScrolling else { return }
+            #if DEBUG
+            MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "ran", "animated": false])
+            #endif
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
@@ -1280,6 +1303,9 @@ struct SessionTranscriptView: View {
             .onDisappear {
                 builtRowDidDisappear(id: row.id)
             }
+            #if DEBUG
+            .background(MotionTraceProbe(id: row.id))
+            #endif
             #if DEBUG || CC_PERF
             .onAppear {
                 TranscriptPerformance.shared.markFirstRows()
@@ -1316,6 +1342,9 @@ struct SessionTranscriptView: View {
             .onDisappear {
                 builtRowDidDisappear(id: currentActivityRow.id)
             }
+            #if DEBUG
+            .background(MotionTraceProbe(id: "working"))
+            #endif
         }
 
         Color.clear
@@ -1416,6 +1445,9 @@ struct SessionTranscriptView: View {
         .onDisappear {
             builtRowDidDisappear(id: note.id)
         }
+        #if DEBUG
+        .background(MotionTraceProbe(id: "note:\(note.id)"))
+        #endif
         .transition(.asymmetric(insertion: pendingNoteInsertionTransition, removal: .identity))
     }
 

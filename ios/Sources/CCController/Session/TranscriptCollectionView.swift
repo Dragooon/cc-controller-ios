@@ -33,9 +33,13 @@ final class TranscriptCollectionView: UICollectionView {
                 contentSize.height + inset.bottom - bounds.height
             )
             if abs(contentOffset.y - maxOffsetY) > 0.5 {
+                let before = contentOffset.y
                 var offset = contentOffset
                 offset.y = maxOffsetY
                 setContentOffset(offset, animated: false)
+                #if DEBUG
+                MotionTrace.shared.recordPin(before: before, after: maxOffsetY, reason: "collectionLayout")
+                #endif
             }
         }
         didFinishLayout?()
@@ -174,6 +178,11 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             collectionView.didFinishLayout = { [weak self] in
                 self?.didFinishLayout()
             }
+            #if DEBUG
+            MotionTrace.shared.registerScrollView(collectionView, pinned: { [weak self] in
+                self?.isPinnedToBottom == true
+            })
+            #endif
             dataSource = UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>(
                 collectionView: collectionView
             ) { [weak self] collectionView, indexPath, item in
@@ -279,10 +288,15 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 -inset.top,
                 collectionView.contentSize.height + inset.bottom - collectionView.bounds.height
             )
+            let before = collectionView.contentOffset.y
             collectionView.setContentOffset(
                 CGPoint(x: collectionView.contentOffset.x, y: maxOffsetY),
                 animated: false
             )
+            #if DEBUG
+            MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "ran", "animated": true])
+            MotionTrace.shared.recordPin(before: before, after: maxOffsetY, reason: "collectionAnimationEnd")
+            #endif
         }
 
         func collectionView(
@@ -316,6 +330,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         private func jumpToLatest() {
             guard let collectionView else { return }
+            #if DEBUG
+            MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "scheduled", "animated": true])
+            #endif
             setPinned(true)
             collectionView.layoutIfNeeded()
             let inset = collectionView.adjustedContentInset
@@ -422,6 +439,14 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             if !changedItems.isEmpty {
                 snapshot.reconfigureItems(changedItems)
             }
+            #if DEBUG
+            MotionTrace.shared.recordEvent("snapshotApplied", data: [
+                "inserted": items.filter { !oldItems.contains($0) }.map(traceID),
+                "deleted": oldItems.filter { !items.contains($0) }.map(traceID),
+                "reconfigured": changedItems.map(traceID),
+                "animated": hasNewNote,
+            ])
+            #endif
             dataSource.apply(snapshot, animatingDifferences: hasNewNote) { [weak self] in
                 guard let self else { return }
                 collectionView.layoutIfNeeded()
@@ -497,6 +522,14 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             onUnbuiltDiagnostic()
         }
 
+        private func traceID(_ item: TranscriptCollectionItem) -> String {
+            switch item {
+            case .paging: return "paging"
+            case .row(let id): return id
+            case .startingNote(let id), .queuedNote(let id): return "note:\(id)"
+            }
+        }
+
         @ViewBuilder
         private func hostedView(for item: TranscriptCollectionItem) -> some View {
             if let content = currentContent[item] {
@@ -507,6 +540,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 24)
+                #if DEBUG
+                .background(MotionTraceProbe(id: "paging"))
+                #endif
             case .row(let row, let subagents, let liveSession):
                 TranscriptRowView(
                     sessionID: sessionIDForView,
@@ -520,6 +556,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     downloadFile: downloadFile
                 )
                 .equatable()
+                #if DEBUG
+                .background(MotionTraceProbe(id: row.id))
+                #endif
             case .note(let note, let sessionState):
                 PendingPromptView(
                     sessionID: sessionIDForView,
@@ -533,6 +572,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     onSendAgain: onSendAgain
                 )
                 .transition(.identity)
+                #if DEBUG
+                .background(MotionTraceProbe(id: "note:\(note.id)"))
+                #endif
             }
         }
     }

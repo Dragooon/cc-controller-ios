@@ -13,6 +13,7 @@ struct CCControllerApp: App {
             #if DEBUG
             MockGate {
                 RootView(model: model)
+                    .background(MotionTraceRootProbe())
             }
             .preferredColorScheme(model.colorScheme)
             .environment(\.ccFreezeLiveIndicators, model.freezeLiveIndicators)

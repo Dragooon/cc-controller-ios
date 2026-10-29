@@ -32,9 +32,13 @@ final class TranscriptScrollBridgeHandle {
             scrollView.contentSize.height - scrollView.bounds.height + inset.bottom
         )
         guard abs(maxOffsetY - scrollView.contentOffset.y) > 0.5 else { return }
+        let before = scrollView.contentOffset.y
         var offset = scrollView.contentOffset
         offset.y = maxOffsetY
         scrollView.setContentOffset(offset, animated: false)
+        #if DEBUG
+        MotionTrace.shared.recordPin(before: before, after: maxOffsetY, reason: "legacyBridge")
+        #endif
     }
 }
 
@@ -42,13 +46,14 @@ final class TranscriptScrollBridgeHandle {
 struct TranscriptScrollBridge: UIViewRepresentable {
     let handle: TranscriptScrollBridgeHandle
     let onMetrics: (UIKitScrollMetrics) -> Void
+    let isPinned: () -> Bool
 
     func makeUIView(context: Context) -> BridgeView {
-        BridgeView(handle: handle, onMetrics: onMetrics)
+        BridgeView(handle: handle, onMetrics: onMetrics, isPinned: isPinned)
     }
 
     func updateUIView(_ uiView: BridgeView, context: Context) {
-        uiView.update(handle: handle, onMetrics: onMetrics)
+        uiView.update(handle: handle, onMetrics: onMetrics, isPinned: isPinned)
     }
 
     @MainActor
@@ -59,10 +64,16 @@ struct TranscriptScrollBridge: UIViewRepresentable {
         private var retryScheduled = false
         private var metricsDeliveryPending = false
         private var onMetrics: (UIKitScrollMetrics) -> Void
+        private var isPinned: () -> Bool
 
-        init(handle: TranscriptScrollBridgeHandle, onMetrics: @escaping (UIKitScrollMetrics) -> Void) {
+        init(
+            handle: TranscriptScrollBridgeHandle,
+            onMetrics: @escaping (UIKitScrollMetrics) -> Void,
+            isPinned: @escaping () -> Bool
+        ) {
             self.handle = handle
             self.onMetrics = onMetrics
+            self.isPinned = isPinned
             super.init(frame: .zero)
         }
 
@@ -73,8 +84,10 @@ struct TranscriptScrollBridge: UIViewRepresentable {
 
         func update(
             handle: TranscriptScrollBridgeHandle,
-            onMetrics: @escaping (UIKitScrollMetrics) -> Void
+            onMetrics: @escaping (UIKitScrollMetrics) -> Void,
+            isPinned: @escaping () -> Bool
         ) {
+            self.isPinned = isPinned
             if self.handle !== handle {
                 stopObserving()
                 self.handle = handle
@@ -110,6 +123,9 @@ struct TranscriptScrollBridge: UIViewRepresentable {
             stopObserving()
             observedScrollView = scrollView
             handle.attach(to: scrollView)
+            #if DEBUG
+            MotionTrace.shared.registerScrollView(scrollView, pinned: isPinned)
+            #endif
             observations = [
                 scrollView.observe(\.contentSize, options: [.initial, .new]) { [weak self] _, _ in
                     DispatchQueue.main.async { [weak self] in
@@ -131,6 +147,11 @@ struct TranscriptScrollBridge: UIViewRepresentable {
 
         private func stopObserving() {
             observations.removeAll()
+            #if DEBUG
+            if let observedScrollView {
+                MotionTrace.shared.unregisterScrollView(observedScrollView)
+            }
+            #endif
             handle.detach(from: observedScrollView)
             observedScrollView = nil
             metricsDeliveryPending = false

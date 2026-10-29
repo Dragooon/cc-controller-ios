@@ -391,6 +391,7 @@ struct BottomStackView: View {
         }
         #if DEBUG
         recordLifecycleEvent(name: "send-tap", sessionID: configuration.sessionID)
+        MotionTrace.shared.recordEvent("sendTapped", data: ["noteID": submittedText])
         #endif
         if !isSlashCommand(submittedText) {
             configuration.sendRevealCoordinator?.begin()
@@ -430,6 +431,7 @@ struct BottomStackView: View {
         }
         #if DEBUG
         recordLifecycleEvent(name: "send-focus-drop", sessionID: configuration.sessionID)
+        MotionTrace.shared.recordComposerCleared()
         #endif
         composerFocused = false
         var transaction = Transaction()

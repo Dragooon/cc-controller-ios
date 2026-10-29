@@ -649,6 +649,7 @@ public final class AppStore {
         queuedNotes[sessionID, default: []].append(note)
         #if DEBUG
         TranscriptLifecycleLog.shared.record(name: "note-appended", sessionID: sessionID)
+        postCCMotionTraceEvent("noteInserted", data: ["noteID": note.id])
         #endif
         TranscriptLifecycleLog.shared.record(name: "note-sending", sessionID: sessionID)
         queuedNotes[sessionID] = orderedNotes(queuedNotes[sessionID] ?? [])
@@ -1507,6 +1508,11 @@ public final class AppStore {
             entryCount: event.entryCount,
             appendNewEntries: true
         )
+        #if DEBUG
+        if let id = entry.id, let text = entry.text, !text.isEmpty {
+            postCCMotionTraceEvent("streamChunk", data: ["entryID": id, "length": text.count])
+        }
+        #endif
         let expectedCount = countBefore + (change.inserted.isEmpty ? 0 : 1)
         if let entryCount = event.entryCount {
             serverEntryCounts[sessionID] = entryCount
@@ -1517,12 +1523,22 @@ public final class AppStore {
 
     private func reconcileQueuedNotes(for sessionID: String, changedEntries: [TranscriptEntry]) {
         guard var pending = queuedNotes[sessionID] else { return }
+        let before = Dictionary(uniqueKeysWithValues: pending.map { ($0.id, $0) })
         for entry in changedEntries {
             pending = reconcileQueuedNote(pending, promptEntry: entry)
             if pending.isEmpty { break }
         }
         if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) }
         else { queuedNotes[sessionID] = pending }
+        #if DEBUG
+        for noteID in before.keys where !pending.contains(where: { $0.id == noteID }) {
+            if let entry = changedEntries.first(where: { entry in
+                !reconcileQueuedNote([before[noteID]!], promptEntry: entry).contains(where: { $0.id == noteID })
+            }) {
+                postCCMotionTraceEvent("noteReconciled", data: ["noteID": noteID, "entryID": entry.id ?? ""])
+            }
+        }
+        #endif
         persistQueuedNotes()
     }
 
