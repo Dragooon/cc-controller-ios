@@ -480,22 +480,35 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     func testChangedSessionReopensThroughSyncingGlyph() async throws {
-        let app = launchFixture(resetCache: true, initialTranscriptTail: 20)
+        var app = launchFixture(resetCache: true, initialTranscriptTail: 20)
+        let fixtureControlURL = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_CONTROL_URL"]
+        addTeardownBlock { [fixtureControlURL] in
+            guard let fixtureControlURL,
+                  let url = URL(string: "\(fixtureControlURL)/fixture/transcript-delay") else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = Data(#"{"ms":0}"#.utf8)
+            _ = try? await URLSession.shared.data(for: request)
+        }
         defer {
             audit(app: app, name: "changed-session-syncing-glyph")
             app.terminate()
         }
 
+        let originalText = "Checkpoint 499 is complete; the fixture remains responsive."
         let session = findLongSession(in: app)
         XCTAssertTrue(session.waitForExistence(timeout: 75), "Long session did not load")
         session.tap()
-        let original = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
-        XCTAssertTrue(original.waitForExistence(timeout: 30), "Initial transcript did not load")
+        XCTAssertTrue(app.staticTexts[originalText].waitForExistence(timeout: 30), "Initial transcript did not load")
 
         let back = app.navigationBars.buttons["Sessions"]
         XCTAssertTrue(back.waitForExistence(timeout: 10), "Sessions back button did not load")
         back.tap()
+        XCTAssertTrue(back.waitForNonExistence(timeout: 5), "Session detail did not disappear after navigating back")
         XCTAssertTrue(session.waitForExistence(timeout: 10), "Long session did not return to the list")
+        try await Task.sleep(for: .seconds(1))
+        app.terminate()
 
         let marker = "Fixture transcript changed while away."
         try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 800])
@@ -503,14 +516,25 @@ final class TranscriptFlowTests: XCTestCase {
             "/fixture/transcript-change",
             body: ["sessionId": "long-session", "text": marker]
         )
-        session.tap()
+
+        app = launchFixture(resetCache: false, initialTranscriptTail: 20)
+        let reopenedSession = findLongSession(in: app)
+        XCTAssertTrue(reopenedSession.waitForExistence(timeout: 75), "Long session did not load after relaunch")
+        reopenedSession.tap()
 
         let loading = app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch
         XCTAssertTrue(loading.waitForExistence(timeout: 2), "Changed session did not show the syncing glyph")
         XCTAssertEqual(loading.label, "Loading messages")
+        let staleNewest = app.staticTexts[originalText]
+        let loadingDeadline = Date().addingTimeInterval(2)
+        while loading.exists && Date() < loadingDeadline {
+            XCTAssertFalse(staleNewest.exists, "Cached newest row was visible before the transcript became current")
+            try await Task.sleep(for: .milliseconds(50))
+        }
         XCTAssertTrue(loading.waitForNonExistence(timeout: 5), "Syncing glyph did not clear after the delayed transcript")
-        XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 10), "Newest changed entry did not render")
-        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 0])
+        let changedEntry = app.staticTexts[marker]
+        XCTAssertTrue(changedEntry.waitForExistence(timeout: 10), "Newest changed entry did not render")
+        XCTAssertTrue(changedEntry.isHittable, "Newest changed entry is not visible")
     }
 
     func testJumpHiddenOnShortSession() throws {
