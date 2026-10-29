@@ -21,6 +21,7 @@ private enum TranscriptCollectionContent: Equatable {
 
 final class TranscriptCollectionView: UICollectionView {
     var didFinishLayout: (() -> Void)?
+    var didChangeTraits: (() -> Void)?
     var isAnimatingJump = false
 
     override func layoutSubviews() {
@@ -32,6 +33,11 @@ final class TranscriptCollectionView: UICollectionView {
     override func adjustedContentInsetDidChange() {
         super.adjustedContentInsetDidChange()
         setNeedsLayout()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        didChangeTraits?()
     }
 
     private func applyAnchoredContentOffsetIfNeeded() {
@@ -80,10 +86,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     private var measuredHeights: [HeightKey: CGFloat] = [:]
     private var itemsRequiringMeasurement: Set<TranscriptCollectionItem> = []
     private var preparedWidth: CGFloat = -1
-    private var oldContentHeight: CGFloat?
     private var newestEndUpdate = false
     private var insertedIndexPaths: Set<IndexPath> = []
-    private var contentHeightDelta: CGFloat = 0
 
     var anchor: Anchor = .bottom
     var readableContentMaxWidth: CGFloat = .infinity
@@ -108,25 +112,37 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         invalidateLayout()
     }
 
+    func invalidateAllHeights() {
+        measuredHeights.removeAll(keepingCapacity: true)
+        invalidateLayout()
+    }
+
     override func prepare() {
         super.prepare()
-        guard let collectionView else { return }
+        guard let collectionView,
+              collectionView.numberOfSections > 0 else {
+            attributes.removeAll(keepingCapacity: true)
+            contentSize = .zero
+            return
+        }
         let width = max(0, collectionView.bounds.width)
         let itemWidth = itemWidth(for: width)
         let itemCount = collectionView.numberOfItems(inSection: 0)
         let viewportHeight = max(collectionView.bounds.height, 1)
         let visibleRect = collectionView.bounds
         let expandedRect = visibleRect.insetBy(dx: 0, dy: -viewportHeight)
-        let itemIdentifiers = (0..<itemCount).map {
-            itemIdentifier(at: IndexPath(item: $0, section: 0))
+        let itemEntries = (0..<itemCount).compactMap { index -> (index: Int, item: TranscriptCollectionItem)? in
+            guard let item = itemIdentifier(at: IndexPath(item: index, section: 0)) else { return nil }
+            return (index, item)
         }
+        let itemIdentifiers = itemEntries.map(\.item)
 
         var heights = itemIdentifiers.map { height(for: $0, width: itemWidth, force: itemsRequiringMeasurement.contains($0)) }
         var measuredIndices = Set<Int>()
         for _ in 0..<2 {
             let frames = makeFrames(heights: heights, width: width)
             let newestStart = newestIndices(heights: heights, viewportHeight: viewportHeight)
-            for index in 0..<itemCount {
+            for index in heights.indices {
                 let frame = frames[index]
                 let shouldMeasure = itemsRequiringMeasurement.contains(itemIdentifiers[index])
                     || newestStart.contains(index)
@@ -139,8 +155,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
         attributes.removeAll(keepingCapacity: true)
         let frames = makeFrames(heights: heights, width: width)
-        for index in 0..<itemCount {
-            let indexPath = IndexPath(item: index, section: 0)
+        for index in heights.indices {
+            let indexPath = IndexPath(item: itemEntries[index].index, section: 0)
             let itemAttributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
             itemAttributes.frame = frames[index]
             itemAttributes.zIndex = index
@@ -150,7 +166,6 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         contentSize = CGSize(width: collectionView.bounds.width, height: height + 18)
         preparedWidth = width
         itemsRequiringMeasurement.subtract(itemIdentifiers)
-        contentHeightDelta = max(0, contentSize.height - (oldContentHeight ?? contentSize.height))
     }
 
     override var collectionViewContentSize: CGSize { contentSize }
@@ -170,14 +185,43 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         let expandedRect = newBounds.insetBy(dx: 0, dy: -viewportHeight)
         let itemWidth = itemWidth(for: newBounds.width)
         return attributes.contains { indexPath, itemAttributes in
-            itemAttributes.frame.intersects(expandedRect)
-                && !isMeasured(itemIdentifier(at: indexPath), width: itemWidth)
+            guard let item = itemIdentifier(at: indexPath) else { return false }
+            return itemAttributes.frame.intersects(expandedRect)
+                && !isMeasured(item, width: itemWidth)
         }
+    }
+
+    override func invalidationContext(forBoundsChange newBounds: CGRect) -> UICollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(forBoundsChange: newBounds)
+        guard let collectionView,
+              collectionView.numberOfSections > 0,
+              abs(newBounds.width - preparedWidth) <= 0.5 else { return context }
+
+        let itemWidth = itemWidth(for: newBounds.width)
+        let firstVisibleIndex = attributes
+            .sorted { $0.value.frame.minY < $1.value.frame.minY }
+            .first { $0.value.frame.maxY > newBounds.minY }?.key.item ?? 0
+        let margin = max(newBounds.height, 1)
+        let measurementRect = newBounds.insetBy(dx: 0, dy: -margin)
+        var contentOffsetAdjustment: CGFloat = 0
+        var didMeasure = false
+        for (indexPath, itemAttributes) in attributes where indexPath.item < firstVisibleIndex {
+            guard itemAttributes.frame.intersects(measurementRect),
+                  let item = itemIdentifier(at: indexPath),
+                  !isMeasured(item, width: itemWidth) else { continue }
+            let oldHeight = itemAttributes.frame.height
+            let newHeight = height(for: item, width: itemWidth, force: true)
+            contentOffsetAdjustment += newHeight - oldHeight
+            didMeasure = true
+        }
+        if didMeasure {
+            context.contentOffsetAdjustment.y += contentOffsetAdjustment
+        }
+        return context
     }
 
     override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
         super.prepare(forCollectionViewUpdates: updateItems)
-        oldContentHeight = collectionView?.contentSize.height
         insertedIndexPaths = Set(updateItems.compactMap { updateItem in
             guard updateItem.updateAction == .insert else { return nil }
             return updateItem.indexPathAfterUpdate
@@ -196,7 +240,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         }
         var frame = final.frame
         frame.size.height = 0
-        frame.origin.y = final.frame.maxY - contentHeightDelta
+        frame.origin.y = final.frame.minY
         final.frame = frame
         final.alpha = 1
         return final
@@ -204,10 +248,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
     override func finalizeCollectionViewUpdates() {
         super.finalizeCollectionViewUpdates()
-        oldContentHeight = nil
         insertedIndexPaths.removeAll()
         newestEndUpdate = false
-        contentHeightDelta = 0
     }
 
     func anchoredContentOffset(for collectionView: UICollectionView) -> (y: CGFloat, reason: String)? {
@@ -237,13 +279,10 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         return false
     }
 
-    private func itemIdentifier(at indexPath: IndexPath) -> TranscriptCollectionItem {
+    private func itemIdentifier(at indexPath: IndexPath) -> TranscriptCollectionItem? {
         guard let dataSource = collectionView?.dataSource as?
-            UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>,
-              let item = dataSource.itemIdentifier(for: indexPath) else {
-            preconditionFailure("Transcript list item missing at \(indexPath)")
-        }
-        return item
+            UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem> else { return nil }
+        return dataSource.itemIdentifier(for: indexPath)
     }
 
     private func indexPath(for item: TranscriptCollectionItem) -> IndexPath? {
@@ -370,11 +409,26 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, UICollectionViewDelegate {
+        private struct SizingTraits: Equatable {
+            let preferredContentSizeCategory: UIContentSizeCategory
+            let horizontalSizeClass: UIUserInterfaceSizeClass
+            let legibilityWeight: UILegibilityWeight
+            let displayScale: CGFloat
+
+            init(_ traits: UITraitCollection) {
+                preferredContentSizeCategory = traits.preferredContentSizeCategory
+                horizontalSizeClass = traits.horizontalSizeClass
+                legibilityWeight = traits.legibilityWeight
+                displayScale = traits.displayScale
+            }
+        }
+
         private weak var collectionView: TranscriptCollectionView?
         private var dataSource: UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>?
         private var currentItems: [TranscriptCollectionItem] = []
         private var currentContent: [TranscriptCollectionItem: TranscriptCollectionContent] = [:]
         private let sizingCell = TranscriptListCell(frame: .zero)
+        private var sizingTraits: SizingTraits?
         private var currentNotes: [QueuedNote] = []
         private var noteAliases: [String: String] = [:]
         private var hasAppliedSnapshot = false
@@ -410,10 +464,18 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         func attach(collectionView: TranscriptCollectionView) {
             self.collectionView = collectionView
+            sizingCell.isHidden = true
+            sizingCell.isUserInteractionEnabled = false
+            sizingCell.frame = CGRect(x: -1, y: -1, width: 1, height: 1)
+            collectionView.addSubview(sizingCell)
+            _ = updateSizingTraits(from: collectionView)
             collectionView.register(TranscriptListCell.self, forCellWithReuseIdentifier: "transcript-cell")
             collectionView.delegate = self
             collectionView.didFinishLayout = { [weak self] in
                 self?.didFinishLayout()
+            }
+            collectionView.didChangeTraits = { [weak self] in
+                self?.sizingTraitsDidChange()
             }
             #if DEBUG
             MotionTrace.shared.registerScrollView(collectionView, pinned: { [weak self] in
@@ -438,7 +500,11 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         }
 
         func update(_ representable: TranscriptCollectionRepresentable) -> Bool {
-            guard self.collectionView != nil else { return false }
+            guard let collectionView = self.collectionView else { return false }
+            if updateSizingTraits(from: collectionView),
+               let layout = collectionView.collectionViewLayout as? TranscriptListLayout {
+                layout.invalidateAllHeights()
+            }
             let readableContentMaxWidthChanged = readableContentMaxWidth != representable.readableContentMaxWidth
             readableContentMaxWidth = representable.readableContentMaxWidth
             pinnedBinding = representable.$isPinnedToBottom
@@ -520,9 +586,22 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
             guard let collectionView = scrollView as? TranscriptCollectionView else { return }
             collectionView.isAnimatingJump = false
+            updatePinAfterUserScroll(scrollView)
             #if DEBUG
             MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "ran", "animated": true])
             #endif
+        }
+
+        func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            (scrollView as? TranscriptCollectionView)?.isAnimatingJump = true
+            return true
+        }
+
+        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+            if let collectionView = scrollView as? TranscriptCollectionView {
+                collectionView.isAnimatingJump = false
+            }
+            updatePinAfterUserScroll(scrollView)
         }
 
         func collectionView(
@@ -576,6 +655,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         private func jumpToLatest() {
             guard let collectionView else { return }
+            collectionView.isAnimatingJump = true
             #if DEBUG
             MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "scheduled", "animated": true])
             #endif
@@ -583,7 +663,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             collectionView.layoutIfNeeded()
             let inset = collectionView.adjustedContentInset
             let maxOffsetY = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
-            collectionView.isAnimatingJump = true
             collectionView.setContentOffset(
                 CGPoint(x: collectionView.contentOffset.x, y: maxOffsetY),
                 animated: true
@@ -712,6 +791,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 "deleted": deleted.map(traceID),
                 "reconfigured": changedItems.map(traceID),
                 "animated": animated,
+                "duration": animated ? 0.3 : 0,
             ])
             #endif
             let markApplied = { [weak self] in
@@ -776,12 +856,39 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             }
         }
 
+        #if DEBUG
+        private func recordMeasureMismatches(in collectionView: TranscriptCollectionView) {
+            for indexPath in collectionView.indexPathsForVisibleItems {
+                guard let cell = collectionView.cellForItem(at: indexPath),
+                      let attributes = collectionView.layoutAttributesForItem(at: indexPath),
+                      let item = dataSource?.itemIdentifier(for: indexPath) else { continue }
+                let width = max(0, cell.contentView.bounds.width)
+                let measuredHeight = cell.contentView.systemLayoutSizeFitting(
+                    CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                ).height
+                guard abs(measuredHeight - attributes.frame.height) > 1 else { continue }
+                MotionTrace.shared.recordEvent("measureMismatch", data: [
+                    "id": traceID(item),
+                    "measuredHeight": measuredHeight,
+                    "layoutHeight": attributes.frame.height,
+                ])
+            }
+        }
+        #endif
+
         private func didFinishLayout() {
             guard let collectionView, collectionView.window != nil,
                   collectionView.bounds.height > 0,
                   !(dataSource?.snapshot().itemIdentifiers.isEmpty ?? true),
                   collectionView.indexPathsForVisibleItems.isEmpty else { return }
             let now = Date()
+            #if DEBUG
+            if MotionTrace.shared.isEnabled {
+                recordMeasureMismatches(in: collectionView)
+            }
+            #endif
             guard lastUnbuiltDiagnosticAt.map({ now.timeIntervalSince($0) >= 10 }) ?? true else { return }
             lastUnbuiltDiagnosticAt = now
             let inset = collectionView.adjustedContentInset
@@ -814,6 +921,25 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             case .row(let id): return id
             case .startingNote(let id), .queuedNote(let id): return "note:\(id)"
             }
+        }
+
+        private func sizingTraitsDidChange() {
+            guard let collectionView,
+                  updateSizingTraits(from: collectionView),
+                  let layout = collectionView.collectionViewLayout as? TranscriptListLayout else { return }
+            layout.invalidateAllHeights()
+        }
+
+        private func updateSizingTraits(from collectionView: TranscriptCollectionView) -> Bool {
+            let traits = collectionView.traitCollection
+            let sizingTraits = SizingTraits(traits)
+            sizingCell.traitOverrides.preferredContentSizeCategory = traits.preferredContentSizeCategory
+            sizingCell.traitOverrides.horizontalSizeClass = traits.horizontalSizeClass
+            sizingCell.traitOverrides.legibilityWeight = traits.legibilityWeight
+            sizingCell.traitOverrides.displayScale = traits.displayScale
+            let changed = self.sizingTraits != sizingTraits
+            self.sizingTraits = sizingTraits
+            return changed
         }
 
         fileprivate func height(for item: TranscriptCollectionItem, width: CGFloat) -> CGFloat {
