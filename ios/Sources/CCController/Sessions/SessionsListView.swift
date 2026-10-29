@@ -262,10 +262,7 @@ struct SessionsListView: View {
     private var bottomInset: some View {
         VStack(spacing: 8) {
             archiveToastOverlay
-            if canCreateSession && CCNewSessionButtonMode.current == .floating
-                && (horizontalSizeClass == .regular || hasAnySessions || isMultiController) {
-                newSessionButton
-            } else if horizontalSizeClass == .compact && canCreateSession && (hasAnySessions || isMultiController) {
+            if canCreateSession && (horizontalSizeClass == .regular || hasAnySessions || isMultiController) {
                 newSessionButton
             }
         }
@@ -289,26 +286,17 @@ struct SessionsListView: View {
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
     private var newSessionButtonLabel: some View {
-        if CCNewSessionButtonMode.current == .floating {
-            Image(systemName: "square.and.pencil")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 52, height: 52)
-                .background(.ccAccent, in: .circle)
-                .shadow(
-                    color: .black.opacity(colorScheme == .dark ? 0.30 : 0.12),
-                    radius: 8,
-                    y: 2
-                )
-        } else {
-            Image(systemName: "square.and.pencil")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.ccAccent)
-                .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
-                .glassEffect(.regular.interactive(), in: .circle)
-        }
+        Image(systemName: "square.and.pencil")
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(width: 52, height: 52)
+            .background(.ccAccent, in: .circle)
+            .shadow(
+                color: .black.opacity(colorScheme == .dark ? 0.30 : 0.12),
+                radius: 8,
+                y: 2
+            )
     }
 
     @ViewBuilder
@@ -402,22 +390,11 @@ struct SessionsListView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                HStack(spacing: 0) {
-                    if canCreateSession && CCNewSessionButtonMode.current == .classic {
-                        Button(action: onNewSession) {
-                            Image(systemName: "square.and.pencil")
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("New session")
-                        .accessibilityIdentifier("new-session")
-                    }
-                    Button(action: onSettings) {
-                        Image(systemName: "gearshape")
-                            .frame(width: 44, height: 44)
-                    }
-                    .accessibilityLabel("Settings")
+                Button(action: onSettings) {
+                    Image(systemName: "gearshape")
+                        .frame(width: 44, height: 44)
                 }
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .accessibilityLabel("Settings")
             }
             .frame(height: 44)
             .padding(.horizontal, 16)

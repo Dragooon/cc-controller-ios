@@ -396,13 +396,13 @@ enum MockSessionData {
     private static let warmThemeJSON = #"""
     [
       {"kind":"prompt","id":"warm-prompt-1","ts":"2026-09-30T03:24:00Z","text":"Review the Linen theme and confirm the transcript surfaces feel warm without losing contrast."},
-      {"kind":"assistant","id":"warm-assistant-1","ts":"2026-09-30T03:24:08Z","text":"## Linen theme review\n\nThe **warm palette** softens the background and cards while preserving contrast.\n\n- Background: warm ivory\n- Cards: toasted oat\n- Prose: New York in serif mode\n\n```swift\nlet theme = CCTheme.current\n```"},
+      {"kind":"assistant","id":"warm-assistant-1","ts":"2026-09-30T03:24:08Z","text":"## Linen theme review\n\nThe **warm palette** softens the background and cards while preserving contrast.\n\n- Background: warm ivory\n- Cards: toasted oat\n- Prose: system font\n\n```swift\nlet background = Color.ccBackground\n```"},
       {"kind":"tool","id":"warm-read","ts":"2026-09-30T03:24:12Z","toolUseId":"warm-read","tool":"Read","args":{"file_path":"DesignSystem/Colors.swift"},"result":"Theme colors loaded successfully.","state":"done"},
       {"kind":"tool","id":"warm-bash","ts":"2026-09-30T03:24:14Z","toolUseId":"warm-bash","tool":"Bash","args":{"command":"xcodebuild -scheme CCController build"},"result":"Build Succeeded","state":"done"},
       {"kind":"tool","id":"warm-read-assets","ts":"2026-09-30T03:24:16Z","toolUseId":"warm-read-assets","tool":"Read","args":{"file_path":"Resources/Assets.xcassets/Linen"},"result":"Linen assets are present in light and dark appearances.","state":"done"},
       {"kind":"turn_end","id":"warm-end-1","ts":"2026-09-30T03:24:20Z","durationMs":20000},
       {"kind":"prompt","id":"warm-prompt-2","ts":"2026-09-30T03:25:00Z","text":"What should I compare next?"},
-      {"kind":"assistant","id":"warm-assistant-2","ts":"2026-09-30T03:25:05Z","text":"Compare the classic and Linen light captures first. Then check the serif variant against the system-font version."},
+      {"kind":"assistant","id":"warm-assistant-2","ts":"2026-09-30T03:25:05Z","text":"Compare the light and dark captures first, then confirm the system font stays consistent."},
       {"kind":"turn_end","id":"warm-end-2","ts":"2026-09-30T03:25:08Z","durationMs":8000}
     ]
     """#

@@ -11,20 +11,12 @@ final class WarmThemeScreenshotTests: XCTestCase {
 
     func testWarmThemeScreens() {
         let variants = [
-            (name: "classic-light", theme: "classic", prose: "system", button: "classic", scheme: "light"),
-            (name: "linen-light", theme: "linen", prose: "system", button: "floating", scheme: "light"),
-            (name: "linen-serif", theme: "linen", prose: "serif", button: "floating", scheme: "light"),
-            (name: "linen-dark", theme: "linen", prose: "system", button: "floating", scheme: "dark"),
+            (name: "linen-light", scheme: "light"),
+            (name: "linen-dark", scheme: "dark"),
         ]
 
         for variant in variants {
-            let app = launchMock(
-                screen: "warm-theme",
-                scheme: variant.scheme,
-                theme: variant.theme,
-                prose: variant.prose,
-                button: variant.button
-            )
+            let app = launchMock(screen: "warm-theme", scheme: variant.scheme)
             let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
             XCTAssertTrue(ready.waitForExistence(timeout: 15), "Warm theme mock did not load: \(variant.name)")
             let prose = app.staticTexts.containing(
@@ -49,46 +41,13 @@ final class WarmThemeScreenshotTests: XCTestCase {
         }
     }
 
-    func testWarmThemeDuoClassicButton() {
-        let app = launchMock(
-            screen: "warm-theme",
-            scheme: "light",
-            theme: "linen",
-            prose: "system",
-            button: "classic"
-        )
-        let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
-        XCTAssertTrue(ready.waitForExistence(timeout: 15), "Warm theme classic-button mock did not load")
-        let prose = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS[c] %@", "Linen theme review")
-        ).firstMatch
-        XCTAssertTrue(prose.waitForExistence(timeout: 15), "Warm theme classic-button transcript did not mount")
-        let code = app.buttons["Copy code"]
-        let tool = app.descendants(matching: .any).matching(identifier: "tool-run-card").firstMatch
-        _ = code.waitForExistence(timeout: 15)
-        _ = tool.waitForExistence(timeout: 15)
-        let frames = waitForTranscriptRest(app, variant: "linen-light-classic-button")
-        printFrames(frames, variant: "linen-light-classic-button")
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = "linen-light-classic-button"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-        app.terminate()
-    }
-
     func testSessionListScreens() {
         let variants = [
-            (name: "sessions-classic-light", theme: "classic", button: "classic"),
-            (name: "sessions-linen-light", theme: "linen", button: "floating"),
+            (name: "sessions-light", scheme: "light"),
+            (name: "sessions-dark", scheme: "dark"),
         ]
         for variant in variants {
-            let app = launchMock(
-                screen: "sessions",
-                scheme: "light",
-                theme: variant.theme,
-                prose: "system",
-                button: variant.button
-            )
+            let app = launchMock(screen: "sessions", scheme: variant.scheme)
             let ready = app.descendants(matching: .any).matching(identifier: "mock-ready").firstMatch
             XCTAssertTrue(ready.waitForExistence(timeout: 15), "Session list mock did not load: \(variant.name)")
             let title = app.staticTexts["Sessions"]
@@ -101,20 +60,11 @@ final class WarmThemeScreenshotTests: XCTestCase {
         }
     }
 
-    private func launchMock(
-        screen: String,
-        scheme: String,
-        theme: String,
-        prose: String,
-        button: String
-    ) -> XCUIApplication {
+    private func launchMock(screen: String, scheme: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-CCMock", screen,
             "-CCColorScheme", scheme,
-            "-CCTheme", theme,
-            "-CCProseFont", prose,
-            "-CCNewSessionButton", button,
             "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryLarge",
         ]
         configureLiveIndicatorAnimations(app)
@@ -128,7 +78,7 @@ final class WarmThemeScreenshotTests: XCTestCase {
         variant: String
     ) -> (last: CGRect, composer: CGRect, settled: Bool) {
         let last = app.staticTexts.containing(
-            NSPredicate(format: "label CONTAINS[c] %@", "Compare the classic and Linen light captures first")
+            NSPredicate(format: "label CONTAINS[c] %@", "Compare the light and dark captures first")
         ).firstMatch
         let composer = app.descendants(matching: .any).matching(identifier: "bottom-stack").firstMatch
         let deadline = Date().addingTimeInterval(5)

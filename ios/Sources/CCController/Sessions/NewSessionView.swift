@@ -87,7 +87,7 @@ struct NewSessionView: View {
                     SpinnerGlyph(active: true, frozen: true)
                         .font(.system(size: 36))
                     Text(greeting)
-                        .font(.system(size: 30, weight: .regular, design: .serif))
+                        .font(.system(size: 30, weight: .regular))
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.7)
                         .padding(.horizontal, 24)

@@ -5,9 +5,6 @@ struct CCControllerApp: App {
     @State private var model: AppModel
 
     init() {
-        CCTheme.bootstrap()
-        CCProseFont.bootstrap()
-        CCNewSessionButtonMode.bootstrap()
         _model = State(initialValue: AppModel())
     }
 

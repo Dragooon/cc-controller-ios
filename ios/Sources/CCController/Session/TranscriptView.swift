@@ -695,7 +695,7 @@ struct SessionTranscriptView: View {
 #endif
         let withScrollEvents = withKeyboard
             .background(.ccBackground)
-            .scrollEdgeEffectStyle(CCTheme.current == .linen ? .none : .hard, for: .bottom)
+            .scrollEdgeEffectStyle(.none, for: .bottom)
             .onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
                 scrollState.lastScrollGeometry = makeScrollGuardGeometry(from: geometry)
                 let overshoot = ScrollBlankCondition.isOvershoot(

@@ -8,7 +8,6 @@ struct InlineMarkdownText: View {
     var body: some View {
         Text(styledText)
             .font(heading ? .body.weight(.semibold) : .body)
-            .fontDesign(CCProseFont.current == .serif ? .serif : .default)
             .foregroundStyle(.ccLabel)
             .tint(.ccAccent)
             .frame(maxWidth: .infinity, alignment: .leading)
