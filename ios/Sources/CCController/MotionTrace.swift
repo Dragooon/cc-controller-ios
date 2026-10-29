@@ -250,7 +250,7 @@ final class MotionTrace: NSObject {
         let rows = probes.compactMap { id, weakView -> [String: Any]? in
             guard id != "composer", let view = weakView.value,
                   isVisibleProbe(view, in: window) else { return nil }
-            let value = rect(for: view, in: window)
+            let value = clippedProbeRect(for: view, in: window)
             guard value.intersects(CGRect(x: windowRect.minX, y: viewportTop, width: windowRect.width, height: viewportBottom - viewportTop)) else { return nil }
             return ["id": id, "y0": value.minY, "y1": value.maxY]
         }.sorted { ($0["y0"] as? CGFloat ?? 0) < ($1["y0"] as? CGFloat ?? 0) }
@@ -343,6 +343,20 @@ final class MotionTrace: NSObject {
         let source = view.layer.presentation() ?? view.layer
         let target = window.layer.presentation() ?? window.layer
         return source.convert(source.bounds, to: target)
+    }
+
+    private func clippedProbeRect(for view: UIView, in window: UIWindow) -> CGRect {
+        let target = window.layer.presentation() ?? window.layer
+        var visible = rect(for: view, in: window)
+        var ancestor = view.superview
+        while let current = ancestor, current !== scrollView, current !== window {
+            if current.clipsToBounds {
+                let layer = current.layer.presentation() ?? current.layer
+                visible = visible.intersection(layer.convert(layer.bounds, to: target))
+            }
+            ancestor = current.superview
+        }
+        return visible
     }
 
     private func presentationOffsetY(for scrollView: UIScrollView) -> CGFloat {

@@ -36,7 +36,7 @@ final class TranscriptCollectionView: UICollectionView {
 
     private func applyAnchoredContentOffsetIfNeeded() {
         guard !isTracking, !isDragging, !isDecelerating, !isAnimatingJump,
-              let layout = collectionViewLayout as? TranscriptAnchoringLayout,
+              let layout = collectionViewLayout as? TranscriptListLayout,
               let target = layout.anchoredContentOffset(for: self),
               abs(contentOffset.y - target.y) > 0.5 else { return }
 
@@ -50,13 +50,165 @@ final class TranscriptCollectionView: UICollectionView {
     }
 }
 
-private final class TranscriptAnchoringLayout: UICollectionViewCompositionalLayout {
+private final class TranscriptListCell: UICollectionViewCell {
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutAttributes {
+        layoutAttributes
+    }
+}
+
+private final class TranscriptListLayout: UICollectionViewLayout {
     enum Anchor {
         case bottom
         case item(TranscriptCollectionItem, distanceFromViewportTop: CGFloat)
     }
 
+    private struct HeightKey: Hashable {
+        let item: TranscriptCollectionItem
+        let width: Int
+
+        init(item: TranscriptCollectionItem, width: CGFloat) {
+            self.item = item
+            self.width = Int((width * 2).rounded())
+        }
+    }
+
+    private let heightProvider: (TranscriptCollectionItem, CGFloat) -> CGFloat
+    private var attributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
+    private var contentSize = CGSize.zero
+    private var measuredHeights: [HeightKey: CGFloat] = [:]
+    private var itemsRequiringMeasurement: Set<TranscriptCollectionItem> = []
+    private var preparedWidth: CGFloat = -1
+    private var oldContentHeight: CGFloat?
+    private var newestEndUpdate = false
+    private var insertedIndexPaths: Set<IndexPath> = []
+    private var contentHeightDelta: CGFloat = 0
+
     var anchor: Anchor = .bottom
+    var readableContentMaxWidth: CGFloat = .infinity
+
+    init(heightProvider: @escaping (TranscriptCollectionItem, CGFloat) -> CGFloat) {
+        self.heightProvider = heightProvider
+        super.init()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func prepareForAnimatedNewestEndUpdate() {
+        newestEndUpdate = true
+    }
+
+    func invalidateHeights(for items: [TranscriptCollectionItem]) {
+        itemsRequiringMeasurement.formUnion(items)
+        for item in items {
+            measuredHeights = measuredHeights.filter { $0.key.item != item }
+        }
+        invalidateLayout()
+    }
+
+    override func prepare() {
+        super.prepare()
+        guard let collectionView else { return }
+        let width = max(0, collectionView.bounds.width)
+        let itemWidth = itemWidth(for: width)
+        let itemCount = collectionView.numberOfItems(inSection: 0)
+        let viewportHeight = max(collectionView.bounds.height, 1)
+        let visibleRect = collectionView.bounds
+        let expandedRect = visibleRect.insetBy(dx: 0, dy: -viewportHeight)
+        let itemIdentifiers = (0..<itemCount).map {
+            itemIdentifier(at: IndexPath(item: $0, section: 0))
+        }
+
+        var heights = itemIdentifiers.map { height(for: $0, width: itemWidth, force: itemsRequiringMeasurement.contains($0)) }
+        var measuredIndices = Set<Int>()
+        for _ in 0..<2 {
+            let frames = makeFrames(heights: heights, width: width)
+            let newestStart = newestIndices(heights: heights, viewportHeight: viewportHeight)
+            for index in 0..<itemCount {
+                let frame = frames[index]
+                let shouldMeasure = itemsRequiringMeasurement.contains(itemIdentifiers[index])
+                    || newestStart.contains(index)
+                    || frame.intersects(expandedRect)
+                guard shouldMeasure, !measuredIndices.contains(index) else { continue }
+                heights[index] = height(for: itemIdentifiers[index], width: itemWidth, force: true)
+                measuredIndices.insert(index)
+            }
+        }
+
+        attributes.removeAll(keepingCapacity: true)
+        let frames = makeFrames(heights: heights, width: width)
+        for index in 0..<itemCount {
+            let indexPath = IndexPath(item: index, section: 0)
+            let itemAttributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
+            itemAttributes.frame = frames[index]
+            itemAttributes.zIndex = index
+            attributes[indexPath] = itemAttributes
+        }
+        let height = frames.last?.maxY ?? 0
+        contentSize = CGSize(width: collectionView.bounds.width, height: height + 18)
+        preparedWidth = width
+        itemsRequiringMeasurement.subtract(itemIdentifiers)
+        contentHeightDelta = max(0, contentSize.height - (oldContentHeight ?? contentSize.height))
+    }
+
+    override var collectionViewContentSize: CGSize { contentSize }
+
+    override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        attributes[indexPath]
+    }
+
+    override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        attributes.values.filter { $0.frame.intersects(rect) }
+    }
+
+    override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
+        let widthChanged = abs(newBounds.width - preparedWidth) > 0.5
+        guard !widthChanged else { return true }
+        let viewportHeight = max(newBounds.height, 1)
+        let expandedRect = newBounds.insetBy(dx: 0, dy: -viewportHeight)
+        let itemWidth = itemWidth(for: newBounds.width)
+        return attributes.contains { indexPath, itemAttributes in
+            itemAttributes.frame.intersects(expandedRect)
+                && !isMeasured(itemIdentifier(at: indexPath), width: itemWidth)
+        }
+    }
+
+    override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+        super.prepare(forCollectionViewUpdates: updateItems)
+        oldContentHeight = collectionView?.contentSize.height
+        insertedIndexPaths = Set(updateItems.compactMap { updateItem in
+            guard updateItem.updateAction == .insert else { return nil }
+            return updateItem.indexPathAfterUpdate
+        })
+    }
+
+    override func initialLayoutAttributesForAppearingItem(
+        at itemIndexPath: IndexPath
+    ) -> UICollectionViewLayoutAttributes? {
+        guard newestEndUpdate,
+              anchorIsBottom,
+              insertedIndexPaths.contains(itemIndexPath),
+              let final = layoutAttributesForItem(at: itemIndexPath)?.copy() as? UICollectionViewLayoutAttributes
+        else {
+            return super.initialLayoutAttributesForAppearingItem(at: itemIndexPath)
+        }
+        var frame = final.frame
+        frame.size.height = 0
+        frame.origin.y = final.frame.maxY - contentHeightDelta
+        final.frame = frame
+        final.alpha = 1
+        return final
+    }
+
+    override func finalizeCollectionViewUpdates() {
+        super.finalizeCollectionViewUpdates()
+        oldContentHeight = nil
+        insertedIndexPaths.removeAll()
+        newestEndUpdate = false
+        contentHeightDelta = 0
+    }
 
     func anchoredContentOffset(for collectionView: UICollectionView) -> (y: CGFloat, reason: String)? {
         let inset = collectionView.adjustedContentInset
@@ -73,17 +225,80 @@ private final class TranscriptAnchoringLayout: UICollectionViewCompositionalLayo
             reason = "anchorBottom"
         case .item(let item, let distanceFromViewportTop):
             guard let indexPath = indexPath(for: item),
-                  let attributes = layoutAttributesForItem(at: indexPath) else { return nil }
-            targetY = attributes.frame.minY - inset.top - distanceFromViewportTop
+                  let itemAttributes = layoutAttributesForItem(at: indexPath) else { return nil }
+            targetY = itemAttributes.frame.minY - inset.top - distanceFromViewportTop
             reason = "anchorItem"
         }
         return (min(max(targetY, minimumY), maximumY), reason)
+    }
+
+    private var anchorIsBottom: Bool {
+        if case .bottom = anchor { return true }
+        return false
+    }
+
+    private func itemIdentifier(at indexPath: IndexPath) -> TranscriptCollectionItem {
+        guard let dataSource = collectionView?.dataSource as?
+            UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>,
+              let item = dataSource.itemIdentifier(for: indexPath) else {
+            preconditionFailure("Transcript list item missing at \(indexPath)")
+        }
+        return item
     }
 
     private func indexPath(for item: TranscriptCollectionItem) -> IndexPath? {
         guard let dataSource = collectionView?.dataSource as?
             UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem> else { return nil }
         return dataSource.indexPath(for: item)
+    }
+
+    private func height(
+        for item: TranscriptCollectionItem,
+        width: CGFloat,
+        force: Bool
+    ) -> CGFloat {
+        let key = HeightKey(item: item, width: width)
+        if let cached = measuredHeights[key] { return cached }
+        guard force else { return 80 }
+        let measured = max(0, heightProvider(item, width))
+        measuredHeights[key] = measured
+        return measured
+    }
+
+    private func isMeasured(_ item: TranscriptCollectionItem, width: CGFloat) -> Bool {
+        measuredHeights[HeightKey(item: item, width: width)] != nil
+    }
+
+    private func itemWidth(for width: CGFloat) -> CGFloat {
+        let extra = readableContentMaxWidth.isFinite
+            ? max(0, width - readableContentMaxWidth) / 2
+            : 0
+        return max(0, width - (16 + extra) * 2)
+    }
+
+    private func makeFrames(heights: [CGFloat], width: CGFloat) -> [CGRect] {
+        let extra = readableContentMaxWidth.isFinite
+            ? max(0, width - readableContentMaxWidth) / 2
+            : 0
+        let horizontalInset = 16 + extra
+        let itemWidth = itemWidth(for: width)
+        var y: CGFloat = 18
+        return heights.map { itemHeight in
+            defer { y += itemHeight + 20 }
+            return CGRect(x: horizontalInset, y: y, width: itemWidth, height: itemHeight)
+        }
+    }
+
+
+    private func newestIndices(heights: [CGFloat], viewportHeight: CGFloat) -> Set<Int> {
+        var result: Set<Int> = []
+        var covered: CGFloat = 18
+        for index in heights.indices.reversed() {
+            result.insert(index)
+            covered += heights[index] + 20
+            if covered >= viewportHeight * 2 { break }
+        }
+        return result
     }
 }
 
@@ -139,38 +354,18 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
     func updateUIView(_ uiView: TranscriptCollectionView, context: Context) {
         let readableContentMaxWidthChanged = context.coordinator.update(self)
-        if readableContentMaxWidthChanged,
-           let layout = uiView.collectionViewLayout as? UICollectionViewCompositionalLayout {
-            layout.invalidateLayout()
+        if let layout = uiView.collectionViewLayout as? TranscriptListLayout {
+            layout.readableContentMaxWidth = self.readableContentMaxWidth
+            if readableContentMaxWidthChanged {
+                layout.invalidateLayout()
+            }
         }
     }
 
     private func makeLayout(coordinator: Coordinator) -> UICollectionViewLayout {
-        let itemSize = NSCollectionLayoutSize(
-            widthDimension: .fractionalWidth(1),
-            heightDimension: .estimated(80)
-        )
-        let item = NSCollectionLayoutItem(layoutSize: itemSize)
-        let group = NSCollectionLayoutGroup.vertical(
-            layoutSize: NSCollectionLayoutSize(
-                widthDimension: .fractionalWidth(1),
-                heightDimension: .estimated(80)
-            ),
-            subitems: [item]
-        )
-        let section = NSCollectionLayoutSection(group: group)
-        section.interGroupSpacing = 20
-        section.contentInsets = NSDirectionalEdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)
-        let sectionProvider: UICollectionViewCompositionalLayoutSectionProvider = { _, environment in
-            let maxWidth = coordinator.readableContentMaxWidth
-            guard maxWidth.isFinite else { return section }
-            let extra = max(0, environment.container.effectiveContentSize.width - maxWidth) / 2
-            var cappedSection = section
-            cappedSection.contentInsets.leading = 16 + extra
-            cappedSection.contentInsets.trailing = 16 + extra
-            return cappedSection
+        TranscriptListLayout { [weak coordinator] item, width in
+            coordinator?.height(for: item, width: width) ?? 80
         }
-        return TranscriptAnchoringLayout(sectionProvider: sectionProvider)
     }
 
     @MainActor
@@ -179,6 +374,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var dataSource: UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>?
         private var currentItems: [TranscriptCollectionItem] = []
         private var currentContent: [TranscriptCollectionItem: TranscriptCollectionContent] = [:]
+        private let sizingCell = TranscriptListCell(frame: .zero)
         private var currentNotes: [QueuedNote] = []
         private var noteAliases: [String: String] = [:]
         private var hasAppliedSnapshot = false
@@ -214,7 +410,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         func attach(collectionView: TranscriptCollectionView) {
             self.collectionView = collectionView
-            collectionView.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "transcript-cell")
+            collectionView.register(TranscriptListCell.self, forCellWithReuseIdentifier: "transcript-cell")
             collectionView.delegate = self
             collectionView.didFinishLayout = { [weak self] in
                 self?.didFinishLayout()
@@ -232,10 +428,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     withReuseIdentifier: "transcript-cell",
                     for: indexPath
                 )
-                cell.contentConfiguration = UIHostingConfiguration {
-                    self.hostedView(for: item)
-                }
-                .margins(.all, 0)
+                cell.clipsToBounds = true
+                cell.contentConfiguration = self.contentConfiguration(for: item)
                 #if DEBUG || CC_PERF
                 TranscriptPerformance.shared.markFirstRows()
                 #endif
@@ -344,7 +538,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         private func setPinned(_ pinned: Bool) {
             if pinned,
-               let layout = collectionView?.collectionViewLayout as? TranscriptAnchoringLayout {
+               let layout = collectionView?.collectionViewLayout as? TranscriptListLayout {
                 layout.anchor = .bottom
             }
             guard isPinnedToBottom != pinned else { return }
@@ -354,7 +548,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         private func updateAnchorAfterUserScroll(_ scrollView: UIScrollView) {
             guard let collectionView = scrollView as? TranscriptCollectionView,
-                  let layout = collectionView.collectionViewLayout as? TranscriptAnchoringLayout else { return }
+                  let layout = collectionView.collectionViewLayout as? TranscriptListLayout else { return }
             if isPinnedToBottom {
                 layout.anchor = .bottom
                 return
@@ -508,6 +702,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 deleted: deleted,
                 reconfigured: changedItems
             )
+            if let layout = collectionView.collectionViewLayout as? TranscriptListLayout {
+                layout.invalidateHeights(for: inserted + changedItems)
+                if animated { layout.prepareForAnimatedNewestEndUpdate() }
+            }
             #if DEBUG
             MotionTrace.shared.recordEvent("snapshotApplied", data: [
                 "inserted": inserted.map(traceID),
@@ -616,6 +814,29 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             case .row(let id): return id
             case .startingNote(let id), .queuedNote(let id): return "note:\(id)"
             }
+        }
+
+        fileprivate func height(for item: TranscriptCollectionItem, width: CGFloat) -> CGFloat {
+            guard currentContent[item] != nil else { return 80 }
+            sizingCell.clipsToBounds = true
+            sizingCell.contentConfiguration = contentConfiguration(for: item)
+            sizingCell.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
+            sizingCell.contentView.bounds = sizingCell.bounds
+            sizingCell.setNeedsLayout()
+            sizingCell.layoutIfNeeded()
+            let fittingSize = sizingCell.contentView.systemLayoutSizeFitting(
+                CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            )
+            return max(1, ceil(fittingSize.height))
+        }
+
+        private func contentConfiguration(for item: TranscriptCollectionItem) -> UIContentConfiguration {
+            UIHostingConfiguration {
+                self.hostedView(for: item)
+            }
+            .margins(.all, 0)
         }
 
         @ViewBuilder
