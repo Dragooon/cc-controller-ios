@@ -23,6 +23,36 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.turns.flatMap(\.items).count, 1)
     }
 
+    func testCachedStoreDoesNotDeclareGapBeforeItsInitialPageConfirmsTheCount() async throws {
+        let client = makeClient()
+        let cached = entries(from: 0, through: 399)
+        let pageEntries = [cached.last!] + entries(from: 400, through: 498)
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .suspend,
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: cached,
+            serverTotal: 3819
+        )
+        let initial = Task { try await store.loadInitial() }
+        await waitForRequest(count: 2)
+
+        store.observeServerTotal(3819)
+        _ = store.mergeLive([entries(from: 400, through: 400)[0]], entryCount: 3820)
+        XCTAssertFalse(store.hasTranscriptGap)
+        XCTAssertEqual(SessionStoreURLProtocol.requests.count, 2, "State/live updates must not start a reset fetch before initial confirmation")
+
+        SessionStoreURLProtocol.completeNext(.succeed(pageData(entries: pageEntries, total: 3819, hasMore: true)))
+        _ = try await initial.value
+
+        XCTAssertEqual(store.confirmedTotal, 3819)
+        XCTAssertTrue(store.entries.contains(where: { $0.id == "entry-400" }))
+    }
+
     func testTranscriptOnlyStoreLoadsSleepingTranscript() async throws {
         let client = makeClient()
         let sleepingEntries = entries(from: 1, through: 2)

@@ -51,6 +51,8 @@ public final class SessionStore {
     @ObservationIgnored private var gapResetLogged = false
     @ObservationIgnored private var gapAttemptCount = 0
     @ObservationIgnored private var gapFetchInFlight = false
+    @ObservationIgnored private var gapRequiresReset = false
+    @ObservationIgnored private var hasConfirmedTotal = false
     @ObservationIgnored private var transcriptGap = false
     @ObservationIgnored private var closed = false
     private var hasLoaded = false
@@ -96,7 +98,7 @@ public final class SessionStore {
             transcriptOnly: transcriptOnly,
             serverTotal: serverTotal,
             scheduler: SessionStoreClock(nowProvider: clock),
-            true
+            internalMarker: ()
         )
     }
 
@@ -110,7 +112,7 @@ public final class SessionStore {
         transcriptOnly: Bool = false,
         serverTotal: Int? = nil,
         scheduler: any CCKitClock = SystemCCKitClock(),
-        _ usesScheduler: Bool
+        internalMarker: Void
     ) {
         self.session = session
         self.sessionID = session.id ?? ""
@@ -123,7 +125,7 @@ public final class SessionStore {
         self.transcriptStore = TranscriptStore(entries: entries)
         let initialServerTotal = max(0, serverTotal ?? entries.count)
         self.serverTotal = initialServerTotal
-        self.confirmedTotal = min(initialServerTotal, entries.count)
+        self.confirmedTotal = 0
         self.hasLoaded = !entries.isEmpty
         refreshTurns(forceFull: true)
     }
@@ -148,7 +150,7 @@ public final class SessionStore {
                 do {
                     return try await runInitialFetch()
                 } catch {
-                    markTranscriptGap()
+                    markTranscriptGap(force: true)
                     requestTranscriptResync()
                     throw error
                 }
@@ -158,6 +160,7 @@ public final class SessionStore {
             do {
                 return try await runInitialFetch()
             } catch {
+                markTranscriptGap(force: true)
                 requestTranscriptResync()
                 throw error
             }
@@ -165,7 +168,7 @@ public final class SessionStore {
         do {
             return try await runInitialFetch()
         } catch {
-            markTranscriptGap()
+            markTranscriptGap(force: true)
             requestTranscriptResync()
             throw error
         }
@@ -190,6 +193,10 @@ public final class SessionStore {
         let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: true)
         if let entryCount {
             serverTotal = max(0, entryCount)
+            guard hasConfirmedTotal else {
+                publish(change)
+                return change
+            }
             let allowedTotal = confirmedTotal + (change.inserted.isEmpty ? 0 : 1)
             if entryCount <= allowedTotal {
                 confirmedTotal = max(confirmedTotal, entryCount)
@@ -204,7 +211,7 @@ public final class SessionStore {
     /// Records a count from state without claiming that the local transcript is complete.
     public func observeServerTotal(_ count: Int) {
         serverTotal = max(0, count)
-        if serverTotal > confirmedTotal { markTranscriptGap() }
+        if hasConfirmedTotal, serverTotal > confirmedTotal { markTranscriptGap() }
     }
 
     /// Starts or wakes the single resync loop for this store.
@@ -218,6 +225,15 @@ public final class SessionStore {
             attempt: gapAttemptCount,
             errorType: reason
         )
+    }
+
+    public func requestTranscriptReset() {
+        guard !closed else { return }
+        transcriptGap = true
+        gapRequiresReset = true
+        gapAttemptCount = 0
+        gapResetLogged = false
+        requestTranscriptResync(immediate: true)
     }
 
     public func requestTranscriptResync(immediate: Bool = false) {
@@ -387,7 +403,8 @@ public final class SessionStore {
         pendingRefetch = pending
     }
 
-    private func markTranscriptGap() {
+    private func markTranscriptGap(force: Bool = false) {
+        guard force || hasConfirmedTotal else { return }
         guard serverTotal > confirmedTotal else { return }
         guard !transcriptGap else { return }
         transcriptGap = true
@@ -405,6 +422,8 @@ public final class SessionStore {
         let wasGap = hasTranscriptGap
         serverTotal = max(0, total)
         confirmedTotal = serverTotal
+        hasConfirmedTotal = true
+        gapRequiresReset = false
         transcriptGap = false
         if wasGap {
             TranscriptLifecycleLog.shared.recordGap(
@@ -428,8 +447,8 @@ public final class SessionStore {
             attempt += 1
             gapAttemptCount = attempt
             let missing = max(1, serverTotal - confirmedTotal)
-            let reset = missing > 400
-            if reset, !gapResetLogged {
+            let reset = gapRequiresReset || missing > 400
+            if missing > 400, !gapResetLogged {
                 gapResetLogged = true
                 TranscriptLifecycleLog.shared.recordGap(
                     name: "transcript-gap-reset",
@@ -505,7 +524,8 @@ public final class SessionStore {
         TranscriptPerformance.shared.markMergeDone()
         #endif
         hasMoreEarlier = transcriptStore.entries.count < page.total
-        confirmTranscriptPage(total: page.total)
+        if gapRequiresReset { serverTotal = max(0, page.total) }
+        else { confirmTranscriptPage(total: page.total) }
         hasLoaded = true
         if entriesChanged {
             refreshTurns(change: change, forceFull: replacedAll)
@@ -531,7 +551,8 @@ public final class SessionStore {
             replacedAll = true
             hasMoreEarlier = page.hasMore
         }
-        confirmTranscriptPage(total: page.total)
+        if reset || !gapRequiresReset { confirmTranscriptPage(total: page.total) }
+        else { serverTotal = max(0, page.total) }
         hasLoaded = true
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
             refreshTurns(change: change, forceFull: replacedAll)
@@ -559,6 +580,8 @@ public final class SessionStore {
         gapImmediateRequested = false
         gapResetLogged = false
         gapAttemptCount = 0
+        gapRequiresReset = false
+        hasConfirmedTotal = false
         transcriptGap = false
         hasLoaded = false
         onTranscriptChange?([])

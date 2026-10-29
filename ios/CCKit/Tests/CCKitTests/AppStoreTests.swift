@@ -391,6 +391,39 @@ final class AppStoreTests: XCTestCase {
         XCTAssertFalse(store.entries.contains(where: { $0.id == nil }))
     }
 
+    func testTranscriptResetRetriesAfterAOneTimeFetchFailure() async throws {
+        let clock = ManualClock()
+        var transcriptCalls = 0
+        var failedReset = false
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON(entryCount: 1)) }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                transcriptCalls += 1
+                if transcriptCalls == 2 && !failedReset {
+                    failedReset = true
+                    return URLProtocolStub.json(500, body: Data("{\"error\":\"reset failed\"}".utf8))
+                }
+                let entry = transcriptCalls == 1 ? Self.entry(id: "old") : Self.entry(id: "fresh")
+                return URLProtocolStub.json(Self.pageJSON(entries: [entry], total: transcriptCalls == 1 ? 1 : 2, hasMore: false))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp(clock: clock)
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("initial transcript") { store.isLoaded }
+
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entryCount: 2, reset: true)))
+        try await waitUntil("reset fetch failure") { failedReset }
+        try await waitUntil("reset backoff") { clock.sleepDurations.contains(.seconds(1)) }
+        clock.resumeSleeps()
+
+        try await waitUntil("reset retry") { store.confirmedTotal == 2 }
+        XCTAssertEqual(store.entries.map(\.id), ["fresh"])
+        XCTAssertEqual(transcriptCalls, 3)
+        app.closeSession("session-1")
+    }
+
     func testLoadedStoreSurvivesSessionMissingFromState() throws {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])))
@@ -1285,6 +1318,7 @@ final class AppStoreTests: XCTestCase {
         try await waitUntil("gap retry") { store.entries.count == 4 && transcriptCalls >= 3 }
         XCTAssertEqual(Set(store.entries.compactMap(\.id)), Set((1...4).map { "entry-\($0)" }))
         XCTAssertEqual(store.confirmedTotal, 4)
+        app.closeSession("session-1")
         app.suspend()
         URLProtocolStub.keepEvents = false
     }
@@ -1318,6 +1352,7 @@ final class AppStoreTests: XCTestCase {
         clock.resumeSleeps()
         try await waitUntil("quiet gap retry") { store.confirmedTotal == 2 }
         XCTAssertEqual(transcriptCalls, 3)
+        app.closeSession("session-1")
     }
 
     func testForegroundResyncsAnOpenStoreWithAnUnconfirmedServerTotal() async throws {
@@ -1343,6 +1378,7 @@ final class AppStoreTests: XCTestCase {
 
         try await waitUntil("foreground resync") { store.confirmedTotal == 3 }
         XCTAssertEqual(transcriptCalls, 2)
+        app.closeSession("session-1")
         app.suspend()
         URLProtocolStub.keepEvents = false
     }
@@ -1360,6 +1396,9 @@ final class AppStoreTests: XCTestCase {
             return URLProtocolStub.json(Data("{}".utf8))
         }
         let app = try await makePaginatedApp()
+        try await Task.sleep(for: .milliseconds(100))
+        transcriptCalls = 0
+        URLProtocolStub.requestPaths = []
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
         let store = try XCTUnwrap(app.openSession("session-1"))
         try await waitUntil("initial transcript") { store.isLoaded }
@@ -1369,6 +1408,7 @@ final class AppStoreTests: XCTestCase {
 
         XCTAssertEqual(transcriptCalls, 1)
         XCTAssertEqual(store.confirmedTotal, 1)
+        app.closeSession("session-1")
         app.suspend()
         URLProtocolStub.keepEvents = false
     }
@@ -1401,6 +1441,7 @@ final class AppStoreTests: XCTestCase {
         try await waitUntil("reset gap fetch") { transcriptCalls >= 2 }
         XCTAssertTrue(usedResetTail, "Expected reset tail request")
         XCTAssertEqual(store.confirmedTotal, 401)
+        app.closeSession("session-1")
         app.suspend()
         URLProtocolStub.keepEvents = false
     }
@@ -1426,6 +1467,7 @@ final class AppStoreTests: XCTestCase {
 
         try await waitUntil("state delta resync") { transcriptCalls >= 2 && store.confirmedTotal == 3 }
         XCTAssertEqual(store.serverTotal, 3)
+        app.closeSession("session-1")
         app.suspend()
         URLProtocolStub.keepEvents = false
     }

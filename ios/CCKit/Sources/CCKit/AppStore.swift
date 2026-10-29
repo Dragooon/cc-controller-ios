@@ -1512,7 +1512,7 @@ public final class AppStore {
             cachedTranscripts.removeValue(forKey: key)
             cacheChangedStoreKeys.remove(key)
             if let store = openStores[key] {
-                Task { try? await store.refetchTail(reset: true) }
+                store.requestTranscriptReset()
             }
             return
         }
@@ -1766,7 +1766,7 @@ public final class AppStore {
             transcriptOnly: transcriptOnly,
             serverTotal: agentID == nil ? serverEntryCounts[sessionID] : nil,
             scheduler: clock,
-            true
+            internalMarker: ()
         )
         openStores[key] = store
         if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
