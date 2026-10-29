@@ -50,6 +50,25 @@ FLOW_PER_METHOD=0
 MOTION_UDID=""
 MOTION_VIDEO_PID=""
 MOTION_BUILD_DIR=""
+HARNESS_QUEUE_DIR="${CC_HARNESS_QUEUE_DIR:-$HOME/Library/Caches/cc-controller-scratch/harness-queue}"
+HARNESS_TIMING_FILE="${CC_HARNESS_TIMING_FILE:-$EVIDENCE_ROOT/timelog/harness-runs.jsonl}"
+HARNESS_SUBCOMMAND=""
+HARNESS_ARGS=()
+HARNESS_TRACK_TIMING=0
+HARNESS_QUEUE_OWNER_PID=""
+HARNESS_QUEUE_TICKET=""
+HARNESS_QUEUE_HELD_BY_US=0
+HARNESS_QUEUE_WAIT_SECONDS=0
+HARNESS_QUEUED_AT=""
+HARNESS_STARTED_AT=""
+HARNESS_ENDED_AT=""
+HARNESS_LOAD_START=""
+HARNESS_LOAD_END=""
+HARNESS_STARTED_EPOCH=0
+HARNESS_ENDED_EPOCH=0
+HARNESS_EXIT_STATUS=0
+HARNESS_PHASE_NAMES=()
+HARNESS_PHASE_SECONDS=()
 
 step() {
   local name=$1; shift
@@ -57,8 +76,212 @@ step() {
   local status=0
   printf '%s\n' "[$name]"
   "$@" || status=$?
-  printf '%s\n' "[$name] $((SECONDS - started))s"
+  local elapsed=$((SECONDS - started))
+  HARNESS_PHASE_NAMES+=("$name")
+  HARNESS_PHASE_SECONDS+=("$elapsed")
+  printf '%s\n' "[$name] ${elapsed}s"
   return "$status"
+}
+
+harness_epoch() {
+  date +%s
+}
+
+harness_iso_now() {
+  date '+%Y-%m-%dT%H:%M:%S%z'
+}
+
+harness_load_1m() {
+  local load
+  load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{},' | awk '{print $1}' || true)
+  printf '%s\n' "${load:-0}"
+}
+
+harness_queue_files() {
+  local file
+  for file in "$HARNESS_QUEUE_DIR"/*.ticket; do
+    [[ -f "$file" ]] || continue
+    printf '%s\n' "$file"
+  done | LC_ALL=C sort
+}
+
+harness_queue_field() {
+  local file=$1 wanted=$2 key value
+  while IFS='=' read -r key value; do
+    if [[ "$key" == "$wanted" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done < "$file"
+  return 1
+}
+
+harness_queue_prune_dead() {
+  local file pid state
+  while IFS= read -r file; do
+    pid=$(harness_queue_field "$file" pid || true)
+    if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$file"
+      continue
+    fi
+    state=$(ps -p "$pid" -o stat= 2>/dev/null || true)
+    [[ "$state" == *Z* ]] && rm -f "$file"
+  done < <(harness_queue_files)
+}
+
+harness_queue_acquire() {
+  [[ -n "$HARNESS_QUEUE_TICKET" ]] && return 0
+  if [[ "${CC_HARNESS_QUEUE:-on}" == off || "${CC_HARNESS_QUEUE_HELD:-0}" == 1 ]]; then
+    HARNESS_QUEUE_WAIT_SECONDS=0
+    return 0
+  fi
+
+  mkdir -p "$HARNESS_QUEUE_DIR"
+  local owner_pid=${BASHPID:-$$}
+  local queued_epoch queued_iso ticket_id ticket first candidate
+  queued_epoch=$(harness_epoch)
+  queued_iso=$(harness_iso_now)
+  ticket_id="$(perl -MTime::HiRes=time -e 'printf "%.0f", time() * 1000000')-$$-${RANDOM}"
+  ticket="$HARNESS_QUEUE_DIR/$ticket_id.ticket"
+  {
+    printf 'pid=%s\n' "$owner_pid"
+    printf 'startedAt=%s\n' "$queued_iso"
+    printf 'queuedEpoch=%s\n' "$queued_epoch"
+    printf 'subcommand=%s\n' "$HARNESS_SUBCOMMAND"
+    printf 'worktree=%s\n' "$ROOT"
+  } > "$ticket"
+  HARNESS_QUEUE_OWNER_PID=$owner_pid
+  HARNESS_QUEUE_TICKET=$ticket
+  local waited=0 position holder holder_subcommand holder_worktree holder_epoch age
+  while :; do
+    harness_queue_prune_dead
+    first=""
+    while IFS= read -r candidate; do
+      first=$candidate
+      break
+    done < <(harness_queue_files)
+    if [[ "$first" == "$ticket" ]]; then
+      HARNESS_QUEUE_HELD_BY_US=1
+      HARNESS_QUEUE_WAIT_SECONDS=$waited
+      HARNESS_STARTED_EPOCH=$(harness_epoch)
+      HARNESS_STARTED_AT=$(harness_iso_now)
+      HARNESS_LOAD_START=$(harness_load_1m)
+      export CC_HARNESS_QUEUE_HELD=1
+      printf 'harness queue: acquired after %ss\n' "$waited"
+      return 0
+    fi
+
+    position=1
+    while IFS= read -r candidate; do
+      [[ "$candidate" == "$ticket" ]] && break
+      position=$((position + 1))
+    done < <(harness_queue_files)
+    holder_subcommand=$(harness_queue_field "$first" subcommand 2>/dev/null || printf '%s' unknown)
+    holder_worktree=$(harness_queue_field "$first" worktree 2>/dev/null || printf '%s' unknown)
+    holder_epoch=$(harness_queue_field "$first" queuedEpoch 2>/dev/null || printf '%s' "$queued_epoch")
+    age=$(( $(harness_epoch) - holder_epoch ))
+    if (( waited == 0 || waited % 60 == 0 )); then
+      printf 'harness queue: waiting position=%s holder=%s worktree=%s age=%ss\n' \
+        "$position" "$holder_subcommand" "$holder_worktree" "$age" >&2
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+}
+
+harness_queue_release() {
+  [[ -n "$HARNESS_QUEUE_TICKET" ]] || return 0
+  [[ "${BASHPID:-$$}" == "$HARNESS_QUEUE_OWNER_PID" ]] || return 0
+  rm -f "$HARNESS_QUEUE_TICKET"
+  HARNESS_QUEUE_TICKET=""
+  HARNESS_QUEUE_OWNER_PID=""
+  HARNESS_QUEUE_HELD_BY_US=0
+  printf '%s\n' 'harness queue: released'
+}
+
+harness_command_is_queued() {
+  case "$1" in
+    motion|flows|gate|real-smoke|shots|mocks|perf|perf-real|test) return 0;;
+    *) return 1;;
+  esac
+}
+
+harness_selftest_sleep() {
+  local seconds=${CC_HARNESS_QUEUE_SELFTEST_SLEEP:-}
+  [[ -n "$seconds" ]] || return 0
+  [[ "$seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    printf '%s\n' 'CC_HARNESS_QUEUE_SELFTEST_SLEEP must be a number of seconds (test-only)' >&2
+    return 2
+  }
+  printf 'harness queue selftest: sleeping %ss before real work (test-only)\n' "$seconds"
+  sleep "$seconds"
+}
+
+harness_append_timing() {
+  [[ "$HARNESS_TRACK_TIMING" -eq 1 ]] || return 0
+  HARNESS_ENDED_EPOCH=$(harness_epoch)
+  HARNESS_ENDED_AT=$(harness_iso_now)
+  HARNESS_LOAD_END=$(harness_load_1m)
+  local dirty=0 sha
+  [[ -z "$(git -C "$ROOT" status --porcelain --untracked-files=all 2>/dev/null || true)" ]] || dirty=1
+  sha=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf '%s' unknown)
+  mkdir -p "$(dirname "$HARNESS_TIMING_FILE")"
+  local node_args=()
+  node_args+=("${HARNESS_ARGS[@]+"${HARNESS_ARGS[@]}"}")
+  node_args+=("${HARNESS_PHASE_NAMES[@]+"${HARNESS_PHASE_NAMES[@]}"}")
+  node_args+=("${HARNESS_PHASE_SECONDS[@]+"${HARNESS_PHASE_SECONDS[@]}"}")
+  HARNESS_ARG_COUNT=${#HARNESS_ARGS[@]} HARNESS_PHASE_COUNT=${#HARNESS_PHASE_NAMES[@]} \
+  HARNESS_TIMING_FILE="$HARNESS_TIMING_FILE" HARNESS_TIMING_SUBCOMMAND="$HARNESS_SUBCOMMAND" \
+  HARNESS_TIMING_WORKTREE="$ROOT" HARNESS_TIMING_SHA="$sha" HARNESS_TIMING_DIRTY="$dirty" \
+  HARNESS_TIMING_QUEUED_AT="$HARNESS_QUEUED_AT" HARNESS_TIMING_STARTED_AT="$HARNESS_STARTED_AT" \
+  HARNESS_TIMING_ENDED_AT="$HARNESS_ENDED_AT" HARNESS_TIMING_WAIT="$HARNESS_QUEUE_WAIT_SECONDS" \
+  HARNESS_TIMING_RUN="$((HARNESS_ENDED_EPOCH - HARNESS_STARTED_EPOCH))" HARNESS_TIMING_EXIT="$HARNESS_EXIT_STATUS" \
+  HARNESS_TIMING_LOAD_START="$HARNESS_LOAD_START" HARNESS_TIMING_LOAD_END="$HARNESS_LOAD_END" \
+  node - -- "${node_args[@]}" <<'NODE'
+const fs = require('node:fs');
+const args = process.argv.slice(3);
+const argCount = Number(process.env.HARNESS_ARG_COUNT);
+const phaseCount = Number(process.env.HARNESS_PHASE_COUNT);
+const rawArgs = args.slice(0, argCount);
+const phaseNames = args.slice(argCount, argCount + phaseCount);
+const phaseSeconds = args.slice(argCount + phaseCount, argCount + phaseCount * 2);
+let sensitiveNext = false;
+const redactedArgs = rawArgs.map((value) => {
+  const sensitiveFlag = /(^|[-_])(token|bearer|authorization|secret|password|api[-_]?key|credential)(=|$)/i.test(value);
+  if (sensitiveNext) {
+    sensitiveNext = false;
+    return '[REDACTED]';
+  }
+  if (sensitiveFlag && !value.includes('=')) {
+    sensitiveNext = true;
+    return value;
+  }
+  if (sensitiveFlag && value.includes('=')) {
+    return `${value.slice(0, value.indexOf('=') + 1)}[REDACTED]`;
+  }
+  if (/^bearer\s+/i.test(value) || /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) {
+    return '[REDACTED]';
+  }
+  return value;
+});
+const payload = {
+  subcommand: process.env.HARNESS_TIMING_SUBCOMMAND,
+  args: redactedArgs,
+  worktree: process.env.HARNESS_TIMING_WORKTREE,
+  gitSHA: process.env.HARNESS_TIMING_SHA,
+  dirty: process.env.HARNESS_TIMING_DIRTY === '1',
+  queuedAt: process.env.HARNESS_TIMING_QUEUED_AT,
+  startedAt: process.env.HARNESS_TIMING_STARTED_AT,
+  endedAt: process.env.HARNESS_TIMING_ENDED_AT,
+  waitSeconds: Number(process.env.HARNESS_TIMING_WAIT),
+  runSeconds: Number(process.env.HARNESS_TIMING_RUN),
+  exitCode: Number(process.env.HARNESS_TIMING_EXIT),
+  load1mStart: Number(process.env.HARNESS_TIMING_LOAD_START),
+  load1mEnd: Number(process.env.HARNESS_TIMING_LOAD_END),
+  phases: phaseNames.map((name, index) => ({ name, seconds: Number(phaseSeconds[index]) })),
+};
+fs.appendFileSync(process.env.HARNESS_TIMING_FILE, JSON.stringify(payload) + '\n');
+NODE
 }
 
 json_value() {
@@ -697,6 +920,11 @@ cleanup_on_exit() {
   revoke_real_device || status=1
   [[ -z "$REAL_SECRET_DIR" ]] || rm -rf "$REAL_SECRET_DIR"
   remove_node_modules_link
+  HARNESS_EXIT_STATUS=$status
+  harness_append_timing || printf '%s\n' 'warning: failed to append harness timing record' >&2
+  # Release only from the top-level exit trap. Shard and motion subshells run cleanup_run from their own
+  # EXIT traps, and bash 3.2 has no BASHPID, so a subshell cannot tell itself apart from the owner by pid.
+  harness_queue_release || true
   exit "$status"
 }
 
@@ -3743,24 +3971,67 @@ cmd_ota() {
   printf '%s/index.html\n' "$base_url"
 }
 
+harness_run_command() {
+  local command=$1 function_name
+  shift
+  HARNESS_SUBCOMMAND=$command
+  HARNESS_ARGS=("$@")
+  HARNESS_TRACK_TIMING=0
+  HARNESS_QUEUE_WAIT_SECONDS=0
+  if harness_command_is_queued "$command" || [[ "$command" == build ]]; then
+    HARNESS_TRACK_TIMING=1
+    HARNESS_QUEUED_AT=$(harness_iso_now)
+    HARNESS_STARTED_EPOCH=0
+    HARNESS_STARTED_AT=""
+    HARNESS_LOAD_START=""
+    if harness_command_is_queued "$command"; then
+      harness_queue_acquire || {
+        local queue_status=$?
+        HARNESS_STARTED_EPOCH=$(harness_epoch)
+        HARNESS_STARTED_AT=$(harness_iso_now)
+        HARNESS_LOAD_START=$(harness_load_1m)
+        return "$queue_status"
+      }
+    fi
+    if [[ -z "$HARNESS_STARTED_AT" ]]; then
+      HARNESS_STARTED_EPOCH=$(harness_epoch)
+      HARNESS_STARTED_AT=$(harness_iso_now)
+      HARNESS_LOAD_START=$(harness_load_1m)
+    fi
+    if [[ -n "${CC_HARNESS_QUEUE_SELFTEST_SLEEP:-}" ]]; then
+      harness_selftest_sleep || {
+        local selftest_status=$?
+        return "$selftest_status"
+      }
+      return 0
+    fi
+  fi
+  function_name="cmd_${command//-/_}"
+  if [[ "$command" == build ]]; then
+    step build "$function_name" "$@"
+  else
+    "$function_name" "$@"
+  fi
+}
+
 ensure_node_modules
 
 case "${1:-}" in
   generate) shift; step generate cmd_generate "$@";;
-  build) shift; step build cmd_build "$@";;
-  test) shift; step test cmd_test "$@";;
+  build) shift; harness_run_command build "$@";;
+  test) shift; harness_run_command test "$@";;
   release-check) shift; cmd_release_check "$@";;
-  perf) shift; cmd_perf "$@";;
-  perf-real) shift; cmd_perf_real "$@";;
+  perf) shift; harness_run_command perf "$@";;
+  perf-real) shift; harness_run_command perf-real "$@";;
   archive) shift; cmd_archive "$@";;
   upload) shift; cmd_upload "$@";;
   ota) shift; cmd_ota "$@";;
-  gate) shift; cmd_gate "$@";;
-  real-smoke) shift; cmd_real_smoke "$@";;
-  shots) shift; cmd_shots "$@";;
-  flows) shift; cmd_flows "$@";;
-  motion) shift; cmd_motion "$@";;
-  mocks) shift; cmd_mocks "$@";;
+  gate) shift; harness_run_command gate "$@";;
+  real-smoke) shift; harness_run_command real-smoke "$@";;
+  shots) shift; harness_run_command shots "$@";;
+  flows) shift; harness_run_command flows "$@";;
+  motion) shift; harness_run_command motion "$@";;
+  mocks) shift; harness_run_command mocks "$@";;
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
