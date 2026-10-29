@@ -7,7 +7,7 @@ PROJECT="$IOS/CCController.xcodeproj"
 DERIVED="$IOS/build"
 RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
-POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
+POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)" "iPhone Duo")
 POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
 EVIDENCE_ROOT="${CC_EVIDENCE_DIR:-$HOME/dev/cc-controller-evidence}"
 POOL_SLOTS="${CC_IOS_POOL_SLOTS:-4}"
@@ -303,15 +303,25 @@ pool_idle_cleanup() {
   done
 }
 
+pool_runtime_for_device() {
+  local device=$1
+  if [[ "$device" == 'iPhone Duo' ]]; then
+    printf '%s\n' 'com.apple.CoreSimulator.SimRuntime.iOS-27-1'
+  else
+    printf '%s\n' "$RUNTIME"
+  fi
+}
+
 ensure_pool_devices() {
   local slot=$1
   mkdir -p "$POOL_CACHE" "$(pool_slot_dir "$slot")"
-  local device name udid
+  local device name udid runtime
   for device in "${POOL_DEVICE_TYPES[@]}"; do
     name=$(pool_device_name "$slot" "$device")
     udid=$(simulator_udid "$name" || true)
     if [[ -z "$udid" ]]; then
-      udid=$(xcrun simctl create "$name" "$device" "$RUNTIME")
+      runtime=$(pool_runtime_for_device "$device")
+      udid=$(xcrun simctl create "$name" "$device" "$runtime")
       printf '%s\n' "created $name ($udid)"
     fi
   done
@@ -1165,7 +1175,7 @@ cmd_motion() {
       *) printf 'unknown motion option: %s\n' "$1" >&2; return 2;;
     esac
   done
-  [[ "$device" == iphone ]] || { printf 'motion device %s is reserved for a later unit; use --device iphone\n' "$device" >&2; return 2; }
+  [[ "$device" == iphone || "$device" == duo ]] || { printf 'motion --device must be iphone or duo\n' >&2; return 2; }
   [[ "$orientation" == portrait || "$orientation" == landscape ]] || { printf 'motion --orientation must be portrait or landscape\n' >&2; return 2; }
   [[ "$engines" == legacy || "$engines" == collection || "$engines" == both ]] || { printf 'motion --engine must be legacy, collection, or both\n' >&2; return 2; }
   if [[ "$scenarios" == all ]]; then scenarios="K1,S1"; fi
@@ -1178,7 +1188,7 @@ cmd_motion() {
     both) motion_engines=(legacy collection);;
   esac
   for scenario in "${motion_scenarios[@]}"; do
-    [[ "$scenario" == K1 || "$scenario" == S1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
+    [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == H1 || "$scenario" == P1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
   done
   if [[ -z "$out_dir" ]]; then out_dir="$EVIDENCE_ROOT/motion/$(date -u '+%Y%m%dT%H%M%SZ')"; fi
   mkdir -p "$out_dir"
@@ -1200,14 +1210,16 @@ cmd_motion() {
   [[ -d "$app_bundle" && -n "$source_xctestrun" ]] || { printf '%s\n' 'motion build did not produce app and xctestrun' >&2; return 1; }
 
   pool_acquire
-  MOTION_UDID=$(ensure_pool_device 'iPhone 16 Plus')
+  local motion_device_type='iPhone 16 Plus'
+  [[ "$device" == duo ]] && motion_device_type='iPhone Duo'
+  MOTION_UDID=$(ensure_pool_device "$motion_device_type")
   local run_dir="$out_dir"
   RUN_DIR=$(mktemp -d -t cc-controller-motion-run.XXXXXX)
   ln -s "$motion_derived/Build/Products/Debug-iphonesimulator" "$RUN_DIR/Debug-iphonesimulator"
   DIAG_DIR=""
   local app_sha
   app_sha=$(git -C "$ROOT" rev-parse --short HEAD)
-  local device_name='iPhone 16 Plus'
+  local device_name="$motion_device_type"
   for scenario in "${motion_scenarios[@]}"; do
     for engine in "${motion_engines[@]}"; do
       local run="$(printf '%s-%s' "$scenario" "$engine")"
@@ -1244,8 +1256,15 @@ cmd_motion() {
       if [[ $case_status -eq 0 ]]; then
         xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$run_dir/$run.video.log" 2>&1 &
         video_pid=$!
-        local motion_method=testS1SendShort
-        [[ "$scenario" == K1 ]] && motion_method=testK1KeyboardOpen
+        local motion_method
+        case "$scenario" in
+          K1) motion_method=testK1KeyboardOpen;;
+          K2) motion_method=testK2KeyboardDismissByTranscriptDrag;;
+          S1) motion_method=testS1SendShort;;
+          S2) motion_method=testS2SendMultiline;;
+          H1) motion_method=testH1UnpinnedAppend;;
+          P1) motion_method=testP1LoadEarlier;;
+        esac
         local args=(xcodebuild -xctestrun "$run_xctestrun" -destination "id=$MOTION_UDID" -resultBundlePath "$result" \
           "-only-testing:CCControllerUITests/MotionFlowTests/$motion_method" -collect-test-diagnostics never test-without-building)
         if run_flow_test "motion $run $orientation" "$case_log" "${args[@]}"; then
@@ -3409,5 +3428,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun]|motion [--scenario K1,S1|all] [--engine legacy|collection|both] [--device iphone] [--orientation portrait|landscape] [--out DIR]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac

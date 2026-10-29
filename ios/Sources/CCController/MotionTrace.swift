@@ -24,6 +24,7 @@ final class MotionTrace: NSObject {
     private weak var keyboardProbe: UIView?
     private weak var scrollView: UIScrollView?
     private var pinnedProvider: (() -> Bool)?
+    private var scrollRegistrations: [ScrollRegistration] = []
     private var probes: [String: WeakView] = [:]
     private var displayLink: CADisplayLink?
     private var displayLinkTarget: DisplayLinkTarget?
@@ -43,6 +44,18 @@ final class MotionTrace: NSObject {
 
     private struct WeakView {
         weak var value: UIView?
+    }
+
+    private final class ScrollRegistration {
+        let token: UUID
+        weak var scrollView: UIScrollView?
+        let pinnedProvider: () -> Bool
+
+        init(scrollView: UIScrollView, pinnedProvider: @escaping () -> Bool) {
+            token = UUID()
+            self.scrollView = scrollView
+            self.pinnedProvider = pinnedProvider
+        }
     }
 
     private override init() {
@@ -120,16 +133,30 @@ final class MotionTrace: NSObject {
         keyboardProbe = marker
     }
 
-    func registerScrollView(_ scrollView: UIScrollView, pinned: @escaping () -> Bool) {
-        guard isEnabled else { return }
+    @discardableResult
+    func registerScrollView(_ scrollView: UIScrollView, pinned: @escaping () -> Bool) -> UUID? {
+        guard isEnabled else { return nil }
+        let registration = ScrollRegistration(scrollView: scrollView, pinnedProvider: pinned)
+        scrollRegistrations.append(registration)
         self.scrollView = scrollView
         pinnedProvider = pinned
+        return registration.token
     }
 
-    func unregisterScrollView(_ scrollView: UIScrollView) {
-        guard self.scrollView === scrollView else { return }
-        self.scrollView = nil
-        pinnedProvider = nil
+    func unregisterScrollView(_ scrollView: UIScrollView, token: UUID?) {
+        guard let token,
+              let index = scrollRegistrations.firstIndex(where: { $0.token == token && $0.scrollView === scrollView }) else { return }
+        scrollRegistrations.remove(at: index)
+        guard self.scrollView === scrollView, scrollRegistrations.last?.scrollView != nil else {
+            if scrollRegistrations.isEmpty {
+                self.scrollView = nil
+                pinnedProvider = nil
+            }
+            return
+        }
+        let registration = scrollRegistrations.last!
+        self.scrollView = registration.scrollView
+        pinnedProvider = registration.pinnedProvider
     }
 
     func recordEvent(_ name: String, data: [String: Any] = [:]) {
@@ -221,7 +248,8 @@ final class MotionTrace: NSObject {
         let viewportTop = scrollRect?.minY ?? windowRect.minY
         let viewportBottom = scrollRect?.maxY ?? windowRect.maxY
         let rows = probes.compactMap { id, weakView -> [String: Any]? in
-            guard id != "composer", let view = weakView.value else { return nil }
+            guard id != "composer", let view = weakView.value,
+                  isVisibleProbe(view, in: window) else { return nil }
             let value = rect(for: view, in: window)
             guard value.intersects(CGRect(x: windowRect.minX, y: viewportTop, width: windowRect.width, height: viewportBottom - viewportTop)) else { return nil }
             return ["id": id, "y0": value.minY, "y1": value.maxY]
@@ -241,6 +269,7 @@ final class MotionTrace: NSObject {
             "contentH": scrollView?.contentSize.height ?? 0,
             "insetBottom": scrollView?.adjustedContentInset.bottom ?? 0,
             "pinned": pinnedProvider?() ?? false,
+            "dragging": scrollView.map { $0.isTracking || $0.isDragging || $0.isDecelerating } ?? false,
             "rows": rows,
         ]
         if !frame.keys.contains("rows") { frame["rows"] = [] }
@@ -250,6 +279,17 @@ final class MotionTrace: NSObject {
         totalProbeCost += costMs
         maximumProbeCost = max(maximumProbeCost, costMs)
         if pendingLines.count >= 120 { flush() }
+    }
+
+    private func isVisibleProbe(_ view: UIView, in window: UIWindow) -> Bool {
+        guard view.window === window else { return false }
+        var ancestor = view.superview
+        while let current = ancestor, current !== window {
+            let layer = current.layer.presentation() ?? current.layer
+            if current.isHidden || layer.opacity < 0.01 { return false }
+            ancestor = current.superview
+        }
+        return true
     }
 
     private func activeWindow() -> UIWindow? {

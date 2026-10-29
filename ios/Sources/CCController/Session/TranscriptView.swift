@@ -22,6 +22,18 @@ private struct ScrollBlankOccurrence {
     var latestGeometry: ScrollGuardGeometry
 }
 
+#if DEBUG
+@MainActor
+private func recordMotionCorrection(kind: ScrollBlankKind, before: CGFloat, after: CGFloat?) {
+    var data: [String: Any] = [
+        "kind": kind.rawValue,
+        "beforeOffsetY": Double(before),
+    ]
+    if let after { data["afterOffsetY"] = Double(after) }
+    MotionTrace.shared.recordEvent("correction", data: data)
+}
+#endif
+
 @MainActor
 private final class TranscriptScrollState {
     var builtRowIndices: [String: Int] = [:]
@@ -1106,6 +1118,7 @@ struct SessionTranscriptView: View {
             return
         }
 
+        let beforeOffset = geometry.contentOffsetY
         let shouldRebuild: Bool
         if kind == .sentinelUnbuilt {
             switch sentinelCorrection(
@@ -1118,6 +1131,13 @@ struct SessionTranscriptView: View {
                     proxy.scrollTo("transcript-bottom", anchor: .bottom)
                 }
                 scrollState.bridgeHandle.pinToBottom()
+                #if DEBUG
+                recordMotionCorrection(
+                    kind: kind,
+                    before: beforeOffset,
+                    after: scrollState.latestUIKitMetrics?.maxOffsetY
+                )
+                #endif
                 recordLifecycleEvent(
                     name: "sentinel-scroll",
                     sessionID: sessionID,
@@ -1147,6 +1167,13 @@ struct SessionTranscriptView: View {
                 recorder: scrollState.recorder
             )
             scrollState.recordEvent(name: "rebuild", newValue: Double(stackGeneration))
+            #if DEBUG
+            recordMotionCorrection(
+                kind: kind,
+                before: beforeOffset,
+                after: scrollState.latestUIKitMetrics?.offsetY
+            )
+            #endif
             if isPinnedToBottom {
                 scheduleRebuildScroll(using: proxy)
             }
@@ -1157,14 +1184,35 @@ struct SessionTranscriptView: View {
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
+            #if DEBUG
+            recordMotionCorrection(
+                kind: kind,
+                before: beforeOffset,
+                after: scrollState.latestUIKitMetrics?.offsetY
+            )
+            #endif
         } else if let lastBuiltRowID = scrollState.lastBuiltRowID {
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo(lastBuiltRowID, anchor: .center)
             }
+            #if DEBUG
+            recordMotionCorrection(
+                kind: kind,
+                before: beforeOffset,
+                after: scrollState.latestUIKitMetrics?.offsetY
+            )
+            #endif
         } else {
             withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo("transcript-bottom", anchor: .bottom)
             }
+            #if DEBUG
+            recordMotionCorrection(
+                kind: kind,
+                before: beforeOffset,
+                after: scrollState.latestUIKitMetrics?.offsetY
+            )
+            #endif
         }
         scrollState.cancelBlankCheck()
         scheduleBlankCheck(using: proxy, delay: .milliseconds(500))

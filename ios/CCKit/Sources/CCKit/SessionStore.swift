@@ -194,6 +194,9 @@ public final class SessionStore {
         let change = transcriptStore.merge(page.entries)
         hasMoreEarlier = page.hasMore
         totalEntries = max(totalEntries, page.total)
+        #if DEBUG
+        postCCMotionTraceEvent("pageLoaded", data: ["count": change.inserted.count])
+        #endif
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
             refreshTurns(change: change, forceFull: true)
             notify(change)

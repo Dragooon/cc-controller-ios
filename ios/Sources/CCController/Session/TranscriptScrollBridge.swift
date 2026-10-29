@@ -60,6 +60,9 @@ struct TranscriptScrollBridge: UIViewRepresentable {
     final class BridgeView: UIView {
         private var handle: TranscriptScrollBridgeHandle
         private var observedScrollView: UIScrollView?
+        #if DEBUG
+        private var motionRegistrationToken: UUID?
+        #endif
         private var observations: [NSKeyValueObservation] = []
         private var retryScheduled = false
         private var metricsDeliveryPending = false
@@ -124,7 +127,7 @@ struct TranscriptScrollBridge: UIViewRepresentable {
             observedScrollView = scrollView
             handle.attach(to: scrollView)
             #if DEBUG
-            MotionTrace.shared.registerScrollView(scrollView, pinned: isPinned)
+            motionRegistrationToken = MotionTrace.shared.registerScrollView(scrollView, pinned: isPinned)
             #endif
             observations = [
                 scrollView.observe(\.contentSize, options: [.initial, .new]) { [weak self] _, _ in
@@ -148,9 +151,10 @@ struct TranscriptScrollBridge: UIViewRepresentable {
         private func stopObserving() {
             observations.removeAll()
             #if DEBUG
-            if let observedScrollView {
-                MotionTrace.shared.unregisterScrollView(observedScrollView)
+            if let observedScrollView, let motionRegistrationToken {
+                MotionTrace.shared.unregisterScrollView(observedScrollView, token: motionRegistrationToken)
             }
+            motionRegistrationToken = nil
             #endif
             handle.detach(from: observedScrollView)
             observedScrollView = nil
