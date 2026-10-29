@@ -1843,6 +1843,12 @@ public final class AppStore {
             internalMarker: ()
         )
         openStores[key] = store
+        store.updateReadiness(
+            isStateCurrent: isStateCurrent,
+            daemonEpoch: daemonEpoch,
+            serverRev: agentID == nil ? serverRevs[sessionID] : nil,
+            isOffline: agentID == nil ? isOfflineConnection : false
+        )
         if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
         Task {
             do { _ = try await store.loadInitial() }

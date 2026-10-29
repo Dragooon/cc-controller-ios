@@ -69,6 +69,8 @@ public final class SessionStore {
     private var readinessDaemonEpoch: String?
     private var readinessServerRev: Int?
     private var readinessOffline = false
+    @ObservationIgnored private var readinessDeadlineTask: Task<Void, Never>?
+    private let readinessTimeout: Duration
     private var hasLoaded = false
     private var initialPageMerged = false
 
@@ -108,6 +110,7 @@ public final class SessionStore {
         isStateCurrent: Bool = false,
         isOffline: Bool = false,
         builtFromCache: Bool? = nil,
+        readinessTimeout: Duration = .seconds(5),
         clock: @escaping () -> Date = Date.init
     ) {
         self.init(
@@ -126,6 +129,7 @@ public final class SessionStore {
             isStateCurrent: isStateCurrent,
             isOffline: isOffline,
             builtFromCache: builtFromCache,
+            readinessTimeout: readinessTimeout,
             scheduler: SessionStoreClock(nowProvider: clock),
             internalMarker: ()
         )
@@ -147,6 +151,7 @@ public final class SessionStore {
         isStateCurrent: Bool = false,
         isOffline: Bool = false,
         builtFromCache: Bool? = nil,
+        readinessTimeout: Duration = .seconds(5),
         scheduler: any CCKitClock = SystemCCKitClock(),
         internalMarker: Void
     ) {
@@ -156,6 +161,7 @@ public final class SessionStore {
         self.agentID = agentID
         self.onTranscriptChange = onTranscriptChange
         self.clock = scheduler
+        self.readinessTimeout = readinessTimeout
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.transcriptOnly = transcriptOnly
         self.transcriptStore = TranscriptStore(entries: entries)
@@ -170,8 +176,10 @@ public final class SessionStore {
         self.readinessDaemonEpoch = daemonEpoch
         self.readinessServerRev = serverRev
         self.readinessOffline = isOffline
+        self.readinessDeadlineTask = nil
         self.hasLoaded = !entries.isEmpty
         refreshTurns(forceFull: true)
+        startReadinessDeadline()
         updateReadiness()
     }
 
@@ -193,7 +201,7 @@ public final class SessionStore {
     private func updateReadiness() {
         guard readiness != .ready else { return }
         guard agentID == nil else {
-            readiness = .ready
+            markReady()
             return
         }
         if readinessOffline || initialPageMerged ||
@@ -201,8 +209,47 @@ public final class SessionStore {
             (builtFromCache && cacheHasEntries && readinessStateCurrent &&
              syncedEpoch != nil && syncedRev != nil &&
              syncedEpoch == readinessDaemonEpoch && syncedRev == readinessServerRev) {
-            readiness = .ready
+            markReady()
         }
+    }
+
+    private func startReadinessDeadline() {
+        readinessDeadlineTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: self.readinessTimeout)
+            } catch {
+                return
+            }
+            guard self.readiness == .syncing, !self.closed else { return }
+            self.readiness = .ready
+            self.readinessDeadlineTask = nil
+            TranscriptLifecycleLog.shared.record(name: "transcript-readiness-timeout", sessionID: self.sessionID)
+        }
+    }
+
+    private func cancelReadinessDeadline() {
+        readinessDeadlineTask?.cancel()
+        readinessDeadlineTask = nil
+    }
+
+    private func markReady() {
+        guard readiness != .ready else { return }
+        readiness = .ready
+        cancelReadinessDeadline()
+    }
+
+    private func markReadyAfterFailure() {
+        markReady()
+    }
+
+    private func setSyncedRevision(_ rev: Int) {
+        if let epoch = readinessDaemonEpoch, syncedEpoch == epoch {
+            syncedRev = max(syncedRev ?? rev, rev)
+        } else {
+            syncedRev = rev
+        }
+        syncedEpoch = readinessDaemonEpoch
     }
 
     @discardableResult
@@ -218,6 +265,7 @@ public final class SessionStore {
                 do {
                     return try await runInitialFetch()
                 } catch {
+                    markReadyAfterFailure()
                     markTranscriptGap(force: true)
                     requestTranscriptResync()
                     throw error
@@ -228,7 +276,7 @@ public final class SessionStore {
             do {
                 return try await runInitialFetch()
             } catch {
-                readiness = .ready
+                markReadyAfterFailure()
                 markTranscriptGap(force: true)
                 requestTranscriptResync()
                 throw error
@@ -237,6 +285,7 @@ public final class SessionStore {
         do {
             return try await runInitialFetch()
         } catch {
+            markReadyAfterFailure()
             markTranscriptGap(force: true)
             requestTranscriptResync()
             throw error
@@ -264,6 +313,7 @@ public final class SessionStore {
         if let entryCount {
             serverTotal = max(0, entryCount)
             guard hasConfirmedTotal else {
+                if let rev { setSyncedRevision(rev) }
                 publish(change)
                 return change
             }
@@ -274,10 +324,7 @@ public final class SessionStore {
                 markTranscriptGap()
             }
         }
-        if !hasTranscriptGap, let rev {
-            syncedRev = rev
-            syncedEpoch = readinessDaemonEpoch
-        }
+        if !hasTranscriptGap, let rev { setSyncedRevision(rev) }
         publish(change)
         return change
     }
@@ -327,6 +374,7 @@ public final class SessionStore {
 
     public func close() {
         closed = true
+        cancelReadinessDeadline()
         gapResyncTask?.cancel()
         gapResyncTask = nil
         gapImmediateRequested = false
@@ -602,10 +650,7 @@ public final class SessionStore {
         hasMoreEarlier = transcriptStore.entries.count < page.total
         if gapRequiresReset { serverTotal = max(0, page.total) }
         else { confirmTranscriptPage(total: page.total) }
-        if let rev = page.rev {
-            syncedRev = rev
-            syncedEpoch = readinessDaemonEpoch
-        }
+        if let rev = page.rev { setSyncedRevision(rev) }
         initialPageMerged = true
         hasLoaded = true
         updateReadiness()
@@ -635,10 +680,7 @@ public final class SessionStore {
         }
         if reset || !gapRequiresReset { confirmTranscriptPage(total: page.total) }
         else { serverTotal = max(0, page.total) }
-        if let rev = page.rev {
-            syncedRev = rev
-            syncedEpoch = readinessDaemonEpoch
-        }
+        if let rev = page.rev { setSyncedRevision(rev) }
         initialPageMerged = true
         hasLoaded = true
         updateReadiness()

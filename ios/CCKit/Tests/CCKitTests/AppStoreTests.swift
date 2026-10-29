@@ -1605,6 +1605,71 @@ final class AppStoreTests: XCTestCase {
         app.suspend()
     }
 
+    func testOpenCurrentCacheIsReadyBeforeTailReturns() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let epoch = Date(timeIntervalSince1970: 42)
+        await writeReadinessCache(directory: directory, rev: 7, epoch: epoch)
+        URLProtocolStub.requestPaths = []
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/api/bootstrap":
+                return URLProtocolStub.json(Self.readinessBootstrapJSON(rev: 7, startedAt: epoch))
+            case "/api/events":
+                return URLProtocolStub.json(Data(), contentType: "text/event-stream")
+            case let path where path?.hasSuffix("/transcript") == true:
+                Thread.sleep(forTimeInterval: 2)
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "fresh")], total: 1, hasMore: false, rev: 7))
+            default:
+                return URLProtocolStub.json(Data("{}".utf8))
+            }
+        }
+        let app = makeApp(cacheDirectory: directory)
+        defer {
+            app.suspend()
+            URLProtocolStub.keepEvents = false
+        }
+        app.start()
+        try await waitUntil("current bootstrap") { app.isStateCurrent && app.sessions["session-1"] != nil }
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("delayed transcript request") { URLProtocolStub.requestPaths.contains { $0.hasSuffix("/transcript") } }
+        XCTAssertEqual(store.readiness, .ready)
+        try await waitUntil("delayed transcript completion") { store.isLoaded }
+    }
+
+    func testOpenChangedCacheSyncsBeforeTailReturns() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let epoch = Date(timeIntervalSince1970: 43)
+        await writeReadinessCache(directory: directory, rev: 7, epoch: epoch)
+        URLProtocolStub.requestPaths = []
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            switch request.url?.path {
+            case "/api/bootstrap":
+                return URLProtocolStub.json(Self.readinessBootstrapJSON(rev: 8, startedAt: epoch))
+            case "/api/events":
+                return URLProtocolStub.json(Data(), contentType: "text/event-stream")
+            case let path where path?.hasSuffix("/transcript") == true:
+                Thread.sleep(forTimeInterval: 2)
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "fresh")], total: 1, hasMore: false, rev: 8))
+            default:
+                return URLProtocolStub.json(Data("{}".utf8))
+            }
+        }
+        let app = makeApp(cacheDirectory: directory)
+        defer {
+            app.suspend()
+            URLProtocolStub.keepEvents = false
+        }
+        app.start()
+        try await waitUntil("changed bootstrap") { app.isStateCurrent && app.sessions["session-1"] != nil }
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("delayed transcript request") { URLProtocolStub.requestPaths.contains { $0.hasSuffix("/transcript") } }
+        XCTAssertEqual(store.readiness, .syncing)
+        try await Task.sleep(for: .milliseconds(2_200))
+        XCTAssertEqual(store.readiness, .ready)
+    }
+
     func testClosingStoreFlushesTranscriptCacheWithoutDebounce() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         URLProtocolStub.keepEvents = true
@@ -1675,7 +1740,7 @@ final class AppStoreTests: XCTestCase {
     }
 
     private func waitUntil(_ message: String = "app state", _ predicate: @escaping () -> Bool) async throws {
-        for _ in 0..<50 {
+        for _ in 0..<250 {
             if predicate() { return }
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -1714,6 +1779,47 @@ final class AppStoreTests: XCTestCase {
         .assistant(AssistantEntry(id: id, rev: 1, ts: Date(timeIntervalSince1970: Double(id == "first" ? 1 : 2)), text: id))
     }
 
+    private func writeReadinessCache(directory: URL, rev: Int, epoch: Date) async {
+        let cache = DiskCache(directory: directory)
+        let cachedEntry = Self.entry(id: "cached")
+        let state = DiskCacheState(
+            bootstrap: Bootstrap(
+                apiVersion: 2,
+                daemon: DaemonInfo(version: "cached", startedAt: epoch),
+                capabilities: Capabilities(pagination: true),
+                state: StateSnapshot(
+                    sessions: [Self.session()],
+                    entries: ["session-1": 1],
+                    revs: ["session-1": rev]
+                )
+            ),
+            transcripts: ["session-1": [cachedEntry]],
+            updatedAt: Date(timeIntervalSince1970: 10),
+            transcriptMetadata: ["session-1": TranscriptCacheMetadata(rev: rev, epoch: String(epoch.timeIntervalSince1970))]
+        )
+        await cache.saveNow(
+            state,
+            changedTranscripts: state.transcripts,
+            changedTranscriptMetadata: state.transcriptMetadata,
+            retainedTranscriptKeys: ["session-1"]
+        )
+        await cache.flush()
+    }
+
+    private static func readinessBootstrapJSON(rev: Int, startedAt: Date) -> Data {
+        let value = Bootstrap(
+            apiVersion: 2,
+            daemon: DaemonInfo(version: "fixture", startedAt: startedAt),
+            capabilities: Capabilities(pagination: true),
+            state: StateSnapshot(
+                sessions: [session(state: .working)],
+                entries: ["session-1": 1],
+                revs: ["session-1": rev]
+            )
+        )
+        return try! JSONEncoder.ccKit().encode(value)
+    }
+
     private static let bootstrapJSON = bootstrapJSON()
 
     private static func bootstrapJSON(startedAt: Date = Date(timeIntervalSince1970: 1), entryCount: Int = 0) -> Data {
@@ -1721,8 +1827,8 @@ final class AppStoreTests: XCTestCase {
         return try! JSONEncoder.ccKit().encode(value)
     }
 
-    private static func pageJSON(entries: [TranscriptEntry], total: Int, hasMore: Bool) -> Data {
-        try! JSONEncoder.ccKit().encode(TranscriptPage(entries: entries, total: total, hasMore: hasMore))
+    private static func pageJSON(entries: [TranscriptEntry], total: Int, hasMore: Bool, rev: Int? = nil) -> Data {
+        try! JSONEncoder.ccKit().encode(TranscriptPage(entries: entries, total: total, hasMore: hasMore, rev: rev))
     }
 
     private static func entriesJSON(_ entries: [TranscriptEntry]) -> Data {

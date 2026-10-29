@@ -529,6 +529,62 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(store.syncedRev)
     }
 
+    func testOlderInitialPageRevisionDoesNotMovePastLiveRevision() async throws {
+        let client = makeClient()
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .suspend,
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: entries(from: 1, through: 1),
+            cachedRev: 10,
+            cachedEpoch: "epoch-a",
+            daemonEpoch: "epoch-a",
+            serverRev: 12,
+            isStateCurrent: true,
+            builtFromCache: true
+        )
+        let initial = Task { try await store.loadInitial() }
+        await waitForRequest(count: 2)
+        _ = store.mergeLive(entries(from: 2, through: 2), entryCount: 2, rev: 12)
+        XCTAssertEqual(store.syncedRev, 12)
+        SessionStoreURLProtocol.completeNext(.succeed(pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false, rev: 10)))
+        _ = try await initial.value
+        XCTAssertEqual(store.syncedRev, 12)
+        XCTAssertEqual(store.syncedEpoch, "epoch-a")
+    }
+
+    func testReadinessDeadlineEndsSyncingAndRecordsTimeout() async throws {
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: makeClient(),
+            readinessTimeout: .seconds(5),
+            scheduler: ImmediateClock(),
+            internalMarker: ()
+        )
+        for _ in 0..<10 where store.readiness == .syncing { await Task.yield() }
+        XCTAssertEqual(store.readiness, .ready)
+        XCTAssertTrue(TranscriptLifecycleLog.shared.events.contains { $0.name == "transcript-readiness-timeout" })
+        XCTAssertEqual(TranscriptLifecycleLog.shared.events.last?.name, "transcript-readiness-timeout")
+        store.close()
+    }
+
+    func testReadyStoreStaysReadyAfterReset() {
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: makeClient(),
+            entries: entries(from: 1, through: 1),
+            isOffline: true,
+            builtFromCache: true
+        )
+        XCTAssertEqual(store.readiness, .ready)
+        store.resetTranscript()
+        XCTAssertEqual(store.readiness, .ready)
+    }
+
     private func waitForRequest(count: Int) async {
         for _ in 0..<100 where SessionStoreURLProtocol.requests.count < count {
             await Task.yield()
@@ -564,6 +620,11 @@ final class SessionStoreTests: XCTestCase {
 
 private enum TestTranscriptError: Error {
     case failed
+}
+
+private struct ImmediateClock: CCKitClock {
+    var now: Date { Date(timeIntervalSince1970: 1_800_000_000) }
+    func sleep(for duration: Duration) async throws {}
 }
 
 private final class SessionStoreURLProtocol: URLProtocol {
