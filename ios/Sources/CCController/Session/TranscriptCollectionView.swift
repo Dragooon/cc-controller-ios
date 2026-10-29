@@ -1047,9 +1047,11 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             }
             if animated {
                 UIView.animate(
-                    withDuration: 0.3,
+                    springDuration: 0.3,
+                    bounce: 0,
+                    initialSpringVelocity: 0,
                     delay: 0,
-                    options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
+                    options: [.allowUserInteraction, .beginFromCurrentState],
                     animations: {
                         dataSource.apply(snapshot, animatingDifferences: true)
                         collectionView.layoutIfNeeded()
