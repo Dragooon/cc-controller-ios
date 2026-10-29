@@ -1,9 +1,10 @@
 name: Dev session
 
 # A macOS runner on the tailnet, reachable over SSH, for remote builds, simulators and UI tests.
-# Needs the secrets CC_CONTROLLER_DEPLOY_KEY (read-only deploy key for the private controller),
-# TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET (Tailscale OAuth client allowed to create tag:ci keys),
-# and the variable DEV_SSH_PUBLIC_KEY (the public key allowed to log in).
+# Needs the secrets TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET (a Tailscale OAuth client allowed to create
+# tag:ci keys) and the variable DEV_SSH_PUBLIC_KEY (the public key allowed to log in). The optional secret
+# CC_CONTROLLER_DEPLOY_KEY (a read-only deploy key for the private controller) checks the controller out
+# too; without it, copy a controller checkout to $GITHUB_WORKSPACE/cc-controller over SSH and run npm ci.
 
 on:
   workflow_dispatch:
@@ -22,6 +23,8 @@ jobs:
   session:
     runs-on: xcode-27
     timeout-minutes: 360
+    env:
+      HAS_CONTROLLER_KEY: ${{ secrets.CC_CONTROLLER_DEPLOY_KEY != '' }}
     steps:
       - name: Check out the app
         uses: actions/checkout@v7
@@ -29,6 +32,7 @@ jobs:
           path: cc-controller-ios
 
       - name: Check out the controller
+        if: env.HAS_CONTROLLER_KEY == 'true'
         uses: actions/checkout@v7
         with:
           repository: Dragooon/cc-controller
@@ -36,10 +40,13 @@ jobs:
           ssh-key: ${{ secrets.CC_CONTROLLER_DEPLOY_KEY }}
           path: cc-controller
 
-      - name: Install tools and controller dependencies
-        run: |
-          brew install xcodegen
-          cd cc-controller && npm ci
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install controller dependencies
+        if: env.HAS_CONTROLLER_KEY == 'true'
+        working-directory: cc-controller
+        run: npm ci
 
       - name: Join the tailnet
         uses: tailscale/github-action@v4
