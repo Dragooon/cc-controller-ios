@@ -256,11 +256,15 @@ final class AttachmentFlowTests: XCTestCase {
         photos.tap()
         addDebugDescription(app, named: "photos-picker-app-hierarchy")
 
-        let pickerPresented = waitForPresentedPicker(in: app, timeout: 10)
-        XCTAssertTrue(pickerPresented, "Photos picker did not present in the app accessibility hierarchy within 10 seconds")
-        guard pickerPresented else { return }
+        guard waitForPresentedPicker(in: app, timeout: 10) != nil else {
+            XCTFail("Photos picker did not present in the app accessibility hierarchy within 10 seconds")
+            return
+        }
 
-        let photoCell = app.collectionViews.firstMatch.cells.firstMatch
+        // The transcript is itself a collection view behind the sheet, so skip it when looking for photo cells.
+        let photoCell = app.collectionViews
+            .matching(NSPredicate(format: "identifier != %@", "transcript-scroll"))
+            .firstMatch.cells.firstMatch
         guard photoCell.waitForExistence(timeout: 10) else {
             throw XCTSkip("Photos picker presented, but no photo cell was accessible through the app accessibility hierarchy")
         }
@@ -308,7 +312,7 @@ final class AttachmentFlowTests: XCTestCase {
         files.tap()
         addDebugDescription(app, named: "files-picker-app-hierarchy")
 
-        let pickerPresented = waitForPresentedPicker(in: app, timeout: 10)
+        let pickerPresented = waitForPresentedPicker(in: app, timeout: 10) != nil
         XCTAssertTrue(pickerPresented, "Files picker did not present in the app accessibility hierarchy within 10 seconds")
         guard pickerPresented else { return }
 
@@ -318,16 +322,17 @@ final class AttachmentFlowTests: XCTestCase {
         XCTAssertTrue(waitForNonExistence(of: cancel, timeout: 5), "Files picker did not dismiss after tapping Cancel")
     }
 
-    private func waitForPresentedPicker(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    private func waitForPresentedPicker(in app: XCUIApplication, timeout: TimeInterval) -> XCUIElement? {
         let deadline = Date().addingTimeInterval(timeout)
         let cancel = app.buttons["Cancel"]
         while Date() < deadline {
             if app.navigationBars.count > 1 && cancel.exists {
-                return true
+                return app.navigationBars.element(boundBy: 1)
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        return app.navigationBars.count > 1 && cancel.exists
+        guard app.navigationBars.count > 1 && cancel.exists else { return nil }
+        return app.navigationBars.element(boundBy: 1)
     }
 
     private func addDebugDescription(_ app: XCUIApplication, named name: String) {
