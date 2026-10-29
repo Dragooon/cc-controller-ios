@@ -35,10 +35,14 @@ final class TranscriptCollectionView: UICollectionView {
     var didChangeTraits: (() -> Void)?
     var isAnimatingJump = false
     private var didRegisterTraitChanges = false
+    private var lastLaidOutBoundsHeight: CGFloat?
 
     override func layoutSubviews() {
+        let previousBoundsHeight = lastLaidOutBoundsHeight
         super.layoutSubviews()
-        applyAnchoredContentOffsetIfNeeded()
+        let boundsHeightChanged = previousBoundsHeight.map { abs($0 - bounds.height) > 0.5 } ?? false
+        applyAnchoredContentOffsetIfNeeded(boundsHeightChanged: boundsHeightChanged)
+        lastLaidOutBoundsHeight = bounds.height
         didFinishLayout?()
     }
 
@@ -61,7 +65,7 @@ final class TranscriptCollectionView: UICollectionView {
         }
     }
 
-    private func applyAnchoredContentOffsetIfNeeded() {
+    private func applyAnchoredContentOffsetIfNeeded(boundsHeightChanged: Bool) {
         guard let layout = collectionViewLayout as? TranscriptListLayout else { return }
         #if DEBUG
         if layout.isAwaitingAnimatedNewestEndUpdate && !layout.isApplyingCollectionUpdate {
@@ -87,6 +91,39 @@ final class TranscriptCollectionView: UICollectionView {
         setContentOffset(offset, animated: false)
         #if DEBUG
         MotionTrace.shared.recordPin(before: before, after: target.y, reason: target.reason)
+        #endif
+        if boundsHeightChanged, layout.isBottomAnchored {
+            synchronizePinnedOffsetAnimation(before: before, after: target.y)
+        }
+    }
+
+    private func synchronizePinnedOffsetAnimation(before: CGFloat, after: CGFloat) {
+        guard let boundsAnimationKey = layer.animationKeys()?.first(where: {
+            $0.localizedCaseInsensitiveContains("bounds")
+        }),
+        let boundsAnimation = layer.animation(forKey: boundsAnimationKey) else { return }
+
+        let offsetAnimation = CABasicAnimation(keyPath: "bounds.origin")
+        offsetAnimation.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: before - after))
+        offsetAnimation.toValue = NSValue(cgPoint: .zero)
+        offsetAnimation.duration = boundsAnimation.duration
+        offsetAnimation.beginTime = boundsAnimation.beginTime
+        offsetAnimation.speed = boundsAnimation.speed
+        offsetAnimation.timeOffset = boundsAnimation.timeOffset
+        offsetAnimation.repeatCount = boundsAnimation.repeatCount
+        offsetAnimation.autoreverses = boundsAnimation.autoreverses
+        offsetAnimation.fillMode = boundsAnimation.fillMode
+        offsetAnimation.timingFunction = boundsAnimation.timingFunction
+        offsetAnimation.isRemovedOnCompletion = boundsAnimation.isRemovedOnCompletion
+        offsetAnimation.isAdditive = true
+        layer.add(offsetAnimation, forKey: "cc-pinned-offset")
+        #if DEBUG
+        MotionTrace.shared.recordEvent("pin", data: [
+            "before": before,
+            "after": after,
+            "reason": "keyboardOffsetAnimation",
+            "duration": boundsAnimation.duration,
+        ])
         #endif
     }
 }
@@ -424,6 +461,10 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         #if DEBUG
         MotionTrace.shared.recordPin(before: before, after: target.y, reason: "updateFallback")
         #endif
+    }
+
+    var isBottomAnchored: Bool {
+        anchorIsBottom
     }
 
     private var anchorIsBottom: Bool {
