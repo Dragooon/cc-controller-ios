@@ -1125,7 +1125,7 @@ public func composeSessionState(_ session: Session, now: Date = .now, timeZone: 
     return stateLabel(state: session.state?.rawValue)
 }
 
-public func entryFields(_ entry: TranscriptEntry) -> EntryFields {
+public func entryFields(_ entry: TranscriptEntry, timeZone: TimeZone = .current, locale: Locale = .current) -> EntryFields {
     switch entry {
     case .prompt(let value):
         let normalized = normalisePromptText(value.text ?? value.command)
@@ -1140,7 +1140,7 @@ public func entryFields(_ entry: TranscriptEntry) -> EntryFields {
         return EntryFields(kind: "subagent_result", text: value.text ?? "", toolUseId: value.toolUseId ?? "", result: value.result ?? "", state: value.state?.rawValue ?? "done", time: value.ts, agent: value.agent ?? "agent", agentId: value.agentId ?? "", durationMs: value.durationMs)
     case .interrupt: return EntryFields(kind: "interrupt")
     case .compaction(let value): return EntryFields(kind: "compaction", text: value.text ?? "", time: value.ts)
-    case .decision(let value): return EntryFields(kind: "decision", text: value.text ?? decisionText(value), behavior: value.behavior?.rawValue ?? "")
+    case .decision(let value): return EntryFields(kind: "decision", text: value.text ?? decisionText(value, timeZone: timeZone, locale: locale), behavior: value.behavior?.rawValue ?? "")
     case .file(let value): return EntryFields(kind: "file", name: value.name ?? "", size: value.size ?? 0, mime: value.mime ?? "", url: value.url ?? "")
     case .attention(let value): return EntryFields(kind: "attention", text: value.text ?? "")
     case .turnEnd: return EntryFields(kind: "turn_end")

@@ -117,7 +117,7 @@ final class PresentationParityTests: XCTestCase {
             let values = try input.arrayValues
             return .string(composeSessionState(try decode(Session.self, from: values[0]), now: try decodeDate(values[1]), timeZone: timeZone, locale: locale))
         case "entryFields":
-            return entryFieldsParity(entryFields(try decode(TranscriptEntry.self, from: input)))
+            return entryFieldsParity(entryFields(try decode(TranscriptEntry.self, from: input), timeZone: timeZone, locale: locale))
         case "permissionCopy":
             return try encode(permissionCopy(try decode(Approval.self, from: input), timeZone: timeZone, locale: locale))
         case "reconcileQueuedNote":
