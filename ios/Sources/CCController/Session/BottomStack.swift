@@ -428,24 +428,24 @@ struct BottomStackView: View {
     private func finishSuccessfulSend(originalText: String, submittedText: String) async {
         #if DEBUG
         recordLifecycleEvent(name: "send-focus-drop", sessionID: configuration.sessionID)
-        MotionTrace.shared.recordComposerCleared()
         #endif
         composerFocused = false
-        if !isSlashCommand(submittedText) {
-            await configuration.sendRevealCoordinator?.waitForReveal()
-        }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        withAnimation(.spring(duration: 0.3, bounce: 0)) {
             if let nextText = composerTextAfterSuccessfulSend(
                 originalText: originalText,
                 submittedText: submittedText,
                 currentText: text
             ) {
                 text = nextText
+                #if DEBUG
+                MotionTrace.shared.recordComposerCleared()
+                #endif
                 fieldResetRestoresFocus = false
                 fieldResetGeneration += 1
             }
+        }
+        if !isSlashCommand(submittedText) {
+            await configuration.sendRevealCoordinator?.waitForReveal()
         }
         sendFeedbackCount += 1
     }
