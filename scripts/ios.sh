@@ -47,6 +47,8 @@ SHARD_PIDS=()
 PERF_SAMPLE_PIDS=()
 FLOWS_FLAKY_COUNT=0
 MOTION_UDID=""
+MOTION_VIDEO_PID=""
+MOTION_BUILD_DIR=""
 
 step() {
   local name=$1; shift
@@ -594,6 +596,7 @@ cleanup_run() {
     [[ -z "$sample_pid" ]] || { kill "$sample_pid" 2>/dev/null || true; wait "$sample_pid" 2>/dev/null || true; }
   done
   PERF_SAMPLE_PIDS=()
+  stop_motion_video || true
   stop_current_xcodebuild || true
   stop_fixture_daemon || true
   if [[ -n "$DIAG_DIR" ]]; then
@@ -1212,9 +1215,88 @@ cmd_flows() {
   return 0
 }
 
+stop_motion_video() {
+  local pid=$MOTION_VIDEO_PID
+  [[ -n "$pid" ]] || return 0
+  kill -INT "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  MOTION_VIDEO_PID=""
+}
+
+motion_source_hash() {
+  node - "$ROOT" <<'NODE'
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
+const root = process.argv[2];
+const hash = crypto.createHash('sha256');
+const diff = execFileSync('git', ['-C', root, 'diff', '--binary', 'HEAD'], { maxBuffer: 1024 * 1024 * 1024 });
+const files = execFileSync('git', ['-C', root, 'ls-files', '--others', '--exclude-standard', '-z', '--', 'ios'], { encoding: 'utf8' })
+  .split('\0')
+  .filter(Boolean)
+  .sort();
+hash.update(Buffer.from('diff\0'));
+hash.update(diff);
+for (const file of files) {
+  hash.update(Buffer.from(`untracked:${file}\0`));
+  hash.update(fs.readFileSync(`${root}/${file}`));
+  hash.update(Buffer.from('\0'));
+}
+process.stdout.write(hash.digest('hex'));
+NODE
+}
+
+motion_prune_build_cache() {
+  local cache_root=$1
+  node - "$cache_root" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const root = process.argv[2];
+if (!fs.existsSync(root)) process.exit(0);
+const dirs = fs.readdirSync(root, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => ({ name: entry.name, mtime: fs.statSync(path.join(root, entry.name)).mtimeMs }))
+  .sort((a, b) => a.mtime - b.mtime);
+while (dirs.length > 3) {
+  const old = dirs.shift();
+  fs.rmSync(path.join(root, old.name), { recursive: true, force: true });
+  console.log(`motion build cache pruned: ${old.name}`);
+}
+NODE
+}
+
+motion_build_products() {
+  local key=$1 rebuild=$2
+  local cache_root="$HOME/Library/Caches/cc-controller-scratch/motion-builds"
+  local cache_dir="$cache_root/$key"
+  local motion_derived="$cache_dir/derived"
+  local app_bundle="$motion_derived/Build/Products/Debug-iphonesimulator/cc-controller.app"
+  local source_xctestrun=""
+  mkdir -p "$cache_root" "$cache_dir"
+  MOTION_BUILD_DIR="$cache_dir"
+  if [[ "$rebuild" -eq 0 && -d "$app_bundle" ]]; then
+    source_xctestrun=$(find "$motion_derived/Build/Products" -type f -name '*.xctestrun' -print -quit)
+    if [[ -n "$source_xctestrun" ]]; then
+      touch "$cache_dir"
+      printf 'motion build-for-testing cache hit: %s\n' "$key"
+      motion_prune_build_cache "$cache_root"
+      return 0
+    fi
+  fi
+  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$motion_derived" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing)
+  step 'motion build-for-testing' "${build_args[@]}"
+  source_xctestrun=$(find "$motion_derived/Build/Products" -type f -name '*.xctestrun' -print -quit)
+  if [[ ! -d "$app_bundle" || -z "$source_xctestrun" ]]; then
+    printf 'motion build did not produce app and xctestrun under %s\n' "$cache_dir" >&2
+    return 1
+  fi
+  touch "$cache_dir"
+  motion_prune_build_cache "$cache_root"
+}
+
 cmd_motion() {
   prune_scratch
-  local scenarios="all" engines="both" device="iphone" out_dir="" orientation="portrait"
+  local scenarios="all" engines="both" device="iphone" out_dir="" orientation="portrait" rebuild=0 video_enabled=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --scenario) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --scenario requires a value' >&2; return 2; }; scenarios=$2; shift 2;;
@@ -1222,6 +1304,8 @@ cmd_motion() {
       --device) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --device requires a value' >&2; return 2; }; device=$2; shift 2;;
       --out) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --out requires a value' >&2; return 2; }; out_dir=$2; shift 2;;
       --orientation) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --orientation requires a value' >&2; return 2; }; orientation=$2; shift 2;;
+      --rebuild) rebuild=1; shift;;
+      --video) video_enabled=1; shift;;
       *) printf 'unknown motion option: %s\n' "$1" >&2; return 2;;
     esac
   done
@@ -1245,17 +1329,12 @@ cmd_motion() {
   motion_scratch_dir=$(scratch_dir_for_evidence "$out_dir")
   prepare_evidence_run "$out_dir"
 
-  local load_start
-  load_start=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
-  if ! awk -v load="$load_start" 'BEGIN { exit !(load < 150) }'; then
-    printf 'refusing to start simulator motion run at 1-minute load %s (limit 150)\n' "$load_start" >&2
-    return 1
-  fi
-
   cmd_generate
-  local motion_derived="$IOS/build/motion"
-  local build_args=(xcodebuild -project "$PROJECT" -scheme CCController -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath "$motion_derived" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build-for-testing)
-  step 'motion build-for-testing' "${build_args[@]}"
+  local source_hash build_key
+  source_hash=$(motion_source_hash)
+  build_key="$(git -C "$ROOT" rev-parse HEAD)-$source_hash"
+  motion_build_products "$build_key" "$rebuild"
+  local motion_derived="$MOTION_BUILD_DIR/derived"
   local app_bundle="$motion_derived/Build/Products/Debug-iphonesimulator/cc-controller.app"
   local source_xctestrun
   source_xctestrun=$(find "$motion_derived/Build/Products" -type f -name '*.xctestrun' -print -quit)
@@ -1275,12 +1354,14 @@ cmd_motion() {
   for scenario in "${motion_scenarios[@]}"; do
     for engine in "${motion_engines[@]}"; do
       local run="$(printf '%s-%s' "$scenario" "$engine")"
-      local trace_name="$run.jsonl" case_log="$motion_scratch_dir/$run.xcodebuild.log" video="$motion_scratch_dir/$run.mp4"
+      local trace_name="$run.jsonl" case_log="$motion_scratch_dir/$run.xcodebuild.log" video=""
+      [[ "$video_enabled" -eq 0 ]] || video="$motion_scratch_dir/$run.mp4"
       local result="$motion_scratch_dir/$run.xcresult" run_xctestrun="$RUN_DIR/$run.xctestrun"
-      local case_status=0 video_pid="" container trace_source trace_path
+      local case_status=0 container trace_source trace_path
       local run_load_start run_load_end trace_lines frame_count video_size
       run_load_start=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
-      rm -f "$video" "$run_dir/$trace_name" "$run_dir/$run.analysis.json" "$run_dir/$run.analysis.stdout" "$run_dir/$run.json"
+      [[ -z "$video" ]] || rm -f "$video"
+      rm -f "$run_dir/$trace_name" "$run_dir/$run.analysis.json" "$run_dir/$run.analysis.stdout" "$run_dir/$run.json"
       stop_fixture_daemon
       reset_flow_state "$MOTION_UDID"
       xcrun simctl ui "$MOTION_UDID" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
@@ -1306,8 +1387,10 @@ cmd_motion() {
         export TEST_RUNNER_MOTION_ORIENTATION=landscape
       fi
       if [[ $case_status -eq 0 ]]; then
-        xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
-        video_pid=$!
+        if [[ "$video_enabled" -eq 1 ]]; then
+          xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
+          MOTION_VIDEO_PID=$!
+        fi
         local motion_method
         case "$scenario" in
           K1) motion_method=testK1KeyboardOpen;;
@@ -1325,11 +1408,7 @@ cmd_motion() {
           case_status=$?
         fi
       fi
-      if [[ -n "$video_pid" ]]; then
-        kill -INT "$video_pid" 2>/dev/null || true
-        wait "$video_pid" 2>/dev/null || true
-      fi
-      video_pid=""
+      stop_motion_video
       sleep 1
       stop_fixture_daemon
       container=$(xcrun simctl get_app_container "$MOTION_UDID" com.example.cc-controller data)
@@ -1368,7 +1447,7 @@ const p = {
   orientation: process.env.MOTION_ORIENTATION,
   hostLoadStart: Number(process.env.MOTION_LOAD_START),
   hostLoadEnd: Number(process.env.MOTION_LOAD_END),
-  videoPath: process.env.MOTION_VIDEO,
+  videoPath: process.env.MOTION_VIDEO || null,
   videoBytes: Number(process.env.MOTION_VIDEO_SIZE),
   tracePath: process.env.MOTION_TRACE,
   traceLines: Number(process.env.MOTION_TRACE_LINES),
@@ -3489,5 +3568,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
