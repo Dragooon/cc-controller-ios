@@ -521,7 +521,12 @@ final class ComposerFlowTests: XCTestCase {
         field.typeText(marker)
 
         let resultRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH[c] 'subagent-result-row-'" )).firstMatch
-        XCTAssertTrue(resultRow.waitForExistence(timeout: 20), "Subagent result row did not load for draft navigation")
+        XCTAssertTrue(revealInTranscript(resultRow, in: app), "Subagent result row did not load for draft navigation")
+        let transcriptScroll = transcriptScroll(in: app)
+        for _ in 0..<4 where !resultRow.isHittable {
+            transcriptScroll.swipeDown()
+        }
+        XCTAssertTrue(resultRow.isHittable, "Subagent result row did not become tappable for draft navigation")
         resultRow.tap()
         let viewTranscript = app.buttons["View transcript"]
         XCTAssertTrue(viewTranscript.waitForExistence(timeout: 10), "Subagent result sheet did not load")

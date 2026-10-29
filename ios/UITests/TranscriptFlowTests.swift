@@ -52,7 +52,7 @@ final class TranscriptFlowTests: XCTestCase {
         let toolGroup = app.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools'")
         ).firstMatch
-        XCTAssertTrue(toolGroup.waitForExistence(timeout: 20), "Tool group did not load")
+        XCTAssertTrue(revealInTranscript(toolGroup, in: app), "Tool group did not load")
         let transcriptScroll = transcriptScroll(in: app)
         transcriptScroll.swipeDown()
         for _ in 0..<4 where !toolGroup.isHittable {
@@ -62,6 +62,11 @@ final class TranscriptFlowTests: XCTestCase {
         for _ in 0..<3 {
             transcriptScroll.swipeUp(velocity: .fast)
         }
+        XCTAssertTrue(revealInTranscript(toolGroup, in: app), "Tool group did not return after fast swipes")
+        for _ in 0..<4 where !toolGroup.isHittable {
+            transcriptScroll.swipeDown()
+        }
+        XCTAssertTrue(toolGroup.isHittable, "Tool group did not become tappable after fast swipes")
         toolGroup.tap()
 
         let expandedToolGroup = app.buttons.matching(
@@ -98,7 +103,12 @@ final class TranscriptFlowTests: XCTestCase {
         let resultRow = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH[c] 'subagent-result-row-'")
         ).firstMatch
-        XCTAssertTrue(resultRow.waitForExistence(timeout: 20), "Subagent result row did not load")
+        XCTAssertTrue(revealInTranscript(resultRow, in: app), "Subagent result row did not load")
+        let transcriptScroll = transcriptScroll(in: app)
+        for _ in 0..<4 where !resultRow.isHittable {
+            transcriptScroll.swipeDown()
+        }
+        XCTAssertTrue(resultRow.isHittable, "Subagent result row did not become tappable")
         resultRow.tap()
 
         let sheetTitle = app.navigationBars["engineer result"]
