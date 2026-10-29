@@ -70,6 +70,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
     let readableContentMaxWidth: CGFloat
     let reduceMotion: Bool
     let onUnbuiltDiagnostic: () -> Void
+    let noteAliases: [String: String]
     @Binding var isPinnedToBottom: Bool
     @Binding var jumpToLatestRequest: Int
 
@@ -137,6 +138,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var currentItems: [TranscriptCollectionItem] = []
         private var currentContent: [TranscriptCollectionItem: TranscriptCollectionContent] = [:]
         private var currentNotes: [QueuedNote] = []
+        private var noteAliases: [String: String] = [:]
         private var hasAppliedSnapshot = false
         private var sessionID = ""
         private var hasMoreEarlier = false
@@ -218,6 +220,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             onCopyNote = representable.onCopyNote
             onSendAgain = representable.onSendAgain
             onUnbuiltDiagnostic = representable.onUnbuiltDiagnostic
+            noteAliases = representable.noteAliases
             hasMoreEarlier = representable.hasMoreEarlier
             sessionState = representable.sessionState
             liveSession = representable.liveSession
@@ -371,16 +374,12 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 content[.paging] = .paging(isLoading: isLoadingEarlier)
             }
 
-            let activityRow = representable.rows.first { row in
-                if case .liveActivityFooter = row.kind { return true }
-                return false
-            }
             let contentRows = representable.rows.filter { row in
-                if case .liveActivityFooter = row.kind { return false }
+                if case .status = row.kind { return false }
                 return true
             }
             for row in contentRows {
-                let item = TranscriptCollectionItem.row(row.id)
+                let item = aliasedItem(for: row.id) ?? .row(row.id)
                 items.append(item)
                 let rowSubagents: [Subagent] = {
                     guard case .item(let item) = row.kind else { return [] }
@@ -398,16 +397,32 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 items.append(item)
                 content[item] = .note(note, sessionState: representable.sessionState)
             }
-            if let activityRow {
-                let item = TranscriptCollectionItem.row(activityRow.id)
+            if let statusRow = representable.rows.first(where: { row in
+                if case .status = row.kind { return true }
+                return false
+            }) {
+                let item = TranscriptCollectionItem.row("status")
                 items.append(item)
                 content[item] = .row(
-                    activityRow,
+                    statusRow,
                     subagents: [],
                     liveSession: representable.liveSession
                 )
             }
             return (items, content)
+        }
+
+        private func aliasedItem(for entryID: String) -> TranscriptCollectionItem? {
+            guard let noteID = noteAliases[entryID] else { return nil }
+            if let existing = currentItems.first(where: { item in
+                switch item {
+                case .startingNote(let id), .queuedNote(let id): return id == noteID
+                default: return false
+                }
+            }) {
+                return existing
+            }
+            return .queuedNote(noteID)
         }
 
         private func apply(

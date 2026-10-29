@@ -205,6 +205,7 @@ struct SessionTranscriptView: View {
     let showsWorkedFooter: Bool
     let bottomStackConfiguration: BottomStackConfiguration?
     let queuedNotes: [QueuedNote]
+    let noteAliases: [String: String]
     let sendRevealCoordinator: SendRevealCoordinator?
     let sendAcceptedRevision: Int
     let activityFooter: CCKit.ActivityFooter?
@@ -258,6 +259,7 @@ struct SessionTranscriptView: View {
         showsWorkedFooter: Bool = true,
         bottomStackConfiguration: BottomStackConfiguration? = nil,
         queuedNotes: [QueuedNote] = [],
+        noteAliases: [String: String] = [:],
         sendRevealCoordinator: SendRevealCoordinator? = nil,
         sendAcceptedRevision: Int = 0,
         activityFooter: CCKit.ActivityFooter? = nil,
@@ -285,6 +287,7 @@ struct SessionTranscriptView: View {
         self.showsWorkedFooter = showsWorkedFooter
         self.bottomStackConfiguration = bottomStackConfiguration
         self.queuedNotes = queuedNotes
+        self.noteAliases = noteAliases
         self.sendRevealCoordinator = sendRevealCoordinator
         self.sendAcceptedRevision = sendAcceptedRevision
         self.activityFooter = activityFooter
@@ -440,6 +443,7 @@ struct SessionTranscriptView: View {
                 diagnosticWrittenCount += 1
                 diagnosticStatus = "count=\(diagnosticWrittenCount) kind=unbuilt recovered=false"
             },
+            noteAliases: noteAliases,
             isPinnedToBottom: $isPinnedToBottom,
             jumpToLatestRequest: $jumpToLatestRequest
         )
@@ -829,7 +833,7 @@ struct SessionTranscriptView: View {
     private func builtRowDidDisappear(id: String) {
         scrollState.builtRowDidDisappear(
             id: id,
-            displayRowCount: transcriptContentRows.count + (activityRow == nil ? 0 : 1),
+            displayRowCount: transcriptContentRows.count + 1,
             queuedNoteCount: renderedQueuedNotes.count
         )
     }
@@ -1285,26 +1289,33 @@ struct SessionTranscriptView: View {
     }
 
     private var displayRows: [TranscriptRow] {
-        var result = rows
-        if !showsWorkedFooter {
-            result.removeAll { row in
-                if case .workedFooter = row.kind { return true }
-                return false
-            }
+        var result = rows.filter { row in
+            if case .status = row.kind { return false }
+            return true
         }
-        if let activityRow { result.append(activityRow) }
+        result.append(statusRow)
         return result
     }
 
-    private var activityRow: TranscriptRow? {
-        guard let activityFooter else { return nil }
-        let turnID = turns.last?.id ?? "\(sessionID)-live"
-        return TranscriptRow(id: "\(turnID)-activity", turnID: turnID, kind: .liveActivityFooter(activityFooter))
+    private var statusRow: TranscriptRow {
+        let status: TranscriptStatus
+        if let activityFooter {
+            status = .activity(activityFooter)
+        } else if showsWorkedFooter, let turn = turns.last, turn.hasWorkedFooter {
+            status = .worked(durationMs: turn.durationMs)
+        } else {
+            status = .none
+        }
+        return TranscriptRow(
+            id: "status",
+            turnID: turns.last?.id ?? sessionID,
+            kind: .status(status)
+        )
     }
 
     private var transcriptContentRows: [TranscriptRow] {
         displayRows.filter { row in
-            if case .liveActivityFooter = row.kind { return false }
+            if case .status = row.kind { return false }
             return true
         }
     }
@@ -1320,14 +1331,14 @@ struct SessionTranscriptView: View {
     @ViewBuilder
     private func transcriptRows(using proxy: ScrollViewProxy) -> some View {
         let currentRows = transcriptContentRows
-        let currentActivityRow = activityRow
+        let currentStatusRow = statusRow
         let startingNotes = turnStartingNotes
         let queuedNotes = afterTurnNotes
         let orderedNotes = startingNotes + queuedNotes
         let _ = scrollState.updateRowIndices(
             displayRows: currentRows,
             queuedNotes: orderedNotes,
-            activityRow: currentActivityRow
+            activityRow: currentStatusRow
         )
 
         ForEach(currentRows) { row in
@@ -1369,31 +1380,29 @@ struct SessionTranscriptView: View {
             pendingNoteView(note, displayRowCount: currentRows.count)
         }
 
-        if let currentActivityRow {
-            TranscriptRowView(
-                sessionID: sessionID,
-                row: currentActivityRow,
-                subagents: rowSubagents(for: currentActivityRow),
-                liveSession: liveSession,
-                onTool: onTool,
-                onSubagent: onSubagent,
-                onSubagentResult: onSubagentResult,
-                onCompaction: onCompaction,
-                downloadFile: downloadFile
-            )
-            .equatable()
-            .id(currentActivityRow.id)
-            .onAppear {
-                let index = scrollState.displayRowIndex(for: currentActivityRow.id) ?? 0
-                builtRowDidAppear(id: currentActivityRow.id, index: index)
-            }
-            .onDisappear {
-                builtRowDidDisappear(id: currentActivityRow.id)
-            }
-            #if DEBUG
-            .background(MotionTraceProbe(id: "working"))
-            #endif
+        TranscriptRowView(
+            sessionID: sessionID,
+            row: currentStatusRow,
+            subagents: [],
+            liveSession: liveSession,
+            onTool: onTool,
+            onSubagent: onSubagent,
+            onSubagentResult: onSubagentResult,
+            onCompaction: onCompaction,
+            downloadFile: downloadFile
+        )
+        .equatable()
+        .id(currentStatusRow.id)
+        .onAppear {
+            let index = scrollState.displayRowIndex(for: currentStatusRow.id) ?? 0
+            builtRowDidAppear(id: currentStatusRow.id, index: index)
         }
+        .onDisappear {
+            builtRowDidDisappear(id: currentStatusRow.id)
+        }
+        #if DEBUG
+        .background(MotionTraceProbe(id: "status"))
+        #endif
 
         Color.clear
             .frame(height: 1)
@@ -1511,7 +1520,7 @@ struct SessionTranscriptView: View {
     }
 
     private func rowUsesLiveSession(_ row: TranscriptRow) -> Bool {
-        guard case .liveActivityFooter = row.kind else { return false }
+        guard case .status(.activity) = row.kind else { return false }
         return true
     }
 
@@ -1830,6 +1839,25 @@ struct PendingPromptView: View {
     }
 }
 
+struct TranscriptStatusView: View {
+    let status: TranscriptStatus
+    let session: Session?
+
+    @ViewBuilder
+    var body: some View {
+        switch status {
+        case .activity(let footer):
+            LiveActivityFooterView(footer: footer, session: session)
+        case .worked(let durationMs):
+            WorkedFooter(durationMs: durationMs)
+        case .none:
+            Color.clear
+                .frame(height: 0)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
 struct TranscriptRowView: View, Equatable {
     let sessionID: String
     let row: TranscriptRow
@@ -1875,10 +1903,8 @@ struct TranscriptRowView: View, Equatable {
                     onCompaction: onCompaction,
                     downloadFile: downloadFile
                 )
-            case .workedFooter(let durationMs):
-                WorkedFooter(durationMs: durationMs)
-            case .liveActivityFooter(let footer):
-                LiveActivityFooterView(footer: footer, session: liveSession)
+            case .status(let status):
+                TranscriptStatusView(status: status, session: liveSession)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

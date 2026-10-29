@@ -310,11 +310,16 @@ public struct Turn: Identifiable, Sendable, Equatable {
     }
 }
 
+public enum TranscriptStatus: Sendable, Equatable {
+    case activity(ActivityFooter)
+    case worked(durationMs: Int)
+    case none
+}
+
 public enum TranscriptRowKind: Sendable, Equatable {
     case prompt(PromptEntry)
     case item(TurnItem)
-    case workedFooter(durationMs: Int)
-    case liveActivityFooter(ActivityFooter)
+    case status(TranscriptStatus)
 }
 
 public struct TranscriptRow: Identifiable, Sendable, Equatable {
@@ -336,14 +341,25 @@ public func transcriptRows(for turn: Turn) -> [TranscriptRow] {
     rows += turn.items.map { item in
         TranscriptRow(id: item.id, turnID: turn.id, kind: .item(item))
     }
-    if turn.hasWorkedFooter {
-        rows.append(TranscriptRow(id: "\(turn.id)-worked", turnID: turn.id, kind: .workedFooter(durationMs: turn.durationMs)))
-    }
     return rows
 }
 
 public func transcriptRows(for turns: [Turn]) -> [TranscriptRow] {
-    turns.flatMap(transcriptRows(for:))
+    var rows = turns.flatMap(transcriptRows(for:))
+    let status: TranscriptStatus
+    if let turn = turns.last, turn.hasWorkedFooter {
+        status = .worked(durationMs: turn.durationMs)
+    } else {
+        status = .none
+    }
+    rows.append(
+        TranscriptRow(
+            id: "status",
+            turnID: turns.last?.id ?? "",
+            kind: .status(status)
+        )
+    )
+    return rows
 }
 
 public struct SubagentIndex: Sendable, Equatable {

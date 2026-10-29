@@ -380,7 +380,7 @@ public final class SessionStore {
             )
             turns = Array(turns.prefix(prefixCount)) + grouped.turns
             turnRows = Array(turnRows.prefix(prefixCount)) + grouped.turns.map(transcriptRows(for:))
-            rows = turnRows.flatMap { $0 }
+            rows = transcriptRows(for: turns)
             turnStartIndices = Array(turnStartIndices.prefix(prefixCount)) + grouped.startIndices.map { startIndex + $0 }
             let newPrefixCount = max(0, turns.count - 2)
             let newStartIndex = turnStartIndices.indices.contains(newPrefixCount) ? turnStartIndices[newPrefixCount] : 0
@@ -389,7 +389,7 @@ public final class SessionStore {
             let grouped = groupTurnsWithStarts(entries: transcriptStore.entries, working: session.state == .working, now: now)
             turns = grouped.turns
             turnRows = grouped.turns.map(transcriptRows(for:))
-            rows = turnRows.flatMap { $0 }
+            rows = transcriptRows(for: turns)
             turnStartIndices = grouped.startIndices
             updateEarlierIdentityKeys()
         }

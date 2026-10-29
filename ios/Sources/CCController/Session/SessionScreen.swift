@@ -177,6 +177,7 @@ struct SessionScreen: View {
         let _ = store.draftRevision(for: sessionID)
         let _ = store.pendingTurnStarts
         let _ = store.queuedNotes
+        let _ = store.reconciledNoteAliases
         let pendingTurnStart = store.pendingTurnStart(for: sessionID)
         if let sessionStore = store.openSession(sessionID) {
             let currentSession = store.sessions[sessionID] ?? sessionStore.session
@@ -195,6 +196,7 @@ struct SessionScreen: View {
                             transcriptEntries: sessionStore.entries
                         ),
                         queuedNotes: store.queuedNotes(for: sessionID),
+                        noteAliases: store.reconciledNoteAliases(for: sessionID),
                         sendRevealCoordinator: sendRevealCoordinator,
                         sendAcceptedRevision: sendAcceptedRevision,
                         activityFooter: activityFooter(

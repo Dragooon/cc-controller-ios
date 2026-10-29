@@ -26,6 +26,7 @@ public final class AppStore {
     public private(set) var unknownEventCount = 0
     public private(set) var deciding: Set<String> = []
     public private(set) var queuedNotes: [String: [QueuedNote]] = [:]
+    public private(set) var reconciledNoteAliases: [String: [String: String]] = [:]
     public private(set) var pendingTurnStarts: [String: Date] = [:]
     public private(set) var attachments: [String: [AttachmentItem]] = [:]
     public private(set) var attachmentNotices: [String: String] = [:]
@@ -347,6 +348,10 @@ public final class AppStore {
 
     public func queuedNotes(for sessionID: String) -> [QueuedNote] {
         queuedNotes[sessionID] ?? []
+    }
+
+    public func reconciledNoteAliases(for sessionID: String) -> [String: String] {
+        reconciledNoteAliases[sessionID] ?? [:]
     }
 
     public func pendingTurnStart(for sessionID: String) -> Date? {
@@ -1524,12 +1529,30 @@ public final class AppStore {
     private func reconcileQueuedNotes(for sessionID: String, changedEntries: [TranscriptEntry]) {
         guard var pending = queuedNotes[sessionID] else { return }
         let before = Dictionary(uniqueKeysWithValues: pending.map { ($0.id, $0) })
+        var aliases = reconciledNoteAliases[sessionID] ?? [:]
         for entry in changedEntries {
+            let pendingIDs = Set(pending.map(\.id))
             pending = reconcileQueuedNote(pending, promptEntry: entry)
+            let reconciledIDs = pendingIDs.subtracting(pending.map(\.id))
+            if !reconciledIDs.isEmpty {
+                let entryID: String
+                if case .prompt(let prompt) = entry {
+                    entryID = entry.id ?? promptEntryIdentity(prompt)
+                } else {
+                    entryID = entry.id ?? ""
+                }
+                if !entryID.isEmpty {
+                    for noteID in reconciledIDs {
+                        aliases[entryID] = noteID
+                    }
+                }
+            }
             if pending.isEmpty { break }
         }
         if pending.isEmpty { queuedNotes.removeValue(forKey: sessionID) }
         else { queuedNotes[sessionID] = pending }
+        if aliases.isEmpty { reconciledNoteAliases.removeValue(forKey: sessionID) }
+        else { reconciledNoteAliases[sessionID] = aliases }
         #if DEBUG
         for noteID in before.keys where !pending.contains(where: { $0.id == noteID }) {
             if let entry = changedEntries.first(where: { entry in
