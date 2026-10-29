@@ -219,6 +219,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         let sidebar = sessionsList(in: app)
         XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        assertHeaderAlignment(in: app)
         let toggles = app.buttons.matching(identifier: "sidebar-toggle")
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while open")
         let openFrame = toggles.firstMatch.frame
@@ -228,12 +229,34 @@ final class SidebarOverlayFlowTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while closed")
         assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while closing")
+        assertHeaderAlignment(in: app)
 
         toggles.firstMatch.tap()
         XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sidebar did not reopen")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle after reopening")
         assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while reopening")
+        assertHeaderAlignment(in: app)
+    }
+
+    func testPortraitSidebarToggleAlignsWithNavigationTitle() throws {
+        let app = launch(orientation: .portrait, sessionID: "long-session")
+        defer { app.terminate() }
+
+        let sizeClass = app.descendants(matching: .any)
+            .matching(identifier: "horizontal-size-class")
+            .firstMatch
+        XCTAssertTrue(sizeClass.waitForExistence(timeout: 30), "Horizontal size-class probe did not load")
+        try XCTSkipUnless(sizeClass.label == "regular", "Portrait navigation-title alignment is only applicable to regular layouts")
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Portrait sessions list did not load")
+        assertHeaderAlignment(in: app)
+
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Portrait sidebar did not close")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        assertHeaderAlignment(in: app)
     }
 
     func testApprovalsCapsuleFollowsSidebarVisibility() throws {
@@ -300,13 +323,14 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
     private func assertHeaderAlignment(in app: XCUIApplication) {
         let sidebarToggle = app.buttons["sidebar-toggle"]
-        let sessionInfo = app.buttons["session-info"]
+        let navigationTitle = app.staticTexts["selected-session-name"]
         XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 10), "Sidebar header toggle did not load")
-        XCTAssertTrue(sessionInfo.waitForExistence(timeout: 10), "Session info button did not load")
+        XCTAssertTrue(navigationTitle.waitForExistence(timeout: 10), "Navigation title did not load")
         let sidebarCenterY = sidebarToggle.frame.midY
-        let detailCenterY = sessionInfo.frame.midY
-        print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) session-info-center-y=\(detailCenterY) delta=\(abs(sidebarCenterY - detailCenterY))")
-        XCTAssertLessThanOrEqual(abs(sidebarCenterY - detailCenterY), 2, "Sidebar and detail toolbar rows were vertically misaligned")
+        let titleCenterY = navigationTitle.frame.midY
+        print("NAVIGATION_TITLE_FRAME \(navigationTitle.frame)")
+        print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) navigation-title-center-y=\(titleCenterY) delta=\(abs(sidebarCenterY - titleCenterY))")
+        XCTAssertLessThanOrEqual(abs(sidebarCenterY - titleCenterY), 1, "Sidebar toggle and navigation title were vertically misaligned")
     }
 
     private func assertDetailIsBesideSidebar(detail: XCUIElement, sidebar: XCUIElement, in app: XCUIApplication) {

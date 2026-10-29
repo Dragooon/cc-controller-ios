@@ -192,8 +192,9 @@ struct MainSplitView: View {
 #endif
             .overlay {
                 NavigationBarMetricsReader { centerY in
-                    // UINavigationBar's content row sits 5 pt above its outer frame center.
-                    let inset = max(0, centerY - 27)
+                    // The reader reports window coordinates; controls are in this GeometryReader's local space.
+                    let titleRowCenterY = centerY - proxy.frame(in: .global).minY
+                    let inset = max(0, titleRowCenterY - 22)
                     guard abs(regularHeaderTopInset - inset) > 0.5 else { return }
                     regularHeaderTopInset = inset
                 }
@@ -811,46 +812,89 @@ private struct SidebarApprovalModifier: AnimatableModifier {
 private struct NavigationBarMetricsReader: UIViewRepresentable {
     let onCenterY: (CGFloat) -> Void
 
-    func makeUIView(context: Context) -> UIView {
-        UIView(frame: .zero)
+    func makeUIView(context: Context) -> NavigationBarMetricsReaderView {
+        let view = NavigationBarMetricsReaderView()
+        view.onCenterY = onCenterY
+        return view
     }
 
-    func updateUIView(_ view: UIView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = view.window,
-                  let bar = navigationBars(in: window)
-                    .filter({ !$0.isHidden && $0.alpha > 0 && $0.bounds.height > 0 })
-                    .max(by: { $0.convert($0.bounds, to: window).width < $1.convert($1.bounds, to: window).width }) else { return }
-            if let sessionInfo = findView(withAccessibilityIdentifier: "session-info", in: window) {
-                onCenterY(sessionInfo.convert(sessionInfo.bounds, to: window).midY)
-                return
-            }
-            let barFrame = bar.convert(bar.bounds, to: window)
-            let subviewFrames = descendantFrames(in: bar, window: window)
-            let contentCandidates = subviewFrames.filter { frame in
-                frame.width >= barFrame.width * 0.8
-                    && frame.height >= 30
-                    && frame.height <= barFrame.height
-            }
-            let contentFrame = contentCandidates.min { left, right in
-                abs(left.height - 44) < abs(right.height - 44)
-            }
-            onCenterY((contentFrame ?? barFrame).midY)
+    func updateUIView(_ view: NavigationBarMetricsReaderView, context: Context) {
+        view.onCenterY = onCenterY
+        view.scheduleMeasurement()
+    }
+}
+
+private final class NavigationBarMetricsReaderView: UIView {
+    var onCenterY: ((CGFloat) -> Void)?
+    private var measurementScheduled = false
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        scheduleMeasurement()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        scheduleMeasurement()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        scheduleMeasurement()
+    }
+
+    func scheduleMeasurement() {
+        guard !measurementScheduled else { return }
+        measurementScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.measurementScheduled = false
+            self.measure()
         }
+    }
+
+    private func measure() {
+        guard let window,
+              let bar = navigationBars(in: window)
+                .filter({ !$0.isHidden && $0.alpha > 0 && $0.bounds.height > 0 })
+                .max(by: { $0.convert($0.bounds, to: window).width < $1.convert($1.bounds, to: window).width }) else { return }
+        let barFrame = bar.convert(bar.bounds, to: window)
+        let subviewFrames = descendantFrames(in: bar, window: window)
+        if let titleFrame = titleLikeFrame(in: subviewFrames, barFrame: barFrame) {
+            onCenterY?(titleFrame.midY)
+            return
+        }
+        let contentCandidates = subviewFrames.filter { frame in
+            frame.width >= barFrame.width * 0.8
+                && frame.height >= 30
+                && frame.height <= barFrame.height
+        }
+        let contentFrame = contentCandidates.min { left, right in
+            abs(left.height - 44) < abs(right.height - 44)
+        }
+        onCenterY?((contentFrame ?? barFrame).midY)
+    }
+
+    private func titleLikeFrame(in frames: [CGRect], barFrame: CGRect) -> CGRect? {
+        frames
+            .filter { frame in
+                frame.width >= 80
+                    && frame.width < barFrame.width * 0.8
+                    && frame.height >= 15
+                    && frame.height <= 30
+                    && abs(frame.midX - barFrame.midX) < barFrame.width * 0.35
+            }
+            .min { left, right in
+                let leftScore = abs(left.height - 20) + abs(left.midX - barFrame.midX) / 100
+                let rightScore = abs(right.height - 20) + abs(right.midX - barFrame.midX) / 100
+                return leftScore < rightScore
+            }
     }
 
     private func descendantFrames(in view: UIView, window: UIWindow) -> [CGRect] {
         view.subviews.flatMap { subview in
             [subview.convert(subview.bounds, to: window)] + descendantFrames(in: subview, window: window)
         }
-    }
-
-    private func findView(withAccessibilityIdentifier identifier: String, in view: UIView) -> UIView? {
-        if view.accessibilityIdentifier == identifier { return view }
-        for subview in view.subviews {
-            if let match = findView(withAccessibilityIdentifier: identifier, in: subview) { return match }
-        }
-        return nil
     }
 
     private func navigationBars(in view: UIView) -> [UINavigationBar] {
