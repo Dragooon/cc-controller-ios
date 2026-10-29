@@ -65,13 +65,17 @@ struct TranscriptSyncingView: View {
     var body: some View {
         ZStack {
             if phase == .glyph {
-                SpinnerGlyph(active: true, frozen: reduceMotion)
-                    .font(.system(size: 30))
-                    .frame(width: 42, height: 42)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Loading messages")
-                    .accessibilityIdentifier("session-loading")
-                    .transition(.opacity)
+                ZStack {
+                    Color.clear
+                    SpinnerGlyph(active: true, frozen: reduceMotion)
+                        .font(.system(size: 30))
+                }
+                .frame(width: 42, height: 42)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Loading messages")
+                .accessibilityIdentifier("session-loading")
+                .accessibilityAddTraits(.updatesFrequently)
+                .transition(.opacity)
             } else {
                 Color.clear
                     .accessibilityHidden(true)
