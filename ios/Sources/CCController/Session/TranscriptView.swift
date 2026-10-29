@@ -250,6 +250,7 @@ struct SessionTranscriptView: View {
     @State private var diagnosticWrittenCount = 0
     @State private var diagnosticStatus = "count=0"
     @State private var subagentIndex: SubagentIndex
+    @State private var expansion: TranscriptExpansionStore
 
     init(
         sessionID: String = "",
@@ -310,6 +311,7 @@ struct SessionTranscriptView: View {
         self.scrollAnchor = scrollAnchor
         _renderedQueuedNotes = State(initialValue: queuedNotes)
         _scrollState = State(initialValue: TranscriptScrollState(sessionID: sessionID))
+        _expansion = State(initialValue: TranscriptExpansionStore())
     }
 
     var body: some View {
@@ -318,8 +320,10 @@ struct SessionTranscriptView: View {
 #endif
         if collectionEngineEnabled {
             transcriptCollectionBody
+                .environment(\.transcriptExpansion, expansion)
         } else {
             legacyTranscriptBody
+                .environment(\.transcriptExpansion, expansion)
         }
     }
 
@@ -423,6 +427,7 @@ struct SessionTranscriptView: View {
             sessionID: sessionID,
             rows: displayRows,
             queuedNotes: queuedNotes,
+            transcriptExpansion: expansion,
             sessionState: sessionState,
             subagents: subagents,
             liveSession: liveSession,
@@ -1902,6 +1907,7 @@ struct TranscriptRowView: View, Equatable {
             case .item(let item):
                 TurnItemView(
                     item: item,
+                    expansionKey: "\(sessionID):\(row.id)",
                     subagents: subagents,
                     onTool: onTool,
                     onSubagent: onSubagent,
@@ -1919,6 +1925,7 @@ struct TranscriptRowView: View, Equatable {
 
 struct TurnItemView: View {
     let item: TurnItem
+    let expansionKey: String
     let subagents: [Subagent]
     let onTool: (ToolEntry) -> Void
     let onSubagent: (SubagentEntry) -> Void
@@ -1928,6 +1935,7 @@ struct TurnItemView: View {
 
     init(
         item: TurnItem,
+        expansionKey: String,
         subagents: [Subagent] = [],
         onTool: @escaping (ToolEntry) -> Void,
         onSubagent: @escaping (SubagentEntry) -> Void,
@@ -1936,6 +1944,7 @@ struct TurnItemView: View {
         downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil
     ) {
         self.item = item
+        self.expansionKey = expansionKey
         self.subagents = subagents
         self.onTool = onTool
         self.onSubagent = onSubagent
@@ -1961,7 +1970,11 @@ struct TurnItemView: View {
         case .assistant(let entry):
             AssistantReplyView(text: entry.text ?? "")
         case .tools(let run):
-            ToolRunCard(run: run, onTool: onTool)
+            ToolRunCard(
+                run: run,
+                expansionKey: expansionKey,
+                onTool: onTool
+            )
         case .subagent(let entry):
             SubagentCard(entry: entry, onOpen: onSubagent)
         case .subagentResult(let entry):

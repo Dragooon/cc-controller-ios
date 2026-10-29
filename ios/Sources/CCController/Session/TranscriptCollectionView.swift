@@ -632,6 +632,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
     let sessionID: String
     let rows: [TranscriptRow]
     let queuedNotes: [QueuedNote]
+    let transcriptExpansion: TranscriptExpansionStore
     let sessionState: SessionState?
     let subagents: [Subagent]
     let liveSession: Session?
@@ -731,6 +732,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var onCopyNote: (String) -> Void = { _ in }
         private var onSendAgain: (String) -> Void = { _ in }
         private var onUnbuiltDiagnostic: () -> Void = {}
+        private var transcriptExpansion: TranscriptExpansionStore?
         private var recorder: ScrollDiagnosticsRecorder?
         private var lastUnbuiltDiagnosticAt: Date?
         private var didRunInitialMeasureCheck = false
@@ -805,6 +807,13 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             onSendAgain = representable.onSendAgain
             onUnbuiltDiagnostic = representable.onUnbuiltDiagnostic
             noteAliases = representable.noteAliases
+            if transcriptExpansion !== representable.transcriptExpansion {
+                transcriptExpansion?.onChange = nil
+                transcriptExpansion = representable.transcriptExpansion
+                transcriptExpansion?.onChange = { [weak self] key in
+                    self?.transcriptExpansionDidChange(for: key)
+                }
+            }
             hasMoreEarlier = representable.hasMoreEarlier
             sessionState = representable.sessionState
             liveSession = representable.liveSession
@@ -843,6 +852,26 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 }
             }
             return readableContentMaxWidthChanged
+        }
+
+        private func transcriptExpansionDidChange(for key: String) {
+            guard let collectionView,
+                  let layout = collectionView.collectionViewLayout as? TranscriptListLayout,
+                  let item = currentContent.keys.first(where: { item in
+                      guard case .row(let rowID) = item else { return false }
+                      return "\(sessionIDForView):\(rowID)" == key
+                  }),
+                  let indexPath = dataSource?.indexPath(for: item),
+                  let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+            let viewportTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+            layout.anchor = .item(
+                item,
+                distanceFromViewportTop: attributes.frame.minY - viewportTop
+            )
+            layout.invalidateHeights(for: [item])
+            UIView.performWithoutAnimation {
+                collectionView.layoutIfNeeded()
+            }
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1292,6 +1321,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             UIHostingConfiguration {
                 self.hostedView(for: item)
                     .environment(\.isTranscriptSizingPass, sizing)
+                    .environment(\.transcriptExpansion, transcriptExpansion)
             }
             .margins(.all, 0)
         }

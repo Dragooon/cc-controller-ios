@@ -3,16 +3,25 @@ import SwiftUI
 
 struct ToolRunCard: View {
     let run: ToolRun
+    let expansionKey: String
     let onTool: (ToolEntry) -> Void
+    @Environment(\.transcriptExpansion) private var transcriptExpansion
     @State private var userExpanded: Bool?
 
-    init(run: ToolRun, onTool: @escaping (ToolEntry) -> Void) {
+    init(run: ToolRun, expansionKey: String, onTool: @escaping (ToolEntry) -> Void) {
         self.run = run
+        self.expansionKey = expansionKey
         self.onTool = onTool
         _userExpanded = State(initialValue: nil)
     }
 
-    private var isExpanded: Bool { userExpanded ?? !nativeToolRunIsCollapsed(run) }
+    private var isExpanded: Bool {
+        if let transcriptExpansion {
+            return transcriptExpansion.value(for: expansionKey) ?? !nativeToolRunIsCollapsed(run)
+        }
+        return userExpanded ?? !nativeToolRunIsCollapsed(run)
+    }
+
     private var isCollapsedRun: Bool { nativeToolRunIsCollapsed(run) && !isExpanded }
 
     private var collapsedEntries: [ToolEntry] {
@@ -23,7 +32,14 @@ struct ToolRunCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if run.entries.count >= 4 {
-                Button { userExpanded = !isExpanded } label: {
+                Button {
+                    let expanded = !isExpanded
+                    if let transcriptExpansion {
+                        transcriptExpansion.set(expanded, for: expansionKey)
+                    } else {
+                        userExpanded = expanded
+                    }
+                } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(nativeToolRunLabel(run))
                             .font(.subheadline)
