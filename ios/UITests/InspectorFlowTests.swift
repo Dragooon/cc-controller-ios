@@ -23,7 +23,6 @@ final class InspectorFlowTests: XCTestCase {
         openStaffSession(app)
 
         let engineer = app.buttons["subagent-card-agent-done"]
-        XCTAssertTrue(revealInTranscript(engineer, in: app), "Engineer subagent card did not load")
         let scrollView = transcriptScroll(in: app)
         let bottomStack = app.descendants(matching: .any)["bottom-stack"]
         XCTAssertTrue(bottomStack.waitForExistence(timeout: 15), "Bottom stack did not load")
@@ -36,6 +35,7 @@ final class InspectorFlowTests: XCTestCase {
         composer.tap()
         composer.typeText("typed-nav-marker")
         XCTAssertEqual(composer.value as? String, marker)
+        XCTAssertTrue(revealInTranscript(engineer, in: app), "Engineer subagent card did not load")
         XCTAssertTrue(
             reveal(engineer, in: scrollView, above: bottomStack),
             "Engineer subagent card did not load above the bottom stack"

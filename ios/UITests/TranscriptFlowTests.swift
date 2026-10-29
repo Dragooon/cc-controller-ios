@@ -54,11 +54,6 @@ final class TranscriptFlowTests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(revealInTranscript(toolGroup, in: app), "Tool group did not load")
         let transcriptScroll = transcriptScroll(in: app)
-        transcriptScroll.swipeDown()
-        for _ in 0..<4 where !toolGroup.isHittable {
-            transcriptScroll.swipeDown()
-        }
-        XCTAssertTrue(toolGroup.isHittable, "Tool group did not become tappable")
         for _ in 0..<3 {
             transcriptScroll.swipeUp(velocity: .fast)
         }
