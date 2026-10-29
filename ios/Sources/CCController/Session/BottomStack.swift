@@ -426,14 +426,14 @@ struct BottomStackView: View {
     }
 
     private func finishSuccessfulSend(originalText: String, submittedText: String) async {
-        if !isSlashCommand(submittedText) {
-            await configuration.sendRevealCoordinator?.waitForReveal()
-        }
         #if DEBUG
         recordLifecycleEvent(name: "send-focus-drop", sessionID: configuration.sessionID)
         MotionTrace.shared.recordComposerCleared()
         #endif
         composerFocused = false
+        if !isSlashCommand(submittedText) {
+            await configuration.sendRevealCoordinator?.waitForReveal()
+        }
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
