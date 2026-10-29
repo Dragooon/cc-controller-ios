@@ -399,6 +399,136 @@ final class SessionStoreTests: XCTestCase {
         _ = try? await refetch.value
     }
 
+    func testMatchingCachedRevisionIsReadyBeforeDelayedInitialPage() async throws {
+        let client = makeClient()
+        SessionStoreURLProtocol.completions = [.succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))), .suspend]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: entries(from: 1, through: 1),
+            cachedRev: 7,
+            cachedEpoch: "epoch-a",
+            daemonEpoch: "epoch-a",
+            serverRev: 7,
+            isStateCurrent: true,
+            builtFromCache: true
+        )
+        let initial = Task { try await store.loadInitial() }
+        await waitForRequest(count: 2)
+
+        XCTAssertEqual(store.readiness, .ready)
+        SessionStoreURLProtocol.completeNext(.succeed(pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false, rev: 7)))
+        _ = try await initial.value
+    }
+
+    func testChangedCachedRevisionSyncsUntilTailMerges() async throws {
+        let client = makeClient()
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: entries(from: 1, through: 2), total: 2, hasMore: false, rev: 8),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: entries(from: 1, through: 1),
+            cachedRev: 7,
+            cachedEpoch: "epoch-a",
+            daemonEpoch: "epoch-a",
+            serverRev: 8,
+            isStateCurrent: true,
+            builtFromCache: true
+        )
+        XCTAssertEqual(store.readiness, .syncing)
+        try await store.loadInitial()
+        XCTAssertEqual(store.readiness, .ready)
+        XCTAssertEqual(store.syncedRev, 8)
+    }
+
+    func testDifferentEpochSyncsUntilTailMerges() async throws {
+        let client = makeClient()
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false, rev: 7),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: entries(from: 1, through: 1),
+            cachedRev: 7,
+            cachedEpoch: "epoch-a",
+            daemonEpoch: "epoch-b",
+            serverRev: 7,
+            isStateCurrent: true,
+            builtFromCache: true
+        )
+        XCTAssertEqual(store.readiness, .syncing)
+        try await store.loadInitial()
+        XCTAssertEqual(store.readiness, .ready)
+    }
+
+    func testCurrentStateWithoutRevisionIsReadyForNonEmptyCache() {
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: makeClient(),
+            entries: entries(from: 1, through: 1),
+            daemonEpoch: "epoch-a",
+            isStateCurrent: true,
+            builtFromCache: true
+        )
+        XCTAssertEqual(store.readiness, .ready)
+    }
+
+    func testStateMustBeCurrentBeforeCachedRevisionCanBeReady() {
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: makeClient(),
+            entries: entries(from: 1, through: 1),
+            cachedRev: 7,
+            cachedEpoch: "epoch-a",
+            daemonEpoch: "epoch-a",
+            serverRev: 7,
+            builtFromCache: true
+        )
+        XCTAssertEqual(store.readiness, .syncing)
+        store.updateReadiness(isStateCurrent: true, daemonEpoch: "epoch-a", serverRev: 7, isOffline: false)
+        XCTAssertEqual(store.readiness, .ready)
+    }
+
+    func testOfflineAndFailedInitialFetchAreReady() async throws {
+        let offline = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: makeClient(),
+            entries: [],
+            isOffline: true,
+            builtFromCache: true
+        )
+        XCTAssertEqual(offline.readiness, .ready)
+
+        SessionStoreURLProtocol.completions = [.fail(TestTranscriptError.failed)]
+        let failed = SessionStore(session: Session(id: "session-1", live: true), client: makeClient())
+        _ = try? await failed.loadInitial()
+        XCTAssertEqual(failed.readiness, .ready)
+    }
+
+    func testLiveRevisionAdvancesAndGapClearsIt() async throws {
+        let client = makeClient()
+        SessionStoreURLProtocol.bodies = [
+            try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true))),
+            pageData(entries: entries(from: 1, through: 1), total: 1, hasMore: false, rev: 10),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(session: Session(id: "session-1", live: true), client: client)
+        try await store.loadInitial()
+        _ = store.mergeLive(entries(from: 2, through: 2), entryCount: 2, rev: 11)
+        XCTAssertEqual(store.syncedRev, 11)
+        store.observeServerTotal(5)
+        XCTAssertTrue(store.hasTranscriptGap)
+        XCTAssertNil(store.syncedRev)
+    }
+
     private func waitForRequest(count: Int) async {
         for _ in 0..<100 where SessionStoreURLProtocol.requests.count < count {
             await Task.yield()
@@ -427,8 +557,8 @@ final class SessionStoreTests: XCTestCase {
         }
     }
 
-    private func pageData(entries: [TranscriptEntry], total: Int, hasMore: Bool) -> Data {
-        try! JSONEncoder.ccKit().encode(TranscriptPage(entries: entries, total: total, hasMore: hasMore))
+    private func pageData(entries: [TranscriptEntry], total: Int, hasMore: Bool, rev: Int? = nil) -> Data {
+        try! JSONEncoder.ccKit().encode(TranscriptPage(entries: entries, total: total, hasMore: hasMore, rev: rev))
     }
 }
 

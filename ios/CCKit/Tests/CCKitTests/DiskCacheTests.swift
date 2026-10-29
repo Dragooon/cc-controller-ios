@@ -32,6 +32,44 @@ final class DiskCacheTests: XCTestCase {
         XCTAssertEqual(kind, "malformed")
     }
 
+    func testTranscriptV2RoundTripsEntriesRevisionAndEpoch() async throws {
+        let directory = temporaryDirectory()
+        let cache = DiskCache(directory: directory)
+        let state = state(value: "v2")
+        let entries = [entry(id: "v2-entry", text: "cached")]
+
+        await cache.saveNow(
+            state,
+            changedTranscripts: ["v2": entries],
+            changedTranscriptMetadata: ["v2": TranscriptCacheMetadata(rev: 42, epoch: "epoch-a")],
+            retainedTranscriptKeys: ["v2"]
+        )
+
+        let loadedValue = try await cache.load()
+        let loaded = try XCTUnwrap(loadedValue)
+        XCTAssertEqual(loaded.transcripts["v2"], entries)
+        XCTAssertEqual(loaded.transcriptMetadata["v2"], TranscriptCacheMetadata(rev: 42, epoch: "epoch-a"))
+        let data = try Data(contentsOf: await cache.transcriptFileURL(for: "v2"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["v"] as? Int, 2)
+        XCTAssertEqual(object["rev"] as? Int, 42)
+        XCTAssertEqual(object["epoch"] as? String, "epoch-a")
+    }
+
+    func testLegacyTranscriptArrayHasUnknownRevisionMetadata() async throws {
+        let directory = temporaryDirectory()
+        let cache = DiskCache(directory: directory)
+        let state = state(value: "legacy-transcript")
+        await cache.saveNow(state, changedTranscripts: ["legacy-transcript": [entry(id: "legacy")]], retainedTranscriptKeys: ["legacy-transcript"])
+        let url = await cache.transcriptFileURL(for: "legacy-transcript")
+        try Data("[{\"kind\":\"assistant\",\"id\":\"legacy\"}]".utf8).write(to: url, options: .atomic)
+
+        let loadedValue = try await cache.load()
+        let loaded = try XCTUnwrap(loadedValue)
+        XCTAssertEqual(loaded.transcripts["legacy-transcript"]?.first?.id, "legacy")
+        XCTAssertEqual(loaded.transcriptMetadata["legacy-transcript"], TranscriptCacheMetadata())
+    }
+
     func testOnlyChangedTranscriptsAreWrittenAndUnopenedTranscriptSurvives() async throws {
         let directory = temporaryDirectory()
         let cache = DiskCache(directory: directory)

@@ -147,20 +147,23 @@ public struct TranscriptPage: Codable, Sendable, Equatable {
     public var entries: [TranscriptEntry]
     public var total: Int
     public var hasMore: Bool
+    public var rev: Int?
 
-    public init(entries: [TranscriptEntry], total: Int, hasMore: Bool) {
+    public init(entries: [TranscriptEntry], total: Int, hasMore: Bool, rev: Int? = nil) {
         self.entries = entries
         self.total = total
         self.hasMore = hasMore
+        self.rev = rev
     }
 
-    private enum CodingKeys: String, CodingKey { case entries, total, hasMore }
+    private enum CodingKeys: String, CodingKey { case entries, total, hasMore, rev }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         entries = try decodeTranscriptEntries(from: container.superDecoder(forKey: .entries), sessionID: decoder.userInfo[.transcriptSessionID] as? String)
         total = try container.decode(Int.self, forKey: .total)
         hasMore = try container.decode(Bool.self, forKey: .hasMore)
+        rev = try container.decodeIfPresent(Int.self, forKey: .rev)
     }
 }
 public struct Decision: Codable, Sendable, Equatable { public var decided:Bool?;public var sessionId:String?;public init(decided:Bool? = nil,sessionId:String? = nil){self.decided = decided;self.sessionId = sessionId} }

@@ -175,10 +175,11 @@ public struct Limits: Codable, Sendable, Equatable {
 public struct StateSnapshot: Codable, Sendable, Equatable {
     public var sessions: [Session]?
     public var entries: [String: Int]?
+    public var revs: [String: Int]?
     public var device: Device?
     public var sleeping: [SleepingSession]?
-    public init(sessions: [Session]? = nil, entries: [String: Int]? = nil, device: Device? = nil, sleeping: [SleepingSession]? = nil) {
-        self.sessions = sessions; self.entries = entries; self.device = device; self.sleeping = sleeping
+    public init(sessions: [Session]? = nil, entries: [String: Int]? = nil, revs: [String: Int]? = nil, device: Device? = nil, sleeping: [SleepingSession]? = nil) {
+        self.sessions = sessions; self.entries = entries; self.revs = revs; self.device = device; self.sleeping = sleeping
     }
 }
 
@@ -324,6 +325,7 @@ public struct StateDelta: Codable, Sendable, Equatable {
     public var toolRunning: Bool?
     public var lastText: String?
     public var entries: [String: Int]?
+    public var revs: [String: Int]?
     public var usage: Usage?
     public var subagents: [Subagent]?
     public var shells: [Shell]?
@@ -331,12 +333,12 @@ public struct StateDelta: Codable, Sendable, Equatable {
     var rawObject: [String: JSONValue] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case sessionId, state, action, startedAt, idleSince, lastTool, lastToolInput, toolRunning, lastText, entries, usage, subagents, shells, pending
+        case sessionId, state, action, startedAt, idleSince, lastTool, lastToolInput, toolRunning, lastText, entries, revs, usage, subagents, shells, pending
     }
 
-    public init(sessionId: String? = nil, state: SessionState? = nil, action: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, entries: [String: Int]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, pending: [Approval]? = nil) {
-        self.sessionId = sessionId; self.state = state; self.action = action; self.startedAt = startedAt; self.idleSince = idleSince; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.entries = entries; self.usage = usage; self.subagents = subagents; self.shells = shells; self.pending = pending
-        self.rawObject = Self.presentKeys(sessionId: sessionId, state: state, action: action, startedAt: startedAt, idleSince: idleSince, lastTool: lastTool, lastToolInput: lastToolInput, toolRunning: toolRunning, lastText: lastText, entries: entries, usage: usage, subagents: subagents, shells: shells, pending: pending).reduce(into: [:]) { $0[$1] = .null }
+    public init(sessionId: String? = nil, state: SessionState? = nil, action: String? = nil, startedAt: Date? = nil, idleSince: Date? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, entries: [String: Int]? = nil, revs: [String: Int]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, pending: [Approval]? = nil) {
+        self.sessionId = sessionId; self.state = state; self.action = action; self.startedAt = startedAt; self.idleSince = idleSince; self.lastTool = lastTool; self.toolRunning = toolRunning; self.lastText = lastText; self.entries = entries; self.revs = revs; self.usage = usage; self.subagents = subagents; self.shells = shells; self.pending = pending
+        self.rawObject = Self.presentKeys(sessionId: sessionId, state: state, action: action, startedAt: startedAt, idleSince: idleSince, lastTool: lastTool, lastToolInput: lastToolInput, toolRunning: toolRunning, lastText: lastText, entries: entries, revs: revs, usage: usage, subagents: subagents, shells: shells, pending: pending).reduce(into: [:]) { $0[$1] = .null }
     }
 
     func merged(with newer: StateDelta) -> StateDelta {
@@ -352,6 +354,7 @@ public struct StateDelta: Codable, Sendable, Equatable {
         if keys.contains("toolRunning") { result.toolRunning = newer.toolRunning }
         if keys.contains("lastText") { result.lastText = newer.lastText }
         if keys.contains("entries") { result.entries = newer.entries }
+        if keys.contains("revs") { result.revs = newer.revs }
         if keys.contains("usage") { result.usage = newer.usage }
         if keys.contains("subagents") { result.subagents = newer.subagents }
         if keys.contains("shells") { result.shells = newer.shells }
@@ -363,10 +366,10 @@ public struct StateDelta: Codable, Sendable, Equatable {
 
     private var presentKeys: Set<String> {
         if !rawObject.isEmpty { return Set(rawObject.keys) }
-        return Self.presentKeys(sessionId: sessionId, state: state, action: action, startedAt: startedAt, idleSince: idleSince, lastTool: lastTool, lastToolInput: lastToolInput, toolRunning: toolRunning, lastText: lastText, entries: entries, usage: usage, subagents: subagents, shells: shells, pending: pending)
+        return Self.presentKeys(sessionId: sessionId, state: state, action: action, startedAt: startedAt, idleSince: idleSince, lastTool: lastTool, lastToolInput: lastToolInput, toolRunning: toolRunning, lastText: lastText, entries: entries, revs: revs, usage: usage, subagents: subagents, shells: shells, pending: pending)
     }
 
-    private static func presentKeys(sessionId: String?, state: SessionState?, action: String?, startedAt: Date?, idleSince: Date?, lastTool: String?, lastToolInput: JSONValue?, toolRunning: Bool?, lastText: String?, entries: [String: Int]?, usage: Usage?, subagents: [Subagent]?, shells: [Shell]?, pending: [Approval]?) -> Set<String> {
+    private static func presentKeys(sessionId: String?, state: SessionState?, action: String?, startedAt: Date?, idleSince: Date?, lastTool: String?, lastToolInput: JSONValue?, toolRunning: Bool?, lastText: String?, entries: [String: Int]?, revs: [String: Int]?, usage: Usage?, subagents: [Subagent]?, shells: [Shell]?, pending: [Approval]?) -> Set<String> {
         var keys = Set<String>()
         if sessionId != nil { keys.insert("sessionId") }
         if state != nil { keys.insert("state") }
@@ -378,6 +381,7 @@ public struct StateDelta: Codable, Sendable, Equatable {
         if toolRunning != nil { keys.insert("toolRunning") }
         if lastText != nil { keys.insert("lastText") }
         if entries != nil { keys.insert("entries") }
+        if revs != nil { keys.insert("revs") }
         if usage != nil { keys.insert("usage") }
         if subagents != nil { keys.insert("subagents") }
         if shells != nil { keys.insert("shells") }
@@ -386,7 +390,7 @@ public struct StateDelta: Codable, Sendable, Equatable {
     }
 
     public static func == (lhs: StateDelta, rhs: StateDelta) -> Bool {
-        lhs.sessionId == rhs.sessionId && lhs.state == rhs.state && lhs.action == rhs.action && lhs.startedAt == rhs.startedAt && lhs.idleSince == rhs.idleSince && lhs.lastTool == rhs.lastTool && lhs.lastToolInput == rhs.lastToolInput && lhs.toolRunning == rhs.toolRunning && lhs.lastText == rhs.lastText && lhs.entries == rhs.entries && lhs.usage == rhs.usage && lhs.subagents == rhs.subagents && lhs.shells == rhs.shells && lhs.pending == rhs.pending
+        lhs.sessionId == rhs.sessionId && lhs.state == rhs.state && lhs.action == rhs.action && lhs.startedAt == rhs.startedAt && lhs.idleSince == rhs.idleSince && lhs.lastTool == rhs.lastTool && lhs.lastToolInput == rhs.lastToolInput && lhs.toolRunning == rhs.toolRunning && lhs.lastText == rhs.lastText && lhs.entries == rhs.entries && lhs.revs == rhs.revs && lhs.usage == rhs.usage && lhs.subagents == rhs.subagents && lhs.shells == rhs.shells && lhs.pending == rhs.pending
     }
 }
 

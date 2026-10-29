@@ -48,7 +48,8 @@ public struct TranscriptEvent: Codable, Sendable, Equatable {
     public var entryCount: Int?
     public var replace: Bool?
     public var reset: Bool?
-    public init(sessionId: String? = nil, path: String? = nil, entry: TranscriptEntry? = nil, entryCount: Int? = nil, replace: Bool? = nil, reset: Bool? = nil) { self.sessionId = sessionId;self.path = path;self.entry = entry;self.entryCount = entryCount;self.replace = replace;self.reset = reset }
+    public var rev: Int?
+    public init(sessionId: String? = nil, path: String? = nil, entry: TranscriptEntry? = nil, entryCount: Int? = nil, replace: Bool? = nil, reset: Bool? = nil, rev: Int? = nil) { self.sessionId = sessionId;self.path = path;self.entry = entry;self.entryCount = entryCount;self.replace = replace;self.reset = reset;self.rev = rev }
 }
 public struct UsageEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var usage:Usage?;public init(sessionId:String? = nil,usage:Usage? = nil){self.sessionId = sessionId;self.usage = usage} }
 public struct SubagentsEvent: Codable, Sendable, Equatable { public var sessionId:String?;public var subagents:[Subagent]?;public init(sessionId:String? = nil,subagents:[Subagent]? = nil){self.sessionId = sessionId;self.subagents = subagents} }

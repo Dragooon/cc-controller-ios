@@ -1,15 +1,51 @@
 import Foundation
 
+public struct TranscriptCacheFile: Codable, Sendable, Equatable {
+    public let v: Int
+    public var entries: [TranscriptEntry]
+    public var rev: Int?
+    public var epoch: String?
+
+    public init(entries: [TranscriptEntry], rev: Int? = nil, epoch: String? = nil) {
+        self.v = 2
+        self.entries = entries
+        self.rev = rev
+        self.epoch = epoch
+    }
+
+    private enum CodingKeys: String, CodingKey { case v, entries, rev, epoch }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        v = try container.decodeIfPresent(Int.self, forKey: .v) ?? 1
+        entries = try decodeTranscriptEntries(from: container.superDecoder(forKey: .entries), sessionID: decoder.userInfo[.transcriptSessionID] as? String)
+        rev = try container.decodeIfPresent(Int.self, forKey: .rev)
+        epoch = try container.decodeIfPresent(String.self, forKey: .epoch)
+    }
+}
+
+public struct TranscriptCacheMetadata: Codable, Sendable, Equatable {
+    public var rev: Int?
+    public var epoch: String?
+
+    public init(rev: Int? = nil, epoch: String? = nil) {
+        self.rev = rev
+        self.epoch = epoch
+    }
+}
+
 public struct DiskCacheState: Codable, Sendable, Equatable {
     public var bootstrap: Bootstrap
     public var transcripts: [String: [TranscriptEntry]]
     public var updatedAt: Date
+    public var transcriptMetadata: [String: TranscriptCacheMetadata]
     var loadedLegacyFormat: Bool
 
-    public init(bootstrap: Bootstrap, transcripts: [String: [TranscriptEntry]] = [:], updatedAt: Date) {
+    public init(bootstrap: Bootstrap, transcripts: [String: [TranscriptEntry]] = [:], updatedAt: Date, transcriptMetadata: [String: TranscriptCacheMetadata] = [:]) {
         self.bootstrap = bootstrap
         self.transcripts = transcripts
         self.updatedAt = updatedAt
+        self.transcriptMetadata = transcriptMetadata
         self.loadedLegacyFormat = false
     }
 
@@ -32,6 +68,7 @@ public struct DiskCacheState: Codable, Sendable, Equatable {
             }
         }
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        transcriptMetadata = [:]
         loadedLegacyFormat = container.contains(.transcripts)
     }
 
@@ -63,10 +100,14 @@ public actor DiskCache {
         let stateData = try Data(contentsOf: stateURL)
         var state = try JSONDecoder.ccKit().decode(DiskCacheState.self, from: stateData)
         for url in transcriptURLs() {
-            guard let key = transcriptKey(for: url),
-                  let data = try? Data(contentsOf: url),
-                  let entries = try? decodeTranscriptEntries(from: data, sessionID: key) else { continue }
-            state.transcripts[key] = entries
+            guard let key = transcriptKey(for: url), let data = try? Data(contentsOf: url) else { continue }
+            if let file = try? JSONDecoder.ccKit().decode(TranscriptCacheFile.self, from: data) {
+                state.transcripts[key] = file.entries
+                state.transcriptMetadata[key] = TranscriptCacheMetadata(rev: file.rev, epoch: file.epoch)
+            } else if let entries = try? decodeTranscriptEntries(from: data, sessionID: key) {
+                state.transcripts[key] = entries
+                state.transcriptMetadata[key] = TranscriptCacheMetadata()
+            }
         }
         return state
     }
@@ -74,9 +115,11 @@ public actor DiskCache {
     public func save(
         _ state: DiskCacheState,
         changedTranscripts: [String: [TranscriptEntry]]? = nil,
+        changedTranscriptMetadata: [String: TranscriptCacheMetadata]? = nil,
         retainedTranscriptKeys: Set<String>? = nil
     ) {
         let changedTranscripts = changedTranscripts ?? state.transcripts
+        let changedTranscriptMetadata = changedTranscriptMetadata ?? state.transcriptMetadata
         let retainedTranscriptKeys = retainedTranscriptKeys ?? Set(state.transcripts.keys)
         pendingWrite?.cancel()
         pendingWrite = Task { [weak self] in
@@ -86,6 +129,7 @@ public actor DiskCache {
                 try await self.write(
                     state,
                     changedTranscripts: changedTranscripts,
+                    changedTranscriptMetadata: changedTranscriptMetadata,
                     retainedTranscriptKeys: retainedTranscriptKeys
                 )
             } catch is CancellationError {
@@ -97,9 +141,11 @@ public actor DiskCache {
     public func saveNow(
         _ state: DiskCacheState,
         changedTranscripts: [String: [TranscriptEntry]]? = nil,
+        changedTranscriptMetadata: [String: TranscriptCacheMetadata]? = nil,
         retainedTranscriptKeys: Set<String>? = nil
     ) {
         let changedTranscripts = changedTranscripts ?? state.transcripts
+        let changedTranscriptMetadata = changedTranscriptMetadata ?? state.transcriptMetadata
         let retainedTranscriptKeys = retainedTranscriptKeys ?? Set(state.transcripts.keys)
         pendingWrite?.cancel()
         pendingWrite = nil
@@ -107,6 +153,7 @@ public actor DiskCache {
             try write(
                 state,
                 changedTranscripts: changedTranscripts,
+                changedTranscriptMetadata: changedTranscriptMetadata,
                 retainedTranscriptKeys: retainedTranscriptKeys
             )
         } catch {
@@ -132,6 +179,7 @@ public actor DiskCache {
     private func write(
         _ state: DiskCacheState,
         changedTranscripts: [String: [TranscriptEntry]],
+        changedTranscriptMetadata: [String: TranscriptCacheMetadata],
         retainedTranscriptKeys: Set<String>
     ) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -141,7 +189,13 @@ public actor DiskCache {
         try protect(stateURL)
 
         for (key, entries) in changedTranscripts {
-            let data = try JSONEncoder.ccKit().encode(Array(entries.suffix(400)))
+            let metadata = changedTranscriptMetadata[key] ?? TranscriptCacheMetadata()
+            let file = TranscriptCacheFile(
+                entries: Array(entries.suffix(400)),
+                rev: metadata.rev,
+                epoch: metadata.epoch
+            )
+            let data = try JSONEncoder.ccKit().encode(file)
             let url = transcriptFileURL(for: key)
             try data.write(to: url, options: .atomic)
             try protect(url)

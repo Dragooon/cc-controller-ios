@@ -32,6 +32,7 @@ public final class AppStore {
     public private(set) var attachmentNotices: [String: String] = [:]
     public private(set) var attachmentRevision = 0
     public private(set) var draftRevisions: [String: Int] = [:]
+    public private(set) var isStateCurrent = false
     @ObservationIgnored private var drafts: [String: String] = [:]
     private var attachmentProgressDates: [String: Date] = [:]
     private var debugAttachmentSessions: Set<String> = []
@@ -75,8 +76,11 @@ public final class AppStore {
     @ObservationIgnored private var started = false
     @ObservationIgnored private var latestBootstrap: Bootstrap?
     @ObservationIgnored private var serverEntryCounts: [String: Int] = [:]
+    @ObservationIgnored private var serverRevs: [String: Int] = [:]
+    @ObservationIgnored private var daemonEpoch: String?
     @ObservationIgnored private var openStores: [String: SessionStore] = [:]
     @ObservationIgnored private var cachedTranscripts: [String: [TranscriptEntry]] = [:]
+    @ObservationIgnored private var cachedTranscriptMetadata: [String: TranscriptCacheMetadata] = [:]
     @ObservationIgnored private var cacheChangedStoreKeys: Set<String> = []
     @ObservationIgnored private var reconnectSince: Date?
     @ObservationIgnored private let eventCoalescer = LiveEventCoalescer()
@@ -168,7 +172,9 @@ public final class AppStore {
         noticeTask = nil
         noticePolicy.beginGracePeriod()
         started = true
+        isStateCurrent = false
         connection = .connecting
+        updateOpenStoreReadiness()
         pathTask = Task { [weak self] in
             guard let self else { return }
             for await _ in self.transport.pathChangeEvents() {
@@ -220,7 +226,9 @@ public final class AppStore {
             Task { await eventStream.stop() }
         }
         eventStream = nil
+        isStateCurrent = false
         connection = .offline(lastUpdated: lastUpdated, error: nil)
+        updateOpenStoreReadiness()
     }
 
     public func resume() {
@@ -993,7 +1001,11 @@ public final class AppStore {
         cachedTranscripts.removeAll()
         cacheChangedStoreKeys.removeAll()
         serverEntryCounts.removeAll()
+        serverRevs.removeAll()
+        cachedTranscriptMetadata.removeAll()
         latestBootstrap = nil
+        daemonEpoch = nil
+        isStateCurrent = false
         daemon = nil
         apiVersion = nil
         lastUpdated = nil
@@ -1293,9 +1305,13 @@ public final class AppStore {
             markConnectionLive()
         case .reconnecting:
             guard started else { return }
+            isStateCurrent = false
+            updateOpenStoreReadiness()
             applyFailure(error: nil)
         case .offline:
             guard started else { return }
+            isStateCurrent = false
+            updateOpenStoreReadiness()
             applyFailure(error: nil)
         }
     }
@@ -1306,6 +1322,7 @@ public final class AppStore {
         noticeTask = nil
         reconnectSince = nil
         connection = .live
+        updateOpenStoreReadiness()
     }
 
     private func handleNetworkPathChange() {
@@ -1327,6 +1344,7 @@ public final class AppStore {
             noticeTask = nil
             connection = .offline(lastUpdated: lastUpdated, error: error)
         }
+        updateOpenStoreReadiness()
     }
 
     private func scheduleBootstrapRetry() {
@@ -1367,6 +1385,8 @@ public final class AppStore {
     private func prepareReconnect(attempt: Int) async -> Bool {
         guard started else { return false }
         reconnectSince = reconnectSince ?? clock.now
+        isStateCurrent = false
+        updateOpenStoreReadiness()
         connection = .reconnecting(attempt: attempt, since: reconnectSince ?? clock.now)
         do {
             try await authenticate()
@@ -1415,8 +1435,12 @@ public final class AppStore {
         latestBootstrap = bootstrap
         if let controller = bootstrap.controller { controllerInfo = controller }
         daemon = bootstrap.daemon
+        daemonEpoch = epoch(for: bootstrap.daemon?.startedAt)
         apiVersion = bootstrap.apiVersion
         if let state = bootstrap.state { applyState(state) }
+        else { serverRevs.removeAll() }
+        isStateCurrent = true
+        updateOpenStoreReadiness()
         lastUpdated = clock.now
         if refetchOpenTranscripts {
             for store in openStores.values {
@@ -1457,7 +1481,8 @@ public final class AppStore {
             if let id = session.id { clearPendingTurnStart(for: id) }
         }
         sleeping = snapshot.sleeping ?? sleeping
-        serverEntryCounts = snapshot.entries ?? [:]
+        if let entries = snapshot.entries { serverEntryCounts = entries }
+        serverRevs = snapshot.revs ?? [:]
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         for store in openStores.values {
             if let session = sessions[store.sessionID] {
@@ -1469,6 +1494,7 @@ public final class AppStore {
             }
         }
         pruneCachedTranscripts()
+        updateOpenStoreReadiness()
         lastUpdated = clock.now
         scheduleCacheWrite()
         refetchStoresForCounts(snapshot.entries ?? [:])
@@ -1493,7 +1519,11 @@ public final class AppStore {
         if delta.rawObject["entries"] != nil, let counts = delta.entries {
             serverEntryCounts.merge(counts) { _, new in new }
         }
+        if delta.rawObject["revs"] != nil, let revs = delta.revs {
+            serverRevs.merge(revs) { _, new in new }
+        }
         updateOpenStores(for: session)
+        updateOpenStoreReadiness()
         approvals = sessions.values.flatMap { $0.pending ?? [] }
         lastUpdated = clock.now
         scheduleCacheWrite()
@@ -1503,6 +1533,13 @@ public final class AppStore {
     private func applyTranscript(_ event: TranscriptEvent) {
         guard let sessionID = event.sessionId else { return }
         let key = storeKey(sessionID: sessionID, agentID: nil)
+        if let rev = event.rev { serverRevs[sessionID] = rev }
+        openStores[key]?.updateReadiness(
+            isStateCurrent: isStateCurrent,
+            daemonEpoch: daemonEpoch,
+            serverRev: serverRevs[sessionID],
+            isOffline: isOfflineConnection
+        )
         if event.reset == true {
             TranscriptLifecycleLog.shared.record(name: "transcript-event-reset", sessionID: sessionID)
             if let entryCount = event.entryCount {
@@ -1521,7 +1558,8 @@ public final class AppStore {
         _ = store.mergeLive(
             [entry],
             replace: event.replace == true,
-            entryCount: event.entryCount
+            entryCount: event.entryCount,
+            rev: event.rev
         )
         #if DEBUG
         if let id = entry.id, let text = entry.text, !text.isEmpty {
@@ -1532,6 +1570,12 @@ public final class AppStore {
             serverEntryCounts[sessionID] = entryCount
             if store.hasTranscriptGap { refetchStoreGap(store, immediate: true) }
         }
+        store.updateReadiness(
+            isStateCurrent: isStateCurrent,
+            daemonEpoch: daemonEpoch,
+            serverRev: serverRevs[sessionID],
+            isOffline: isOfflineConnection
+        )
         scheduleCacheWrite()
     }
 
@@ -1677,6 +1721,28 @@ public final class AppStore {
         }
     }
 
+    private func updateOpenStoreReadiness() {
+        for store in openStores.values {
+            store.updateReadiness(
+                isStateCurrent: isStateCurrent,
+                daemonEpoch: daemonEpoch,
+                serverRev: serverRevs[store.sessionID],
+                isOffline: isOfflineConnection
+            )
+        }
+    }
+
+    private var isOfflineConnection: Bool {
+        switch connection {
+        case .offline, .offlineUnreadable: true
+        case .connecting, .live, .reconnecting, .unauthorized: false
+        }
+    }
+
+    private func epoch(for date: Date?) -> String? {
+        date.map { String($0.timeIntervalSince1970) }
+    }
+
     private func refreshAfterRegistryEvent() {
         guard started else { return }
         Task { [weak self] in
@@ -1746,6 +1812,7 @@ public final class AppStore {
         }
         let hasCachedTranscript = cachedTranscripts[key] != nil
         let entries = cachedTranscripts[key] ?? []
+        let metadata = cachedTranscriptMetadata[key]
         TranscriptLifecycleLog.shared.record(
             name: "store-open",
             sessionID: sessionID,
@@ -1765,6 +1832,13 @@ public final class AppStore {
             initialTranscriptTail: initialTranscriptTail,
             transcriptOnly: transcriptOnly,
             serverTotal: agentID == nil ? serverEntryCounts[sessionID] : nil,
+            cachedRev: agentID == nil ? metadata?.rev : nil,
+            cachedEpoch: agentID == nil ? metadata?.epoch : nil,
+            daemonEpoch: agentID == nil ? daemonEpoch : nil,
+            serverRev: agentID == nil ? serverRevs[sessionID] : nil,
+            isStateCurrent: agentID == nil ? isStateCurrent : false,
+            isOffline: agentID == nil ? isOfflineConnection : false,
+            builtFromCache: agentID == nil ? hasCachedTranscript : false,
             scheduler: clock,
             internalMarker: ()
         )
@@ -1789,10 +1863,12 @@ public final class AppStore {
         guard let state = try? await cache.load() else { return }
         applyState(state.bootstrap.state ?? StateSnapshot())
         daemon = state.bootstrap.daemon
+        daemonEpoch = epoch(for: state.bootstrap.daemon?.startedAt)
         apiVersion = state.bootstrap.apiVersion
         latestBootstrap = state.bootstrap
         lastUpdated = state.updatedAt
         cachedTranscripts = state.transcripts
+        cachedTranscriptMetadata = state.transcriptMetadata
         pruneCachedTranscripts()
         if state.loadedLegacyFormat { cacheChangedStoreKeys.formUnion(cachedTranscripts.keys) }
         connection = .offline(lastUpdated: state.updatedAt, error: nil)
@@ -1826,13 +1902,18 @@ public final class AppStore {
     private func writeCacheSnapshot() {
         guard cacheWritePending, let state = cacheStateSnapshot() else { return }
         let changedKeys = cacheChangedStoreKeys
+        var changedTranscriptMetadata: [String: TranscriptCacheMetadata] = [:]
         let changedTranscripts = changedKeys.reduce(into: [String: [TranscriptEntry]]()) { result, key in
             if let store = openStores[key] {
                 let entries = Array(store.entries.suffix(400))
+                let metadata = TranscriptCacheMetadata(rev: store.syncedRev, epoch: store.syncedEpoch)
                 cachedTranscripts[key] = entries
+                cachedTranscriptMetadata[key] = metadata
+                changedTranscriptMetadata[key] = metadata
                 result[key] = entries
             } else if let entries = cachedTranscripts[key] {
                 result[key] = entries
+                changedTranscriptMetadata[key] = cachedTranscriptMetadata[key] ?? TranscriptCacheMetadata()
             }
         }
         cacheWritePending = false
@@ -1841,6 +1922,7 @@ public final class AppStore {
             await cache.saveNow(
                 state,
                 changedTranscripts: changedTranscripts,
+                changedTranscriptMetadata: changedTranscriptMetadata,
                 retainedTranscriptKeys: validCacheKeys
             )
         }
@@ -1854,7 +1936,7 @@ public final class AppStore {
                 daemon: daemon,
                 capabilities: latestBootstrap.capabilities,
                 limits: latestBootstrap.limits,
-                state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, device: latestBootstrap.state?.device, sleeping: sleeping)
+                state: StateSnapshot(sessions: Array(sessions.values), entries: serverEntryCounts, revs: serverRevs, device: latestBootstrap.state?.device, sleeping: sleeping)
             ),
             updatedAt: lastUpdated ?? clock.now
         )
@@ -1865,6 +1947,7 @@ public final class AppStore {
         store.close()
         TranscriptLifecycleLog.shared.record(name: "store-close", sessionID: store.sessionID)
         cachedTranscripts[key] = Array(store.entries.suffix(400))
+        cachedTranscriptMetadata[key] = TranscriptCacheMetadata(rev: store.syncedRev, epoch: store.syncedEpoch)
         cacheChangedStoreKeys.insert(key)
         cacheWritePending = true
         writeCacheSnapshot()
@@ -1899,6 +1982,8 @@ public final class AppStore {
     }
 
     private func handleConnectionError(_ error: Error) {
+        isStateCurrent = false
+        updateOpenStoreReadiness()
         if let apiError = error as? APIError, apiError == .unauthorized {
             connection = .unauthorized
             started = false

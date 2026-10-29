@@ -21,6 +21,11 @@ private struct SessionStoreClock: CCKitClock, @unchecked Sendable {
     }
 }
 
+public enum TranscriptReadiness: Sendable, Equatable {
+    case ready
+    case syncing
+}
+
 @MainActor @Observable
 public final class SessionStore {
     public let sessionID: String
@@ -34,6 +39,9 @@ public final class SessionStore {
     public private(set) var serverTotal = 0
     /// The count through which the local transcript is known to be complete.
     public private(set) var confirmedTotal = 0
+    public private(set) var syncedRev: Int?
+    public private(set) var syncedEpoch: String?
+    public private(set) var readiness: TranscriptReadiness = .syncing
     public var totalEntries: Int { serverTotal }
     public var hasTranscriptGap: Bool { transcriptGap }
     public var entries: [TranscriptEntry] { transcriptStore.entries }
@@ -55,7 +63,14 @@ public final class SessionStore {
     @ObservationIgnored private var hasConfirmedTotal = false
     @ObservationIgnored private var transcriptGap = false
     @ObservationIgnored private var closed = false
+    private let builtFromCache: Bool
+    private let cacheHasEntries: Bool
+    private var readinessStateCurrent = false
+    private var readinessDaemonEpoch: String?
+    private var readinessServerRev: Int?
+    private var readinessOffline = false
     private var hasLoaded = false
+    private var initialPageMerged = false
 
     private struct TranscriptFetch {
         enum Kind {
@@ -86,6 +101,13 @@ public final class SessionStore {
         initialTranscriptTail: Int = 100,
         transcriptOnly: Bool = false,
         serverTotal: Int? = nil,
+        cachedRev: Int? = nil,
+        cachedEpoch: String? = nil,
+        daemonEpoch: String? = nil,
+        serverRev: Int? = nil,
+        isStateCurrent: Bool = false,
+        isOffline: Bool = false,
+        builtFromCache: Bool? = nil,
         clock: @escaping () -> Date = Date.init
     ) {
         self.init(
@@ -97,6 +119,13 @@ public final class SessionStore {
             initialTranscriptTail: initialTranscriptTail,
             transcriptOnly: transcriptOnly,
             serverTotal: serverTotal,
+            cachedRev: cachedRev,
+            cachedEpoch: cachedEpoch,
+            daemonEpoch: daemonEpoch,
+            serverRev: serverRev,
+            isStateCurrent: isStateCurrent,
+            isOffline: isOffline,
+            builtFromCache: builtFromCache,
             scheduler: SessionStoreClock(nowProvider: clock),
             internalMarker: ()
         )
@@ -111,6 +140,13 @@ public final class SessionStore {
         initialTranscriptTail: Int = 100,
         transcriptOnly: Bool = false,
         serverTotal: Int? = nil,
+        cachedRev: Int? = nil,
+        cachedEpoch: String? = nil,
+        daemonEpoch: String? = nil,
+        serverRev: Int? = nil,
+        isStateCurrent: Bool = false,
+        isOffline: Bool = false,
+        builtFromCache: Bool? = nil,
         scheduler: any CCKitClock = SystemCCKitClock(),
         internalMarker: Void
     ) {
@@ -126,8 +162,17 @@ public final class SessionStore {
         let initialServerTotal = max(0, serverTotal ?? entries.count)
         self.serverTotal = initialServerTotal
         self.confirmedTotal = 0
+        self.builtFromCache = builtFromCache ?? !entries.isEmpty
+        self.cacheHasEntries = !entries.isEmpty
+        self.syncedRev = cachedRev
+        self.syncedEpoch = cachedEpoch
+        self.readinessStateCurrent = isStateCurrent
+        self.readinessDaemonEpoch = daemonEpoch
+        self.readinessServerRev = serverRev
+        self.readinessOffline = isOffline
         self.hasLoaded = !entries.isEmpty
         refreshTurns(forceFull: true)
+        updateReadiness()
     }
 
     public func updateSession(_ session: Session) {
@@ -135,6 +180,29 @@ public final class SessionStore {
         self.session = session
         if session.live == true { transcriptOnly = false }
         if wasWorking != (session.state == .working) { refreshTurns(forceFull: true) }
+    }
+
+    public func updateReadiness(isStateCurrent: Bool, daemonEpoch: String?, serverRev: Int?, isOffline: Bool) {
+        readinessStateCurrent = isStateCurrent
+        readinessDaemonEpoch = daemonEpoch
+        readinessServerRev = serverRev
+        readinessOffline = isOffline
+        updateReadiness()
+    }
+
+    private func updateReadiness() {
+        guard readiness != .ready else { return }
+        guard agentID == nil else {
+            readiness = .ready
+            return
+        }
+        if readinessOffline || initialPageMerged ||
+            (cacheHasEntries && readinessStateCurrent && readinessServerRev == nil) ||
+            (builtFromCache && cacheHasEntries && readinessStateCurrent &&
+             syncedEpoch != nil && syncedRev != nil &&
+             syncedEpoch == readinessDaemonEpoch && syncedRev == readinessServerRev) {
+            readiness = .ready
+        }
     }
 
     @discardableResult
@@ -160,6 +228,7 @@ public final class SessionStore {
             do {
                 return try await runInitialFetch()
             } catch {
+                readiness = .ready
                 markTranscriptGap(force: true)
                 requestTranscriptResync()
                 throw error
@@ -188,7 +257,8 @@ public final class SessionStore {
     public func mergeLive(
         _ incoming: [TranscriptEntry],
         replace: Bool = false,
-        entryCount: Int?
+        entryCount: Int?,
+        rev: Int? = nil
     ) -> TranscriptChangeSet {
         let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: true)
         if let entryCount {
@@ -203,6 +273,10 @@ public final class SessionStore {
             } else {
                 markTranscriptGap()
             }
+        }
+        if !hasTranscriptGap, let rev {
+            syncedRev = rev
+            syncedEpoch = readinessDaemonEpoch
         }
         publish(change)
         return change
@@ -229,6 +303,7 @@ public final class SessionStore {
 
     public func requestTranscriptReset() {
         guard !closed else { return }
+        syncedRev = nil
         transcriptGap = true
         gapRequiresReset = true
         gapAttemptCount = 0
@@ -407,6 +482,7 @@ public final class SessionStore {
         guard force || hasConfirmedTotal else { return }
         guard serverTotal > confirmedTotal else { return }
         guard !transcriptGap else { return }
+        syncedRev = nil
         transcriptGap = true
         gapAttemptCount = 0
         gapResetLogged = false
@@ -526,7 +602,13 @@ public final class SessionStore {
         hasMoreEarlier = transcriptStore.entries.count < page.total
         if gapRequiresReset { serverTotal = max(0, page.total) }
         else { confirmTranscriptPage(total: page.total) }
+        if let rev = page.rev {
+            syncedRev = rev
+            syncedEpoch = readinessDaemonEpoch
+        }
+        initialPageMerged = true
         hasLoaded = true
+        updateReadiness()
         if entriesChanged {
             refreshTurns(change: change, forceFull: replacedAll)
             notify(change)
@@ -553,7 +635,13 @@ public final class SessionStore {
         }
         if reset || !gapRequiresReset { confirmTranscriptPage(total: page.total) }
         else { serverTotal = max(0, page.total) }
+        if let rev = page.rev {
+            syncedRev = rev
+            syncedEpoch = readinessDaemonEpoch
+        }
+        initialPageMerged = true
         hasLoaded = true
+        updateReadiness()
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
             refreshTurns(change: change, forceFull: replacedAll)
             notify(change)
@@ -583,6 +671,9 @@ public final class SessionStore {
         gapRequiresReset = false
         hasConfirmedTotal = false
         transcriptGap = false
+        syncedRev = nil
+        syncedEpoch = nil
+        initialPageMerged = false
         hasLoaded = false
         onTranscriptChange?([])
     }
