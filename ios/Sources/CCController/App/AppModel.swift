@@ -36,6 +36,8 @@ final class AppModel {
         }
     }
     var isPrivacyCovered = false
+    var isNewSessionPresented = false
+    var shouldResumeNewSession = false
     var colorScheme: ColorScheme?
     var isSettingsPresented = false
     var actionError: ActionError?
@@ -158,6 +160,7 @@ final class AppModel {
     private let debugOnboarding: Bool
     #if DEBUG
     private var debugPairingExpirySeconds: TimeInterval?
+    private let resumeNewChatAfterSeconds: TimeInterval
     #endif
     private let serverURL: URL
     private let transport: ConnectionRouter
@@ -323,6 +326,10 @@ final class AppModel {
         debugOnboarding = isDebugOnboarding
         #if DEBUG
         debugPairingExpirySeconds = Self.argumentValue("-CCPairingExpirySeconds", in: arguments).flatMap(TimeInterval.init)
+        resumeNewChatAfterSeconds = Self.argumentValue("-CCResumeNewChatAfterSeconds", in: arguments)
+            .flatMap(TimeInterval.init)
+            .map { max(0, $0) }
+            ?? ResumeNewChatPolicy.defaultThreshold
         #endif
         fixtureMode = isFixture
         #if DEBUG || CC_PERF
@@ -1249,6 +1256,21 @@ final class AppModel {
                 return
             }
             guard phase == .unlocked else { return }
+            #if DEBUG
+            let resumeNewChatThreshold = resumeNewChatAfterSeconds
+            #else
+            let resumeNewChatThreshold = ResumeNewChatPolicy.defaultThreshold
+            #endif
+            if ResumeNewChatPolicy.shouldResume(
+                backgroundAt: lastBackgroundAt,
+                now: now,
+                threshold: resumeNewChatThreshold,
+                hasPendingApprovals: stores.contains { !$0.approvals.isEmpty },
+                isOnNewChat: isNewSessionPresented,
+                isPaired: phase == .unlocked
+            ) {
+                shouldResumeNewSession = true
+            }
             let shouldLock = (!fixtureMode || lastUnlockAt != nil) && lockPolicy.shouldLockOnForeground(
                 lastUnlockAt: lastUnlockAt,
                 after: lastBackgroundAt,

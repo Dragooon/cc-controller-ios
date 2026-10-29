@@ -3,6 +3,50 @@ import XCTest
 
 @MainActor
 final class NewSessionFlowTests: FixtureFlowTestSupport {
+    func testReturnsToNewChatAfterLongBackground() async throws {
+        let app = launch(resumeNewChatAfterSeconds: 2)
+        defer { app.terminate() }
+
+        let session = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(session.waitForExistence(timeout: 30), "Fixture session did not load")
+        session.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "selected-session-name").firstMatch
+                .waitForExistence(timeout: 20),
+            "Fixture session did not open"
+        )
+
+        XCUIDevice.shared.press(.home)
+        try await Task.sleep(for: .seconds(3))
+        app.activate()
+
+        XCTAssertTrue(
+            app.staticTexts["new-session-greeting"].waitForExistence(timeout: 15),
+            "Returning after the threshold did not open New session"
+        )
+    }
+
+    func testPendingApprovalStaysOnSessionAfterLongBackground() async throws {
+        try await postFixture("/fixture/terminal-approvals")
+        let app = launch(resumeNewChatAfterSeconds: 2)
+        defer { app.terminate() }
+
+        let session = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(session.waitForExistence(timeout: 30), "Fixture session did not load")
+        session.tap()
+        let approval = app.descendants(matching: .any)
+            .matching(identifier: "approval-card-pull-up-agentic-uw")
+            .firstMatch
+        XCTAssertTrue(approval.waitForExistence(timeout: 20), "Fixture approval did not load")
+
+        XCUIDevice.shared.press(.home)
+        try await Task.sleep(for: .seconds(3))
+        app.activate()
+
+        XCTAssertTrue(approval.waitForExistence(timeout: 15), "Pending approval session did not remain open")
+        XCTAssertFalse(app.staticTexts["new-session-greeting"].exists, "Pending approval was replaced by New session")
+    }
+
     func testNewSessionCreateOpensSession() throws {
         let app = launch()
         openNewSession(app)
@@ -280,10 +324,13 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func launch() -> XCUIApplication {
+    private func launch(resumeNewChatAfterSeconds: TimeInterval? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL")]
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        if let resumeNewChatAfterSeconds {
+            app.launchArguments += ["-CCResumeNewChatAfterSeconds", String(resumeNewChatAfterSeconds)]
+        }
         if let colorScheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !colorScheme.isEmpty {
             app.launchArguments += ["-CCColorScheme", colorScheme]
         }

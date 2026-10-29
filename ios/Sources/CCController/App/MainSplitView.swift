@@ -15,7 +15,6 @@ struct MainSplitView: View {
     @GestureState private var regularSidebarDragActive = false
     @State private var allowFeedbackCount = 0
     @State private var denyFeedbackCount = 0
-    @State private var isNewSessionPresented = false
     @State private var newSessionControllerID: ControllerID = .mac
     @State private var newSessionPrompt = ""
     /// Keys from `sleepingSessionKey(controllerID:sessionID:)`.
@@ -119,7 +118,14 @@ struct MainSplitView: View {
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }
         }
-        .onAppear(perform: synchronizeColumnVisibility)
+        .onAppear {
+            synchronizeColumnVisibility()
+            consumeResumeNewSessionRequest()
+        }
+        .onChange(of: model.shouldResumeNewSession) { _, requested in
+            guard requested else { return }
+            consumeResumeNewSessionRequest()
+        }
         .onChange(of: model.selectedSession) { _, _ in
             synchronizeColumnVisibility()
         }
@@ -321,7 +327,7 @@ struct MainSplitView: View {
 
     @ViewBuilder
     private func detailView() -> some View {
-        if isNewSessionPresented {
+        if model.isNewSessionPresented {
             let store = model.connection(for: newSessionControllerID)?.store ?? model.primaryStore
             let controllerID = newSessionControllerID
             NewSessionView(
@@ -525,7 +531,7 @@ struct MainSplitView: View {
 
     private func openSession(_ controllerID: ControllerID, _ id: String?) {
         guard let id else { return }
-        isNewSessionPresented = false
+        model.isNewSessionPresented = false
         model.selectedSession = SessionRef(controllerID: controllerID, sessionID: id)
         preferredCompactColumn = .detail
         if horizontalSizeClass == .compact {
@@ -625,16 +631,22 @@ struct MainSplitView: View {
             .map { NewSessionControllerChoice(id: $0.config.id, name: $0.config.displayName) }
     }
 
+    private func consumeResumeNewSessionRequest() {
+        guard model.shouldResumeNewSession else { return }
+        model.shouldResumeNewSession = false
+        presentNewSession()
+    }
+
     private func presentNewSession() {
         let choices = newSessionChoices
         guard let first = choices.first else { return }
         if !choices.contains(where: { $0.id == newSessionControllerID }) {
             newSessionControllerID = first.id
         }
-        if !isNewSessionPresented {
+        if !model.isNewSessionPresented {
             newSessionPrompt = ""
         }
-        isNewSessionPresented = true
+        model.isNewSessionPresented = true
         preferredCompactColumn = .detail
         if horizontalSizeClass == .compact {
             columnVisibility = .detailOnly
