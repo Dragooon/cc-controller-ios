@@ -35,14 +35,12 @@ final class TranscriptCollectionView: UICollectionView {
     var didChangeTraits: (() -> Void)?
     var isAnimatingJump = false
     private var didRegisterTraitChanges = false
-    private var lastLaidOutBoundsHeight: CGFloat?
+    private var previousBoundsHeight: CGFloat?
 
     override func layoutSubviews() {
-        let previousBoundsHeight = lastLaidOutBoundsHeight
         super.layoutSubviews()
-        let boundsHeightChanged = previousBoundsHeight.map { abs($0 - bounds.height) > 0.5 } ?? false
-        applyAnchoredContentOffsetIfNeeded(boundsHeightChanged: boundsHeightChanged)
-        lastLaidOutBoundsHeight = bounds.height
+        applyAnchoredContentOffsetIfNeeded()
+        previousBoundsHeight = bounds.height
         didFinishLayout?()
     }
 
@@ -65,7 +63,7 @@ final class TranscriptCollectionView: UICollectionView {
         }
     }
 
-    private func applyAnchoredContentOffsetIfNeeded(boundsHeightChanged: Bool) {
+    private func applyAnchoredContentOffsetIfNeeded() {
         guard let layout = collectionViewLayout as? TranscriptListLayout else { return }
         #if DEBUG
         if layout.isAwaitingAnimatedNewestEndUpdate && !layout.isApplyingCollectionUpdate {
@@ -91,39 +89,38 @@ final class TranscriptCollectionView: UICollectionView {
         setContentOffset(offset, animated: false)
         #if DEBUG
         MotionTrace.shared.recordPin(before: before, after: target.y, reason: target.reason)
-        #endif
-        if boundsHeightChanged, layout.isBottomAnchored {
-            synchronizePinnedOffsetAnimation(before: before, after: target.y)
+        let boundsHeightChanged = previousBoundsHeight.map { abs($0 - bounds.height) > 0.5 } ?? false
+        if boundsHeightChanged {
+            var data: [String: Any] = [
+                "before": before,
+                "after": target.y,
+                "reason": "keyboardWrite",
+                "inheritedAnimationDuration": UIView.inheritedAnimationDuration,
+            ]
+            let boundsAnimations = (layer.animationKeys() ?? []).compactMap { key -> [String: Any]? in
+                guard key.localizedCaseInsensitiveContains("bounds"),
+                      let animation = layer.animation(forKey: key) else { return nil }
+                let propertyAnimation = animation as? CAPropertyAnimation
+                let basicAnimation = animation as? CABasicAnimation
+                var details: [String: Any] = [
+                    "key": key,
+                    "class": String(describing: type(of: animation)),
+                    "isAdditive": propertyAnimation?.isAdditive ?? false,
+                    "fromValue": basicAnimation?.fromValue.map { String(describing: $0) } ?? "nil",
+                    "toValue": basicAnimation?.toValue.map { String(describing: $0) } ?? "nil",
+                    "duration": animation.duration,
+                ]
+                if let spring = animation as? CASpringAnimation {
+                    details["mass"] = spring.mass
+                    details["stiffness"] = spring.stiffness
+                    details["damping"] = spring.damping
+                    details["settlingDuration"] = spring.settlingDuration
+                }
+                return details
+            }
+            if !boundsAnimations.isEmpty { data["boundsAnimations"] = boundsAnimations }
+            MotionTrace.shared.recordEvent("pin", data: data)
         }
-    }
-
-    private func synchronizePinnedOffsetAnimation(before: CGFloat, after: CGFloat) {
-        guard let boundsAnimationKey = layer.animationKeys()?.first(where: {
-            $0.localizedCaseInsensitiveContains("bounds")
-        }),
-        let boundsAnimation = layer.animation(forKey: boundsAnimationKey) else { return }
-
-        let offsetAnimation = CABasicAnimation(keyPath: "bounds.origin")
-        offsetAnimation.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: before - after))
-        offsetAnimation.toValue = NSValue(cgPoint: .zero)
-        offsetAnimation.duration = boundsAnimation.duration
-        offsetAnimation.beginTime = boundsAnimation.beginTime
-        offsetAnimation.speed = boundsAnimation.speed
-        offsetAnimation.timeOffset = boundsAnimation.timeOffset
-        offsetAnimation.repeatCount = boundsAnimation.repeatCount
-        offsetAnimation.autoreverses = boundsAnimation.autoreverses
-        offsetAnimation.fillMode = boundsAnimation.fillMode
-        offsetAnimation.timingFunction = boundsAnimation.timingFunction
-        offsetAnimation.isRemovedOnCompletion = boundsAnimation.isRemovedOnCompletion
-        offsetAnimation.isAdditive = true
-        layer.add(offsetAnimation, forKey: "cc-pinned-offset")
-        #if DEBUG
-        MotionTrace.shared.recordEvent("pin", data: [
-            "before": before,
-            "after": after,
-            "reason": "keyboardOffsetAnimation",
-            "duration": boundsAnimation.duration,
-        ])
         #endif
     }
 }
