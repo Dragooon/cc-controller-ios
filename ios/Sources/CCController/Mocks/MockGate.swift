@@ -45,6 +45,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     case sessionsOffline = "sessions-offline"
     case sessionsReconnecting = "sessions-reconnecting"
     case sessionIdle = "session-idle"
+    case warmTheme = "warm-theme"
     case sessionWorking = "session-working"
     case sessionSendingStates = "session-sending-states"
     case subagentResultSheet = "subagent-result-sheet"
@@ -79,7 +80,7 @@ enum MockScreen: String, CaseIterable, Identifiable {
     var isBuilt: Bool {
         switch self {
         case .sessions, .sessionsEmpty, .sessionsOffline, .sessionsReconnecting,
-             .sessionWorking, .sessionSendingStates, .subagentResultSheet, .sessionActivity, .sessionQuestionApproval, .sessionPeerConversation, .composerSlash, .composerAttachments, .composerKeyboard,
+             .sessionWorking, .warmTheme, .sessionSendingStates, .subagentResultSheet, .sessionActivity, .sessionQuestionApproval, .sessionPeerConversation, .composerSlash, .composerAttachments, .composerKeyboard,
              .inspector, .activitySheet, .settings, .onboardingWelcome, .onboardingConnect,
              .onboardingPair, .onboardingFaceID, .lock, .privacyCover,
              .workingBarThinking, .workingBarToolAgents, .workingBarTyping, .workingBarIdle, .workingBarCurrent: true
@@ -104,6 +105,8 @@ private struct MockScreenView: View {
                 SessionsMocks.reconnecting
             case .sessionIdle:
                 SessionMocks.idle
+            case .warmTheme:
+                SessionMocks.warmTheme
             case .sessionApprovals:
                 ApprovalMocks.stacked
             case .sessionQuestionApproval:

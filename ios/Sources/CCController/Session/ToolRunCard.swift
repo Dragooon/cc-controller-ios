@@ -56,6 +56,7 @@ struct ToolRunCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("tool-run-card")
     }
 }
 

@@ -97,6 +97,7 @@ struct SessionsListView: View {
     @AppStorage("sessions.archived.collapsed") private var archivedCollapsed = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var regularSearchFocused: Bool
 
     init(
@@ -261,7 +262,10 @@ struct SessionsListView: View {
     private var bottomInset: some View {
         VStack(spacing: 8) {
             archiveToastOverlay
-            if horizontalSizeClass == .compact && canCreateSession && (hasAnySessions || isMultiController) {
+            if canCreateSession && CCNewSessionButtonMode.current == .floating
+                && (horizontalSizeClass == .regular || hasAnySessions || isMultiController) {
+                newSessionButton
+            } else if horizontalSizeClass == .compact && canCreateSession && (hasAnySessions || isMultiController) {
                 newSessionButton
             }
         }
@@ -272,11 +276,7 @@ struct SessionsListView: View {
         HStack {
             Spacer()
             Button(action: onNewSession) {
-                Image(systemName: "square.and.pencil")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.ccAccent)
-                    .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
-                    .glassEffect(.regular.interactive(), in: .circle)
+                newSessionButtonLabel
             }
             .buttonStyle(.plain)
             .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
@@ -287,6 +287,28 @@ struct SessionsListView: View {
             .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var newSessionButtonLabel: some View {
+        if CCNewSessionButtonMode.current == .floating {
+            Image(systemName: "square.and.pencil")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(.ccAccent, in: .circle)
+                .shadow(
+                    color: .black.opacity(colorScheme == .dark ? 0.30 : 0.12),
+                    radius: 8,
+                    y: 2
+                )
+        } else {
+            Image(systemName: "square.and.pencil")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.ccAccent)
+                .frame(width: CCMetrics.controlCircle, height: CCMetrics.controlCircle)
+                .glassEffect(.regular.interactive(), in: .circle)
+        }
     }
 
     @ViewBuilder
@@ -349,6 +371,8 @@ struct SessionsListView: View {
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+        .toolbarBackground(.ccBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .accessibilityElement(children: isRegularSidebarHidden ? .ignore : .contain)
         .accessibilityIdentifier(isRegularSidebarHidden ? "sessions-list-hidden" : "sessions-list")
         .accessibilityHidden(isRegularSidebarHidden)
@@ -379,7 +403,7 @@ struct SessionsListView: View {
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 0) {
-                    if canCreateSession {
+                    if canCreateSession && CCNewSessionButtonMode.current == .classic {
                         Button(action: onNewSession) {
                             Image(systemName: "square.and.pencil")
                                 .frame(width: 44, height: 44)

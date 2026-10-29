@@ -773,6 +773,8 @@ struct SessionScreen: View {
             }
             .tint(.ccAccent)
             .background(.ccBackground)
+            .toolbarBackground(.ccBackground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
     }
 
     @ViewBuilder

@@ -82,6 +82,7 @@ private struct MarkdownListView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(marker(for: item, index: index))
                         .font(.body)
+                        .fontDesign(CCProseFont.current == .serif ? .serif : .default)
                         .foregroundStyle(.ccAccent)
                         .frame(minWidth: 18, alignment: .trailing)
                     VStack(alignment: .leading, spacing: 6) {

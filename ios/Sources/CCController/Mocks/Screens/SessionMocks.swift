@@ -4,6 +4,10 @@ import SwiftUI
 
 #if DEBUG
 enum SessionMocks {
+    static var warmTheme: some View {
+        WarmThemeMock()
+    }
+
     static var idle: some View {
         SessionMockScreen(
             session: MockSessionData.session,
@@ -83,6 +87,8 @@ private struct SessionMockScreen: View {
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+        .toolbarBackground(.ccBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
     }
 }
 
@@ -110,6 +116,8 @@ private struct ActivitySessionMock: View {
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+        .toolbarBackground(.ccBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
     }
 }
 
@@ -192,6 +200,53 @@ private struct SubagentMock: View {
     }
 }
 
+private struct WarmThemeMock: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                regularLayout
+            } else {
+                transcriptLayout
+            }
+        }
+        .tint(.ccAccent)
+        .background(.ccBackground)
+    }
+
+    private var regularLayout: some View {
+        NavigationSplitView {
+            SessionsListView(sessions: MockFixtures.sessions, subtitleOverride: "Mac")
+        } detail: {
+            transcriptLayout
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    private var transcriptLayout: some View {
+        NavigationStack {
+            SessionTranscriptView(
+                turns: MockSessionData.warmThemeTurns,
+                subagents: []
+            )
+            .navigationTitle("Eval dataset versioning")
+            .navigationSubtitle("atlas · idle")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {} label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("Session info")
+                }
+            }
+        }
+        .toolbarBackground(.ccBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 enum MockSessionData {
     static let session = MockFixtures.sessions.first(where: { $0.name == "Eval dataset versioning" }) ?? Session(
         id: "mock-session",
@@ -242,6 +297,10 @@ enum MockSessionData {
             hasWorkedFooter: false
         )
     ]
+
+    static let warmThemeTurns: [Turn] = {
+        groupTranscript(entries: decode(warmThemeJSON), working: false, now: MockFixtures.now)
+    }()
 
     static let sendingStateNotes: [QueuedNote] = {
         let now = MockFixtures.now
@@ -333,6 +392,20 @@ enum MockSessionData {
             fatalError("Session mock transcript failed to decode: \(error)")
         }
     }
+
+    private static let warmThemeJSON = #"""
+    [
+      {"kind":"prompt","id":"warm-prompt-1","ts":"2026-09-30T03:24:00Z","text":"Review the Linen theme and confirm the transcript surfaces feel warm without losing contrast."},
+      {"kind":"assistant","id":"warm-assistant-1","ts":"2026-09-30T03:24:08Z","text":"## Linen theme review\n\nThe **warm palette** softens the background and cards while preserving contrast.\n\n- Background: warm ivory\n- Cards: toasted oat\n- Prose: New York in serif mode\n\n```swift\nlet theme = CCTheme.current\n```"},
+      {"kind":"tool","id":"warm-read","ts":"2026-09-30T03:24:12Z","toolUseId":"warm-read","tool":"Read","args":{"file_path":"DesignSystem/Colors.swift"},"result":"Theme colors loaded successfully.","state":"done"},
+      {"kind":"tool","id":"warm-bash","ts":"2026-09-30T03:24:14Z","toolUseId":"warm-bash","tool":"Bash","args":{"command":"xcodebuild -scheme CCController build"},"result":"Build Succeeded","state":"done"},
+      {"kind":"tool","id":"warm-read-assets","ts":"2026-09-30T03:24:16Z","toolUseId":"warm-read-assets","tool":"Read","args":{"file_path":"Resources/Assets.xcassets/Linen"},"result":"Linen assets are present in light and dark appearances.","state":"done"},
+      {"kind":"turn_end","id":"warm-end-1","ts":"2026-09-30T03:24:20Z","durationMs":20000},
+      {"kind":"prompt","id":"warm-prompt-2","ts":"2026-09-30T03:25:00Z","text":"What should I compare next?"},
+      {"kind":"assistant","id":"warm-assistant-2","ts":"2026-09-30T03:25:05Z","text":"Compare the classic and Linen light captures first. Then check the serif variant against the system-font version."},
+      {"kind":"turn_end","id":"warm-end-2","ts":"2026-09-30T03:25:08Z","durationMs":8000}
+    ]
+    """#
 
     private static let transcriptJSON = #"""
     [
