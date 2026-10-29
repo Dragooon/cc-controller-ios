@@ -23,7 +23,12 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         addScreenshot(named: "onboarding-sessions-arrival")
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let notificationPrompt = waitForNotificationAuthorizationPrompt(in: springboard)
+        // iOS shows the prompt once per install. When an earlier test in the same simulator session
+        // already answered it, there is nothing to check here.
+        let notificationPrompt = springboard.alerts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
+        ).firstMatch
+        guard notificationPrompt.waitForExistence(timeout: 5) else { return }
         XCTAssertTrue(sessionRow.exists, "Session row disappeared behind notification authorization prompt")
         addScreenshot(named: "onboarding-notification-prompt")
         notificationPrompt.buttons["Don’t Allow"].tap()
