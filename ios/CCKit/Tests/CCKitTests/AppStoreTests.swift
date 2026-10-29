@@ -939,6 +939,20 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(note.attachmentThumbnails["attachment.png"], Data([1, 2, 3]))
     }
 
+    func testSendAllowsAttachmentsWithoutText() async {
+        URLProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, "/api/sessions/session-1/message")
+            return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+        }
+        let app = makeApp()
+        let result = await app.send(text: "", attachments: ["photo.png"], to: "session-1")
+        guard case .success = result else {
+            XCTFail("Send failed: \(result)")
+            return
+        }
+        XCTAssertEqual(app.queuedNotes(for: "session-1").first?.attachments, ["photo.png"])
+    }
+
     func testEnqueueShowsSendingBeforeNetworkCompletesAndThenSends() async throws {
         let gate = DispatchSemaphore(value: 0)
         var requestBody = Data()

@@ -456,7 +456,7 @@ public final class AppStore {
         now: Bool = false
     ) async -> Result<MessageResult, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .failure(.invalid("Message text is required.")) }
+        guard !trimmed.isEmpty || !attachments.isEmpty else { return .failure(.invalid("Message text is required.")) }
         let createdAt = clock.now
         let isCommand = attachments.isEmpty && isSlashCommand(trimmed)
         let shouldMarkPendingTurn = !isCommand && sessions[sessionID]?.state != .working

@@ -90,10 +90,10 @@ final class StockadePresentationTests: XCTestCase {
     }
 
     func testComposerCapabilitiesForStockadeFixture() {
-        let capabilities: Set<ControllerCapability> = [.list, .transcript, .send, .decide, .questions, .newSession, .sudo]
+        let capabilities: Set<ControllerCapability> = [.list, .transcript, .send, .decide, .questions, .newSession, .files, .sudo]
         let composer = ComposerCapabilities(controllerCapabilities: capabilities)
 
-        XCTAssertFalse(composer.canAttach)
+        XCTAssertTrue(composer.canAttach)
         XCTAssertFalse(composer.canRunCommands)
     }
 
