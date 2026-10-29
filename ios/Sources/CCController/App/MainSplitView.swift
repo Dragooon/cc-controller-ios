@@ -382,7 +382,7 @@ struct MainSplitView: View {
     }
 
     private func sidebarDragGesture(sidebarWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .updating($regularSidebarDragActive) { _, state, _ in
                 state = true
             }
