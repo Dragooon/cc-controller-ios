@@ -247,10 +247,14 @@ struct ComposerView: View, Equatable {
         }
     }
 
+    // Camera availability is fixed for the device, and the lookup goes through MobileGestalt,
+    // so read it once instead of on every composer body evaluation.
+    @MainActor private static let cameraAvailable = UIImagePickerController.isSourceTypeAvailable(.camera)
+
     private var attachmentMenu: some View {
         Menu {
             Button("Photos", systemImage: "photo") { photosPresented = true }
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            if Self.cameraAvailable {
                 Button("Camera", systemImage: "camera") { cameraPresented = true }
             }
             Button("Files", systemImage: "folder") { filesPresented = true }
