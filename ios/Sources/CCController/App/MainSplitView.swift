@@ -153,7 +153,7 @@ struct MainSplitView: View {
         ) {
             sessionsList()
         } detail: {
-            detailView(onToggleSidebar: nil)
+            detailView()
         }
     }
 
@@ -209,13 +209,13 @@ struct MainSplitView: View {
         let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
         return ZStack(alignment: .leading) {
             regularDetailColumn(width: width, sidebarWidth: sidebarWidth, isOverlay: isOverlay)
-            if isOverlay && (regularSidebarProgress > 0 || isClosingSidebar) {
-                regularSidebarScrim
-            }
-            if regularSidebarProgress > 0 || isClosingSidebar {
-                regularSidebarColumn(sidebarWidth: sidebarWidth, topInset: topInset, isOverlay: isOverlay)
-            }
-            regularSidebarPanCapture(sidebarWidth: sidebarWidth, height: height)
+            regularSidebarScrim(isOverlay: isOverlay)
+            regularSidebarColumn(sidebarWidth: sidebarWidth, topInset: topInset, isOverlay: isOverlay)
+            regularSidebarPanCapture(
+                sidebarWidth: sidebarWidth,
+                height: height,
+                isClosingSidebar: isClosingSidebar
+            )
         }
         .overlay {
             if regularSidebarDragStartProgress != nil {
@@ -223,6 +223,9 @@ struct MainSplitView: View {
                     .opacity(0.18 * regularSidebarProgress)
                     .allowsHitTesting(false)
             }
+        }
+        .overlay(alignment: .topLeading) {
+            regularSidebarControls(topInset: topInset)
         }
         .onChange(of: regularSidebarDragActive) { _, isActive in
             guard !isActive, regularSidebarDragStartProgress != nil else { return }
@@ -253,20 +256,14 @@ struct MainSplitView: View {
     }
 
     private func regularDetailContent() -> some View {
-        let onToggleSidebar: (() -> Void)?
-        if regularSidebarProgress == 0 {
-            onToggleSidebar = toggleSidebar
-        } else {
-            onToggleSidebar = nil
-        }
-        return detailView(onToggleSidebar: onToggleSidebar)
+        detailView()
     }
 
-    private var regularSidebarScrim: some View {
+    private func regularSidebarScrim(isOverlay: Bool) -> some View {
         Color.black
-            .opacity(0.25 * regularSidebarProgress)
             .ignoresSafeArea()
             .contentShape(Rectangle())
+            .modifier(SidebarScrimModifier(progress: regularSidebarProgress, isOverlay: isOverlay))
             .onTapGesture { toggleSidebar() }
             .zIndex(0.5)
     }
@@ -274,11 +271,11 @@ struct MainSplitView: View {
     private func regularSidebarColumn(sidebarWidth: CGFloat, topInset: CGFloat, isOverlay: Bool) -> some View {
         sessionsList(
             topInset: topInset,
-            onToggleSidebar: toggleSidebar,
+            isRegularSidebarHidden: regularSidebarProgress <= 0.001,
             closeOnOpen: isOverlay
         )
+            .accessibilityHidden(regularSidebarProgress <= 0.001)
             .frame(width: sidebarWidth)
-            .offset(x: -sidebarWidth * (1 - regularSidebarProgress))
             .overlay(alignment: .trailing) {
                 Rectangle()
                     .fill(.ccSeparator)
@@ -286,13 +283,19 @@ struct MainSplitView: View {
                     .frame(maxHeight: .infinity)
             }
             .simultaneousGesture(sidebarDragGesture(sidebarWidth: sidebarWidth), including: .all)
+            .modifier(SidebarRevealModifier(progress: regularSidebarProgress, sidebarWidth: sidebarWidth))
             .zIndex(1)
 #if DEBUG
             .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
 #endif
+            .accessibilityHidden(regularSidebarProgress <= 0.001)
     }
 
-    private func regularSidebarPanCapture(sidebarWidth: CGFloat, height: CGFloat) -> some View {
+    private func regularSidebarPanCapture(
+        sidebarWidth: CGFloat,
+        height: CGFloat,
+        isClosingSidebar: Bool
+    ) -> some View {
         SidebarPanCapture(
             sidebarProgress: regularSidebarProgress,
             onChanged: { translationX in
@@ -307,17 +310,17 @@ struct MainSplitView: View {
             }
         )
         .frame(
-            width: regularSidebarProgress > 0 ? 80 : 20,
+            width: regularSidebarProgress > 0 || isClosingSidebar ? 80 : 20,
             height: height
         )
         .accessibilityIdentifier(
-            regularSidebarProgress > 0 ? "sidebar-close-strip" : "sidebar-edge-strip"
+            regularSidebarProgress > 0 || isClosingSidebar ? "sidebar-close-strip" : "sidebar-edge-strip"
         )
         .zIndex(2)
     }
 
     @ViewBuilder
-    private func detailView(onToggleSidebar: (() -> Void)?) -> some View {
+    private func detailView() -> some View {
         if isNewSessionPresented {
             let store = model.connection(for: newSessionControllerID)?.store ?? model.primaryStore
             let controllerID = newSessionControllerID
@@ -326,8 +329,7 @@ struct MainSplitView: View {
                 controllerChoices: newSessionChoices,
                 selectedControllerID: $newSessionControllerID,
                 promptBinding: $newSessionPrompt,
-                isEmbedded: true,
-                onToggleSidebar: onToggleSidebar
+                isEmbedded: true
             ) { id, appeared in
                 openSession(controllerID, id)
                 if !appeared {
@@ -363,8 +365,7 @@ struct MainSplitView: View {
                     } else {
                         columnVisibility = .all
                     }
-                },
-                onToggleSidebar: onToggleSidebar
+                }
             )
             .id(selectedSession)
 #if DEBUG
@@ -461,7 +462,7 @@ struct MainSplitView: View {
 
     private func sessionsList(
         topInset: CGFloat = 0,
-        onToggleSidebar: (() -> Void)? = nil,
+        isRegularSidebarHidden: Bool = false,
         closeOnOpen: Bool = false
     ) -> some View {
         SessionsListView(
@@ -471,7 +472,7 @@ struct MainSplitView: View {
             notice: sessionNotice,
             canCreateSession: !newSessionChoices.isEmpty,
             regularHeaderTopInset: topInset,
-            onToggleSidebar: onToggleSidebar,
+            isRegularSidebarHidden: isRegularSidebarHidden,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
             },
@@ -542,6 +543,45 @@ struct MainSplitView: View {
             columnVisibility = .detailOnly
             preferredCompactColumn = .detail
         }
+    }
+
+    private func regularSidebarControls(topInset: CGFloat) -> some View {
+        HStack(spacing: 8) {
+            Button(action: toggleSidebar) {
+                Image(systemName: "sidebar.left")
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Toggle sidebar")
+            .accessibilityIdentifier("sidebar-toggle")
+
+            if approvalsElsewhereCount > 0 {
+                Button(action: showSidebar) {
+                    Text(approvalsElsewhereText)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.ccAmber)
+                        .padding(.horizontal, 10)
+                        .frame(height: 30)
+                }
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: false)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .modifier(SidebarApprovalModifier(progress: regularSidebarProgress))
+                .accessibilityIdentifier("approvals-elsewhere")
+                .accessibilityLabel(approvalsElsewhereAccessibilityLabel)
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.top, topInset)
+    }
+
+    private var approvalsElsewhereText: String {
+        approvalsElsewhereCount == 1 ? "1 needs you" : "\(approvalsElsewhereCount) need you"
+    }
+
+    private var approvalsElsewhereAccessibilityLabel: String {
+        approvalsElsewhereCount == 1 ? "1 session needs you" : "\(approvalsElsewhereCount) sessions need you"
     }
 
     private var approvalsElsewhereCount: Int {
@@ -703,6 +743,57 @@ struct MainSplitView: View {
         }
     }
     #endif
+}
+
+private struct SidebarRevealModifier: AnimatableModifier {
+    var progress: CGFloat
+    let sidebarWidth: CGFloat
+
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: -sidebarWidth * (1 - progress))
+            .opacity(progress > 0.001 ? 1 : 0)
+            .allowsHitTesting(progress > 0.001)
+            .accessibilityHidden(progress <= 0.001)
+    }
+}
+
+private struct SidebarScrimModifier: AnimatableModifier {
+    var progress: CGFloat
+    let isOverlay: Bool
+
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isOverlay ? 0.25 * progress : 0)
+            .allowsHitTesting(isOverlay && progress > 0.001)
+            .accessibilityHidden(!isOverlay || progress <= 0.001)
+    }
+}
+
+private struct SidebarApprovalModifier: AnimatableModifier {
+    var progress: CGFloat
+
+    nonisolated var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(max(0, min(1, 1 - progress)))
+            .allowsHitTesting(progress <= 0.001)
+            .accessibilityHidden(progress > 0.001)
+    }
 }
 
 private struct NavigationBarMetricsReader: UIViewRepresentable {

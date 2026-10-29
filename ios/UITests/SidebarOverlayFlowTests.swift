@@ -212,6 +212,30 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertFalse(newest.isHittable, "Sidebar toggle remounted the transcript at the latest row")
     }
 
+    func testSidebarToggleStaysFixedAcrossStates() throws {
+        let app = launch(orientation: .landscapeRight, sessionID: "long-session")
+        defer { app.terminate() }
+        assertRegularLandscape(in: app)
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 75), "Sessions list did not load")
+        let toggles = app.buttons.matching(identifier: "sidebar-toggle")
+        XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while open")
+        let openFrame = toggles.firstMatch.frame
+
+        toggles.firstMatch.tap()
+        XCTAssertTrue(sidebar.waitForNonExistence(timeout: 10), "Sidebar did not close")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while closed")
+        assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while closing")
+
+        toggles.firstMatch.tap()
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 20), "Sidebar did not reopen")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle after reopening")
+        assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while reopening")
+    }
+
     func testApprovalsCapsuleFollowsSidebarVisibility() throws {
         let app = launch(orientation: .landscapeRight, sessionID: "staff-account-exclusions")
         defer { app.terminate() }
@@ -333,6 +357,13 @@ final class SidebarOverlayFlowTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         } while Date() < deadline
         return false
+    }
+
+    private func assertFrame(_ expected: CGRect, equals actual: CGRect, message: String) {
+        XCTAssertEqual(actual.minX, expected.minX, accuracy: 0.5, "\(message): x")
+        XCTAssertEqual(actual.minY, expected.minY, accuracy: 0.5, "\(message): y")
+        XCTAssertEqual(actual.width, expected.width, accuracy: 0.5, "\(message): width")
+        XCTAssertEqual(actual.height, expected.height, accuracy: 0.5, "\(message): height")
     }
 
     private func waitForExtent(

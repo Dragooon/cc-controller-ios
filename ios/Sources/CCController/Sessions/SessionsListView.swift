@@ -71,7 +71,7 @@ struct SessionsListView: View {
     let notice: String?
     let canCreateSession: Bool
     let regularHeaderTopInset: CGFloat
-    let onToggleSidebar: (() -> Void)?
+    let isRegularSidebarHidden: Bool
     let onSessionsLoaded: () async -> Void
     let onOpen: (ControllerID, Session) -> Void
     let onAllow: (ControllerID, Approval) -> Void
@@ -106,7 +106,7 @@ struct SessionsListView: View {
         notice: String? = nil,
         canCreateSession: Bool = true,
         regularHeaderTopInset: CGFloat = 0,
-        onToggleSidebar: (() -> Void)? = nil,
+        isRegularSidebarHidden: Bool = false,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
         onAllow: @escaping (ControllerID, Approval) -> Void = { _, _ in },
@@ -131,7 +131,7 @@ struct SessionsListView: View {
         self.notice = notice
         self.canCreateSession = canCreateSession
         self.regularHeaderTopInset = regularHeaderTopInset
-        self.onToggleSidebar = onToggleSidebar
+        self.isRegularSidebarHidden = isRegularSidebarHidden
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
         self.onAllow = onAllow
@@ -349,8 +349,9 @@ struct SessionsListView: View {
         }
         .tint(.ccAccent)
         .background(.ccBackground)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("sessions-list")
+        .accessibilityElement(children: isRegularSidebarHidden ? .ignore : .contain)
+        .accessibilityIdentifier(isRegularSidebarHidden ? "sessions-list-hidden" : "sessions-list")
+        .accessibilityHidden(isRegularSidebarHidden)
         .task(id: allSessions.isEmpty) {
             guard !allSessions.isEmpty else { return }
             await onSessionsLoaded()
@@ -360,6 +361,10 @@ struct SessionsListView: View {
     private func regularHeader(topInset: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                    .padding(.trailing, 8)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Sessions")
                         .font(.title3.weight(.semibold))
@@ -389,16 +394,6 @@ struct SessionsListView: View {
                     .accessibilityLabel("Settings")
                 }
                 .glassEffect(.regular.interactive(), in: .capsule)
-                if let onToggleSidebar {
-                    Button(action: onToggleSidebar) {
-                        Image(systemName: "sidebar.left")
-                            .frame(width: 44, height: 44)
-                    }
-                    .accessibilityLabel("Toggle sidebar")
-                    .accessibilityIdentifier("sidebar-toggle")
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .padding(.leading, 8)
-                }
             }
             .frame(height: 44)
             .padding(.horizontal, 16)

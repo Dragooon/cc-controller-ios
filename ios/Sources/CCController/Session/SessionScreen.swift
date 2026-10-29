@@ -34,7 +34,6 @@ struct SessionScreen: View {
     let wakeError: String?
     let onRetryWake: () -> Void
     let onShowApprovalsElsewhere: () -> Void
-    let onToggleSidebar: (() -> Void)?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     init(
@@ -45,8 +44,7 @@ struct SessionScreen: View {
         isWaking: Bool = false,
         wakeError: String? = nil,
         onRetryWake: @escaping () -> Void = {},
-        onShowApprovalsElsewhere: @escaping () -> Void = {},
-        onToggleSidebar: (() -> Void)? = nil
+        onShowApprovalsElsewhere: @escaping () -> Void = {}
     ) {
         self.sessionID = sessionID
         self.store = store
@@ -56,7 +54,6 @@ struct SessionScreen: View {
         self.wakeError = wakeError
         self.onRetryWake = onRetryWake
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
-        self.onToggleSidebar = onToggleSidebar
     }
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
@@ -729,16 +726,7 @@ struct SessionScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if let onToggleSidebar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: onToggleSidebar) {
-                            Image(systemName: "sidebar.left")
-                        }
-                        .accessibilityLabel("Toggle sidebar")
-                        .accessibilityIdentifier("sidebar-toggle")
-                    }
-                }
-                if approvalsElsewhereCount > 0 {
+                if isCompact, approvalsElsewhereCount > 0 {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: onShowApprovalsElsewhere) {
                             Text(approvalsElsewhereText)

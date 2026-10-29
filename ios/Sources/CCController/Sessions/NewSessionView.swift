@@ -13,7 +13,6 @@ struct NewSessionView: View {
     var selectedControllerID: Binding<ControllerID>? = nil
     var promptBinding: Binding<String>? = nil
     var isEmbedded = false
-    var onToggleSidebar: (() -> Void)? = nil
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -129,15 +128,6 @@ struct NewSessionView: View {
         }
         .toolbar {
             if isEmbedded {
-                if let onToggleSidebar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: onToggleSidebar) {
-                            Image(systemName: "sidebar.left")
-                        }
-                        .accessibilityLabel("Toggle sidebar")
-                        .accessibilityIdentifier("sidebar-toggle")
-                    }
-                }
                 ToolbarItem(placement: .principal) {
                     Text("New session")
                         .font(.headline)
