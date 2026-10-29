@@ -2,6 +2,11 @@ import XCTest
 
 @MainActor
 final class ApprovalFlowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
+
     private var runtimeErrors: [String] = []
     private var auditLines: [String] = []
 

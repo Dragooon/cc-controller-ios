@@ -2,6 +2,11 @@ import XCTest
 
 @MainActor
 final class AppCommandsFlowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
+
     func testRenameSuggestionFillsComposer() throws {
         let app = launchFixture()
         defer { app.terminate() }

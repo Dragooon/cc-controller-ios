@@ -3,6 +3,11 @@ import XCTest
 
 @MainActor
 final class LiveTurnCaptureFlowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
+
     private var observations: [String] = []
 
     func testCaptureLiveTurn() async throws {

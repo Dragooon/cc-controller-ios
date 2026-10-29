@@ -2,6 +2,11 @@ import XCTest
 
 @MainActor
 final class MultiControllerFlowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
+
     override func tearDown() {
         XCUIDevice.shared.orientation = .portrait
         super.tearDown()

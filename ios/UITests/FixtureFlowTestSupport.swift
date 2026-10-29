@@ -39,6 +39,20 @@ func dismissLeftoverNotificationPrompt() {
     print("Dismissed leftover notification prompt before launch: \(label) (gone: \(dismissed))")
 }
 
+func restartFixtureIfConfigured() async throws {
+    guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_SUPERVISOR_URL"], !value.isEmpty else { return }
+    guard let url = URL(string: "\(value)/supervisor/restart") else {
+        throw XCTSkip("Fixture supervisor URL was invalid")
+    }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        let body = String(data: data, encoding: .utf8) ?? "no response body"
+        throw NSError(domain: "FixtureFlow", code: 2, userInfo: [NSLocalizedDescriptionKey: "Fixture supervisor restart failed: \(body)"])
+    }
+}
+
 func postFixtureRoute(_ path: String) async throws {
     let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
     guard let url = URL(string: "\(value)\(path)") else {
@@ -83,6 +97,11 @@ func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> X
 @MainActor
 class FixtureFlowTestSupport: XCTestCase {
     private var auditLines: [String] = []
+
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
 
     override func tearDown() {
         let report = auditLines.isEmpty ? "No accessibility issues reported." : auditLines.joined(separator: "\n")

@@ -2,6 +2,11 @@ import XCTest
 
 @MainActor
 final class AttachmentFlowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
+
     private var auditLines: [String] = []
 
     override func tearDown() {

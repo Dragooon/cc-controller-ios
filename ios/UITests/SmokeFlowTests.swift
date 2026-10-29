@@ -2,6 +2,11 @@ import XCTest
 
 @MainActor
 final class SmokeFlowTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        try await restartFixtureIfConfigured()
+    }
+
     func testAppOpensOnLiveSessions() {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
