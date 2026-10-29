@@ -1398,7 +1398,7 @@ run_flow_shard() {
 
 cmd_flows() {
   prune_scratch
-  local devices=() test_filters=() shard_count=1 no_rerun=0 per_method=0
+  local devices=() test_filters=() shard_count=1 no_rerun=0 per_method=0 slice_index=0 slice_count=1 slice_position=0
   FLOWS_FLAKY_COUNT=0
   unset TEST_RUNNER_FIXTURE_SUPERVISOR_URL
   while [[ $# -gt 0 ]]; do
@@ -1416,6 +1416,13 @@ cmd_flows() {
       --shards)
         [[ $# -ge 2 ]] || { printf '%s\n' 'flows --shards requires a value' >&2; exit 2; }
         shard_count=$2
+        shift 2
+        ;;
+      --slice)
+        [[ $# -ge 2 && "$2" =~ ^[0-9]+/[1-9][0-9]*$ ]] || { printf '%s\n' 'flows --slice requires K/N (0-based K, K < N)' >&2; exit 2; }
+        slice_index=${2%%/*}
+        slice_count=${2#*/}
+        (( slice_index < slice_count )) || { printf '%s\n' 'flows --slice requires K < N' >&2; exit 2; }
         shift 2
         ;;
       --no-rerun)
@@ -1501,6 +1508,9 @@ cmd_flows() {
       fi
     done
     [[ ${#test_filters[@]} -eq 0 || $matched -eq 1 ]] || continue
+    # --slice K/N keeps every Nth selected method, so N machines can split one run.
+    slice_position=$((slice_position + 1))
+    (( ((slice_position - 1) % slice_count) == slice_index )) || continue
     selected_classes+=("$flow_class")
     selected_methods+=("$flow_method")
     selected_count=$((selected_count + 1))
@@ -4074,5 +4084,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--slice <K/N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac

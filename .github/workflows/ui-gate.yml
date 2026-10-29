@@ -1,0 +1,69 @@
+name: UI gate
+
+# The full UI flow suite, split across parallel runners. Each job checks out the private
+# controller (read-only deploy key) for the fixture daemon and runs one slice of the flows.
+# Real-smoke still needs the real daemon on the Mac and is not part of this gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: Simulators run in parallel on each runner
+        default: "2"
+      controller_ref:
+        description: Controller branch, tag or SHA for the fixture daemon
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flows:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [0, 1, 2, 3, 4]
+    env:
+      SLICES: 5
+      CC_CONTROLLER_ROOT: ${{ github.workspace }}/cc-controller
+      CC_EVIDENCE_DIR: ${{ github.workspace }}/evidence
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: cc-controller-ios
+
+      - uses: actions/checkout@v7
+        with:
+          repository: Dragooon/cc-controller
+          ref: ${{ inputs.controller_ref || 'main' }}
+          ssh-key: ${{ secrets.CC_CONTROLLER_DEPLOY_KEY }}
+          path: cc-controller
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install the controller's dependencies
+        working-directory: cc-controller
+        run: npm ci
+
+      - name: Run flows slice ${{ matrix.slice }} of 5
+        working-directory: cc-controller-ios
+        run: |
+          started=$SECONDS
+          bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '2' }}"
+          echo "slice ${{ matrix.slice }} wall-clock=$((SECONDS - started))s"
+
+      - name: Keep the evidence when the slice fails
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flows-evidence-slice-${{ matrix.slice }}
+          path: evidence
+          retention-days: 3
+          if-no-files-found: ignore
