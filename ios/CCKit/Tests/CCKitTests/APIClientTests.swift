@@ -259,10 +259,70 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(contentTypes.contains { $0?.contains("multipart/form-data") == true })
     }
 
-    private func makeClient(token: String? = nil) -> APIClient {
+    func testDownloadFileEncodesSpacesOnce() async throws {
+        var requestURL: URL?
+        StubURLProtocol.handler = { request in
+            requestURL = request.url
+            return StubURLProtocol.response(status: 200, body: Data("file".utf8))
+        }
+
+        let result = try await makeClient().downloadFile(
+            sessionID: "session-1",
+            name: "Repayment testing raw run 2026-10-29-1.csv"
+        )
+
+        XCTAssertEqual(result.data, Data("file".utf8))
+        XCTAssertEqual(
+            try Self.percentEncodedPath(for: requestURL),
+            "/api/files/session-1/Repayment%20testing%20raw%20run%202026-10-29-1.csv"
+        )
+    }
+
+    func testDownloadFileEncodesReservedAndUnicodeCharactersOnce() async throws {
+        var requestURL: URL?
+        StubURLProtocol.handler = { request in
+            requestURL = request.url
+            return StubURLProtocol.response(status: 200, body: Data())
+        }
+        let name = "résumé #1?%+.pdf"
+
+        _ = try await makeClient().downloadFile(sessionID: "session-1", name: name)
+
+        let encodedPath = try Self.percentEncodedPath(for: requestURL)
+        XCTAssertEqual(
+            encodedPath,
+            "/api/files/session-1/r%C3%A9sum%C3%A9%20%231%3F%25%2B.pdf"
+        )
+        XCTAssertEqual(encodedPath.removingPercentEncoding, "/api/files/session-1/\(name)")
+    }
+
+    func testDownloadFilePreservesBaseURLPathPrefix() async throws {
+        var requestURL: URL?
+        StubURLProtocol.handler = { request in
+            requestURL = request.url
+            return StubURLProtocol.response(status: 200, body: Data())
+        }
+
+        _ = try await makeClient(baseURL: URL(string: "http://localhost:47832/prefix")!).downloadFile(
+            sessionID: "session-1",
+            name: "report.txt"
+        )
+
+        XCTAssertEqual(try Self.percentEncodedPath(for: requestURL), "/prefix/api/files/session-1/report.txt")
+    }
+
+    private static func percentEncodedPath(for url: URL?) throws -> String {
+        let url = try XCTUnwrap(url)
+        return try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath)
+    }
+
+    private func makeClient(
+        token: String? = nil,
+        baseURL: URL = URL(string: "http://localhost:47832")!
+    ) -> APIClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
-        return APIClient(baseURL: URL(string: "http://localhost:47832")!, bearerToken: token, session: URLSession(configuration: configuration))
+        return APIClient(baseURL: baseURL, bearerToken: token, session: URLSession(configuration: configuration))
     }
 
     private static func bodyData(for request: URLRequest) -> Data? {

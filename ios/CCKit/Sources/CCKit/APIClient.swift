@@ -313,9 +313,9 @@ public actor APIClient {
 
     private func endpoint(_ path: String, baseURL: URL, query: [URLQueryItem] = []) -> URL {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        let basePath = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let basePath = components.percentEncodedPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let suffix = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        components.path = "/" + [basePath, suffix].filter { !$0.isEmpty }.joined(separator: "/")
+        components.percentEncodedPath = "/" + [basePath, suffix].filter { !$0.isEmpty }.joined(separator: "/")
         components.queryItems = query.isEmpty ? nil : query
         return components.url!
     }
