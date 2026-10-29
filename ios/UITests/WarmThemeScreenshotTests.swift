@@ -24,7 +24,9 @@ final class WarmThemeScreenshotTests: XCTestCase {
             ).firstMatch
             XCTAssertTrue(prose.waitForExistence(timeout: 15), "Warm theme transcript did not mount: \(variant.name)")
             let code = app.buttons["Copy code"]
-            let tool = app.descendants(matching: .any).matching(identifier: "tool-run-card").firstMatch
+            let tool = app.descendants(matching: .any).matching(
+                NSPredicate(format: "label CONTAINS[c] %@", "Read Colors.swift")
+            ).firstMatch
             let codeMounted = code.waitForExistence(timeout: 15)
             let toolMounted = tool.waitForExistence(timeout: 15)
             if !codeMounted || !toolMounted {

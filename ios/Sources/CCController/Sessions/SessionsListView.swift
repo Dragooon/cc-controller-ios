@@ -394,6 +394,7 @@ struct SessionsListView: View {
                     Image(systemName: "gearshape")
                         .frame(width: 44, height: 44)
                 }
+                .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Settings")
             }
             .frame(height: 44)
