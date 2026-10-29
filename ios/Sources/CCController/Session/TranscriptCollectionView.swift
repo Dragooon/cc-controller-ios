@@ -186,6 +186,9 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     private var attributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
     private var contentSize = CGSize.zero
     private var measuredHeights: [HeightKey: CGFloat] = [:]
+    #if DEBUG
+    private var lastMeasuredHeights: [HeightKey: CGFloat] = [:]
+    #endif
     private var itemsRequiringMeasurement: Set<TranscriptCollectionItem> = []
     private var preparedWidth: CGFloat = -1
     private var hasRealBounds = false
@@ -246,12 +249,16 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     override func prepare() {
         super.prepare()
         hasRealBounds = false
+        let previousContentHeight = contentSize.height
         guard let collectionView,
               collectionView.bounds.width >= 1,
               collectionView.bounds.height >= 1,
               collectionView.numberOfSections > 0 else {
             attributes.removeAll(keepingCapacity: true)
             contentSize = .zero
+            #if DEBUG
+            recordLayoutPrepareIfContentHeightChanged(from: previousContentHeight)
+            #endif
             return
         }
         hasRealBounds = true
@@ -294,9 +301,23 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         }
         let height = frames.last?.maxY ?? 0
         contentSize = CGSize(width: collectionView.bounds.width, height: height + 18)
+        #if DEBUG
+        recordLayoutPrepareIfContentHeightChanged(from: previousContentHeight)
+        #endif
         preparedWidth = width
         itemsRequiringMeasurement.subtract(itemIdentifiers)
     }
+
+    #if DEBUG
+    private func recordLayoutPrepareIfContentHeightChanged(from previousContentHeight: CGFloat) {
+        guard MotionTrace.shared.isEnabled, contentSize.height != previousContentHeight else { return }
+        MotionTrace.shared.recordEvent("layoutPrepare", data: [
+            "contentH": contentSize.height,
+            "isApplying": isApplyingCollectionUpdate,
+            "inheritedAnimationDuration": UIView.inheritedAnimationDuration,
+        ])
+    }
+    #endif
 
     override var collectionViewContentSize: CGSize { contentSize }
 
@@ -337,6 +358,9 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         let measurementRect = newBounds.insetBy(dx: 0, dy: -margin)
         var contentOffsetAdjustment: CGFloat = 0
         var didMeasure = false
+        #if DEBUG
+        var measuredItemIDs: [String] = []
+        #endif
         for (indexPath, itemAttributes) in attributes where indexPath.item < firstVisibleIndex {
             guard itemAttributes.frame.intersects(measurementRect),
                   let item = itemIdentifier(at: indexPath),
@@ -345,9 +369,24 @@ private final class TranscriptListLayout: UICollectionViewLayout {
             let newHeight = height(for: item, width: itemWidth, force: true)
             contentOffsetAdjustment += newHeight - oldHeight
             didMeasure = true
+            #if DEBUG
+            measuredItemIDs.append(traceID(item))
+            #endif
         }
         if didMeasure {
             context.contentOffsetAdjustment.y += contentOffsetAdjustment
+            #if DEBUG
+            if MotionTrace.shared.isEnabled, contentOffsetAdjustment != 0 {
+                let before = collectionView.contentOffset.y
+                MotionTrace.shared.recordEvent("pin", data: [
+                    "before": before,
+                    "after": before + contentOffsetAdjustment,
+                    "adjustment": contentOffsetAdjustment,
+                    "reason": "boundsMeasure",
+                    "itemIDs": measuredItemIDs,
+                ])
+            }
+            #endif
         }
         return context
     }
@@ -508,6 +547,16 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         return dataSource.itemIdentifier(for: indexPath)
     }
 
+    #if DEBUG
+    private func traceID(_ item: TranscriptCollectionItem) -> String {
+        switch item {
+        case .paging: return "paging"
+        case .row(let id): return id
+        case .startingNote(let id), .queuedNote(let id): return "note:\(id)"
+        }
+    }
+    #endif
+
     private func indexPath(for item: TranscriptCollectionItem) -> IndexPath? {
         guard let dataSource = collectionView?.dataSource as?
             UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem> else { return nil }
@@ -523,6 +572,20 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         if let cached = measuredHeights[key] { return cached }
         guard force else { return 80 }
         let measured = max(0, heightProvider(item, width))
+        #if DEBUG
+        if MotionTrace.shared.isEnabled {
+            if let previous = lastMeasuredHeights[key], abs(previous - measured) > 0.5 {
+                MotionTrace.shared.recordEvent("remeasure", data: [
+                    "id": traceID(item),
+                    "old": previous,
+                    "new": measured,
+                    "isApplying": isApplyingCollectionUpdate,
+                    "inheritedAnimationDuration": UIView.inheritedAnimationDuration,
+                ])
+            }
+            lastMeasuredHeights[key] = measured
+        }
+        #endif
         measuredHeights[key] = measured
         return measured
     }
