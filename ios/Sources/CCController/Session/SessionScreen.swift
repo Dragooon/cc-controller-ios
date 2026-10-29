@@ -185,7 +185,21 @@ struct SessionScreen: View {
                 name: sessionStore.session.name ?? "Session",
                 session: sessionStore.session
             ) {
-                if sessionStore.isLoaded || !sessionStore.entries.isEmpty {
+                TranscriptReadinessGate(
+                    readiness: sessionStore.readiness,
+                    onSyncingAppear: {
+                        recordLifecycleEvent(
+                            name: "screen-branch",
+                            sessionID: sessionID,
+                            detail: TranscriptScreenBranch.loadingUnloaded.rawValue,
+                            input: .screenBranch(
+                                screenID: lifecycleScreenInstanceID.uuidString,
+                                sessionID: sessionID,
+                                branch: .loadingUnloaded
+                            )
+                        )
+                    }
+                ) {
                     SessionTranscriptView(
                         sessionID: sessionID,
                         turns: sessionStore.turns,
@@ -247,24 +261,8 @@ struct SessionScreen: View {
                             )
                         )
                     }
-                } else {
-                    ProgressView()
-                        .onAppear {
-                            recordLifecycleEvent(
-                                name: "screen-branch",
-                                sessionID: sessionID,
-                                detail: TranscriptScreenBranch.loadingUnloaded.rawValue,
-                                input: .screenBranch(
-                                    screenID: lifecycleScreenInstanceID.uuidString,
-                                    sessionID: sessionID,
-                                    branch: .loadingUnloaded
-                                )
-                            )
-                        }
-                        .accessibilityIdentifier("session-loading")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.ccBackground)
                 }
+                .id(sessionID)
             }
             .sheet(isPresented: toolSheetPresented) {
                 if let selectedTool {
@@ -319,7 +317,7 @@ struct SessionScreen: View {
                 }
             }
         } else {
-            ProgressView()
+            TranscriptSyncingView()
                 .onAppear {
                     recordLifecycleEvent(
                         name: "screen-branch",
@@ -332,9 +330,6 @@ struct SessionScreen: View {
                         )
                     )
                 }
-                .accessibilityIdentifier("session-loading")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.ccBackground)
                 .navigationTitle("Session")
                 .navigationBarTitleDisplayMode(.inline)
         }

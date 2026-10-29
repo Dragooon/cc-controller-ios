@@ -449,6 +449,70 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts[rowLabel].isHittable, "Fresh merge moved the cached middle row")
     }
 
+    func testCurrentCacheReopensWithoutSyncingGlyph() async throws {
+        let app = launchFixture(resetCache: true, initialTranscriptTail: 20)
+        defer {
+            audit(app: app, name: "current-cache-no-glyph")
+            app.terminate()
+        }
+
+        let session = findLongSession(in: app)
+        XCTAssertTrue(session.waitForExistence(timeout: 75), "Long session did not load")
+        session.tap()
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Initial transcript did not load")
+
+        let back = app.navigationBars.buttons["Sessions"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "Sessions back button did not load")
+        back.tap()
+        XCTAssertTrue(session.waitForExistence(timeout: 10), "Long session did not return to the list")
+        session.tap()
+
+        let loading = app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch
+        let deadline = Date().addingTimeInterval(1.5)
+        var sawVisibleRow = false
+        while Date() < deadline {
+            XCTAssertFalse(loading.exists, "A current cache showed the syncing glyph")
+            sawVisibleRow = sawVisibleRow || (newest.exists && newest.isHittable)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(sawVisibleRow, "Current cached rows were not visible during the polling window")
+    }
+
+    func testChangedSessionReopensThroughSyncingGlyph() async throws {
+        let app = launchFixture(resetCache: true, initialTranscriptTail: 20)
+        defer {
+            audit(app: app, name: "changed-session-syncing-glyph")
+            app.terminate()
+        }
+
+        let session = findLongSession(in: app)
+        XCTAssertTrue(session.waitForExistence(timeout: 75), "Long session did not load")
+        session.tap()
+        let original = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(original.waitForExistence(timeout: 30), "Initial transcript did not load")
+
+        let back = app.navigationBars.buttons["Sessions"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "Sessions back button did not load")
+        back.tap()
+        XCTAssertTrue(session.waitForExistence(timeout: 10), "Long session did not return to the list")
+
+        let marker = "Fixture transcript changed while away."
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 800])
+        try await postFixtureJSON(
+            "/fixture/transcript-change",
+            body: ["sessionId": "long-session", "text": marker]
+        )
+        session.tap()
+
+        let loading = app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch
+        XCTAssertTrue(loading.waitForExistence(timeout: 2), "Changed session did not show the syncing glyph")
+        XCTAssertEqual(loading.label, "Loading messages")
+        XCTAssertTrue(loading.waitForNonExistence(timeout: 5), "Syncing glyph did not clear after the delayed transcript")
+        XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 10), "Newest changed entry did not render")
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 0])
+    }
+
     func testJumpHiddenOnShortSession() throws {
         let app = launchFixture()
         defer {
@@ -591,6 +655,22 @@ final class TranscriptFlowTests: XCTestCase {
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "no response body"
             throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture request failed for \(path): \(body)"])
+        }
+    }
+
+    private func postFixtureJSON(_ path: String, body: [String: Any]) async throws {
+        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+        guard let url = URL(string: "\(value)\(path)") else {
+            throw XCTSkip("Fixture control URL was invalid")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            let responseBody = String(data: data, encoding: .utf8) ?? "no response body"
+            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture request failed for \(path): \(responseBody)"])
         }
     }
 
