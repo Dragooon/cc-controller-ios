@@ -4,6 +4,7 @@ import XCTest
 @MainActor
 final class NewSessionFlowTests: FixtureFlowTestSupport {
     func testReturnsToNewChatAfterLongBackground() async throws {
+        try await postFixture("/fixture/clear-approvals")
         let app = launch(resumeNewChatAfterSeconds: 2)
         defer { app.terminate() }
 
@@ -34,9 +35,7 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let session = app.buttons["session-pull-up-agentic-uw"]
         XCTAssertTrue(session.waitForExistence(timeout: 30), "Fixture session did not load")
         session.tap()
-        let approval = app.descendants(matching: .any)
-            .matching(identifier: "approval-card-pull-up-agentic-uw")
-            .firstMatch
+        let approval = app.buttons["approval-pull-up-agentic-uw-allow"]
         XCTAssertTrue(approval.waitForExistence(timeout: 20), "Fixture approval did not load")
 
         XCUIDevice.shared.press(.home)
