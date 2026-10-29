@@ -14,6 +14,68 @@ public struct TranscriptLifecycleEvent: Codable, Equatable, Sendable {
     }
 }
 
+public struct TranscriptGapDiagnosticRecord: Codable, Equatable, Sendable {
+    public let timestamp: String
+    public let name: String
+    public let sessionID: String?
+    public let serverTotal: Int
+    public let confirmedTotal: Int
+    public let attempt: Int
+    public let errorType: String?
+
+    public init(
+        timestamp: String,
+        name: String,
+        sessionID: String?,
+        serverTotal: Int,
+        confirmedTotal: Int,
+        attempt: Int,
+        errorType: String? = nil
+    ) {
+        self.timestamp = timestamp
+        self.name = name
+        self.sessionID = sessionID
+        self.serverTotal = serverTotal
+        self.confirmedTotal = confirmedTotal
+        self.attempt = attempt
+        self.errorType = errorType
+    }
+}
+
+public actor TranscriptGapDiagnosticsFileStore {
+    public static let maximumLineCount = 500
+    public let url: URL
+
+    public init(url: URL) {
+        self.url = url
+    }
+
+    @discardableResult
+    public func append(_ record: TranscriptGapDiagnosticRecord) -> Bool {
+        do {
+            let encoder = JSONEncoder()
+            let line = try encoder.encode(record)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let existing = (try? String(contentsOf: url, encoding: .utf8))?
+                .split(separator: "\\n", omittingEmptySubsequences: true)
+                .map(String.init) ?? []
+            let lines = Array((existing + [String(decoding: line, as: UTF8.self)]).suffix(Self.maximumLineCount))
+            try lines.joined(separator: "\\n").appending("\\n").write(to: url, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    public func readLines() -> [String] {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return contents.split(separator: "\\n", omittingEmptySubsequences: true).map(String.init)
+    }
+}
+
 @MainActor
 public final class TranscriptLifecycleLog {
     public static let shared = TranscriptLifecycleLog()
@@ -29,10 +91,16 @@ public final class TranscriptLifecycleLog {
     }()
 
     private let clock: () -> Date
+    private let gapFileStore: TranscriptGapDiagnosticsFileStore
     private var storage: [TranscriptLifecycleEvent] = []
 
-    public init(clock: @escaping () -> Date = Date.init) {
+    public init(
+        clock: @escaping () -> Date = Date.init,
+        gapFileURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("transcript-gap-diagnostics.jsonl")
+    ) {
         self.clock = clock
+        self.gapFileStore = TranscriptGapDiagnosticsFileStore(url: gapFileURL)
     }
 
     public var events: [TranscriptLifecycleEvent] { storage }
@@ -66,6 +134,34 @@ public final class TranscriptLifecycleLog {
         if storage.count > Self.capacity {
             storage.removeFirst(storage.count - Self.capacity)
         }
+    }
+
+    public func recordGap(
+        name: String,
+        sessionID: String?,
+        serverTotal: Int,
+        confirmedTotal: Int,
+        attempt: Int = 0,
+        errorType: String? = nil
+    ) {
+        let now = clock()
+        record(
+            name: name,
+            sessionID: sessionID,
+            detail: "server=\(serverTotal),confirmed=\(confirmedTotal),attempt=\(attempt)"
+        )
+        let timestamp = Self.timestampFormatter.string(from: now)
+        let record = TranscriptGapDiagnosticRecord(
+            timestamp: timestamp,
+            name: name,
+            sessionID: sessionID,
+            serverTotal: serverTotal,
+            confirmedTotal: confirmedTotal,
+            attempt: attempt,
+            errorType: errorType
+        )
+        let fileStore = gapFileStore
+        Task { await fileStore.append(record) }
     }
 
     public func removeAll() {

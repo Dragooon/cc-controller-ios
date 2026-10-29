@@ -11,6 +11,16 @@ func postCCMotionTraceEvent(_ name: String, data: [String: Any] = [:]) {
 }
 #endif
 
+private struct SessionStoreClock: CCKitClock, @unchecked Sendable {
+    let nowProvider: () -> Date
+
+    var now: Date { nowProvider() }
+
+    func sleep(for duration: Duration) async throws {
+        try await Task.sleep(for: duration)
+    }
+}
+
 @MainActor @Observable
 public final class SessionStore {
     public let sessionID: String
@@ -20,17 +30,29 @@ public final class SessionStore {
     public private(set) var turns: [Turn] = []
     public private(set) var rows: [TranscriptRow] = []
     public private(set) var hasMoreEarlier = false
-    public private(set) var totalEntries = 0
+    /// The latest transcript count reported by the daemon or a transcript page.
+    public private(set) var serverTotal = 0
+    /// The count through which the local transcript is known to be complete.
+    public private(set) var confirmedTotal = 0
+    public var totalEntries: Int { serverTotal }
+    public var hasTranscriptGap: Bool { transcriptGap }
     public var entries: [TranscriptEntry] { transcriptStore.entries }
 
     @ObservationIgnored private let client: APIClient
     @ObservationIgnored private let onTranscriptChange: (([TranscriptEntry]) -> Void)?
-    @ObservationIgnored private let clock: () -> Date
+    @ObservationIgnored private let clock: any CCKitClock
     @ObservationIgnored private let initialTranscriptTail: Int
     @ObservationIgnored private var transcriptOnly: Bool
     @ObservationIgnored private var loadingEarlier = false
     @ObservationIgnored private var inFlightTranscriptFetch: TranscriptFetch?
     @ObservationIgnored private var pendingRefetch: PendingRefetch?
+    @ObservationIgnored private var gapResyncTask: Task<Void, Never>?
+    @ObservationIgnored private var gapImmediateRequested = false
+    @ObservationIgnored private var gapResetLogged = false
+    @ObservationIgnored private var gapAttemptCount = 0
+    @ObservationIgnored private var gapFetchInFlight = false
+    @ObservationIgnored private var transcriptGap = false
+    @ObservationIgnored private var closed = false
     private var hasLoaded = false
 
     private struct TranscriptFetch {
@@ -60,7 +82,9 @@ public final class SessionStore {
         entries: [TranscriptEntry] = [],
         onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
         initialTranscriptTail: Int = 100,
-        transcriptOnly: Bool = false
+        transcriptOnly: Bool = false,
+        serverTotal: Int? = nil,
+        clock: @escaping () -> Date = Date.init
     ) {
         self.init(
             session: session,
@@ -70,7 +94,9 @@ public final class SessionStore {
             onTranscriptChange: onTranscriptChange,
             initialTranscriptTail: initialTranscriptTail,
             transcriptOnly: transcriptOnly,
-            clock: Date.init
+            serverTotal: serverTotal,
+            scheduler: SessionStoreClock(nowProvider: clock),
+            true
         )
     }
 
@@ -82,18 +108,22 @@ public final class SessionStore {
         onTranscriptChange: (([TranscriptEntry]) -> Void)? = nil,
         initialTranscriptTail: Int = 100,
         transcriptOnly: Bool = false,
-        clock: @escaping () -> Date
+        serverTotal: Int? = nil,
+        scheduler: any CCKitClock = SystemCCKitClock(),
+        _ usesScheduler: Bool
     ) {
         self.session = session
         self.sessionID = session.id ?? ""
         self.client = client
         self.agentID = agentID
         self.onTranscriptChange = onTranscriptChange
-        self.clock = clock
+        self.clock = scheduler
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.transcriptOnly = transcriptOnly
         self.transcriptStore = TranscriptStore(entries: entries)
-        self.totalEntries = entries.count
+        let initialServerTotal = max(0, serverTotal ?? entries.count)
+        self.serverTotal = initialServerTotal
+        self.confirmedTotal = min(initialServerTotal, entries.count)
         self.hasLoaded = !entries.isEmpty
         refreshTurns(forceFull: true)
     }
@@ -115,25 +145,107 @@ public final class SessionStore {
                 finishFetch(current.id)
                 guard !Task.isCancelled else { throw error }
                 guard !hasLoaded else { return TranscriptChangeSet() }
-                return try await runInitialFetch()
+                do {
+                    return try await runInitialFetch()
+                } catch {
+                    markTranscriptGap()
+                    requestTranscriptResync()
+                    throw error
+                }
             }
             finishFetch(current.id)
             if hasLoaded { return TranscriptChangeSet() }
-            return try await runInitialFetch()
+            do {
+                return try await runInitialFetch()
+            } catch {
+                requestTranscriptResync()
+                throw error
+            }
         }
-        return try await runInitialFetch()
+        do {
+            return try await runInitialFetch()
+        } catch {
+            markTranscriptGap()
+            requestTranscriptResync()
+            throw error
+        }
     }
 
     @discardableResult
     public func merge(_ incoming: [TranscriptEntry], replace: Bool = false, entryCount: Int? = nil, appendNewEntries: Bool = false) -> TranscriptChangeSet {
         let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: appendNewEntries)
-        if let entryCount { totalEntries = max(totalEntries, entryCount) }
-        else if !hasLoaded { totalEntries = max(totalEntries, transcriptStore.entries.count) }
+        if let entryCount { serverTotal = max(0, entryCount) }
+        else if !hasLoaded { serverTotal = max(serverTotal, transcriptStore.entries.count) }
+        publish(change)
+        return change
+    }
+
+    /// Merges a live event and advances completion only when the event is contiguous.
+    @discardableResult
+    public func mergeLive(
+        _ incoming: [TranscriptEntry],
+        replace: Bool = false,
+        entryCount: Int?
+    ) -> TranscriptChangeSet {
+        let change = transcriptStore.merge(incoming, replace: replace, appendNewEntries: true)
+        if let entryCount {
+            serverTotal = max(0, entryCount)
+            let allowedTotal = confirmedTotal + (change.inserted.isEmpty ? 0 : 1)
+            if entryCount <= allowedTotal {
+                confirmedTotal = max(confirmedTotal, entryCount)
+            } else {
+                markTranscriptGap()
+            }
+        }
+        publish(change)
+        return change
+    }
+
+    /// Records a count from state without claiming that the local transcript is complete.
+    public func observeServerTotal(_ count: Int) {
+        serverTotal = max(0, count)
+        if serverTotal > confirmedTotal { markTranscriptGap() }
+    }
+
+    /// Starts or wakes the single resync loop for this store.
+    public func recordTranscriptResync(reason: String) {
+        guard hasTranscriptGap else { return }
+        TranscriptLifecycleLog.shared.recordGap(
+            name: "transcript-gap-resync-requested",
+            sessionID: sessionID,
+            serverTotal: serverTotal,
+            confirmedTotal: confirmedTotal,
+            attempt: gapAttemptCount,
+            errorType: reason
+        )
+    }
+
+    public func requestTranscriptResync(immediate: Bool = false) {
+        guard !closed, hasTranscriptGap else { return }
+        if let gapResyncTask {
+            if immediate {
+                gapImmediateRequested = true
+                if !gapFetchInFlight { gapResyncTask.cancel() }
+            }
+            return
+        }
+        gapResyncTask = Task { @MainActor [weak self] in
+            await self?.runTranscriptResync()
+        }
+    }
+
+    public func close() {
+        closed = true
+        gapResyncTask?.cancel()
+        gapResyncTask = nil
+        gapImmediateRequested = false
+    }
+
+    private func publish(_ change: TranscriptChangeSet) {
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
             refreshTurns(change: change)
             notify(change)
         }
-        return change
     }
 
     @discardableResult
@@ -193,7 +305,7 @@ public final class SessionStore {
         let page = try await client.transcriptPage(sessionID: sessionID, before: oldestID, limit: 200, agent: agentID)
         let change = transcriptStore.merge(page.entries)
         hasMoreEarlier = page.hasMore
-        totalEntries = max(totalEntries, page.total)
+        serverTotal = max(0, page.total)
         #if DEBUG
         postCCMotionTraceEvent("pageLoaded", data: ["count": change.inserted.count])
         #endif
@@ -275,6 +387,103 @@ public final class SessionStore {
         pendingRefetch = pending
     }
 
+    private func markTranscriptGap() {
+        guard serverTotal > confirmedTotal else { return }
+        guard !transcriptGap else { return }
+        transcriptGap = true
+        gapAttemptCount = 0
+        gapResetLogged = false
+        TranscriptLifecycleLog.shared.recordGap(
+            name: "transcript-gap-detected",
+            sessionID: sessionID,
+            serverTotal: serverTotal,
+            confirmedTotal: confirmedTotal
+        )
+    }
+
+    private func confirmTranscriptPage(total: Int) {
+        let wasGap = hasTranscriptGap
+        serverTotal = max(0, total)
+        confirmedTotal = serverTotal
+        transcriptGap = false
+        if wasGap {
+            TranscriptLifecycleLog.shared.recordGap(
+                name: "transcript-gap-healed",
+                sessionID: sessionID,
+                serverTotal: serverTotal,
+                confirmedTotal: confirmedTotal,
+                attempt: gapAttemptCount
+            )
+        }
+        gapAttemptCount = 0
+        gapResetLogged = false
+    }
+
+    private func runTranscriptResync() async {
+        var attempt = 0
+        while !Task.isCancelled, !closed, hasTranscriptGap {
+            if gapImmediateRequested {
+                gapImmediateRequested = false
+            }
+            attempt += 1
+            gapAttemptCount = attempt
+            let missing = max(1, serverTotal - confirmedTotal)
+            let reset = missing > 400
+            if reset, !gapResetLogged {
+                gapResetLogged = true
+                TranscriptLifecycleLog.shared.recordGap(
+                    name: "transcript-gap-reset",
+                    sessionID: sessionID,
+                    serverTotal: serverTotal,
+                    confirmedTotal: confirmedTotal,
+                    attempt: attempt
+                )
+            }
+            gapFetchInFlight = true
+            do {
+                _ = try await refetchTail(limit: reset ? 100 : Self.gapFetchLimit(missing: missing), reset: reset)
+                gapFetchInFlight = false
+                if !hasTranscriptGap { break }
+            } catch {
+                gapFetchInFlight = false
+                if Task.isCancelled, gapImmediateRequested { continue }
+                guard !Task.isCancelled, !closed else { return }
+                TranscriptLifecycleLog.shared.recordGap(
+                    name: "transcript-gap-fetch-failed",
+                    sessionID: sessionID,
+                    serverTotal: serverTotal,
+                    confirmedTotal: confirmedTotal,
+                    attempt: attempt,
+                    errorType: String(describing: type(of: error))
+                )
+                if gapImmediateRequested {
+                    gapImmediateRequested = false
+                    continue
+                }
+                let delay = Self.gapBackoff(attempt: attempt)
+                do {
+                    try await clock.sleep(for: .seconds(delay))
+                } catch {
+                    if gapImmediateRequested { continue }
+                    return
+                }
+            }
+        }
+        let restartImmediately = gapImmediateRequested && !closed
+        gapResyncTask = nil
+        gapImmediateRequested = false
+        if !hasTranscriptGap { gapResetLogged = false }
+        if restartImmediately { requestTranscriptResync() }
+    }
+
+    private static func gapFetchLimit(missing: Int) -> Int {
+        min(400, max(1, missing + 20))
+    }
+
+    private static func gapBackoff(attempt: Int) -> Double {
+        min(30, pow(2, Double(max(0, attempt - 1))))
+    }
+
     private func performInitialFetch() async throws -> TranscriptChangeSet {
         #if DEBUG || CC_PERF
         TranscriptPerformance.shared.begin(sessionID: sessionID)
@@ -296,7 +505,7 @@ public final class SessionStore {
         TranscriptPerformance.shared.markMergeDone()
         #endif
         hasMoreEarlier = transcriptStore.entries.count < page.total
-        totalEntries = page.total
+        confirmTranscriptPage(total: page.total)
         hasLoaded = true
         if entriesChanged {
             refreshTurns(change: change, forceFull: replacedAll)
@@ -322,7 +531,7 @@ public final class SessionStore {
             replacedAll = true
             hasMoreEarlier = page.hasMore
         }
-        totalEntries = max(totalEntries, page.total)
+        confirmTranscriptPage(total: page.total)
         hasLoaded = true
         if !change.inserted.isEmpty || !change.updatedIDs.isEmpty {
             refreshTurns(change: change, forceFull: replacedAll)
@@ -343,7 +552,14 @@ public final class SessionStore {
         turnRows = []
         earlierIdentityKeys = []
         hasMoreEarlier = false
-        totalEntries = 0
+        serverTotal = 0
+        confirmedTotal = 0
+        gapResyncTask?.cancel()
+        gapResyncTask = nil
+        gapImmediateRequested = false
+        gapResetLogged = false
+        gapAttemptCount = 0
+        transcriptGap = false
         hasLoaded = false
         onTranscriptChange?([])
     }
@@ -368,7 +584,7 @@ public final class SessionStore {
         #if CC_PERF
         PerfCounters.shared.hit(.refreshTurns)
         #endif
-        let now = clock()
+        let now = clock.now
         if !forceFull, let change, let startIndex = incrementalStartIndex(for: change) {
             let prefixCount = max(0, turns.count - 2)
             let suffix = Array(transcriptStore.entries[startIndex...])

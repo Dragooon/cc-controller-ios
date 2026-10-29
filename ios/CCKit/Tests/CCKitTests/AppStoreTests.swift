@@ -1248,6 +1248,188 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(AppStore.gapFetchLimit(missing: 600), 400)
     }
 
+    func testFailedGapFetchIsRetriedImmediatelyByTheNextLiveEvent() async throws {
+        var transcriptCalls = 0
+        var failedGapFetch = false
+        URLProtocolStub.requestPaths = []
+        URLProtocolStub.keepEvents = false
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                var tail: String?
+                for item in URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [] where item.name == "tail" {
+                    tail = item.value
+                    break
+                }
+                transcriptCalls += 1
+                if tail != "100" && !failedGapFetch {
+                    failedGapFetch = true
+                    return URLProtocolStub.json(500, body: Data("{\"error\":\"gap failed\"}".utf8))
+                }
+                let entries = failedGapFetch ? gapTestEntries(1, 4) : gapTestEntries(1, 1)
+                return URLProtocolStub.json(Self.pageJSON(entries: entries, total: entries.count, hasMore: false))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 1])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await store.loadInitial()
+        XCTAssertTrue(store.isLoaded)
+
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "entry-3"), entryCount: 3)))
+        try await waitUntil("failed gap fetch") { failedGapFetch }
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "entry-4"), entryCount: 4)))
+
+        try await waitUntil("gap retry") { store.entries.count == 4 && transcriptCalls >= 3 }
+        XCTAssertEqual(Set(store.entries.compactMap(\.id)), Set((1...4).map { "entry-\($0)" }))
+        XCTAssertEqual(store.confirmedTotal, 4)
+        app.suspend()
+        URLProtocolStub.keepEvents = false
+    }
+
+    func testQuietGapHealsThroughInjectedBackoffRetry() async throws {
+        let clock = ManualClock()
+        var transcriptCalls = 0
+        var failedGapFetch = false
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                transcriptCalls += 1
+                if transcriptCalls == 2 && !failedGapFetch {
+                    failedGapFetch = true
+                    return URLProtocolStub.json(500, body: Data("{\"error\":\"gap failed\"}".utf8))
+                }
+                let entries = transcriptCalls >= 3 ? gapTestEntries(1, 2) : []
+                return URLProtocolStub.json(Self.pageJSON(entries: entries, total: entries.count, hasMore: false))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp(clock: clock)
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("initial transcript") { store.isLoaded }
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "entry-2"), entryCount: 2)))
+        try await waitUntil("backoff scheduled") { clock.sleepDurations.contains(.seconds(1)) }
+
+        clock.resumeSleeps()
+        try await waitUntil("quiet gap retry") { store.confirmedTotal == 2 }
+        XCTAssertEqual(transcriptCalls, 3)
+    }
+
+    func testForegroundResyncsAnOpenStoreWithAnUnconfirmedServerTotal() async throws {
+        var transcriptCalls = 0
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                transcriptCalls += 1
+                let entries = transcriptCalls == 1 ? [] : gapTestEntries(1, 3)
+                return URLProtocolStub.json(Self.pageJSON(entries: entries, total: entries.count, hasMore: false))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("initial transcript") { store.isLoaded }
+
+        store.observeServerTotal(3)
+        app.resyncOpenTranscripts()
+
+        try await waitUntil("foreground resync") { store.confirmedTotal == 3 }
+        XCTAssertEqual(transcriptCalls, 2)
+        app.suspend()
+        URLProtocolStub.keepEvents = false
+    }
+
+    func testReplaceAndUpdateEventsDoNotTriggerGapFetch() async throws {
+        var transcriptCalls = 0
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON(entryCount: 1)) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                transcriptCalls += 1
+                return URLProtocolStub.json(Self.pageJSON(entries: [Self.entry(id: "entry-1")], total: 1, hasMore: false))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("initial transcript") { store.isLoaded }
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "entry-1"), entryCount: 1, replace: true)))
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "entry-1"), entryCount: 1)))
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(transcriptCalls, 1)
+        XCTAssertEqual(store.confirmedTotal, 1)
+        app.suspend()
+        URLProtocolStub.keepEvents = false
+    }
+
+    func testMoreThanFourHundredMissingEntriesUsesResetFetch() async throws {
+        var transcriptCalls = 0
+        var usedResetTail = false
+        URLProtocolStub.requestPaths = []
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                transcriptCalls += 1
+                for item in URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [] where item.name == "tail" && item.value == "100" {
+                    usedResetTail = true
+                    break
+                }
+                let entries = transcriptCalls == 1 ? [] : [Self.entry(id: "tail")]
+                return URLProtocolStub.json(Self.pageJSON(entries: entries, total: transcriptCalls == 1 ? 0 : 401, hasMore: transcriptCalls == 1))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("initial transcript") { store.isLoaded }
+        app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: Self.entry(id: "entry-401"), entryCount: 401)))
+
+        try await waitUntil("reset gap fetch") { transcriptCalls >= 2 }
+        XCTAssertTrue(usedResetTail, "Expected reset tail request")
+        XCTAssertEqual(store.confirmedTotal, 401)
+        app.suspend()
+        URLProtocolStub.keepEvents = false
+    }
+
+    func testStateDeltaAboveConfirmedTotalTriggersResync() async throws {
+        var transcriptCalls = 0
+        URLProtocolStub.keepEvents = true
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
+            if request.url?.path.hasSuffix("/transcript") == true {
+                transcriptCalls += 1
+                let entries = transcriptCalls == 1 ? [] : gapTestEntries(1, 3)
+                return URLProtocolStub.json(Self.pageJSON(entries: entries, total: entries.count, hasMore: false))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = try await makePaginatedApp()
+        app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
+        let store = try XCTUnwrap(app.openSession("session-1"))
+        try await waitUntil("initial transcript") { store.isLoaded }
+        app.apply(.stateDelta(StateDelta(sessionId: "session-1", entries: ["session-1": 3])))
+
+        try await waitUntil("state delta resync") { transcriptCalls >= 2 && store.confirmedTotal == 3 }
+        XCTAssertEqual(store.serverTotal, 3)
+        app.suspend()
+        URLProtocolStub.keepEvents = false
+    }
+
     func testClearFollowSwitchesToLiveSessionWithSamePidWithinWindow() {
         let missingAt = Date(timeIntervalSince1970: 100)
         let previous = ["old": Session(id: "old", pid: 42, live: true)]
@@ -1387,7 +1569,7 @@ final class AppStoreTests: XCTestCase {
         defer { URLProtocolStub.keepEvents = false }
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(Self.bootstrapJSON) }
-            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data(), contentType: "text/event-stream") }
+            if request.url?.path == "/api/events" { return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n".utf8), contentType: "text/event-stream") }
             if request.url?.path.hasSuffix("/transcript") == true { return URLProtocolStub.json(Self.entriesJSON([])) }
             return URLProtocolStub.json(Data("{}".utf8))
         }
@@ -1471,6 +1653,17 @@ final class AppStoreTests: XCTestCase {
         )
     }
 
+    private func makePaginatedApp(clock: any CCKitClock = SystemCCKitClock()) async throws -> AppStore {
+        let client = APIClient(baseURL: URL(string: "http://localhost:47832")!, session: URLProtocolStub.session)
+        _ = try await client.bootstrap()
+        return AppStore(
+            client: client,
+            bearerProvider: { "test-token" },
+            clock: clock,
+            cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        )
+    }
+
     private static func session(state: SessionState = .idle, subagents: [Subagent]? = nil) -> Session {
         Session(id: "session-1", name: "Fixture", live: true, state: state, usage: Usage(), subagents: subagents)
     }
@@ -1496,6 +1689,17 @@ final class AppStoreTests: XCTestCase {
 
     private static func promptJSON(text: String, timestamp: Date) -> Data {
         Data("[{\"kind\":\"prompt\",\"ts\":\"\(CCDateCoding.format(timestamp))\",\"text\":\"\(text)\"}]".utf8)
+    }
+}
+
+private func gapTestEntries(_ first: Int, _ last: Int) -> [TranscriptEntry] {
+    (first...last).map { index in
+        .assistant(AssistantEntry(
+            id: "entry-\(index)",
+            rev: 1,
+            ts: Date(timeIntervalSince1970: Double(index)),
+            text: "entry-\(index)"
+        ))
     }
 }
 

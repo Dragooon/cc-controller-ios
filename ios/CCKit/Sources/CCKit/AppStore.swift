@@ -244,6 +244,14 @@ public final class AppStore {
         closeStore(forKey: id)
     }
 
+    /// Retries transcript gaps for stores that remain open after foregrounding or reconnecting.
+    public func resyncOpenTranscripts() {
+        for store in openStores.values where store.hasTranscriptGap {
+            store.recordTranscriptResync(reason: "foreground")
+            store.requestTranscriptResync(immediate: true)
+        }
+    }
+
     public func newSessionOptions() async throws -> NewSessionOptions {
         try await client.newSessionOptions()
     }
@@ -1412,6 +1420,7 @@ public final class AppStore {
         lastUpdated = clock.now
         if refetchOpenTranscripts {
             for store in openStores.values {
+                if store.hasTranscriptGap { store.recordTranscriptResync(reason: "reconnect") }
                 if startedAtChanged { try await store.refetchTail(reset: true) }
                 else { try await store.refetchTail() }
             }
@@ -1496,7 +1505,10 @@ public final class AppStore {
         let key = storeKey(sessionID: sessionID, agentID: nil)
         if event.reset == true {
             TranscriptLifecycleLog.shared.record(name: "transcript-event-reset", sessionID: sessionID)
-            if let entryCount = event.entryCount { serverEntryCounts[sessionID] = entryCount }
+            if let entryCount = event.entryCount {
+                serverEntryCounts[sessionID] = entryCount
+                openStores[key]?.observeServerTotal(entryCount)
+            }
             cachedTranscripts.removeValue(forKey: key)
             cacheChangedStoreKeys.remove(key)
             if let store = openStores[key] {
@@ -1506,22 +1518,19 @@ public final class AppStore {
         }
         guard let entry = event.entry else { return }
         guard let store = openStores[key] else { return }
-        let countBefore = store.totalEntries
-        let change = store.merge(
+        _ = store.mergeLive(
             [entry],
             replace: event.replace == true,
-            entryCount: event.entryCount,
-            appendNewEntries: true
+            entryCount: event.entryCount
         )
         #if DEBUG
         if let id = entry.id, let text = entry.text, !text.isEmpty {
             postCCMotionTraceEvent("streamChunk", data: ["entryID": id, "length": text.count])
         }
         #endif
-        let expectedCount = countBefore + (change.inserted.isEmpty ? 0 : 1)
         if let entryCount = event.entryCount {
             serverEntryCounts[sessionID] = entryCount
-            if entryCount > expectedCount { refetchStoreGap(store, missing: entryCount - expectedCount) }
+            if store.hasTranscriptGap { refetchStoreGap(store, immediate: true) }
         }
         scheduleCacheWrite()
     }
@@ -1679,8 +1688,9 @@ public final class AppStore {
 
     private func refetchStoresForCounts(_ counts: [String: Int]) {
         for store in openStores.values {
-            guard let count = counts[store.sessionID], count > store.totalEntries else { continue }
-            refetchStoreGap(store, missing: count - store.totalEntries)
+            guard let count = counts[store.sessionID] else { continue }
+            store.observeServerTotal(count)
+            if store.hasTranscriptGap { refetchStoreGap(store, immediate: true) }
         }
     }
 
@@ -1705,9 +1715,8 @@ public final class AppStore {
         }?.id
     }
 
-    private func refetchStoreGap(_ store: SessionStore, missing: Int) {
-        let limit = Self.gapFetchLimit(missing: missing)
-        Task { try? await store.refetchGap(limit: limit) }
+    private func refetchStoreGap(_ store: SessionStore, immediate: Bool) {
+        store.requestTranscriptResync(immediate: immediate)
     }
 
     private func openStore(sessionID: String, agentID: String?) -> SessionStore? {
@@ -1754,7 +1763,10 @@ public final class AppStore {
                 self.reconcileQueuedNotes(for: sessionID, changedEntries: changedEntries)
             },
             initialTranscriptTail: initialTranscriptTail,
-            transcriptOnly: transcriptOnly
+            transcriptOnly: transcriptOnly,
+            serverTotal: agentID == nil ? serverEntryCounts[sessionID] : nil,
+            scheduler: clock,
+            true
         )
         openStores[key] = store
         if agentID == nil { reconcileQueuedNotes(for: sessionID, changedEntries: entries) }
@@ -1850,6 +1862,7 @@ public final class AppStore {
 
     private func closeStore(forKey key: String) {
         guard let store = openStores.removeValue(forKey: key) else { return }
+        store.close()
         TranscriptLifecycleLog.shared.record(name: "store-close", sessionID: store.sessionID)
         cachedTranscripts[key] = Array(store.entries.suffix(400))
         cacheChangedStoreKeys.insert(key)

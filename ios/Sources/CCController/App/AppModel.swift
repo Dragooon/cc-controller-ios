@@ -1262,6 +1262,7 @@ final class AppModel {
             } else {
                 clearBackgroundTimestamp()
                 resumeAuthenticatedStores()
+                stores.forEach { $0.resyncOpenTranscripts() }
                 watchForIdentityChange()
                 scheduleUnlockExpiryIfNeeded()
             }

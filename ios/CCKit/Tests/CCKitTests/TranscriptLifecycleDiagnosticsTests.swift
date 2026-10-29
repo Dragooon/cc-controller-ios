@@ -173,6 +173,34 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
         XCTAssertEqual(engine.ingest(.transcriptAppear(sessionID: session)).count, 1)
     }
 
+    func testGapDiagnosticsFileCapsAtFiveHundredLines() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transcript-gap-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = TranscriptGapDiagnosticsFileStore(url: url)
+        let record = TranscriptGapDiagnosticRecord(
+            timestamp: "2026-10-29T00:00:00.000Z",
+            name: "transcript-gap-fetch-failed",
+            sessionID: "session-1",
+            serverTotal: 42,
+            confirmedTotal: 10,
+            attempt: 1,
+            errorType: "TestError"
+        )
+
+        for _ in 0..<505 {
+            let appended = await store.append(record)
+            XCTAssertTrue(appended)
+        }
+
+        let lines = await store.readLines()
+        XCTAssertEqual(lines.count, 500)
+        let decoded = try JSONDecoder().decode(TranscriptGapDiagnosticRecord.self, from: Data(lines.last!.utf8))
+        XCTAssertEqual(decoded.serverTotal, 42)
+        XCTAssertEqual(decoded.confirmedTotal, 10)
+        XCTAssertEqual(decoded.errorType, "TestError")
+    }
+
     func testLifecycleLogCapsAtSixtyFourAndRedactsSessionAndDetail() {
         let clock = TestClock()
         let log = TranscriptLifecycleLog(clock: { clock.now })
