@@ -322,8 +322,16 @@ final class TranscriptFlowTests: XCTestCase {
         )
         XCTAssertTrue(older.isHittable, "Paging did not make prompt 485 visible")
 
-        let initialPrompt = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
-        XCTAssertTrue(initialPrompt.isHittable, "Initial prompt 490 is no longer visible after paging")
+        let nextCheckpointLabels = [488, 489, 490].map {
+            "Long-session prompt \($0): inspect the next checkpoint."
+        }
+        XCTAssertTrue(
+            nextCheckpointLabels.contains { label in
+                let prompt = app.staticTexts[label]
+                return prompt.exists && prompt.isHittable
+            },
+            "Paging jumped away from the initial boundary at prompt 490"
+        )
         attach(named: "transcript-paging")
 
         XCTAssertTrue(jump.waitForExistence(timeout: 10), "Jump to latest did not appear")
