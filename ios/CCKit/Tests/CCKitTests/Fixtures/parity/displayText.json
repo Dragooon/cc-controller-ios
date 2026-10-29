@@ -3,8 +3,18 @@
   "cases": [
     {
       "name": "home",
-      "input": "/Users/owner/Documents/dev/cc-controller",
+      "input": "/Users/sam/Documents/dev/cc-controller",
       "output": "~/Documents/dev/cc-controller"
+    },
+    {
+      "name": "linux-home",
+      "input": "cd /var/home/sam/dev && ls /home/riley",
+      "output": "cd ~/dev && ls ~"
+    },
+    {
+      "name": "not-home",
+      "input": "/opt/Users/sam and /Users",
+      "output": "/opt/Users/sam and /Users"
     }
   ]
 }
