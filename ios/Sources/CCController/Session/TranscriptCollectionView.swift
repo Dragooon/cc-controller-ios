@@ -108,6 +108,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     private var measuredHeights: [HeightKey: CGFloat] = [:]
     private var itemsRequiringMeasurement: Set<TranscriptCollectionItem> = []
     private var preparedWidth: CGFloat = -1
+    private var hasRealBounds = false
     private var newestEndUpdate = false
     private var insertedIndexPaths: Set<IndexPath> = []
     private(set) var isApplyingCollectionUpdate = false
@@ -143,16 +144,20 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
     override func prepare() {
         super.prepare()
+        hasRealBounds = false
         guard let collectionView,
+              collectionView.bounds.width >= 1,
+              collectionView.bounds.height >= 1,
               collectionView.numberOfSections > 0 else {
             attributes.removeAll(keepingCapacity: true)
             contentSize = .zero
             return
         }
-        let width = max(0, collectionView.bounds.width)
+        hasRealBounds = true
+        let width = collectionView.bounds.width
         let itemWidth = itemWidth(for: width)
         let itemCount = collectionView.numberOfItems(inSection: 0)
-        let viewportHeight = max(collectionView.bounds.height, 1)
+        let viewportHeight = collectionView.bounds.height
         let visibleRect = collectionView.bounds
         let expandedRect = visibleRect.insetBy(dx: 0, dy: -viewportHeight)
         let itemEntries = (0..<itemCount).compactMap { index -> (index: Int, item: TranscriptCollectionItem)? in
@@ -218,6 +223,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     override func invalidationContext(forBoundsChange newBounds: CGRect) -> UICollectionViewLayoutInvalidationContext {
         let context = super.invalidationContext(forBoundsChange: newBounds)
         guard let collectionView,
+              newBounds.width >= 1,
+              newBounds.height >= 1,
               collectionView.numberOfSections > 0,
               abs(newBounds.width - preparedWidth) <= 0.5 else { return context }
 
@@ -303,6 +310,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     }
 
     func shouldApplyAnchoredContentOffset(for collectionView: UICollectionView) -> Bool {
+        guard hasRealBounds else { return false }
         if anchorIsBottom {
             return !collectionView.isTracking
                 && !collectionView.isDragging
@@ -313,6 +321,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     }
 
     func anchoredContentOffset(for collectionView: UICollectionView) -> (y: CGFloat, reason: String)? {
+        guard hasRealBounds else { return nil }
         let inset = collectionView.adjustedContentInset
         let minimumY = -inset.top
         let maximumY = max(
@@ -524,6 +533,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var recorder: ScrollDiagnosticsRecorder?
         private var lastUnbuiltDiagnosticAt: Date?
         private var didRunInitialMeasureCheck = false
+        private var didPositionInitialLayout = false
+        private var isScrollingToTop = false
         private var pinnedBinding = Binding.constant(true)
         private var lastJumpToLatestRequest = 0
         private(set) var isPinnedToBottom = true
@@ -612,9 +623,11 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 recorder = ScrollDiagnosticsRecorder(sessionID: sessionID)
                 lastUnbuiltDiagnosticAt = nil
                 didRunInitialMeasureCheck = false
+                didPositionInitialLayout = false
                 didTriggerPaging = false
             }
 
+            let canAnimateJump = didPositionInitialLayout
             let newState = makeState(from: representable)
             apply(
                 items: newState.items,
@@ -624,7 +637,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
             if representable.jumpToLatestRequest != lastJumpToLatestRequest {
                 lastJumpToLatestRequest = representable.jumpToLatestRequest
-                jumpToLatest()
+                if canAnimateJump {
+                    jumpToLatest()
+                }
             }
             return readableContentMaxWidthChanged
         }
@@ -666,18 +681,28 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
             guard let collectionView = scrollView as? TranscriptCollectionView else { return }
             collectionView.isAnimatingJump = false
-            updatePinAfterUserScroll(scrollView)
+            let wasScrollingToTop = isScrollingToTop
+            isScrollingToTop = false
+            if !wasScrollingToTop {
+                setPinned(true)
+                if let layout = collectionView.collectionViewLayout as? TranscriptListLayout {
+                    layout.anchor = .bottom
+                }
+                collectionView.layoutIfNeeded()
+            }
             #if DEBUG
             MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "ran", "animated": true])
             #endif
         }
 
         func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            isScrollingToTop = true
             (scrollView as? TranscriptCollectionView)?.isAnimatingJump = true
             return true
         }
 
         func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+            isScrollingToTop = false
             if let collectionView = scrollView as? TranscriptCollectionView {
                 collectionView.isAnimatingJump = false
             }
@@ -691,7 +716,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         ) {
             guard let item = dataSource?.itemIdentifier(for: indexPath) else { return }
             if item == .paging {
-                loadEarlierIfNeeded()
+                maybeLoadEarlierIfNearTop()
             }
         }
 
@@ -932,8 +957,16 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         }
 
         private func maybeLoadEarlierIfNearTop() {
-            guard let collectionView else { return }
-            let top = -collectionView.adjustedContentInset.top
+            guard didPositionInitialLayout, let collectionView else { return }
+            let inset = collectionView.adjustedContentInset
+            let contentFitsViewport = collectionView.contentSize.height + inset.top + inset.bottom
+                < collectionView.bounds.height
+            if isPinnedToBottom {
+                guard contentFitsViewport else { return }
+                loadEarlierIfNeeded()
+                return
+            }
+            let top = -inset.top
             if collectionView.contentOffset.y <= top + collectionView.bounds.height {
                 loadEarlierIfNeeded()
             }
@@ -968,8 +1001,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         private func didFinishLayout() {
             guard let collectionView, collectionView.window != nil,
-                  collectionView.bounds.height > 0,
+                  collectionView.bounds.width >= 1,
+                  collectionView.bounds.height >= 1,
                   !(dataSource?.snapshot().itemIdentifiers.isEmpty ?? true) else { return }
+            didPositionInitialLayout = true
             #if DEBUG
             if !didRunInitialMeasureCheck, !collectionView.indexPathsForVisibleItems.isEmpty {
                 checkMeasureMismatches(in: collectionView)
