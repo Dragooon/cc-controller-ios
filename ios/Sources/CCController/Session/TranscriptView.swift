@@ -325,11 +325,13 @@ struct SessionTranscriptView: View {
 
     private var collectionEngineEnabled: Bool {
         let arguments = ProcessInfo.processInfo.arguments
+        // The collection engine is the transcript. The legacy engine stays reachable only through this
+        // launch argument, for motion comparisons, until it is deleted.
         if let index = arguments.firstIndex(of: "-CCTranscriptEngine"),
-           arguments.dropFirst(index + 1).first == "collection" {
-            return true
+           arguments.dropFirst(index + 1).first == "legacy" {
+            return false
         }
-        return UserDefaults.standard.string(forKey: "cc-controller.transcriptEngine") == "collection"
+        return true
     }
 
     private var legacyTranscriptBody: some View {

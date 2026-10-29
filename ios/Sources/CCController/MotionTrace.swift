@@ -309,7 +309,7 @@ final class MotionTrace: NSObject {
         metaWritten = true
         let arguments = ProcessInfo.processInfo.arguments
         let scenario = argumentValue("-CCMotionScenario", in: arguments) ?? "unknown"
-        let engine = argumentValue("-CCTranscriptEngine", in: arguments) ?? "legacy"
+        let engine = argumentValue("-CCTranscriptEngine", in: arguments) ?? "collection"
         let sha = argumentValue("-CCMotionSHA", in: arguments)
             ?? ProcessInfo.processInfo.environment["CCMotionBuildSHA"]
             ?? "unknown"
