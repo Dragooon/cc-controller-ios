@@ -87,9 +87,38 @@ final class TranscriptCollectionView: UICollectionView {
         var offset = contentOffset
         offset.y = target.y
         setContentOffset(offset, animated: false)
+        let boundsHeightChanged = previousBoundsHeight.map { abs($0 - bounds.height) > 0.5 } ?? false
+        if boundsHeightChanged,
+           layout.isBottomAnchored,
+           UIView.inheritedAnimationDuration == 0,
+           let sizeAnimationKey = layer.animationKeys()?.first(where: {
+               $0.localizedCaseInsensitiveContains("bounds.size")
+           }),
+           let sizeAnimation = layer.animation(forKey: sizeAnimationKey),
+           !(layer.animationKeys() ?? []).contains(where: {
+               $0.localizedCaseInsensitiveContains("bounds.origin")
+           }),
+           let offsetAnimation = sizeAnimation.copy() as? CABasicAnimation {
+            offsetAnimation.keyPath = "bounds.origin"
+            offsetAnimation.fromValue = NSValue(cgPoint: CGPoint(x: 0, y: before - target.y))
+            offsetAnimation.toValue = NSValue(cgPoint: .zero)
+            offsetAnimation.isAdditive = true
+            let currentMediaTime = CACurrentMediaTime()
+            layer.add(offsetAnimation, forKey: "cc-pinned-offset")
+            #if DEBUG
+            MotionTrace.shared.recordEvent("pin", data: [
+                "before": before,
+                "after": target.y,
+                "reason": "keyboardOffsetAnimation",
+                "copiedClass": String(describing: type(of: offsetAnimation)),
+                "beginTime": offsetAnimation.beginTime,
+                "currentMediaTime": currentMediaTime,
+                "beginTimeDelta": offsetAnimation.beginTime - currentMediaTime,
+            ])
+            #endif
+        }
         #if DEBUG
         MotionTrace.shared.recordPin(before: before, after: target.y, reason: target.reason)
-        let boundsHeightChanged = previousBoundsHeight.map { abs($0 - bounds.height) > 0.5 } ?? false
         if boundsHeightChanged {
             var data: [String: Any] = [
                 "before": before,
