@@ -511,7 +511,7 @@ final class TranscriptFlowTests: XCTestCase {
         app.terminate()
 
         let marker = "Fixture transcript changed while away."
-        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 800])
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 3000])
         try await postFixtureJSON(
             "/fixture/transcript-change",
             body: ["sessionId": "long-session", "text": marker]
@@ -531,7 +531,7 @@ final class TranscriptFlowTests: XCTestCase {
             XCTAssertFalse(staleNewest.exists, "Cached newest row was visible before the transcript became current")
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTAssertTrue(loading.waitForNonExistence(timeout: 5), "Syncing glyph did not clear after the delayed transcript")
+        XCTAssertTrue(loading.waitForNonExistence(timeout: 8), "Syncing glyph did not clear after the delayed transcript")
         let changedEntry = app.staticTexts[marker]
         XCTAssertTrue(changedEntry.waitForExistence(timeout: 10), "Newest changed entry did not render")
         XCTAssertTrue(changedEntry.isHittable, "Newest changed entry is not visible")
