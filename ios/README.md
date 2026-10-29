@@ -21,6 +21,8 @@ Owner-specific values never go in the repository. `ios/Config/App.xcconfig` hold
 - `CC_BUNDLE_ID`, the app's bundle ID (default `com.example.cc-controller`). The UI test runner uses `$(CC_BUNDLE_ID).uitests`, and `scripts/ios.sh` reads the same value.
 - `CC_RELAY_ENDPOINTS`, the relay addresses a fresh install starts with, separated by spaces. Write `https:/$()/host:port`, because `//` starts a comment in an xcconfig file. Leave it empty to enter the addresses in the app's Settings instead.
 
+`ota` also needs `CC_OTA_HOST`, the host that serves OTA builds (for example `mac.example.ts.net`), from the environment or the ignored `ios/Config/OTA.local.xcconfig`.
+
 Controllers, relay addresses and paired devices are app settings, stored on the phone.
 
 The fixture daemon the UI tests use lives in the controller repository. From a standalone checkout of this app, `scripts/ios.sh` looks for it in `CC_CONTROLLER_ROOT`, or in a `cc-controller` checkout next to this one, with `npm ci` already run there. `install` builds Release, installs on the one paired physical iPhone (or the exact `--device` match), and does not launch it unless `--launch` is passed.

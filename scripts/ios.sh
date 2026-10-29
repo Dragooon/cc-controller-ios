@@ -3613,6 +3613,25 @@ cmd_install() {
   fi
 }
 
+# The tailnet name that serves OTA builds, from CC_OTA_HOST or ios/Config/OTA.local.xcconfig.
+ota_host() {
+  if [[ -n "${CC_OTA_HOST:-}" ]]; then
+    printf '%s\n' "$CC_OTA_HOST"
+    return 0
+  fi
+  local config="$IOS/Config/OTA.local.xcconfig"
+  [[ -f "$config" ]] || return 0
+  awk -F= '
+    /^[[:space:]]*CC_OTA_HOST[[:space:]]*=/ {
+      value = $2
+      sub(/[[:space:]]*(\/\/|#).*$/, "", value)
+      gsub(/[[:space:]\"]/, "", value)
+      print value
+      exit
+    }
+  ' "$config"
+}
+
 signing_team() {
   if [[ -n "${DEVELOPMENT_TEAM:-}" ]]; then
     printf '%s\n' "$DEVELOPMENT_TEAM"
@@ -3878,7 +3897,7 @@ ota_verify_remote() {
     fi
     printf 'ota verify %s: %s\n' "$url" "$response"
   done
-  url="https://mustafar.example.ts.net/latest.html"
+  url="https://$(ota_host)/latest.html"
   response=$(ssh mustafar "curl -sf -o /dev/null -w '%{http_code} %{content_type}\\n' '$url'") || {
     printf 'ota verification failed: %s\n' "$url" >&2
     return 1
@@ -3939,10 +3958,21 @@ cmd_ota() {
     return 2
   fi
 
+  local host
+  host=$(ota_host)
+  if [[ -z "$host" ]]; then
+    if (( dry_run )); then
+      host=mustafar.example.ts.net
+    else
+      printf '%s\n' 'ota requires CC_OTA_HOST (set it in the environment or ios/Config/OTA.local.xcconfig)' >&2
+      return 2
+    fi
+  fi
+
   local build_number short_sha base_url build_date ota_root artifact_dir export_options archive_path export_dir
   build_number=$(ota_next_build_number)
   short_sha=$(git -C "$ROOT" rev-parse --short HEAD)
-  base_url="https://mustafar.example.ts.net/cc/${build_number}"
+  base_url="https://${host}/cc/${build_number}"
   build_date=$(date -u '+%Y-%m-%d %H:%M UTC')
   ota_root="$IOS/build/ota"
   if (( dry_run )); then

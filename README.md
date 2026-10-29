@@ -12,4 +12,5 @@ Xcode 27 with the iOS 27 SDK, and XcodeGen (`brew install xcodegen`). UI tests a
 ## CI
 
 - **CI** (`.github/workflows/ci.yml`) builds the app for the simulator and runs the CCKit tests on every push and pull request.
+- **UI gate** (`.github/workflows/ui-gate.yml`) is started by hand. It runs the full UI flow suite split across five runners (`ios.sh flows --slice K/5`), each checking out the controller with the read-only `CC_CONTROLLER_DEPLOY_KEY` for the fixture daemon. Real-smoke needs the real daemon and stays on the owner's Mac.
 - **Dev session** (`.github/workflows/dev-session.yml`) is started by hand. It checks out the app (and the controller, when the `CC_CONTROLLER_DEPLOY_KEY` secret is set) on a macOS runner, joins the owner's tailnet as an ephemeral `tag:ci` node, and starts sshd for the key in the `DEV_SSH_PUBLIC_KEY` variable, so the runner can be used as a remote Mac for builds, simulators and UI tests. It stays up for the requested hours (at most 6) or until `~/stop` exists on the runner.
