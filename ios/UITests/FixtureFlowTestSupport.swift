@@ -234,7 +234,7 @@ class FixtureFlowTestSupport: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         if let motionOrientation { XCUIDevice.shared.orientation = motionOrientation }
         let app = XCUIApplication()
-        if let bearer = environment["TEST_RUNNER_BEARER"], !bearer.isEmpty {
+        if motionTraceFile != nil, let bearer = environment["TEST_RUNNER_BEARER"], !bearer.isEmpty {
             app.launchEnvironment["CCBearer"] = bearer
         }
         app.launchArguments = [
