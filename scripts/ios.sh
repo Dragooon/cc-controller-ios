@@ -10,6 +10,7 @@ DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)" "iPhone Duo")
 POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
 EVIDENCE_ROOT="${CC_EVIDENCE_DIR:-$HOME/dev/cc-controller-evidence}"
+SCRATCH_ROOT="${CC_IOS_SCRATCH:-$HOME/Library/Caches/cc-controller-scratch}"
 POOL_SLOTS="${CC_IOS_POOL_SLOTS:-4}"
 POOL_IDLE_SECONDS=$((20 * 60))
 POOL_WAIT_SECONDS=$((60 * 60))
@@ -26,6 +27,8 @@ REAL_DEVICE_NAME=""
 REAL_SECRET_DIR=""
 REAL_BEARER_FILE=""
 REAL_OUTPUT_DIR=""
+REAL_RAW_DIR=""
+PERF_SCRATCH_DIR=""
 REAL_PERF_UDID=""
 REAL_PERF_EVENT_PID=""
 REAL_PERF_SAMPLER_PID=""
@@ -57,6 +60,44 @@ step() {
 
 json_value() {
   node -e 'const fs=require("node:fs"); const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(value[process.argv[2]]);' -- "$1" "$2"
+}
+
+scratch_dir_for_evidence() {
+  local evidence_dir=$1 relative
+  case "$evidence_dir" in
+    "$EVIDENCE_ROOT") relative="";;
+    "$EVIDENCE_ROOT"/*) relative=${evidence_dir#"$EVIDENCE_ROOT"/};;
+    *) relative=$(basename "$evidence_dir");;
+  esac
+  if [[ -n "$relative" ]]; then
+    printf '%s/%s\n' "$SCRATCH_ROOT" "$relative"
+  else
+    printf '%s\n' "$SCRATCH_ROOT"
+  fi
+}
+
+prune_scratch() {
+  if [[ -z "$SCRATCH_ROOT" ]]; then
+    printf '%s\n' 'warning: CC_IOS_SCRATCH is empty; skipping scratch prune' >&2
+    return 0
+  fi
+  if ! mkdir -p "$SCRATCH_ROOT"; then
+    printf 'warning: could not create scratch root: %s\n' "$SCRATCH_ROOT" >&2
+    return 0
+  fi
+  if ! find "$SCRATCH_ROOT" -mindepth 1 -depth ! -type d -mmin +1440 -delete; then
+    printf 'warning: scratch file pruning failed under %s\n' "$SCRATCH_ROOT" >&2
+  fi
+  if ! find "$SCRATCH_ROOT" -mindepth 1 -type d -empty -delete; then
+    printf 'warning: scratch directory pruning failed under %s\n' "$SCRATCH_ROOT" >&2
+  fi
+}
+
+prepare_evidence_run() {
+  local evidence_dir=$1 scratch_dir
+  scratch_dir=$(scratch_dir_for_evidence "$evidence_dir")
+  mkdir -p "$evidence_dir" "$scratch_dir"
+  printf '%s\n' "$scratch_dir" > "$evidence_dir/raw.txt"
 }
 
 main_checkout() {
@@ -776,12 +817,12 @@ run_flow_test() {
 }
 
 run_flow_method() {
-  local label=$1 flow_class=$2 flow_method=$3 udid=$4 output_dir=$5 result=$6 exported=$7 source_xctestrun=$8 app_bundle=$9
-  local method_log="$output_dir/xcodebuild.log" method_xctestrun="$exported/CCController.xctestrun"
+  local label=$1 flow_class=$2 flow_method=$3 udid=$4 output_dir=$5 raw_output_dir=$6 result=$7 exported=$8 source_xctestrun=$9 app_bundle=${10}
+  local method_log="$raw_output_dir/xcodebuild.log" method_xctestrun="$exported/CCController.xctestrun"
   local method_status=0 xcode_status=0 export_status=0
 
-  rm -rf "$output_dir" "$result" "$exported"
-  mkdir -p "$output_dir" "$(dirname "$result")" "$exported"
+  rm -rf "$output_dir" "$raw_output_dir" "$result" "$exported"
+  mkdir -p "$output_dir" "$raw_output_dir" "$(dirname "$result")" "$exported"
   ln -s "$DERIVED/Build/Products/Debug-iphonesimulator" "$exported/Debug-iphonesimulator"
 
   stop_fixture_daemon
@@ -799,7 +840,7 @@ run_flow_method() {
   fi
 
   local web_port bearer control_port
-  if [[ $method_status -eq 0 ]] && start_fixture_daemon "$output_dir/fixture-daemon.log"; then
+  if [[ $method_status -eq 0 ]] && start_fixture_daemon "$raw_output_dir/fixture.log"; then
     web_port=$(json_value "$FIXTURE_OUT" webPort)
     bearer=$(json_value "$FIXTURE_OUT" bearer)
     control_port=$(json_value "$FIXTURE_OUT" controlPort)
@@ -823,8 +864,6 @@ run_flow_method() {
         if [[ -f "$manifest" ]]; then
           node -e 'const fs=require("node:fs"),path=require("node:path"),p=process.argv[1],dir=path.dirname(p),d=JSON.parse(fs.readFileSync(p)),attachments=Array.isArray(d)?d.flatMap((entry)=>entry.attachments??[]):d.attachments??[];for(const a of attachments){const suggested=a.suggestedHumanReadableName||a.filename||"";const old=a.exportedFileName||a.exportedFilePath||a.filename;let name=suggested.replace(/_[0-9]+_[0-9a-f-]+\.(png|txt)$/i,".$1");if(!path.extname(name))name+=path.extname(old);const src=path.join(dir,old),dst=path.join(dir,name);if(fs.existsSync(src)&&src!==dst)fs.renameSync(src,dst);}' -- "$manifest"
         fi
-        find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
-        find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
       else
         printf '%s\n' 'failed to export result attachments' | tee -a "$method_log"
         export_status=1
@@ -841,11 +880,15 @@ run_flow_method() {
   rm -f "$method_xctestrun"
   [[ $xcode_status -eq 0 ]] || method_status=1
   [[ $export_status -eq 0 ]] || method_status=1
+  if [[ $method_status -ne 0 && -d "$exported" ]]; then
+    find "$exported" -maxdepth 1 -type f -name '*.png' -exec cp {} "$output_dir" \;
+    find "$exported" -maxdepth 1 -type f -name '*.txt' -exec cp {} "$output_dir" \;
+  fi
   return "$method_status"
 }
 
 run_flow_shard() {
-  local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 xctestrun=$5 flow_root=$6 flow_build_root=$7
+  local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 xctestrun=$5 flow_root=$6 flow_scratch_root=$7
   SHARD_CONTROLLER=0
   SHARD_PIDS=()
   RUN_DIR=$(mktemp -d -t cc-controller-flow-shard.XXXXXX)
@@ -867,13 +910,14 @@ run_flow_shard() {
     device_index=0
     for device in "${devices[@]+"${devices[@]}"}"; do
       local method_started=$SECONDS
-      local device_key result output_dir exported udid method_status=0
+      local device_key result output_dir raw_output_dir exported udid method_status=0
       device_key=$(echo "$device" | tr ' ()' '---')
       output_dir="$flow_root/$device_key/$flow_class/$flow_method"
-      result="$flow_build_root/$device_key/$flow_class/$flow_method.xcresult"
+      raw_output_dir="$flow_scratch_root/$device_key/$flow_class/$flow_method"
+      result="$raw_output_dir/result.xcresult"
       exported="$RUN_DIR/$device_key/$flow_class/$flow_method"
       udid=${shard_udids[$device_index]}
-      if run_flow_method "flows $flow_class/$flow_method $device" "$flow_class" "$flow_method" "$udid" "$output_dir" "$result" "$exported" "$xctestrun" "$app_bundle"; then
+      if run_flow_method "flows $flow_class/$flow_method $device" "$flow_class" "$flow_method" "$udid" "$output_dir" "$raw_output_dir" "$result" "$exported" "$xctestrun" "$app_bundle"; then
         method_status=0
       else
         method_status=$?
@@ -883,7 +927,7 @@ run_flow_shard() {
       if [[ $method_status -ne 0 ]]; then
         result_label=FAIL
         shard_failed=$((shard_failed + 1))
-      elif grep -Eq 'Test Case .* skipped' "$output_dir/xcodebuild.log"; then
+      elif grep -Eq 'Test Case .* skipped' "$raw_output_dir/xcodebuild.log"; then
         result_label=SKIP
       fi
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$index" "$device_index" "$flow_class" "$flow_method" "$device" "$result_label" "$elapsed" >> "$result_file"
@@ -897,6 +941,7 @@ run_flow_shard() {
 }
 
 cmd_flows() {
+  prune_scratch
   local devices=() test_filters=() shard_count=1 no_rerun=0
   FLOWS_FLAKY_COUNT=0
   while [[ $# -gt 0 ]]; do
@@ -1003,13 +1048,14 @@ cmd_flows() {
     DERIVED="$IOS/build/flow-derived-$CC_MOCK_LANE"
   fi
   step generate cmd_generate
-  local flow_root="$IOS/shots/flows"
-  local flow_build_root="$IOS/build/flows"
+  local flow_root="$EVIDENCE_ROOT/flows/$(date -u '+%Y%m%dT%H%M%SZ')"
   if [[ -n "${CC_MOCK_LANE:-}" ]]; then
     flow_root="$flow_root/$CC_MOCK_LANE"
-    flow_build_root="$flow_build_root-$CC_MOCK_LANE"
   fi
-  mkdir -p "$flow_root"
+  [[ ! -e "$flow_root" ]] || flow_root="${flow_root}-$$"
+  local flow_scratch_root
+  flow_scratch_root=$(scratch_dir_for_evidence "$flow_root")
+  prepare_evidence_run "$flow_root"
   RUN_DIR=$(mktemp -d -t cc-controller-flow-run.XXXXXX)
   DIAG_DIR=""
 
@@ -1035,12 +1081,14 @@ cmd_flows() {
     (
       trap 'cleanup_run $?' EXIT
       trap 'exit 130' INT TERM
-      run_flow_shard "$shard" "$shard_count" "$shard_result_dir/shard-$shard.tsv" "$app_bundle" "$xctestrun" "$flow_root" "$flow_build_root"
+      run_flow_shard "$shard" "$shard_count" "$shard_result_dir/shard-$shard.tsv" "$app_bundle" "$xctestrun" "$flow_root" "$flow_scratch_root"
     ) &
     shard_pid=$!
     SHARD_PIDS+=("$shard_pid")
   done
 
+  local summary_file="$flow_root/summary.txt"
+  : > "$summary_file"
   local shard_status=0
   for shard_pid in "${SHARD_PIDS[@]}"; do
     if wait "$shard_pid"; then
@@ -1058,11 +1106,11 @@ cmd_flows() {
   local summary_count=0 passed=0 failed=0 skipped=0
   local failed_tests=()
   local result_index result_device_index result_class result_method result_device result_label result_seconds
-  printf '\nFlow summary\n'
-  printf '%-70s %-8s %8s\n' 'class/method [device]' 'result' 'seconds'
+  printf '\nFlow summary\n' | tee -a "$summary_file"
+  printf '%-70s %-8s %8s\n' 'class/method [device]' 'result' 'seconds' | tee -a "$summary_file"
   while IFS=$'\t' read -r result_index result_device_index result_class result_method result_device result_label result_seconds; do
     [[ -z "$result_index" ]] && continue
-    printf '%-70s %-8s %8s\n' "$result_class/$result_method [$result_device]" "$result_label" "$result_seconds"
+    printf '%-70s %-8s %8s\n' "$result_class/$result_method [$result_device]" "$result_label" "$result_seconds" | tee -a "$summary_file"
     summary_count=$((summary_count + 1))
     case "$result_label" in
       PASS) passed=$((passed + 1));;
@@ -1081,7 +1129,7 @@ cmd_flows() {
     esac
   done < <(LC_ALL=C sort -t $'\t' -k1,1n -k2,2n "${result_files[@]}")
 
-  printf '%s passed, %s failed, %s skipped\n' "$passed" "$failed" "$skipped"
+  printf '%s passed, %s failed, %s skipped\n' "$passed" "$failed" "$skipped" | tee -a "$summary_file"
   if [[ $summary_count -ne $((selected_count * ${#devices[@]})) ]]; then
     printf 'flow summary contains %s of %s expected methods\n' "$summary_count" "$((selected_count * ${#devices[@]}))" >&2
     shard_status=1
@@ -1105,10 +1153,11 @@ cmd_flows() {
       flow_class=${failed_test%%/*}
       flow_method=${failed_test#*/}
       local rerun_output_dir="$flow_root/$rerun_device_key/$flow_class/$flow_method/rerun-1"
-      local rerun_result="$rerun_output_dir/result.xcresult"
+      local rerun_raw_output_dir="$flow_scratch_root/$rerun_device_key/$flow_class/$flow_method/rerun-1"
+      local rerun_result="$rerun_raw_output_dir/result.xcresult"
       local rerun_exported="$RUN_DIR/rerun-$rerun_device_key/$flow_class/$flow_method"
       local rerun_status=0
-      if run_flow_method "flows rerun-1 $flow_class/$flow_method $rerun_device" "$flow_class" "$flow_method" "$rerun_udid" "$rerun_output_dir" "$rerun_result" "$rerun_exported" "$xctestrun" "$app_bundle"; then
+      if run_flow_method "flows rerun-1 $flow_class/$flow_method $rerun_device" "$flow_class" "$flow_method" "$rerun_udid" "$rerun_output_dir" "$rerun_raw_output_dir" "$rerun_result" "$rerun_exported" "$xctestrun" "$app_bundle"; then
         rerun_status=0
       else
         rerun_status=$?
@@ -1139,14 +1188,14 @@ cmd_flows() {
     idle_original_count=0
     for device in "${devices[@]+"${devices[@]}"}"; do
       local original_device_key=$(echo "$device" | tr ' ()' '---')
-      original_log="$flow_root/$original_device_key/$flow_class/$flow_method/xcodebuild.log"
+      original_log="$flow_scratch_root/$original_device_key/$flow_class/$flow_method/xcodebuild.log"
       if [[ -f "$original_log" ]]; then
         stall_count=$(grep -cF "$idle_stall_line" "$original_log" 2>/dev/null || true)
         idle_original_count=$((idle_original_count + stall_count))
       fi
     done
     idle_rerun_count=0
-    rerun_log="$flow_root/$rerun_device_key/$flow_class/$flow_method/rerun-1/xcodebuild.log"
+    rerun_log="$flow_scratch_root/$rerun_device_key/$flow_class/$flow_method/rerun-1/xcodebuild.log"
     if [[ -f "$rerun_log" ]]; then
       idle_rerun_count=$(grep -cF "$idle_stall_line" "$rerun_log" 2>/dev/null || true)
     fi
@@ -1164,6 +1213,7 @@ cmd_flows() {
 }
 
 cmd_motion() {
+  prune_scratch
   local scenarios="all" engines="both" device="iphone" out_dir="" orientation="portrait"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1191,7 +1241,9 @@ cmd_motion() {
     [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == H1 || "$scenario" == P1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
   done
   if [[ -z "$out_dir" ]]; then out_dir="$EVIDENCE_ROOT/motion/$(date -u '+%Y%m%dT%H%M%SZ')"; fi
-  mkdir -p "$out_dir"
+  local motion_scratch_dir
+  motion_scratch_dir=$(scratch_dir_for_evidence "$out_dir")
+  prepare_evidence_run "$out_dir"
 
   local load_start
   load_start=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
@@ -1223,8 +1275,8 @@ cmd_motion() {
   for scenario in "${motion_scenarios[@]}"; do
     for engine in "${motion_engines[@]}"; do
       local run="$(printf '%s-%s' "$scenario" "$engine")"
-      local trace_name="$run.jsonl" case_log="$run_dir/$run.xcodebuild.log" video="$run_dir/$run.mp4"
-      local result="$RUN_DIR/$run.xcresult" run_xctestrun="$RUN_DIR/$run.xctestrun"
+      local trace_name="$run.jsonl" case_log="$motion_scratch_dir/$run.xcodebuild.log" video="$motion_scratch_dir/$run.mp4"
+      local result="$motion_scratch_dir/$run.xcresult" run_xctestrun="$RUN_DIR/$run.xctestrun"
       local case_status=0 video_pid="" container trace_source trace_path
       local run_load_start run_load_end trace_lines frame_count video_size
       run_load_start=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
@@ -1234,7 +1286,7 @@ cmd_motion() {
       xcrun simctl ui "$MOTION_UDID" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
       xcrun simctl install "$MOTION_UDID" "$app_bundle"
       FIXTURE_SIM_UDID="$MOTION_UDID"
-      start_fixture_daemon "$run_dir/$run.fixture.log"
+      start_fixture_daemon "$motion_scratch_dir/$run.fixture.log"
       local web_port bearer control_port
       web_port=$(json_value "$FIXTURE_OUT" webPort)
       bearer=$(json_value "$FIXTURE_OUT" bearer)
@@ -1254,7 +1306,7 @@ cmd_motion() {
         export TEST_RUNNER_MOTION_ORIENTATION=landscape
       fi
       if [[ $case_status -eq 0 ]]; then
-        xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$run_dir/$run.video.log" 2>&1 &
+        xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
         video_pid=$!
         local motion_method
         case "$scenario" in
@@ -1453,6 +1505,7 @@ real_select_sessions() {
 }
 
 cmd_real_smoke() {
+  prune_scratch
   local sessions_count=6
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1471,7 +1524,8 @@ cmd_real_smoke() {
   output_base="$EVIDENCE_ROOT/real-smoke/$timestamp"
   [[ ! -e "$output_base" ]] || output_base="${output_base}-$$"
   REAL_OUTPUT_DIR="$output_base"
-  mkdir -p "$REAL_OUTPUT_DIR"
+  REAL_RAW_DIR=$(scratch_dir_for_evidence "$REAL_OUTPUT_DIR")
+  prepare_evidence_run "$REAL_OUTPUT_DIR"
   REAL_SECRET_DIR=$(mktemp -d)
   chmod 700 "$REAL_SECRET_DIR"
   REAL_BEARER_FILE="$REAL_SECRET_DIR/bearer"
@@ -1506,8 +1560,8 @@ cmd_real_smoke() {
   pool_acquire
   udid=$(ensure_pool_device 'iPhone 16 Plus')
   xcrun simctl install "$udid" "$app_bundle"
-  # The result bundle and xcodebuild log can record the runner environment, which holds the bearer,
-  # so both stay in the secret directory and only screenshots and a bearer-free log are kept.
+  # The result bundle can record the runner environment, which holds the bearer,
+  # so it stays in the secret directory and only the xcodebuild log is copied after a plain-text check.
   local result="$REAL_SECRET_DIR/real-smoke.xcresult"
   local run_xctestrun="$REAL_SECRET_DIR/CCController.xctestrun"
   ln -s "$DERIVED/real-smoke/Build/Products/Debug-iphonesimulator" "$REAL_SECRET_DIR/Debug-iphonesimulator"
@@ -1528,7 +1582,7 @@ cmd_real_smoke() {
     printf '%s\n' 'real-smoke bearer appeared in the xcodebuild log; the log was not kept' >&2
     test_status=1
   else
-    cp "$test_log" "$REAL_OUTPUT_DIR/xcodebuild.log" 2>/dev/null || true
+    cp "$test_log" "$REAL_RAW_DIR/xcodebuild.log" 2>/dev/null || true
   fi
   if [[ -s "$skip_file" ]]; then
     if [[ -f "$REAL_OUTPUT_DIR/summary.txt" ]]; then
@@ -1790,21 +1844,21 @@ perf_start_samples() {
   local label=$1 host_app_pid=$2 case_dir=$3 render_pid
   [[ "$label" == C || "$label" == E-real || "$label" == E-storm || "$label" == F ]] || return 0
   local sample_prefix="sample-$label-$PERF_RUN_NUMBER"
-  [[ -f "$PERF_OUTPUT_DIR/$sample_prefix.txt" ]] || {
+  [[ -f "$PERF_SCRATCH_DIR/$sample_prefix.txt" ]] || {
     if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
-      sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/$sample_prefix.txt" >/dev/null 2>&1 &
+      sample "$host_app_pid" 10 -file "$PERF_SCRATCH_DIR/$sample_prefix.txt" >/dev/null 2>&1 &
       PERF_SAMPLE_PIDS+=("$!")
     else
       host_app_pid=$(perf_host_pid 'cc-controller.app/cc-controller' "$PERF_UDID")
       if [[ "$host_app_pid" =~ ^[0-9]+$ ]]; then
-        sample "$host_app_pid" 10 -file "$PERF_OUTPUT_DIR/$sample_prefix.txt" >/dev/null 2>&1 &
+        sample "$host_app_pid" 10 -file "$PERF_SCRATCH_DIR/$sample_prefix.txt" >/dev/null 2>&1 &
         PERF_SAMPLE_PIDS+=("$!")
       fi
     fi
   }
   render_pid=$(perf_host_pid 'backboardd' "$PERF_UDID")
   if [[ "$render_pid" =~ ^[0-9]+$ ]]; then
-    sample "$render_pid" 10 -file "$PERF_OUTPUT_DIR/sample-render-$label-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
+    sample "$render_pid" 10 -file "$PERF_SCRATCH_DIR/sample-render-$label-$PERF_RUN_NUMBER.txt" >/dev/null 2>&1 &
     PERF_SAMPLE_PIDS+=("$!")
   fi
 }
@@ -1812,8 +1866,9 @@ perf_start_samples() {
 perf_run_case() {
   local label=$1 mode=$2 duration=$3 private_fixture=${4:-}
   local case_dir="$PERF_OUTPUT_DIR/$label/run-$PERF_RUN_NUMBER"
-  mkdir -p "$case_dir"
-  local fixture_log="$case_dir/fixture.log"
+  local raw_case_dir="$PERF_SCRATCH_DIR/$label/run-$PERF_RUN_NUMBER"
+  mkdir -p "$case_dir" "$raw_case_dir"
+  local fixture_log="$raw_case_dir/fixture.log"
   local app_bundle="$PERF_DERIVED/Build/Products/Release-iphonesimulator/cc-controller.app"
   start_fixture_daemon "$fixture_log" perf "$mode" "$private_fixture"
   local web_port bearer
@@ -1847,7 +1902,7 @@ perf_run_case() {
   before_render=$(perf_process_sample "$PERF_UDID" backboardd)
   before_rss=${before_app##*|}
   start=$(perf_wall_seconds)
-  samples="$case_dir/process-samples.txt"
+  samples="$raw_case_dir/process-samples.txt"
   : > "$samples"
   perf_sample_loop "$PERF_UDID" "$samples" &
   sampler=$!
@@ -2353,6 +2408,7 @@ real_perf_measure_window() {
   local phase=$1 sample_duration=$2 mode=$3 value=$4 selected_id=$5 selected_count=$6
   shift 6
   local phase_dir="$REAL_OUTPUT_DIR/$phase"
+  local raw_phase_dir="$REAL_RAW_DIR/$phase"
   local raw_events="$REAL_SECRET_DIR/events-$phase.raw"
   local event_log="$REAL_SECRET_DIR/events-$phase.log"
   local query render_pid daemon_pid before_app before_render before_daemon
@@ -2361,7 +2417,7 @@ real_perf_measure_window() {
   local samples sampler app_sample_pid render_sample_pid container counter_file
   local event_status=0 phase_status=0 command_status=0 window_duration
   local bearer sample_pid
-  mkdir -p "$phase_dir"
+  mkdir -p "$phase_dir" "$raw_phase_dir"
 
   query=$(real_event_query)
   render_pid=$(perf_host_pid backboardd "$REAL_PERF_UDID")
@@ -2375,12 +2431,12 @@ real_perf_measure_window() {
   before_render_cpu=$(printf '%s' "$before_render" | cut -d'|' -f2)
   before_daemon_cpu=$(printf '%s' "$before_daemon" | cut -d'|' -f2)
   start=$(perf_wall_seconds)
-  samples="$phase_dir/process-samples.txt"
+  samples="$raw_phase_dir/process-samples.txt"
   : > "$samples"
-  sample "$PERF_HOST_APP_PID" "$sample_duration" -file "$phase_dir/sample-app.txt" >/dev/null 2>&1 &
+  sample "$PERF_HOST_APP_PID" "$sample_duration" -file "$raw_phase_dir/sample-app.txt" >/dev/null 2>&1 &
   app_sample_pid=$!
   PERF_SAMPLE_PIDS+=("$app_sample_pid")
-  sample "$render_pid" "$sample_duration" -file "$phase_dir/sample-render.txt" >/dev/null 2>&1 &
+  sample "$render_pid" "$sample_duration" -file "$raw_phase_dir/sample-render.txt" >/dev/null 2>&1 &
   render_sample_pid=$!
   PERF_SAMPLE_PIDS+=("$render_sample_pid")
   real_start_event_capture "$query" "$raw_events" "$event_log"
@@ -2409,7 +2465,7 @@ real_perf_measure_window() {
     [[ -z "$sample_pid" ]] || wait "$sample_pid" 2>/dev/null || true
   done
   PERF_SAMPLE_PIDS=()
-  if [[ ! -s "$phase_dir/sample-app.txt" || ! -s "$phase_dir/sample-render.txt" ]]; then
+  if [[ ! -s "$raw_phase_dir/sample-app.txt" || ! -s "$raw_phase_dir/sample-render.txt" ]]; then
     printf 'real perf %s sample command did not produce both stack files\n' "$phase" >&2
     phase_status=1
   fi
@@ -2445,10 +2501,10 @@ PY
     printf 'real perf %s bearer appeared in SSE capture or log; evidence was not copied\n' "$phase" >&2
     phase_status=1
   else
-    cp "$raw_events" "$phase_dir/events.raw"
-    chmod 600 "$phase_dir/events.raw"
-    [[ ! -s "$event_log" ]] || cp "$event_log" "$phase_dir/events.log"
-    [[ ! -s "$event_log" ]] || chmod 600 "$phase_dir/events.log"
+    cp "$raw_events" "$raw_phase_dir/events.raw"
+    chmod 600 "$raw_phase_dir/events.raw"
+    [[ ! -s "$event_log" ]] || cp "$event_log" "$raw_phase_dir/events.log"
+    [[ ! -s "$event_log" ]] || chmod 600 "$raw_phase_dir/events.log"
   fi
   real_write_perf_result "$phase_dir/result.json" "$counter_file" "$phase" "$selected_id" "$selected_count" "$window_duration" "$CC_PERF_REAL_WARMUP"
   local counter_summary
@@ -2527,7 +2583,7 @@ NODE
 }
 
 real_turn_driver() {
-  local phase_dir=$1 before_state="$REAL_SECRET_DIR/turn-state-before.json" after_state="$REAL_SECRET_DIR/turn-state-after.json"
+  local phase_dir=$1 raw_phase_dir="$REAL_RAW_DIR/turn" before_state="$REAL_SECRET_DIR/turn-state-before.json" after_state="$REAL_SECRET_DIR/turn-state-after.json"
   local state_id prompt body_file send_file before_count after_count wait_status=0
   body_file="$REAL_SECRET_DIR/turn-prompt.json"
   sleep 2
@@ -2562,7 +2618,7 @@ NODE
   fi
   cp "$send_file" "$phase_dir/send.json"
   chmod 600 "$phase_dir/send.json"
-  "$ROOT/scripts/perf-scratch-session.sh" wait-idle 300 > "$phase_dir/wait-idle.log" 2>&1 || wait_status=$?
+  "$ROOT/scripts/perf-scratch-session.sh" wait-idle 300 > "$raw_phase_dir/wait-idle.log" 2>&1 || wait_status=$?
   real_state_request "$after_state" || return 1
   after_count=$(real_state_entry_count "$after_state" "$REAL_SCRATCH_SESSION_ID") || return 1
   printf '%s\n' "$after_count" > "$phase_dir/entry-count-after.txt"
@@ -2637,6 +2693,7 @@ real_perf_run_turn() {
 }
 
 cmd_perf_real() {
+  prune_scratch
   local only_phase='' no_build=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2664,7 +2721,8 @@ cmd_perf_real() {
   timestamp=$(date '+%Y%m%dT%H%M%S')
   REAL_OUTPUT_DIR="$EVIDENCE_ROOT/perf-real-2026-10-13/$timestamp"
   [[ ! -e "$REAL_OUTPUT_DIR" ]] || { printf 'perf-real evidence directory already exists: %s\n' "$REAL_OUTPUT_DIR" >&2; return 1; }
-  mkdir -p "$REAL_OUTPUT_DIR"
+  REAL_RAW_DIR=$(scratch_dir_for_evidence "$REAL_OUTPUT_DIR")
+  prepare_evidence_run "$REAL_OUTPUT_DIR"
   REAL_SECRET_DIR=$(mktemp -d)
   chmod 700 "$REAL_SECRET_DIR"
   REAL_BEARER_FILE="$REAL_SECRET_DIR/bearer"
@@ -2696,6 +2754,7 @@ cmd_perf_real() {
 }
 
 cmd_perf() {
+  prune_scratch
   local only_scenario='' no_build=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2717,10 +2776,11 @@ cmd_perf() {
   local repeats=${CC_PERF_REPEATS:-$default_repeats}
   [[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { printf 'CC_PERF_REPEATS must be a positive integer\n' >&2; return 2; }
   PERF_OUTPUT_DIR=${CC_PERF_OUTPUT_DIR:-$EVIDENCE_ROOT/perf-2026-10-04/harness}
+  PERF_SCRATCH_DIR=$(scratch_dir_for_evidence "$PERF_OUTPUT_DIR")
   PERF_DERIVED="$IOS/build/perf-release"
   PERF_RUN_NUMBER=0
   PERF_BUDGET_FAILED=0
-  mkdir -p "$PERF_OUTPUT_DIR"
+  prepare_evidence_run "$PERF_OUTPUT_DIR"
   local iteration_start
   iteration_start=$(perf_wall_seconds)
   pool_acquire
@@ -3072,6 +3132,7 @@ cmd_archive() {
 }
 
 cmd_gate() {
+  prune_scratch
   local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0 flows_label
   flows_started=$SECONDS
   cmd_flows --shards 2 || flows_status=$?
