@@ -62,8 +62,9 @@ final class TranscriptCollectionView: UICollectionView {
     }
 
     private func applyAnchoredContentOffsetIfNeeded() {
-        guard !isTracking, !isDragging, !isDecelerating, !isAnimatingJump,
-              let layout = collectionViewLayout as? TranscriptListLayout,
+        guard let layout = collectionViewLayout as? TranscriptListLayout,
+              !layout.isApplyingCollectionUpdate,
+              layout.shouldApplyAnchoredContentOffset(for: self),
               let target = layout.anchoredContentOffset(for: self),
               abs(contentOffset.y - target.y) > 0.5 else { return }
 
@@ -109,6 +110,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     private var preparedWidth: CGFloat = -1
     private var newestEndUpdate = false
     private var insertedIndexPaths: Set<IndexPath> = []
+    private(set) var isApplyingCollectionUpdate = false
+    private var didApplyUpdateTarget = false
 
     var anchor: Anchor = .bottom
     var readableContentMaxWidth: CGFloat = .infinity
@@ -243,10 +246,33 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
     override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
         super.prepare(forCollectionViewUpdates: updateItems)
+        isApplyingCollectionUpdate = true
+        didApplyUpdateTarget = false
         insertedIndexPaths = Set(updateItems.compactMap { updateItem in
             guard updateItem.updateAction == .insert else { return nil }
             return updateItem.indexPathAfterUpdate
         })
+    }
+
+    override func targetContentOffset(forProposedContentOffset proposedContentOffset: CGPoint) -> CGPoint {
+        guard isApplyingCollectionUpdate,
+              let collectionView,
+              shouldApplyAnchoredContentOffset(for: collectionView),
+              let target = anchoredContentOffset(for: collectionView) else {
+            return proposedContentOffset
+        }
+        didApplyUpdateTarget = true
+        let targetOffset = CGPoint(x: proposedContentOffset.x, y: target.y)
+        #if DEBUG
+        if abs(proposedContentOffset.y - target.y) > 0.5 {
+            MotionTrace.shared.recordPin(
+                before: proposedContentOffset.y,
+                after: target.y,
+                reason: "updateTarget"
+            )
+        }
+        #endif
+        return targetOffset
     }
 
     override func initialLayoutAttributesForAppearingItem(
@@ -269,8 +295,21 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
     override func finalizeCollectionViewUpdates() {
         super.finalizeCollectionViewUpdates()
+        applyUpdateAnchorFallbackIfNeeded()
+        isApplyingCollectionUpdate = false
+        didApplyUpdateTarget = false
         insertedIndexPaths.removeAll()
         newestEndUpdate = false
+    }
+
+    func shouldApplyAnchoredContentOffset(for collectionView: UICollectionView) -> Bool {
+        if anchorIsBottom {
+            return !collectionView.isTracking
+                && !collectionView.isDragging
+                && !collectionView.isDecelerating
+                && (collectionView as? TranscriptCollectionView)?.isAnimatingJump != true
+        }
+        return true
     }
 
     func anchoredContentOffset(for collectionView: UICollectionView) -> (y: CGFloat, reason: String)? {
@@ -293,6 +332,22 @@ private final class TranscriptListLayout: UICollectionViewLayout {
             reason = "anchorItem"
         }
         return (min(max(targetY, minimumY), maximumY), reason)
+    }
+
+    private func applyUpdateAnchorFallbackIfNeeded() {
+        guard let collectionView,
+              shouldApplyAnchoredContentOffset(for: collectionView),
+              let target = anchoredContentOffset(for: collectionView),
+              (!didApplyUpdateTarget || abs(collectionView.contentOffset.y - target.y) > 0.5),
+              abs(collectionView.contentOffset.y - target.y) > 0.5 else { return }
+
+        let before = collectionView.contentOffset.y
+        var offset = collectionView.contentOffset
+        offset.y = target.y
+        collectionView.setContentOffset(offset, animated: false)
+        #if DEBUG
+        MotionTrace.shared.recordPin(before: before, after: target.y, reason: "updateFallback")
+        #endif
     }
 
     private var anchorIsBottom: Bool {
