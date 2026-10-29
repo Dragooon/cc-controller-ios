@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Build the app for the simulator
+        run: bash scripts/ios.sh build
+
+      - name: Test CCKit
+        working-directory: ios/CCKit
+        run: swift test

@@ -1,0 +1,7 @@
+ios/build/
+ios/*.xcodeproj
+ios/shots/
+ios/Config/*.local.xcconfig
+ios/CCKit/.build/
+node_modules/
+.DS_Store

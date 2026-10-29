@@ -1,0 +1,94 @@
+name: Dev session
+
+# A macOS runner on the tailnet, reachable over SSH, for remote builds, simulators and UI tests.
+# Needs the secrets CC_CONTROLLER_DEPLOY_KEY (read-only deploy key for the private controller),
+# TS_OAUTH_CLIENT_ID and TS_OAUTH_SECRET (Tailscale OAuth client allowed to create tag:ci keys),
+# and the variable DEV_SSH_PUBLIC_KEY (the public key allowed to log in).
+
+on:
+  workflow_dispatch:
+    inputs:
+      hours:
+        description: Hours to stay up (at most 6)
+        default: "3"
+      controller_ref:
+        description: Controller branch or commit to check out
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  session:
+    runs-on: xcode-27
+    timeout-minutes: 360
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@v7
+        with:
+          path: cc-controller-ios
+
+      - name: Check out the controller
+        uses: actions/checkout@v7
+        with:
+          repository: Dragooon/cc-controller
+          ref: ${{ inputs.controller_ref }}
+          ssh-key: ${{ secrets.CC_CONTROLLER_DEPLOY_KEY }}
+          path: cc-controller
+
+      - name: Install tools and controller dependencies
+        run: |
+          brew install xcodegen
+          cd cc-controller && npm ci
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          hostname: cc-ios-runner-${{ github.run_id }}
+
+      - name: Start sshd on the tailnet address
+        env:
+          DEV_SSH_PUBLIC_KEY: ${{ vars.DEV_SSH_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$DEV_SSH_PUBLIC_KEY" ]] || { echo "DEV_SSH_PUBLIC_KEY is not set" >&2; exit 1; }
+          tailnet_ip=$(tailscale ip -4)
+          dev_dir="$HOME/.dev-session"
+          mkdir -p "$dev_dir" "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          printf '%s\n' "$DEV_SSH_PUBLIC_KEY" > "$HOME/.ssh/authorized_keys"
+          chmod 600 "$HOME/.ssh/authorized_keys"
+          ssh-keygen -q -t ed25519 -N '' -f "$dev_dir/host_ed25519"
+          cat > "$dev_dir/sshd_config" <<CONFIG
+          ListenAddress $tailnet_ip
+          Port 22
+          HostKey $dev_dir/host_ed25519
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitRootLogin no
+          AllowUsers $USER
+          AuthorizedKeysFile .ssh/authorized_keys
+          PidFile $dev_dir/sshd.pid
+          CONFIG
+          sudo /usr/sbin/sshd -t -f "$dev_dir/sshd_config"
+          sudo /usr/sbin/sshd -f "$dev_dir/sshd_config"
+          {
+            echo "CC_CONTROLLER_ROOT=$GITHUB_WORKSPACE/cc-controller"
+          } > "$HOME/.dev-session/env"
+          echo "ssh $USER@$tailnet_ip   (host key: $(ssh-keygen -lf "$dev_dir/host_ed25519.pub" | awk '{print $2}'))"
+          echo "app: $GITHUB_WORKSPACE/cc-controller-ios   controller: $GITHUB_WORKSPACE/cc-controller"
+
+      - name: Stay up
+        env:
+          HOURS: ${{ inputs.hours }}
+        run: |
+          [[ "$HOURS" =~ ^[0-9]+$ ]] && (( HOURS >= 1 && HOURS <= 6 )) || HOURS=3
+          deadline=$(( $(date +%s) + HOURS * 3600 - 300 ))
+          while (( $(date +%s) < deadline )) && [[ ! -e "$HOME/stop" ]]; do
+            sleep 30
+          done
+          echo "Ending the session."
