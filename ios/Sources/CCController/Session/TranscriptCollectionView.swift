@@ -22,10 +22,11 @@ private enum TranscriptCollectionContent: Equatable {
 final class TranscriptCollectionView: UICollectionView {
     var shouldPinToBottom: (() -> Bool)?
     var didFinishLayout: (() -> Void)?
+    var isAnimatingJump = false
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if shouldPinToBottom?() == true, !isDragging, !isDecelerating {
+        if shouldPinToBottom?() == true, !isAnimatingJump, !isDragging, !isDecelerating {
             let inset = adjustedContentInset
             let maxOffsetY = max(
                 -inset.top,
@@ -75,7 +76,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> TranscriptCollectionView {
         let collectionView = TranscriptCollectionView(
             frame: .zero,
-            collectionViewLayout: makeLayout(maxWidth: readableContentMaxWidth)
+            collectionViewLayout: makeLayout(coordinator: context.coordinator)
         )
         collectionView.backgroundColor = .clear
         collectionView.contentInsetAdjustmentBehavior = .automatic
@@ -86,18 +87,19 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             collectionView.bottomEdgeEffect.style = .hard
         }
         context.coordinator.attach(collectionView: collectionView)
-        context.coordinator.update(self)
+        _ = context.coordinator.update(self)
         return collectionView
     }
 
     func updateUIView(_ uiView: TranscriptCollectionView, context: Context) {
-        context.coordinator.update(self)
-        if let layout = uiView.collectionViewLayout as? UICollectionViewCompositionalLayout {
+        let readableContentMaxWidthChanged = context.coordinator.update(self)
+        if readableContentMaxWidthChanged,
+           let layout = uiView.collectionViewLayout as? UICollectionViewCompositionalLayout {
             layout.invalidateLayout()
         }
     }
 
-    private func makeLayout(maxWidth: CGFloat) -> UICollectionViewLayout {
+    private func makeLayout(coordinator: Coordinator) -> UICollectionViewLayout {
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .fractionalWidth(1),
             heightDimension: .estimated(80)
@@ -114,6 +116,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         section.interGroupSpacing = 20
         section.contentInsets = NSDirectionalEdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)
         return UICollectionViewCompositionalLayout(sectionProvider: { _, environment in
+            let maxWidth = coordinator.readableContentMaxWidth
             guard maxWidth.isFinite else { return section }
             let extra = max(0, environment.container.effectiveContentSize.width - maxWidth) / 2
             var cappedSection = section
@@ -159,6 +162,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var liveSession: Session?
         private var sessionIDForView = ""
         private var reduceMotion = false
+        fileprivate var readableContentMaxWidth: CGFloat = .infinity
 
         func attach(collectionView: TranscriptCollectionView) {
             self.collectionView = collectionView
@@ -189,8 +193,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             }
         }
 
-        func update(_ representable: TranscriptCollectionRepresentable) {
-            guard self.collectionView != nil else { return }
+        func update(_ representable: TranscriptCollectionRepresentable) -> Bool {
+            guard self.collectionView != nil else { return false }
+            let readableContentMaxWidthChanged = readableContentMaxWidth != representable.readableContentMaxWidth
+            readableContentMaxWidth = representable.readableContentMaxWidth
             pinnedBinding = representable.$isPinnedToBottom
             if !hasAppliedSnapshot {
                 isPinnedToBottom = representable.isPinnedToBottom
@@ -235,9 +241,13 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 lastJumpToLatestRequest = representable.jumpToLatestRequest
                 jumpToLatest()
             }
+            return readableContentMaxWidthChanged
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            if let collectionView = scrollView as? TranscriptCollectionView {
+                collectionView.isAnimatingJump = false
+            }
             setPinned(false)
             didTriggerPaging = false
         }
@@ -258,6 +268,21 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             updatePinAfterUserScroll(scrollView)
+        }
+
+        func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            guard let collectionView = scrollView as? TranscriptCollectionView else { return }
+            collectionView.isAnimatingJump = false
+            guard isPinnedToBottom else { return }
+            let inset = collectionView.adjustedContentInset
+            let maxOffsetY = max(
+                -inset.top,
+                collectionView.contentSize.height + inset.bottom - collectionView.bounds.height
+            )
+            collectionView.setContentOffset(
+                CGPoint(x: collectionView.contentOffset.x, y: maxOffsetY),
+                animated: false
+            )
         }
 
         func collectionView(
@@ -292,9 +317,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private func jumpToLatest() {
             guard let collectionView else { return }
             setPinned(true)
+            collectionView.layoutIfNeeded()
             let inset = collectionView.adjustedContentInset
             let maxOffsetY = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
-            collectionView.layoutIfNeeded()
+            collectionView.isAnimatingJump = true
             collectionView.setContentOffset(
                 CGPoint(x: collectionView.contentOffset.x, y: maxOffsetY),
                 animated: true

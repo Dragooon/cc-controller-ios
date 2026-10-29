@@ -481,6 +481,13 @@ struct SessionTranscriptView: View {
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
         }
+        .overlay(alignment: .topTrailing) {
+            Text("stack-generation=0")
+                .accessibilityIdentifier("transcript-stack-generation")
+                .accessibilityLabel("stack-generation=0")
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+        }
         #endif
         .onGeometryChange(for: CGFloat.self) { geometry in
             geometry.size.height
