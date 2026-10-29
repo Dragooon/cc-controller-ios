@@ -26,23 +26,115 @@ final class TranscriptCollectionView: UICollectionView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if shouldPinToBottom?() == true, !isAnimatingJump, !isDragging, !isDecelerating {
-            let inset = adjustedContentInset
-            let maxOffsetY = max(
-                -inset.top,
-                contentSize.height + inset.bottom - bounds.height
-            )
-            if abs(contentOffset.y - maxOffsetY) > 0.5 {
-                let before = contentOffset.y
-                var offset = contentOffset
-                offset.y = maxOffsetY
-                setContentOffset(offset, animated: false)
-                #if DEBUG
-                MotionTrace.shared.recordPin(before: before, after: maxOffsetY, reason: "collectionLayout")
-                #endif
-            }
-        }
         didFinishLayout?()
+    }
+
+    override func adjustedContentInsetDidChange() {
+        super.adjustedContentInsetDidChange()
+        guard shouldPinToBottom?() == true else { return }
+        let inset = adjustedContentInset
+        let maxOffsetY = max(
+            -inset.top,
+            contentSize.height + inset.bottom - bounds.height
+        )
+        guard abs(contentOffset.y - maxOffsetY) > 0.5 else { return }
+        let before = contentOffset.y
+        var offset = contentOffset
+        offset.y = maxOffsetY
+        setContentOffset(offset, animated: false)
+        #if DEBUG
+        MotionTrace.shared.recordPin(before: before, after: maxOffsetY, reason: "insetChange")
+        #endif
+    }
+}
+
+private final class TranscriptAnchoringLayout: UICollectionViewCompositionalLayout {
+    enum Anchor {
+        case bottom
+        case item(TranscriptCollectionItem, distanceFromViewportTop: CGFloat)
+    }
+
+    var anchor: Anchor = .bottom
+    private var updateAnchor: Anchor?
+
+    override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+        updateAnchor = anchor
+        super.prepare(forCollectionViewUpdates: updateItems)
+    }
+
+    override func finalizeCollectionViewUpdates() {
+        super.finalizeCollectionViewUpdates()
+        updateAnchor = nil
+    }
+
+    override func targetContentOffset(forProposedContentOffset proposedContentOffset: CGPoint) -> CGPoint {
+        let anchor = updateAnchor ?? self.anchor
+        guard let collectionView else { return proposedContentOffset }
+        let inset = collectionView.adjustedContentInset
+        let minimumY = -inset.top
+        let maximumY = max(minimumY, collectionViewContentSize.height + inset.bottom - collectionView.bounds.height)
+        let targetY: CGFloat
+        switch anchor {
+        case .bottom:
+            targetY = maximumY
+        case .item(let item, let distanceFromViewportTop):
+            guard let indexPath = indexPath(for: item),
+                  let attributes = layoutAttributesForItem(at: indexPath) else {
+                return proposedContentOffset
+            }
+            targetY = attributes.frame.minY - inset.top - distanceFromViewportTop
+        }
+        let clampedY = min(max(targetY, minimumY), maximumY)
+        #if DEBUG
+        if abs(collectionView.contentOffset.y - clampedY) > 0.5 {
+            MotionTrace.shared.recordPin(
+                before: collectionView.contentOffset.y,
+                after: clampedY,
+                reason: "layoutAnchor"
+            )
+        }
+        #endif
+        return CGPoint(x: proposedContentOffset.x, y: clampedY)
+    }
+
+    override func invalidationContext(
+        forPreferredLayoutAttributes preferredAttributes: UICollectionViewLayoutAttributes,
+        withOriginalAttributes originalAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutInvalidationContext {
+        let context = super.invalidationContext(
+            forPreferredLayoutAttributes: preferredAttributes,
+            withOriginalAttributes: originalAttributes
+        )
+        let heightDelta = preferredAttributes.frame.height - originalAttributes.frame.height
+        guard abs(heightDelta) > 0.5 else { return context }
+
+        let anchor = updateAnchor ?? self.anchor
+        switch anchor {
+        case .bottom:
+            context.contentOffsetAdjustment.y += heightDelta
+        case .item(let item, _):
+            guard let indexPath = indexPath(for: item),
+                  let anchorAttributes = layoutAttributesForItem(at: indexPath),
+                  originalAttributes.indexPath != anchorAttributes.indexPath,
+                  originalAttributes.frame.maxY <= anchorAttributes.frame.minY else { return context }
+            context.contentOffsetAdjustment.y += heightDelta
+        }
+        #if DEBUG
+        if let collectionView {
+            MotionTrace.shared.recordPin(
+                before: collectionView.contentOffset.y,
+                after: collectionView.contentOffset.y + heightDelta,
+                reason: "layoutAnchor"
+            )
+        }
+        #endif
+        return context
+    }
+
+    private func indexPath(for item: TranscriptCollectionItem) -> IndexPath? {
+        guard let dataSource = collectionView?.dataSource as?
+            UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem> else { return nil }
+        return dataSource.indexPath(for: item)
     }
 }
 
@@ -120,7 +212,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         let section = NSCollectionLayoutSection(group: group)
         section.interGroupSpacing = 20
         section.contentInsets = NSDirectionalEdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)
-        return UICollectionViewCompositionalLayout(sectionProvider: { _, environment in
+        let sectionProvider: UICollectionViewCompositionalLayoutSectionProvider = { _, environment in
             let maxWidth = coordinator.readableContentMaxWidth
             guard maxWidth.isFinite else { return section }
             let extra = max(0, environment.container.effectiveContentSize.width - maxWidth) / 2
@@ -128,7 +220,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             cappedSection.contentInsets.leading = 16 + extra
             cappedSection.contentInsets.trailing = 16 + extra
             return cappedSection
-        })
+        }
+        return TranscriptAnchoringLayout(sectionProvider: sectionProvider)
     }
 
     @MainActor
@@ -285,20 +378,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
             guard let collectionView = scrollView as? TranscriptCollectionView else { return }
             collectionView.isAnimatingJump = false
-            guard isPinnedToBottom else { return }
-            let inset = collectionView.adjustedContentInset
-            let maxOffsetY = max(
-                -inset.top,
-                collectionView.contentSize.height + inset.bottom - collectionView.bounds.height
-            )
-            let before = collectionView.contentOffset.y
-            collectionView.setContentOffset(
-                CGPoint(x: collectionView.contentOffset.x, y: maxOffsetY),
-                animated: false
-            )
             #if DEBUG
             MotionTrace.shared.recordEvent("scrollToNewest", data: ["phase": "ran", "animated": true])
-            MotionTrace.shared.recordPin(before: before, after: maxOffsetY, reason: "collectionAnimationEnd")
             #endif
         }
 
@@ -433,10 +514,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             guard let collectionView, let dataSource else { return }
             let oldItems = currentItems
             let oldContent = currentContent
-            let anchor = isPinnedToBottom ? nil : visibleAnchor(in: collectionView, dataSource: dataSource)
-            let oldNoteIDs = Set(currentNotes.map(\.id))
-            let newNoteIDs = Set(notes.map(\.id))
-            let hasNewNote = hasAppliedSnapshot && !reduceMotion && !newNoteIDs.subtracting(oldNoteIDs).isEmpty
+            let layout = collectionView.collectionViewLayout as? TranscriptAnchoringLayout
+            let anchor = anchorForUpdate(in: collectionView, dataSource: dataSource)
             currentItems = items
             currentContent = content
             currentNotes = notes
@@ -454,47 +533,90 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             if !changedItems.isEmpty {
                 snapshot.reconfigureItems(changedItems)
             }
+            let inserted = items.filter { !oldItems.contains($0) }
+            let deleted = oldItems.filter { !items.contains($0) }
+            let animated = hasAppliedSnapshot && !reduceMotion && isNewestEndUpdate(
+                oldItems: oldItems,
+                newItems: items,
+                inserted: inserted,
+                deleted: deleted,
+                reconfigured: changedItems
+            )
+            layout?.anchor = anchor
             #if DEBUG
             MotionTrace.shared.recordEvent("snapshotApplied", data: [
-                "inserted": items.filter { !oldItems.contains($0) }.map(traceID),
-                "deleted": oldItems.filter { !items.contains($0) }.map(traceID),
+                "inserted": inserted.map(traceID),
+                "deleted": deleted.map(traceID),
                 "reconfigured": changedItems.map(traceID),
-                "animated": hasNewNote,
+                "animated": animated,
             ])
             #endif
-            dataSource.apply(snapshot, animatingDifferences: hasNewNote) { [weak self] in
-                guard let self else { return }
-                collectionView.layoutIfNeeded()
-                self.restore(anchor: anchor, in: collectionView, dataSource: dataSource)
-                self.hasAppliedSnapshot = true
-                self.maybeLoadEarlierIfNearTop()
+            let applySnapshot = {
+                dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+                    guard let self else { return }
+                    self.hasAppliedSnapshot = true
+                    self.maybeLoadEarlierIfNearTop()
+                }
+            }
+            if animated {
+                UIView.animate(
+                    withDuration: 0.3,
+                    delay: 0,
+                    options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
+                    animations: applySnapshot
+                )
+            } else {
+                applySnapshot()
             }
         }
 
-        private func visibleAnchor(
+        private func anchorForUpdate(
             in collectionView: UICollectionView,
             dataSource: UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>
-        ) -> (item: TranscriptCollectionItem, relativeMinY: CGFloat)? {
+        ) -> TranscriptAnchoringLayout.Anchor {
+            if isPinnedToBottom, !collectionView.isDragging, !collectionView.isDecelerating {
+                return .bottom
+            }
             guard let indexPath = collectionView.indexPathsForVisibleItems.min(by: {
                 collectionView.layoutAttributesForItem(at: $0)?.frame.minY ?? .greatestFiniteMagnitude
                     < collectionView.layoutAttributesForItem(at: $1)?.frame.minY ?? .greatestFiniteMagnitude
             }), let item = dataSource.itemIdentifier(for: indexPath),
-                  let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
-            return (item, attributes.frame.minY - collectionView.contentOffset.y)
+                  let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
+                return .bottom
+            }
+            let viewportTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+            return .item(item, distanceFromViewportTop: attributes.frame.minY - viewportTop)
         }
 
-        private func restore(
-            anchor: (item: TranscriptCollectionItem, relativeMinY: CGFloat)?,
-            in collectionView: UICollectionView,
-            dataSource: UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>
-        ) {
-            guard let anchor, !isPinnedToBottom,
-                  let indexPath = dataSource.indexPath(for: anchor.item),
-                  let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
-            let newRelativeMinY = attributes.frame.minY - collectionView.contentOffset.y
-            var offset = collectionView.contentOffset
-            offset.y += newRelativeMinY - anchor.relativeMinY
-            collectionView.setContentOffset(offset, animated: false)
+        private func isNewestEndUpdate(
+            oldItems: [TranscriptCollectionItem],
+            newItems: [TranscriptCollectionItem],
+            inserted: [TranscriptCollectionItem],
+            deleted: [TranscriptCollectionItem],
+            reconfigured: [TranscriptCollectionItem]
+        ) -> Bool {
+            let oldSurvivingContent = oldItems.enumerated().filter { _, item in
+                item != .paging && item != .row("status") && newItems.contains(item)
+            }
+            let newSurvivingContent = newItems.enumerated().filter { _, item in
+                item != .paging && item != .row("status") && oldItems.contains(item)
+            }
+            let oldBoundary = oldSurvivingContent.last?.offset ?? -1
+            let newBoundary = newSurvivingContent.last?.offset ?? -1
+            let insertedAtNewestEnd = inserted.allSatisfy { item in
+                guard let index = newItems.firstIndex(of: item) else { return false }
+                return index > newBoundary
+            }
+            let deletedAtNewestEnd = deleted.allSatisfy { item in
+                guard let index = oldItems.firstIndex(of: item) else { return false }
+                return index > oldBoundary
+            }
+            let reconfiguredAtNewestEnd = reconfigured.allSatisfy { item in
+                guard let index = newItems.firstIndex(of: item) else { return false }
+                return item == .row("status") || index >= newBoundary
+            }
+            return !(inserted.isEmpty && deleted.isEmpty && reconfigured.isEmpty)
+                && insertedAtNewestEnd && deletedAtNewestEnd && reconfiguredAtNewestEnd
         }
 
         private func maybeLoadEarlierIfNearTop() {
