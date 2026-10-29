@@ -1178,7 +1178,7 @@ cmd_motion() {
   [[ "$device" == iphone || "$device" == duo ]] || { printf 'motion --device must be iphone or duo\n' >&2; return 2; }
   [[ "$orientation" == portrait || "$orientation" == landscape ]] || { printf 'motion --orientation must be portrait or landscape\n' >&2; return 2; }
   [[ "$engines" == legacy || "$engines" == collection || "$engines" == both ]] || { printf 'motion --engine must be legacy, collection, or both\n' >&2; return 2; }
-  if [[ "$scenarios" == all ]]; then scenarios="K1,S1"; fi
+  if [[ "$scenarios" == all ]]; then scenarios="K1,K2,S1,S2,H1,P1"; fi
   local scenario engine
   IFS=, read -r -a motion_scenarios <<< "$scenarios"
   motion_engines=()
