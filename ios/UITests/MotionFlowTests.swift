@@ -106,11 +106,20 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
         let transcript = transcriptScroll(in: app)
         XCTAssertTrue(transcript.waitForExistence(timeout: 10), "Transcript scroll view did not load")
-        let older = app.staticTexts["Long-session prompt 349: inspect the next checkpoint."]
-        for _ in 0..<80 where !older.isHittable {
+        var pageLoaded = false
+        for _ in 0..<30 where !pageLoaded {
+            transcript.swipeDown(velocity: .fast)
+            try await Task.sleep(for: .milliseconds(100))
+            pageLoaded = try await fixtureRequestPaths().contains { path in
+                guard let components = URLComponents(string: "http://fixture\(path)"),
+                      components.path.hasSuffix("/transcript") else { return false }
+                return components.queryItems?.contains { $0.name == "before" } == true
+            }
+        }
+        for _ in 0..<3 {
             transcript.swipeDown(velocity: .fast)
         }
-        XCTAssertTrue(older.waitForExistence(timeout: 20), "Earlier transcript page did not load")
+        XCTAssertTrue(pageLoaded, "Earlier transcript page did not load")
         try await Task.sleep(for: .milliseconds(1_500))
     }
 

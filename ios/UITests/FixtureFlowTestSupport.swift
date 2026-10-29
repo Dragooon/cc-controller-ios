@@ -67,6 +67,23 @@ func postFixtureRoute(_ path: String) async throws {
     }
 }
 
+func fixtureRequestPaths() async throws -> [String] {
+    let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
+    guard let url = URL(string: "\(value)/fixture/requests") else {
+        throw XCTSkip("Fixture control URL was invalid")
+    }
+    let (data, response) = try await URLSession.shared.data(from: url)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+        let body = String(data: data, encoding: .utf8) ?? "no response body"
+        throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture request log failed: \(body)"])
+    }
+    guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let paths = payload["paths"] as? [String] else {
+        throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture request log response was invalid"])
+    }
+    return paths
+}
+
 @MainActor
 @discardableResult
 func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> XCUIElement {
