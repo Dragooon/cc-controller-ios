@@ -2,6 +2,17 @@ import CCKit
 import SwiftUI
 import UIKit
 
+private struct TranscriptSizingPassKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isTranscriptSizingPass: Bool {
+        get { self[TranscriptSizingPassKey.self] }
+        set { self[TranscriptSizingPassKey.self] = newValue }
+    }
+}
+
 private enum TranscriptCollectionSection: Hashable {
     case transcript
 }
@@ -23,6 +34,7 @@ final class TranscriptCollectionView: UICollectionView {
     var didFinishLayout: (() -> Void)?
     var didChangeTraits: (() -> Void)?
     var isAnimatingJump = false
+    private var didRegisterTraitChanges = false
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -35,9 +47,18 @@ final class TranscriptCollectionView: UICollectionView {
         setNeedsLayout()
     }
 
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        didChangeTraits?()
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, !didRegisterTraitChanges else { return }
+        didRegisterTraitChanges = true
+        _ = registerForTraitChanges([
+            UITraitPreferredContentSizeCategory.self,
+            UITraitHorizontalSizeClass.self,
+            UITraitLegibilityWeight.self,
+            UITraitDisplayScale.self,
+        ]) { (view: TranscriptCollectionView, _: UITraitCollection) in
+            view.didChangeTraits?()
+        }
     }
 
     private func applyAnchoredContentOffsetIfNeeded() {
@@ -447,6 +468,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var onUnbuiltDiagnostic: () -> Void = {}
         private var recorder: ScrollDiagnosticsRecorder?
         private var lastUnbuiltDiagnosticAt: Date?
+        private var didRunInitialMeasureCheck = false
         private var pinnedBinding = Binding.constant(true)
         private var lastJumpToLatestRequest = 0
         private(set) var isPinnedToBottom = true
@@ -464,10 +486,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         func attach(collectionView: TranscriptCollectionView) {
             self.collectionView = collectionView
-            sizingCell.isHidden = true
-            sizingCell.isUserInteractionEnabled = false
-            sizingCell.frame = CGRect(x: -1, y: -1, width: 1, height: 1)
-            collectionView.addSubview(sizingCell)
             _ = updateSizingTraits(from: collectionView)
             collectionView.register(TranscriptListCell.self, forCellWithReuseIdentifier: "transcript-cell")
             collectionView.delegate = self
@@ -491,7 +509,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     for: indexPath
                 )
                 cell.clipsToBounds = true
-                cell.contentConfiguration = self.contentConfiguration(for: item)
+                cell.contentConfiguration = self.contentConfiguration(for: item, sizing: false)
                 #if DEBUG || CC_PERF
                 TranscriptPerformance.shared.markFirstRows()
                 #endif
@@ -538,6 +556,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 sessionID = representable.sessionID
                 recorder = ScrollDiagnosticsRecorder(sessionID: sessionID)
                 lastUnbuiltDiagnosticAt = nil
+                didRunInitialMeasureCheck = false
                 didTriggerPaging = false
             }
 
@@ -576,11 +595,17 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
             if !decelerate {
                 updatePinAfterUserScroll(scrollView)
+                #if DEBUG
+                checkMeasureMismatches(in: scrollView as? TranscriptCollectionView)
+                #endif
             }
         }
 
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             updatePinAfterUserScroll(scrollView)
+            #if DEBUG
+            checkMeasureMismatches(in: scrollView as? TranscriptCollectionView)
+            #endif
         }
 
         func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
@@ -798,6 +823,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 guard let self else { return }
                 self.hasAppliedSnapshot = true
                 self.maybeLoadEarlierIfNearTop()
+                #if DEBUG
+                self.checkMeasureMismatches(in: collectionView)
+                #endif
             }
             if animated {
                 UIView.animate(
@@ -857,6 +885,11 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         }
 
         #if DEBUG
+        private func checkMeasureMismatches(in collectionView: TranscriptCollectionView?) {
+            guard let collectionView, MotionTrace.shared.isEnabled else { return }
+            recordMeasureMismatches(in: collectionView)
+        }
+
         private func recordMeasureMismatches(in collectionView: TranscriptCollectionView) {
             for indexPath in collectionView.indexPathsForVisibleItems {
                 guard let cell = collectionView.cellForItem(at: indexPath),
@@ -881,14 +914,15 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private func didFinishLayout() {
             guard let collectionView, collectionView.window != nil,
                   collectionView.bounds.height > 0,
-                  !(dataSource?.snapshot().itemIdentifiers.isEmpty ?? true),
-                  collectionView.indexPathsForVisibleItems.isEmpty else { return }
-            let now = Date()
+                  !(dataSource?.snapshot().itemIdentifiers.isEmpty ?? true) else { return }
             #if DEBUG
-            if MotionTrace.shared.isEnabled {
-                recordMeasureMismatches(in: collectionView)
+            if !didRunInitialMeasureCheck, !collectionView.indexPathsForVisibleItems.isEmpty {
+                checkMeasureMismatches(in: collectionView)
+                didRunInitialMeasureCheck = true
             }
             #endif
+            guard collectionView.indexPathsForVisibleItems.isEmpty else { return }
+            let now = Date()
             guard lastUnbuiltDiagnosticAt.map({ now.timeIntervalSince($0) >= 10 }) ?? true else { return }
             lastUnbuiltDiagnosticAt = now
             let inset = collectionView.adjustedContentInset
@@ -945,7 +979,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         fileprivate func height(for item: TranscriptCollectionItem, width: CGFloat) -> CGFloat {
             guard currentContent[item] != nil else { return 80 }
             sizingCell.clipsToBounds = true
-            sizingCell.contentConfiguration = contentConfiguration(for: item)
+            sizingCell.contentConfiguration = contentConfiguration(for: item, sizing: true)
             sizingCell.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
             sizingCell.contentView.bounds = sizingCell.bounds
             sizingCell.setNeedsLayout()
@@ -958,9 +992,13 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             return max(1, ceil(fittingSize.height))
         }
 
-        private func contentConfiguration(for item: TranscriptCollectionItem) -> UIContentConfiguration {
+        private func contentConfiguration(
+            for item: TranscriptCollectionItem,
+            sizing: Bool
+        ) -> UIContentConfiguration {
             UIHostingConfiguration {
                 self.hostedView(for: item)
+                    .environment(\.isTranscriptSizingPass, sizing)
             }
             .margins(.all, 0)
         }

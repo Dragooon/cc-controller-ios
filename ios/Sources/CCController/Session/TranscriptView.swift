@@ -1664,6 +1664,7 @@ struct PendingPromptView: View {
     let onSendAgain: (String) -> Void
     @State private var confirmationPresented = false
     @State private var nonWorkingSince: Date?
+    @Environment(\.isTranscriptSizingPass) private var isTranscriptSizingPass
 
     private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
         guard let downloadFile else { return nil }
@@ -1704,9 +1705,11 @@ struct PendingPromptView: View {
             content(now: context.date)
         }
         .onAppear {
+            guard !isTranscriptSizingPass else { return }
             if sessionState != .working { nonWorkingSince = .now }
         }
         .onChange(of: sessionState) { oldState, newState in
+            guard !isTranscriptSizingPass else { return }
             if newState == .working {
                 nonWorkingSince = nil
             } else if oldState == .working {
@@ -1868,6 +1871,7 @@ struct TranscriptRowView: View, Equatable {
     let onSubagentResult: (SubagentResultEntry, Subagent?) -> Void
     let onCompaction: (CompactionEntry) -> Void
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+    @Environment(\.isTranscriptSizingPass) private var isTranscriptSizingPass
 
     nonisolated static func == (lhs: TranscriptRowView, rhs: TranscriptRowView) -> Bool {
         lhs.sessionID == rhs.sessionID
@@ -1887,7 +1891,7 @@ struct TranscriptRowView: View, Equatable {
     @ViewBuilder
     var body: some View {
         #if CC_PERF
-        let _ = PerfCounters.shared.hit(.transcriptRow)
+        let _ = isTranscriptSizingPass ? 0 : PerfCounters.shared.hit(.transcriptRow)
         #endif
         Group {
             switch row.kind {

@@ -269,6 +269,8 @@ final class MotionTrace: NSObject {
             "contentH": scrollView?.contentSize.height ?? 0,
             "insetBottom": scrollView?.adjustedContentInset.bottom ?? 0,
             "pinned": pinnedProvider?() ?? false,
+            "tracking": scrollView.map { $0.isTracking || $0.isDragging } ?? false,
+            "decelerating": scrollView?.isDecelerating ?? false,
             "dragging": scrollView.map { $0.isTracking || $0.isDragging || $0.isDecelerating } ?? false,
             "rows": rows,
         ]
@@ -388,11 +390,12 @@ final class MotionTrace: NSObject {
 @MainActor
 struct MotionTraceProbe: View {
     let id: String
+    @Environment(\.isTranscriptSizingPass) private var isTranscriptSizingPass
 
     @ViewBuilder
     var body: some View {
         if MotionTrace.shared.isEnabled {
-            MotionTraceProbeRepresentable(id: id)
+            MotionTraceProbeRepresentable(id: id, isSizingPass: isTranscriptSizingPass)
         }
     }
 }
@@ -400,20 +403,23 @@ struct MotionTraceProbe: View {
 @MainActor
 private struct MotionTraceProbeRepresentable: UIViewRepresentable {
     let id: String
+    let isSizingPass: Bool
 
     func makeUIView(context: Context) -> ProbeView {
-        ProbeView(id: id)
+        ProbeView(id: id, isSizingPass: isSizingPass)
     }
 
     func updateUIView(_ uiView: ProbeView, context: Context) {
-        uiView.update(id: id)
+        uiView.update(id: id, isSizingPass: isSizingPass)
     }
 
     final class ProbeView: UIView {
         private var probeID: String
+        private var isSizingPass: Bool
 
-        init(id: String) {
+        init(id: String, isSizingPass: Bool) {
             probeID = id
+            self.isSizingPass = isSizingPass
             super.init(frame: .zero)
             alpha = 0
             isAccessibilityElement = false
@@ -424,7 +430,9 @@ private struct MotionTraceProbeRepresentable: UIViewRepresentable {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        func update(id: String) {
+        func update(id: String, isSizingPass: Bool) {
+            self.isSizingPass = isSizingPass
+            guard !isSizingPass else { return }
             if probeID != id {
                 MotionTrace.shared.unregisterProbe(id: probeID, view: self)
                 probeID = id
@@ -434,6 +442,7 @@ private struct MotionTraceProbeRepresentable: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            guard !isSizingPass else { return }
             if window == nil { MotionTrace.shared.unregisterProbe(id: probeID, view: self) }
             else { MotionTrace.shared.registerProbe(id: probeID, view: self) }
         }
