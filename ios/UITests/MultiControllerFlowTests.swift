@@ -155,7 +155,7 @@ final class MultiControllerFlowTests: XCTestCase {
             .matching(identifier: "composer-text")
             .firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 30), "Composer did not load")
-        XCTAssertFalse(app.buttons["Add attachment"].exists, "Composer offered attachments without the files capability")
+        XCTAssertTrue(app.buttons["Add attachment"].exists, "Composer did not offer attachments with the files capability")
         XCTAssertEqual(
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Model ")).count,
             0,

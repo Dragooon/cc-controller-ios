@@ -97,6 +97,13 @@ final class StockadePresentationTests: XCTestCase {
         XCTAssertFalse(composer.canRunCommands)
     }
 
+    func testComposerCapabilitiesWithoutFilesHideAttachments() {
+        let capabilities: Set<ControllerCapability> = [.list, .transcript, .send, .decide, .questions, .newSession, .sudo]
+        let composer = ComposerCapabilities(controllerCapabilities: capabilities)
+
+        XCTAssertFalse(composer.canAttach)
+    }
+
     func testNewSessionOptionsCarryStockadeAgents() throws {
         let mac = try JSONDecoder.ccKit().decode(NewSessionOptions.self, from: Data("{\"folders\":[],\"models\":[],\"defaultModel\":\"opus\"}".utf8))
         XCTAssertNil(mac.agents)
