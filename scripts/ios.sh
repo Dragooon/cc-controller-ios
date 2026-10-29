@@ -88,7 +88,7 @@ prune_scratch() {
   if ! find "$SCRATCH_ROOT" -mindepth 1 -depth ! -type d -mmin +1440 -delete; then
     printf 'warning: scratch file pruning failed under %s\n' "$SCRATCH_ROOT" >&2
   fi
-  if ! find "$SCRATCH_ROOT" -mindepth 1 -type d -empty -delete; then
+  if ! find "$SCRATCH_ROOT" -mindepth 1 -type d -empty -mmin +1440 -delete; then
     printf 'warning: scratch directory pruning failed under %s\n' "$SCRATCH_ROOT" >&2
   fi
 }
