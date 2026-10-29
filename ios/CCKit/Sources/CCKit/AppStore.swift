@@ -1084,6 +1084,13 @@ public final class AppStore {
         }
     }
 
+    /// Applies queued live events now instead of after the coalescing window. Tests use it so they don't race the window.
+    func flushCoalescedEvents() {
+        eventCoalescingTask?.cancel()
+        eventCoalescingTask = nil
+        flushPendingEvents()
+    }
+
     private func flushPendingEvents(for sessionID: String? = nil) {
         let events = if let sessionID {
             eventCoalescer.drain(sessionID: sessionID)

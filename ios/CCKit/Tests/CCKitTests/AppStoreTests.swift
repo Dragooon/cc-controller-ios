@@ -194,7 +194,7 @@ final class AppStoreTests: XCTestCase {
 
         let omitted = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"action\":\"still working\"}"))
         app.apply(omitted)
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.lastTool, "Bash")
         XCTAssertEqual(app.sessions["session-1"]?.toolRunning, true)
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-old")
@@ -202,7 +202,7 @@ final class AppStoreTests: XCTestCase {
 
         let cleared = try XCTUnwrap(LiveEvent.decode(name: "state", data: "{\"sessionId\":\"session-1\",\"toolRunning\":false,\"lastTool\":null,\"lastToolInput\":null,\"pending\":[],\"usage\":{\"model\":\"new\",\"outputTokens\":3}}"))
         app.apply(cleared)
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertNil(app.sessions["session-1"]?.lastTool)
         XCTAssertNil(app.sessions["session-1"]?.lastToolInput)
         XCTAssertEqual(app.sessions["session-1"]?.toolRunning, false)
@@ -536,7 +536,7 @@ final class AppStoreTests: XCTestCase {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
         app.apply(.usage(UsageEvent(sessionId: "session-1", usage: Usage(model: "next", outputTokens: 3))))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.usage?.model, "next")
     }
 
@@ -544,7 +544,7 @@ final class AppStoreTests: XCTestCase {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
         app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [Subagent(agentId: "agent-1", state: .running)])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-1")
     }
 
@@ -556,12 +556,12 @@ final class AppStoreTests: XCTestCase {
         app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [
             Subagent(agentId: "agent-old", state: .running, startedAt: older, toolUseId: "task-old"),
         ])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [
             Subagent(agentId: "agent-new", state: .running, startedAt: newer, toolUseId: "task-new"),
             Subagent(agentId: "agent-old", state: .done, startedAt: older, toolUseId: "task-old"),
         ])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.map(\.toolUseId), ["task-new", "task-old"])
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.last?.state, .done)
     }
@@ -572,7 +572,7 @@ final class AppStoreTests: XCTestCase {
         app.apply(.state(StateSnapshot(sessions: [Self.session(subagents: [existing])], entries: ["session-1": 0])))
         let before = app.sessions["session-1"]
         app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [existing])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"], before)
     }
 
@@ -584,7 +584,7 @@ final class AppStoreTests: XCTestCase {
         app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [
             Subagent(agentId: "agent-1", state: .done, startedAt: started),
         ])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.count, 2)
         XCTAssertTrue(app.sessions["session-1"]?.subagents?.contains { $0.state == .done } == true)
     }
@@ -593,9 +593,9 @@ final class AppStoreTests: XCTestCase {
         let app = makeApp()
         app.apply(.state(StateSnapshot(sessions: [Self.session()], entries: ["session-1": 0])))
         app.apply(.subagent(SubagentEvent(sessionId: "session-1", subagents: [Subagent(agentId: "agent-1", state: .running)])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.subagents, [])
     }
 
@@ -785,7 +785,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNotNil(app.pendingTurnStart(for: "session-1"))
 
         app.apply(.stateDelta(StateDelta(sessionId: "session-1", state: .working)))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertNil(app.pendingTurnStart(for: "session-1"))
     }
 
@@ -814,7 +814,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(app.queuedNotes(for: "session-1").first?.startsTurn, true)
 
         app.apply(.stateDelta(StateDelta(sessionId: "session-1", state: .working)))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         guard case .success = await app.enqueueMessage(text: "queues later", to: "session-1") else {
             return XCTFail("Working enqueue failed")
         }
@@ -1545,12 +1545,12 @@ final class AppStoreTests: XCTestCase {
         let session = Self.session(state: .working)
         app.apply(.state(StateSnapshot(sessions: [session], entries: ["session-1": 0])))
         app.apply(.stateDelta(StateDelta(sessionId: "session-1", state: .needsYou, action: "Needs your attention")))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.state, .needsYou)
 
         app.apply(.usage(UsageEvent(sessionId: "session-1", usage: Usage(model: "fable", outputTokens: 7))))
         app.apply(.subagents(SubagentsEvent(sessionId: "session-1", subagents: [Subagent(agentId: "agent-1", state: .running)])))
-        try await settleCoalescedEvents()
+        settleCoalescedEvents(app)
         XCTAssertEqual(app.sessions["session-1"]?.usage?.outputTokens, 7)
         XCTAssertEqual(app.sessions["session-1"]?.subagents?.first?.agentId, "agent-1")
 
@@ -1837,8 +1837,8 @@ final class AppStoreTests: XCTestCase {
         return data
     }
 
-    private func settleCoalescedEvents() async throws {
-        try await Task.sleep(for: .milliseconds(300))
+    private func settleCoalescedEvents(_ app: AppStore) {
+        app.flushCoalescedEvents()
     }
 
     private func waitUntil(_ message: String = "app state", _ predicate: @escaping () -> Bool) async throws {
