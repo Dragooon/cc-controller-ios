@@ -482,28 +482,30 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
     func shouldApplyAnchoredContentOffset(for collectionView: UICollectionView) -> Bool {
         guard hasRealBounds else { return false }
+        let isUserScrolling = collectionView.isTracking
+            || collectionView.isDragging
+            || collectionView.isDecelerating
         if anchorIsBottom {
-            return !collectionView.isTracking
-                && !collectionView.isDragging
-                && !collectionView.isDecelerating
+            return !isUserScrolling
                 && (collectionView as? TranscriptCollectionView)?.isAnimatingJump != true
         }
-        return true
+        guard isUserScrolling else { return true }
+        let bounds = contentOffsetBounds(for: collectionView)
+        guard collectionView.contentOffset.y < bounds.minimumY - 0.5
+            || collectionView.contentOffset.y > bounds.maximumY + 0.5 else { return true }
+        // UIKit owns the offset while the user overscrolls an end, so clamping here would kill the rubber band.
+        return false
     }
 
     func anchoredContentOffset(for collectionView: UICollectionView) -> (y: CGFloat, reason: String)? {
         guard hasRealBounds else { return nil }
+        let bounds = contentOffsetBounds(for: collectionView)
         let inset = collectionView.adjustedContentInset
-        let minimumY = -inset.top
-        let maximumY = max(
-            minimumY,
-            collectionViewContentSize.height + inset.bottom - collectionView.bounds.height
-        )
         let targetY: CGFloat
         let reason: String
         switch anchor {
         case .bottom:
-            targetY = maximumY
+            targetY = bounds.maximumY
             reason = "anchorBottom"
         case .item(let item, let distanceFromViewportTop):
             guard let indexPath = indexPath(for: item),
@@ -511,7 +513,17 @@ private final class TranscriptListLayout: UICollectionViewLayout {
             targetY = itemAttributes.frame.minY - inset.top - distanceFromViewportTop
             reason = "anchorItem"
         }
-        return (min(max(targetY, minimumY), maximumY), reason)
+        return (min(max(targetY, bounds.minimumY), bounds.maximumY), reason)
+    }
+
+    private func contentOffsetBounds(for collectionView: UICollectionView) -> (minimumY: CGFloat, maximumY: CGFloat) {
+        let inset = collectionView.adjustedContentInset
+        let minimumY = -inset.top
+        let maximumY = max(
+            minimumY,
+            collectionViewContentSize.height + inset.bottom - collectionView.bounds.height
+        )
+        return (minimumY, maximumY)
     }
 
     private func applyUpdateAnchorFallbackIfNeeded() {
