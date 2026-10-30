@@ -4221,7 +4221,7 @@ harness_run_command() {
 
 # Only commands that run the fixture daemon need the controller's node_modules.
 case "${1:-}" in
-  generate|build|test|release-check|archive|upload|clean) ;;
+  generate|build|test|release-check|archive|upload|ota-package|clean) ;;
   *) ensure_node_modules;;
 esac
 
