@@ -4055,7 +4055,7 @@ cmd_ota() {
   printf '%s/index.html\n' "$base_url"
 }
 
-# Builds an install package on a CI runner: the app signed for ad hoc distribution, its icons and its metadata,
+# Builds an install package on a CI runner: the app signed with CC_OTA_PROFILE_PATH, its icons and its metadata,
 # sealed to CC_OTA_PUBLIC_KEY so the artifact can sit on a public repo. It carries no host name:
 # scripts/ota-publish.sh unseals it on the host and writes the manifest and install page there.
 # --dry-run packages an unsigned app instead, to test everything but the signing.
@@ -4086,13 +4086,10 @@ cmd_ota_package() {
   [[ -n "$output" ]] || { printf '%s\n' 'ota-package requires --output' >&2; return 2; }
   [[ -n "${CC_OTA_PUBLIC_KEY:-}" ]] || { printf '%s\n' 'ota-package requires CC_OTA_PUBLIC_KEY' >&2; return 2; }
 
-  local source_sha team='' profile=''
+  local source_sha profile=${CC_OTA_PROFILE_PATH:-}
   source_sha=$(ota_validate_revision "$requested_sha") || return $?
   if (( ! dry_run )); then
-    team=$(signing_team)
-    profile=${CC_OTA_PROFILE_NAME:-}
-    [[ -n "$team" ]] || { printf '%s\n' 'ota-package requires DEVELOPMENT_TEAM' >&2; return 2; }
-    [[ -n "$profile" ]] || { printf '%s\n' 'ota-package requires CC_OTA_PROFILE_NAME' >&2; return 2; }
+    [[ -f "$profile" ]] || { printf '%s\n' 'ota-package requires CC_OTA_PROFILE_PATH' >&2; return 2; }
   fi
   cmd_generate
 
@@ -4102,31 +4099,20 @@ cmd_ota_package() {
   archive_path="$ota_root/archive/CCController-$build_number.xcarchive"
   package_dir="$ota_root/package-$build_number"
   mkdir -p "$package_dir" "$output"
-  # The archive stays unsigned and the export signs it, so the signing settings reach only the app and not
-  # the package targets.
+  # The archive stays unsigned and only the app is signed afterwards, so the signing settings never reach the
+  # package targets, and a profile Xcode manages works the same as one made by hand.
   CC_ARCHIVE_UNSIGNED=1 archive_release "$build_number" "$archive_path" '' "$ota_root/derived"
   app_plist="$archive_path/Products/Applications/cc-controller.app/Info.plist"
   bundle_id=$(plutil -extract CFBundleIdentifier raw "$app_plist")
   short_version=$(plutil -extract CFBundleShortVersionString raw "$app_plist")
 
-  if (( dry_run )); then
-    local payload_dir="$ota_root/dry-run-$build_number/Payload"
-    mkdir -p "$payload_dir"
-    cp -R "$archive_path/Products/Applications/cc-controller.app" "$payload_dir/"
-    ditto -c -k --keepParent "$payload_dir" "$package_dir/CCController.ipa"
-  else
-    local export_options="$ota_root/ExportOptions-$build_number.plist" export_dir="$ota_root/export-$build_number"
-    ota_write_adhoc_export_options "$export_options" "$team" "$bundle_id" "$profile"
-    step 'ota export' xcodebuild -exportArchive -archivePath "$archive_path" -exportPath "$export_dir" \
-      -exportOptionsPlist "$export_options"
-    local exported_ipa
-    exported_ipa=$(find "$export_dir" -maxdepth 1 -type f -name '*.ipa' -print -quit)
-    [[ -n "$exported_ipa" ]] || {
-      printf 'ota-package export did not produce an IPA in %s\n' "$export_dir" >&2
-      return 1
-    }
-    mv "$exported_ipa" "$package_dir/CCController.ipa"
+  local payload_dir="$ota_root/payload-$build_number/Payload"
+  mkdir -p "$payload_dir"
+  cp -R "$archive_path/Products/Applications/cc-controller.app" "$payload_dir/"
+  if (( ! dry_run )); then
+    ota_sign_app "$payload_dir/cc-controller.app" "$profile" "$bundle_id"
   fi
+  ditto -c -k --keepParent "$payload_dir" "$package_dir/CCController.ipa"
   ota_render_icons "$package_dir"
   cat > "$package_dir/package.env" <<EOF
 build=$build_number
@@ -4147,33 +4133,37 @@ EOF
   printf 'ota-package %s: build %s (%s)\n' "$output" "$build_number" "${source_sha:0:7}"
 }
 
-ota_write_adhoc_export_options() {
-  local output=$1 team=$2 bundle_id=$3 profile=$4
-  cat > "$output" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>compileBitcode</key>
-  <false/>
-  <key>method</key>
-  <string>release-testing</string>
-  <key>provisioningProfiles</key>
-  <dict>
-    <key>${bundle_id}</key>
-    <string>${profile}</string>
-  </dict>
-  <key>signingCertificate</key>
-  <string>Apple Distribution</string>
-  <key>signingStyle</key>
-  <string>manual</string>
-  <key>teamID</key>
-  <string>${team}</string>
-  <key>thinning</key>
-  <string>&lt;none&gt;</string>
-</dict>
-</plist>
-EOF
+# Signs the app with the provisioning profile's own certificate type and the entitlements it grants, narrowed to
+# this bundle ID. The app keeps the keychain access group of any other build from the same team and bundle ID.
+ota_sign_app() {
+  local app=$1 profile=$2 bundle_id=$3 work team pattern identity
+  work=$(mktemp -d)
+  security cms -D -i "$profile" > "$work/profile.plist"
+  team=$(plutil -extract TeamIdentifier.0 raw "$work/profile.plist")
+  pattern=$(plutil -extract Entitlements.application-identifier raw "$work/profile.plist")
+  if [[ "$pattern" != "$team.*" && "$pattern" != "$team.$bundle_id" ]]; then
+    printf 'the provisioning profile does not cover this app (bundle ID %s)\n' "$bundle_id" >&2
+    rm -rf -- "$work"
+    return 1
+  fi
+  if plutil -extract Entitlements.get-task-allow raw "$work/profile.plist" | grep -q true; then
+    identity='Apple Development'
+  else
+    identity='Apple Distribution'
+  fi
+  plutil -extract Entitlements xml1 -o "$work/entitlements.plist" "$work/profile.plist"
+  plutil -replace application-identifier -string "$team.$bundle_id" "$work/entitlements.plist"
+  cp "$profile" "$app/embedded.mobileprovision"
+  local nested
+  if [[ -d "$app/Frameworks" ]]; then
+    while IFS= read -r nested; do
+      codesign --force --sign "$identity" --timestamp=none "$nested"
+    done < <(find "$app/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \))
+  fi
+  codesign --force --sign "$identity" --timestamp=none --entitlements "$work/entitlements.plist" "$app"
+  codesign --verify --strict "$app"
+  printf 'ota-package signed with %s (%s)\n' "$identity" "$(plutil -extract Name raw "$work/profile.plist")"
+  rm -rf -- "$work"
 }
 
 harness_run_command() {
