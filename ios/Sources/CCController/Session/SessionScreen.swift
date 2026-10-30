@@ -1,6 +1,5 @@
 import CCKit
 import Foundation
-import QuickLook
 import SwiftUI
 import UIKit
 
@@ -92,9 +91,22 @@ struct SessionScreen: View {
         approvalsElsewhereCount == 1 ? "1 session needs you" : "\(approvalsElsewhereCount) sessions need you"
     }
 
+    private var filePreviewPresented: Binding<Bool> {
+        Binding(
+            get: { filePreviewURL != nil },
+            set: { presented in if !presented { filePreviewURL = nil } }
+        )
+    }
+
     var body: some View {
         screen()
-            .quickLookPreview($filePreviewURL)
+            .sheet(isPresented: filePreviewPresented) {
+                if let filePreviewURL {
+                    FilePreviewSheet(url: filePreviewURL, close: { self.filePreviewURL = nil })
+                        .ignoresSafeArea()
+                        .presentationDragIndicator(.visible)
+                }
+            }
         .sensoryFeedback(.success, trigger: allowFeedbackCount)
         .sensoryFeedback(.warning, trigger: denyFeedbackCount)
         .sensoryFeedback(.impact(weight: .light), trigger: answeredFeedbackCount)

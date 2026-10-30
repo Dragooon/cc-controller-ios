@@ -13,12 +13,15 @@ on:
       controller_ref:
         description: Controller branch, tag or SHA for the fixture daemon
         default: main
+      tests:
+        description: Only these flows, space-separated Class or Class/method (one runner); empty runs the suite
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ui-gate-${{ github.ref }}
+  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}
   cancel-in-progress: true
 
 jobs:
@@ -28,9 +31,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slice: [0, 1, 2, 3, 4]
+        slice: ${{ fromJSON(inputs.tests && '[0]' || '[0, 1, 2, 3, 4]') }}
     env:
-      SLICES: 5
+      SLICES: ${{ inputs.tests && 1 || 5 }}
+      TESTS: ${{ inputs.tests }}
       CC_CONTROLLER_ROOT: ${{ github.workspace }}/cc-controller
       CC_EVIDENCE_DIR: ${{ github.workspace }}/evidence
       # The runners are 2-3x slower than the Mac; timed fixture scripts stretch by this much.
@@ -54,11 +58,13 @@ jobs:
         working-directory: cc-controller
         run: npm ci
 
-      - name: Run flows slice ${{ matrix.slice }} of 5
+      - name: Run flows slice ${{ matrix.slice }}
         working-directory: cc-controller-ios
         run: |
           started=$SECONDS
-          bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '1' }}"
+          filters=()
+          for test in $TESTS; do filters+=(--test "$test"); done
+          bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '1' }}" "${filters[@]}"
           echo "slice ${{ matrix.slice }} wall-clock=$((SECONDS - started))s"
 
       - name: Keep the evidence when the slice fails

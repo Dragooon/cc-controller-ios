@@ -81,6 +81,9 @@ final class AttachmentFlowTests: XCTestCase {
             return
         }
         addScreenshot(named: "prompt-attachment-quicklook")
+
+        canvas.swipeDown(velocity: .fast)
+        XCTAssertTrue(waitForNonExistence(of: quickLook, timeout: 10), "A downward swipe did not close Quick Look")
     }
 
     func testAgentSentFileShowsRealAttachmentAndQuickLook() throws {
