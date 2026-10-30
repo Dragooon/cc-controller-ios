@@ -937,7 +937,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
             guard sidebarProgress <= 0.001, velocity.x > 0, abs(velocity.x) > abs(velocity.y) else { return false }
             let stripFrame = captureView.convert(captureView.bounds, to: view)
             if stripFrame.contains(initialLocation) { return true }
-            let claim = contentClaimingSwipe(at: initialLocation, in: view)
+            let claim = contentClaimingSwipe(from: pan.initialView, in: captureView)
             onSwipeDiagnostic("claim=\(claim ?? "none"),anywhere=\(opensFromAnywhere),vx=\(velocity.x),vy=\(velocity.y)")
             // Away from the edge a steeper angle is needed, so a vertical scroll isn't taken for a swipe.
             return opensFromAnywhere && abs(velocity.x) > abs(velocity.y) * 1.5 && claim == nil
@@ -945,9 +945,9 @@ private struct SidebarPanCapture: UIViewRepresentable {
 
         /// What under the touch has its own use for a rightward drag, or sits outside the split view:
         /// a sheet, a pushed screen (its swipe goes back), text input or a sideways scroller. Nil if nothing.
-        private func contentClaimingSwipe(at location: CGPoint, in view: UIView) -> String? {
-            guard let rootView = view.window?.rootViewController?.view,
-                  let hitView = view.hitTest(location, with: nil) else { return "no-hit" }
+        private func contentClaimingSwipe(from touchedView: UIView?, in captureView: UIView) -> String? {
+            guard let rootView = captureView.window?.rootViewController?.view else { return "no-root" }
+            guard let hitView = touchedView else { return "no-view" }
             guard hitView.isDescendant(of: rootView) else { return "presented" }
             var ancestor: UIView? = hitView
             while let current = ancestor {
@@ -969,8 +969,8 @@ private struct SidebarPanCapture: UIViewRepresentable {
         }
 
         /// A sidebar drag shouldn't also scroll the transcript it started on.
-        private func cancelScrolling(at location: CGPoint, in view: UIView) {
-            var ancestor = view.hitTest(location, with: nil)
+        private func cancelScrolling(from touchedView: UIView?) {
+            var ancestor = touchedView
             while let current = ancestor {
                 if let scrollView = current as? UIScrollView {
                     scrollView.panGestureRecognizer.isEnabled = false
@@ -1001,7 +1001,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
             let translation = recognizer.translation(in: view)
             switch recognizer.state {
             case .began:
-                cancelScrolling(at: recognizer.initialLocation ?? recognizer.location(in: view), in: view)
+                cancelScrolling(from: recognizer.initialView)
                 onChanged(translation.x)
             case .changed:
                 onChanged(translation.x)
@@ -1034,15 +1034,18 @@ private final class SidebarCaptureView: UIView {
 
 private final class SidebarPanGestureRecognizer: UIPanGestureRecognizer {
     var initialLocation: CGPoint?
+    weak var initialView: UIView?
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
         guard let touch = touches.first, let view else { return }
         initialLocation = touch.location(in: view)
+        initialView = touch.view
     }
 
     override func reset() {
         initialLocation = nil
+        initialView = nil
         super.reset()
     }
 }
