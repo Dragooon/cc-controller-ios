@@ -75,7 +75,6 @@ struct SessionScreen: View {
     @State private var commandToast: String?
     @State private var commandToastTask: Task<Void, Never>?
     @State private var lifecycleScreenInstanceID = UUID()
-    @State private var sendRevealCoordinator = SendRevealCoordinator()
 
     private var isCompact: Bool { horizontalSizeClass == .compact }
 
@@ -387,7 +386,6 @@ struct SessionScreen: View {
         let modelName = current.usage?.model ?? transcriptModel
         return BottomStackConfiguration(
             sessionID: sessionID,
-            sendRevealCoordinator: sendRevealCoordinator,
             composer: ComposerConfiguration(
                 draft: ComposerDraft(
                     initialText: { store.draft(for: sessionID) },

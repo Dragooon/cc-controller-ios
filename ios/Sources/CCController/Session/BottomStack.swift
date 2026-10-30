@@ -1,64 +1,6 @@
 import CCKit
 import SwiftUI
 
-@MainActor
-final class SendRevealCoordinator {
-    private var revealContinuation: AsyncStream<Void>.Continuation?
-    private var revealStream: AsyncStream<Void>?
-    private(set) var isWaiting = false
-    private var contentHeightChanged = false
-    private var revealCompleted = false
-
-    func begin() {
-        let stream = AsyncStream<Void> { continuation in
-            revealContinuation = continuation
-        }
-        revealStream = stream
-        isWaiting = true
-        contentHeightChanged = false
-        revealCompleted = false
-    }
-
-    func cancel() {
-        revealContinuation?.finish()
-        revealContinuation = nil
-        revealStream = nil
-        isWaiting = false
-        contentHeightChanged = false
-        revealCompleted = false
-    }
-
-    func observeContentHeightChange() {
-        guard isWaiting else { return }
-        contentHeightChanged = true
-    }
-
-    func completeIfReady(isAtBottom: Bool) -> Bool {
-        guard isWaiting, contentHeightChanged, isAtBottom, !revealCompleted else { return false }
-        revealCompleted = true
-        revealContinuation?.yield()
-        revealContinuation?.finish()
-        return true
-    }
-
-    func waitForReveal(timeout: Duration = .milliseconds(100)) async {
-        guard isWaiting else { return }
-        if !revealCompleted, let revealStream {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    for await _ in revealStream { break }
-                }
-                group.addTask {
-                    try? await Task.sleep(for: timeout)
-                }
-                _ = await group.next()
-                group.cancelAll()
-            }
-        }
-        cancel()
-    }
-}
-
 struct SlashCommand: Identifiable {
     let command: String
     let description: String
@@ -68,7 +10,6 @@ struct SlashCommand: Identifiable {
 
 struct BottomStackConfiguration: @unchecked Sendable {
     let sessionID: String?
-    let sendRevealCoordinator: SendRevealCoordinator?
     let composer: ComposerConfiguration
     let statusSegments: [String]
     let activitySession: Session?
@@ -106,7 +47,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
 
     init(
         sessionID: String? = nil,
-        sendRevealCoordinator: SendRevealCoordinator? = nil,
         composer: ComposerConfiguration = ComposerConfiguration(),
         statusSegments: [String] = [],
         activitySession: Session? = nil,
@@ -141,7 +81,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
         readOnlyLabel: String? = nil
     ) {
         self.sessionID = sessionID
-        self.sendRevealCoordinator = sendRevealCoordinator
         self.composer = composer
         self.statusSegments = statusSegments
         self.activitySession = activitySession
@@ -179,7 +118,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
     func withAvailableHeight(_ height: CGFloat) -> Self {
         Self(
             sessionID: sessionID,
-            sendRevealCoordinator: sendRevealCoordinator,
             composer: composer,
             statusSegments: statusSegments,
             activitySession: activitySession,
@@ -393,9 +331,6 @@ struct BottomStackView: View {
         recordLifecycleEvent(name: "send-tap", sessionID: configuration.sessionID)
         MotionTrace.shared.recordEvent("sendTapped", data: ["noteID": submittedText])
         #endif
-        if !isSlashCommand(submittedText) {
-            configuration.sendRevealCoordinator?.begin()
-        }
         isSending = true
         Task { @MainActor in
             #if DEBUG
@@ -408,7 +343,6 @@ struct BottomStackView: View {
                 case .success:
                     await finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
                 case .failure(let error):
-                    configuration.sendRevealCoordinator?.cancel()
                     handleSendFailure(error)
                 }
             } else {
@@ -418,7 +352,6 @@ struct BottomStackView: View {
                 case .success:
                     await finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
                 case .failure(let error):
-                    configuration.sendRevealCoordinator?.cancel()
                     handleSendFailure(error)
                 }
             }
@@ -443,9 +376,6 @@ struct BottomStackView: View {
                 fieldResetRestoresFocus = false
                 fieldResetGeneration += 1
             }
-        }
-        if !isSlashCommand(submittedText) {
-            await configuration.sendRevealCoordinator?.waitForReveal()
         }
         sendFeedbackCount += 1
     }
