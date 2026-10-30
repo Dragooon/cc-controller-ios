@@ -174,6 +174,36 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitToExist(timeout: 10), "Leading-edge search-field tap did not focus the field")
     }
 
+    func testLandscapeSwipeAcrossDetailOpensSidebar() throws {
+        let app = launch(orientation: .landscapeRight, sessionID: "long-session")
+        defer { app.terminate() }
+        assertRegularLandscape(in: app)
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Toolbar toggle did not hide the sidebar")
+
+        let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        XCTAssertTrue(composer.waitToExist(timeout: 20), "Composer did not load")
+        let composerStart = composer.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        composerStart.press(forDuration: 0.1, thenDragTo: composerStart.withOffset(CGVector(dx: 240, dy: 0)))
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Swiping on the composer opened the sidebar")
+
+        let transcriptScroll = transcriptScroll(in: app)
+        XCTAssertTrue(transcriptScroll.waitToExist(timeout: 20), "Transcript scroll view did not load")
+        let newestCheckpoint = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newestCheckpoint.waitToExist(timeout: 20), "Newest long-session checkpoint did not load")
+        let frameBeforeSwipe = newestCheckpoint.frame
+
+        let transcriptMiddle = transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        transcriptMiddle.press(forDuration: 0.1, thenDragTo: transcriptMiddle.withOffset(CGVector(dx: 240, dy: 0)))
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Swiping right across the transcript did not open the sidebar")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        addScreenshot(named: "sidebar-swipe-across-detail")
+        XCTAssertEqual(newestCheckpoint.frame.minY, frameBeforeSwipe.minY, accuracy: 1, "Opening the sidebar scrolled the transcript")
+    }
+
     func testLandscapeSidebarToggleResizesDetail() throws {
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")
         defer { app.terminate() }
@@ -336,6 +366,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         print("NAVIGATION_TITLE_FRAME \(navigationTitle.frame)")
         print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) navigation-title-center-y=\(titleCenterY) delta=\(abs(sidebarCenterY - titleCenterY))")
         XCTAssertLessThanOrEqual(abs(sidebarCenterY - titleCenterY), 1, "Sidebar toggle and navigation title were vertically misaligned")
+        XCTAssertFalse(sidebarToggle.frame.intersects(navigationTitle.frame), "Sidebar toggle overlapped the navigation title: toggle=\(sidebarToggle.frame), title=\(navigationTitle.frame)")
         guard sidebarOpen else { return }
         let sidebarSettings = app.buttons["Settings"]
         XCTAssertTrue(sidebarSettings.waitToExist(timeout: 10), "Sidebar settings control did not load")

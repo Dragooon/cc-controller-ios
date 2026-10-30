@@ -34,6 +34,7 @@ struct SessionScreen: View {
     let wakeError: String?
     let onRetryWake: () -> Void
     let onShowApprovalsElsewhere: () -> Void
+    let onRegularInspectorChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     init(
@@ -44,7 +45,8 @@ struct SessionScreen: View {
         isWaking: Bool = false,
         wakeError: String? = nil,
         onRetryWake: @escaping () -> Void = {},
-        onShowApprovalsElsewhere: @escaping () -> Void = {}
+        onShowApprovalsElsewhere: @escaping () -> Void = {},
+        onRegularInspectorChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.sessionID = sessionID
         self.store = store
@@ -54,6 +56,7 @@ struct SessionScreen: View {
         self.wakeError = wakeError
         self.onRetryWake = onRetryWake
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
+        self.onRegularInspectorChange = onRegularInspectorChange
     }
     @State private var selectedTool: ToolEntry?
     @State private var selectedCompaction: CompactionEntry?
@@ -140,6 +143,9 @@ struct SessionScreen: View {
         .inspector(isPresented: regularInspectorBinding) {
             inspectorContent()
         }
+        .onChange(of: regularInspectorBinding.wrappedValue, initial: true) { _, isOpen in
+            onRegularInspectorChange(isOpen)
+        }
         .overlay(alignment: .top) {
             if let commandToast {
                 CommandToastView(message: commandToast)
@@ -148,6 +154,7 @@ struct SessionScreen: View {
         }
         .onDisappear {
             commandToastTask?.cancel()
+            onRegularInspectorChange(false)
             recordLifecycleEvent(name: "screen-disappear", sessionID: sessionID)
         }
         .background {

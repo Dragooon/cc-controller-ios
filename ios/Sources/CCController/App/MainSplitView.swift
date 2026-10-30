@@ -10,10 +10,11 @@ struct MainSplitView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
-    @State private var regularHeaderTopInset: CGFloat = 0
-#if DEBUG
-    @State private var regularTitleMeasurement = ""
-#endif
+    /// Window Y of the detail's title row, from the toolbar slot that reserves the toggle's room.
+    @State private var regularHeaderRowMinY: CGFloat?
+    /// Window Y of the container the fixed sidebar controls are laid out in.
+    @State private var regularControlsOriginY: CGFloat = 0
+    @State private var isRegularInspectorOpen = false
     @State private var regularSidebarDragStartProgress: CGFloat?
     @GestureState private var regularSidebarDragActive = false
     @State private var allowFeedbackCount = 0
@@ -180,7 +181,6 @@ struct MainSplitView: View {
             regularSplitContent(
                 width: proxy.size.width,
                 height: proxy.size.height,
-                topInset: regularHeaderTopInset,
                 sidebarWidth: sidebarWidth,
                 isOverlay: forceOverlay || remainingWidth < 440
             )
@@ -190,24 +190,9 @@ struct MainSplitView: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityIdentifier("regular-layout-metrics")
-                    .accessibilityValue("width=\(proxy.size.width),topInset=\(regularHeaderTopInset),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode),\(regularTitleMeasurement)")
+                    .accessibilityValue("width=\(proxy.size.width),rowMinY=\(regularHeaderRowMinY ?? -1),controlsOriginY=\(regularControlsOriginY),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode)")
             }
 #endif
-            .overlay {
-                NavigationBarMetricsReader { centerY, description in
-                    // The reader reports window coordinates; controls are in this GeometryReader's local space.
-                    let titleRowCenterY = centerY - proxy.frame(in: .global).minY
-                    let inset = max(0, titleRowCenterY - 22)
-#if DEBUG
-                    let measurement = "\(description),originY=\(proxy.frame(in: .global).minY)"
-                    if regularTitleMeasurement != measurement { regularTitleMeasurement = measurement }
-#endif
-                    guard abs(regularHeaderTopInset - inset) > 0.5 else { return }
-                    regularHeaderTopInset = inset
-                }
-                .frame(width: 1, height: 1)
-                .allowsHitTesting(false)
-            }
         }
         .tint(.ccAccent)
         .background(.ccBackground)
@@ -216,7 +201,6 @@ struct MainSplitView: View {
     private func regularSplitContent(
         width: CGFloat,
         height: CGFloat,
-        topInset: CGFloat,
         sidebarWidth: CGFloat,
         isOverlay: Bool
     ) -> some View {
@@ -224,7 +208,7 @@ struct MainSplitView: View {
         return ZStack(alignment: .leading) {
             regularDetailColumn(width: width, sidebarWidth: sidebarWidth, isOverlay: isOverlay)
             regularSidebarScrim(isOverlay: isOverlay)
-            regularSidebarColumn(sidebarWidth: sidebarWidth, topInset: topInset, isOverlay: isOverlay)
+            regularSidebarColumn(sidebarWidth: sidebarWidth, isOverlay: isOverlay)
             regularSidebarPanCapture(
                 sidebarWidth: sidebarWidth,
                 height: height,
@@ -239,7 +223,16 @@ struct MainSplitView: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            regularSidebarControls(topInset: topInset)
+            Color.clear
+                .allowsHitTesting(false)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .global).minY
+                } action: { originY in
+                    regularControlsOriginY = originY
+                }
+            regularSidebarControls(
+                topInset: regularHeaderRowMinY.map { max(0, $0 - regularControlsOriginY) } ?? 0
+            )
         }
         .onChange(of: regularSidebarDragActive) { _, isActive in
             guard !isActive, regularSidebarDragStartProgress != nil else { return }
@@ -271,6 +264,36 @@ struct MainSplitView: View {
 
     private func regularDetailContent() -> some View {
         detailView()
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    regularSidebarControlsSlot()
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+    }
+
+    /// Empty room in the detail's navigation bar under the fixed sidebar controls. The bar keeps the
+    /// title clear of it, and its position is where the controls and the sidebar header line up.
+    private func regularSidebarControlsSlot() -> some View {
+        HStack(spacing: 8) {
+            Color.clear
+                .frame(width: 44, height: 44)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.frame(in: .global).minY
+                } action: { rowMinY in
+                    guard abs((regularHeaderRowMinY ?? .infinity) - rowMinY) > 0.5 else { return }
+                    regularHeaderRowMinY = rowMinY
+                }
+            if approvalsElsewhereCount > 0 {
+                Text(approvalsElsewhereText)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .fixedSize()
+                    .hidden()
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     private func regularSidebarScrim(isOverlay: Bool) -> some View {
@@ -282,9 +305,9 @@ struct MainSplitView: View {
             .zIndex(0.5)
     }
 
-    private func regularSidebarColumn(sidebarWidth: CGFloat, topInset: CGFloat, isOverlay: Bool) -> some View {
+    private func regularSidebarColumn(sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
         sessionsList(
-            topInset: topInset,
+            headerRowMinY: regularHeaderRowMinY,
             isRegularSidebarHidden: regularSidebarProgress <= 0.001,
             closeOnOpen: isOverlay
         )
@@ -312,6 +335,7 @@ struct MainSplitView: View {
     ) -> some View {
         SidebarPanCapture(
             sidebarProgress: regularSidebarProgress,
+            opensFromAnywhere: !isRegularInspectorOpen,
             onChanged: { translationX in
                 sidebarDragChanged(translationX: translationX, sidebarWidth: sidebarWidth)
             },
@@ -379,6 +403,9 @@ struct MainSplitView: View {
                     } else {
                         columnVisibility = .all
                     }
+                },
+                onRegularInspectorChange: { isOpen in
+                    isRegularInspectorOpen = isOpen
                 }
             )
             .id(selectedSession)
@@ -475,7 +502,7 @@ struct MainSplitView: View {
     }
 
     private func sessionsList(
-        topInset: CGFloat = 0,
+        headerRowMinY: CGFloat? = nil,
         isRegularSidebarHidden: Bool = false,
         closeOnOpen: Bool = false
     ) -> some View {
@@ -485,7 +512,7 @@ struct MainSplitView: View {
             subtitleOverride: model.selectedSession == nil ? nil : "",
             notice: sessionNotice,
             canCreateSession: !newSessionChoices.isEmpty,
-            regularHeaderTopInset: topInset,
+            regularHeaderRowMinY: headerRowMinY,
             isRegularSidebarHidden: isRegularSidebarHidden,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
@@ -816,116 +843,9 @@ private struct SidebarApprovalModifier: AnimatableModifier {
     }
 }
 
-private struct NavigationBarMetricsReader: UIViewRepresentable {
-    /// The title row's centre in window coordinates, and a short description of what was measured.
-    let onCenterY: (CGFloat, String) -> Void
-
-    func makeUIView(context: Context) -> NavigationBarMetricsReaderView {
-        let view = NavigationBarMetricsReaderView()
-        view.onCenterY = onCenterY
-        return view
-    }
-
-    func updateUIView(_ view: NavigationBarMetricsReaderView, context: Context) {
-        view.onCenterY = onCenterY
-        view.scheduleMeasurement()
-    }
-}
-
-private final class NavigationBarMetricsReaderView: UIView {
-    var onCenterY: ((CGFloat, String) -> Void)?
-    private var measurementScheduled = false
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        scheduleMeasurement()
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        scheduleMeasurement()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        scheduleMeasurement()
-    }
-
-    func scheduleMeasurement() {
-        guard !measurementScheduled else { return }
-        measurementScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.measurementScheduled = false
-            self.measure()
-        }
-    }
-
-    private func measure() {
-        guard let window,
-              let bar = navigationBars(in: window)
-                .filter({ !$0.isHidden && $0.alpha > 0 && $0.bounds.height > 0 })
-                .max(by: { $0.convert($0.bounds, to: window).width < $1.convert($1.bounds, to: window).width }) else { return }
-        let barFrame = bar.convert(bar.bounds, to: window)
-        let subviewFrames = descendantFrames(in: bar, window: window)
-        if let titleFrame = titleLikeFrame(in: subviewFrames, barFrame: barFrame) {
-            onCenterY?(titleFrame.midY, describe(source: "title", frame: titleFrame, barFrame: barFrame))
-            return
-        }
-        let contentCandidates = subviewFrames.filter { frame in
-            frame.width >= barFrame.width * 0.8
-                && frame.height >= 30
-                && frame.height <= barFrame.height
-        }
-        let contentFrame = contentCandidates.min { left, right in
-            abs(left.height - 44) < abs(right.height - 44)
-        }
-        let source = contentFrame == nil ? "bar" : "content"
-        let frame = contentFrame ?? barFrame
-        onCenterY?(frame.midY, describe(source: source, frame: frame, barFrame: barFrame))
-    }
-
-    private func describe(source: String, frame: CGRect, barFrame: CGRect) -> String {
-        "titleSource=\(source),titleMidY=\(frame.midY),barMinY=\(barFrame.minY),barHeight=\(barFrame.height)"
-    }
-
-    private func titleLikeFrame(in frames: [CGRect], barFrame: CGRect) -> CGRect? {
-        frames
-            .filter { frame in
-                frame.width >= 80
-                    && frame.width < barFrame.width * 0.8
-                    && frame.height >= 15
-                    && frame.height <= 30
-                    && abs(frame.midX - barFrame.midX) < barFrame.width * 0.35
-                    && frame.minY >= barFrame.minY - 1
-                    && frame.maxY <= barFrame.maxY + 1
-            }
-            .min { left, right in
-                let leftScore = abs(left.height - 20) + abs(left.midX - barFrame.midX) / 100
-                let rightScore = abs(right.height - 20) + abs(right.midX - barFrame.midX) / 100
-                return leftScore < rightScore
-            }
-    }
-
-    /// Frames of the bar's visible descendants. Hidden or transparent views (an unused large title,
-    /// say) are skipped with their subviews, so they can't be taken for the title row.
-    private func descendantFrames(in view: UIView, window: UIWindow) -> [CGRect] {
-        view.subviews
-            .filter { !$0.isHidden && $0.alpha > 0.01 }
-            .flatMap { subview in
-                [subview.convert(subview.bounds, to: window)] + descendantFrames(in: subview, window: window)
-            }
-    }
-
-    private func navigationBars(in view: UIView) -> [UINavigationBar] {
-        view.subviews.flatMap { subview in
-            (subview as? UINavigationBar).map { [$0] } ?? navigationBars(in: subview)
-        }
-    }
-}
-
 private struct SidebarPanCapture: UIViewRepresentable {
     let sidebarProgress: CGFloat
+    let opensFromAnywhere: Bool
     let onChanged: (CGFloat) -> Void
     let onEnded: (CGFloat, CGFloat) -> Void
 
@@ -944,6 +864,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
 
     func updateUIView(_ view: SidebarCaptureView, context: Context) {
         context.coordinator.sidebarProgress = sidebarProgress
+        context.coordinator.opensFromAnywhere = opensFromAnywhere
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
         context.coordinator.updateAttachment(for: view, in: view.window)
@@ -951,6 +872,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var sidebarProgress: CGFloat
+        var opensFromAnywhere: Bool
         var onChanged: (CGFloat) -> Void
         var onEnded: (CGFloat, CGFloat) -> Void
         weak var captureView: SidebarCaptureView?
@@ -958,6 +880,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
 
         init(_ parent: SidebarPanCapture) {
             sidebarProgress = parent.sidebarProgress
+            opensFromAnywhere = parent.opensFromAnywhere
             onChanged = parent.onChanged
             onEnded = parent.onEnded
         }
@@ -996,11 +919,54 @@ private struct SidebarPanCapture: UIViewRepresentable {
                   let view = pan.view,
                   let captureView else { return false }
             let initialLocation = pan.initialLocation ?? pan.location(in: view)
-            let stripFrame = captureView.convert(captureView.bounds, to: view)
-            guard stripFrame.contains(initialLocation) else { return false }
             let velocity = pan.velocity(in: view)
-            guard abs(velocity.x) > abs(velocity.y) else { return false }
-            return sidebarProgress <= 0.001 && velocity.x > 0
+            guard sidebarProgress <= 0.001, velocity.x > 0, abs(velocity.x) > abs(velocity.y) else { return false }
+            let stripFrame = captureView.convert(captureView.bounds, to: view)
+            if stripFrame.contains(initialLocation) { return true }
+            // Away from the edge a steeper angle is needed, so a vertical scroll isn't taken for a swipe.
+            return opensFromAnywhere
+                && abs(velocity.x) > abs(velocity.y) * 1.5
+                && !contentClaimsSwipe(at: initialLocation, in: view)
+        }
+
+        /// Whether what's under the touch has its own use for a rightward drag, or sits outside the
+        /// split view: a sheet, a pushed screen (its swipe goes back), text input or a sideways scroller.
+        private func contentClaimsSwipe(at location: CGPoint, in view: UIView) -> Bool {
+            guard let rootView = view.window?.rootViewController?.view,
+                  let hitView = view.hitTest(location, with: nil),
+                  hitView.isDescendant(of: rootView) else { return true }
+            var ancestor: UIView? = hitView
+            while let current = ancestor {
+                if current is UITextField { return true }
+                if let textView = current as? UITextView, textView.isEditable { return true }
+                if let scrollView = current as? UIScrollView, scrollsHorizontally(scrollView) { return true }
+                ancestor = current.superview
+            }
+            var responder: UIResponder? = hitView
+            while let current = responder {
+                if let navigation = current as? UINavigationController, navigation.viewControllers.count > 1 {
+                    return true
+                }
+                responder = current.next
+            }
+            return false
+        }
+
+        private func scrollsHorizontally(_ scrollView: UIScrollView) -> Bool {
+            let inset = scrollView.adjustedContentInset
+            return scrollView.contentSize.width + inset.left + inset.right > scrollView.bounds.width + 1
+        }
+
+        /// A sidebar drag shouldn't also scroll the transcript it started on.
+        private func cancelScrolling(at location: CGPoint, in view: UIView) {
+            var ancestor = view.hitTest(location, with: nil)
+            while let current = ancestor {
+                if let scrollView = current as? UIScrollView {
+                    scrollView.panGestureRecognizer.isEnabled = false
+                    scrollView.panGestureRecognizer.isEnabled = true
+                }
+                ancestor = current.superview
+            }
         }
 
         func gestureRecognizer(
@@ -1023,7 +989,10 @@ private struct SidebarPanCapture: UIViewRepresentable {
             guard let view = recognizer.view else { return }
             let translation = recognizer.translation(in: view)
             switch recognizer.state {
-            case .began, .changed:
+            case .began:
+                cancelScrolling(at: recognizer.initialLocation ?? recognizer.location(in: view), in: view)
+                onChanged(translation.x)
+            case .changed:
                 onChanged(translation.x)
             case .ended, .cancelled, .failed:
                 onEnded(translation.x, recognizer.velocity(in: view).x)

@@ -70,7 +70,7 @@ struct SessionsListView: View {
     let subtitleOverride: String?
     let notice: String?
     let canCreateSession: Bool
-    let regularHeaderTopInset: CGFloat
+    let regularHeaderRowMinY: CGFloat?
     let isRegularSidebarHidden: Bool
     let onSessionsLoaded: () async -> Void
     let onOpen: (ControllerID, Session) -> Void
@@ -90,6 +90,7 @@ struct SessionsListView: View {
     let onEnd: (ControllerID, String) async -> Result<Void, ActionError>
     let onActionError: (ActionError) -> Void
 
+    @State private var regularHeaderOriginY: CGFloat = 0
     @State private var searchText = ""
     @State private var isSearchPresented = false
     @State private var archiveToast: ArchiveToast?
@@ -107,7 +108,7 @@ struct SessionsListView: View {
         subtitleOverride: String? = nil,
         notice: String? = nil,
         canCreateSession: Bool = true,
-        regularHeaderTopInset: CGFloat = 0,
+        regularHeaderRowMinY: CGFloat? = nil,
         isRegularSidebarHidden: Bool = false,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
@@ -132,7 +133,7 @@ struct SessionsListView: View {
         self.subtitleOverride = subtitleOverride
         self.notice = notice
         self.canCreateSession = canCreateSession
-        self.regularHeaderTopInset = regularHeaderTopInset
+        self.regularHeaderRowMinY = regularHeaderRowMinY
         self.isRegularSidebarHidden = isRegularSidebarHidden
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
@@ -337,17 +338,20 @@ struct SessionsListView: View {
     var body: some View {
         NavigationStack {
             if horizontalSizeClass == .regular {
-                GeometryReader { proxy in
-                    list
-                        .safeAreaInset(edge: .top, spacing: 0) {
-                            regularHeader(topInset: max(0, regularHeaderTopInset - proxy.safeAreaInsets.top))
-                        }
-                        .safeAreaInset(edge: .bottom, spacing: 0) {
-                            bottomInset
-                        }
-                        .toolbar(.hidden, for: .navigationBar)
-                        .refreshable { await onRefresh() }
-                }
+                list
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        regularHeader(topInset: regularHeaderRowMinY.map { max(0, $0 - regularHeaderOriginY) } ?? 0)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.frame(in: .global).minY
+                            } action: { originY in
+                                regularHeaderOriginY = originY
+                            }
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        bottomInset
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .refreshable { await onRefresh() }
             } else {
                 list
                     .safeAreaInset(edge: .bottom, spacing: 0) {
