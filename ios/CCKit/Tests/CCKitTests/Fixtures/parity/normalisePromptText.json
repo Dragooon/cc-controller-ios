@@ -19,6 +19,33 @@
         "text": "hello",
         "attachments": []
       }
+    },
+    {
+      "name": "stockade-sender",
+      "input": "[sender: sam | via: app]\nhello",
+      "output": {
+        "text": "hello",
+        "attachments": []
+      }
+    },
+    {
+      "name": "stockade-discord-sender",
+      "input": "[sender: sam | discord name: Sam | discord id: 1]\nhello",
+      "output": {
+        "text": "hello",
+        "attachments": [],
+        "sender": "sam"
+      }
+    },
+    {
+      "name": "stockade-attachments",
+      "input": "[platform: session start]\nWhere: app\n[/platform]\n[sender: sam | via: app]\nLook at this\n\nAttached files saved to your workspace:\n- /home/sam/workspace/tmp/attachments/1/photo.png (image/png, 1234 bytes)\n\nYou can read, analyze, or process these files using your tools (Read, Bash, etc.).",
+      "output": {
+        "text": "Look at this",
+        "attachments": [
+          "photo.png"
+        ]
+      }
     }
   ]
 }

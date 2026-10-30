@@ -50,9 +50,14 @@ struct PromptBubble: View {
         self.bubbleAccessibilityIdentifier = bubbleAccessibilityIdentifier
     }
 
-    private var promptText: String {
-        CCKit.normalisePromptText(prompt.text ?? prompt.command).text
+    private var normalized: NormalizedPromptText {
+        CCKit.normalisePromptText(prompt.text ?? prompt.command)
     }
+
+    private var promptText: String { normalized.text }
+
+    /// Named only for messages that came from a chat platform, so a read-only chat shows who wrote each one.
+    private var chatSender: String? { peer == nil ? normalized.sender : nil }
 
     private var collapse: PromptCollapse {
         promptCollapse(promptText, hasPaste: prompt.paste != nil)
@@ -61,10 +66,24 @@ struct PromptBubble: View {
     private var peer: PeerSender? { prompt.peerSender }
 
     private var attachmentNames: [String] {
-        prompt.attachments ?? CCKit.normalisePromptText(prompt.text ?? prompt.command).attachments
+        prompt.attachments ?? normalized.attachments
     }
 
     var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            if let chatSender {
+                Text(chatSender)
+                    .font(.caption)
+                    .foregroundStyle(.ccSecondary)
+                    .padding(.trailing, 6)
+                    .accessibilityIdentifier("prompt-sender")
+            }
+            bubble
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var bubble: some View {
         PromptBubbleLayout(leading: peer != nil) {
             VStack(alignment: .leading, spacing: 8) {
                 if let peer {
@@ -130,7 +149,7 @@ struct PromptBubble: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(peer.map { "\($0.headerText). \(promptText)" } ?? promptText)
+        .accessibilityLabel(peer.map { "\($0.headerText). \(promptText)" } ?? chatSender.map { "\($0): \(promptText)" } ?? promptText)
         .accessibilityIdentifier(peer == nil ? bubbleAccessibilityIdentifier : "peer-message")
     }
 }

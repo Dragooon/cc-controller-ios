@@ -18,6 +18,17 @@ final class PromptAttachmentTests: XCTestCase {
         XCTAssertEqual(result.attachments, ["attachment.png", "evidence.csv"])
     }
 
+    func testNormalisePromptTextStripsStockadeWrappersAndKeepsChatSenders() {
+        let fromApp = "[platform: session start]\nWhere: app\n[/platform]\n[sender: sam | via: app]\nLook at this\n\n"
+            + "Attached files saved to your workspace:\n- /home/sam/workspace/tmp/attachments/1/photo.png (image/png, 1234 bytes)\n\n"
+            + "You can read, analyze, or process these files using your tools (Read, Bash, etc.)."
+        XCTAssertEqual(normalisePromptText(fromApp), NormalizedPromptText(text: "Look at this", attachments: ["photo.png"]))
+
+        let fromChat = normalisePromptText("[sender: sam | discord name: Sam | discord id: 1]\nhello")
+        XCTAssertEqual(fromChat, NormalizedPromptText(text: "hello", attachments: [], sender: "sam"))
+        XCTAssertEqual(entryFields(.prompt(PromptEntry(text: "[sender: sam | discord name: Sam | discord id: 1]\nhello"))).sender, "sam")
+    }
+
     func testImageAttachmentClassificationIsCaseInsensitiveAndExtensionBased() {
         XCTAssertTrue(isImageAttachmentName("attachment.PNG"))
         XCTAssertTrue(isImageAttachmentName("photo.jpeg"))

@@ -15,10 +15,13 @@ public struct PromptCollapse: Codable, Sendable, Equatable {
 public struct NormalizedPromptText: Codable, Sendable, Equatable {
     public let text: String
     public let attachments: [String]
+    /// Who wrote a message that arrived from a chat platform; nil for messages typed in this app.
+    public let sender: String?
 
-    public init(text: String, attachments: [String]) {
+    public init(text: String, attachments: [String], sender: String? = nil) {
         self.text = text
         self.attachments = attachments
+        self.sender = sender
     }
 }
 
@@ -421,6 +424,7 @@ public struct EntryFields: Codable, Sendable, Equatable {
     public let kind: String
     public let text: String
     public let attachments: [String]
+    public let sender: String?
     public let paste: Paste?
     public let command: String?
     public let model: String?
@@ -442,10 +446,11 @@ public struct EntryFields: Codable, Sendable, Equatable {
     public let mime: String
     public let url: String
 
-    public init(kind: String, text: String = "", attachments: [String] = [], paste: Paste? = nil, command: String? = nil, model: String? = nil, toolUseId: String = "", tool: String = "unknown", args: JSONValue = .object([:]), result: String = "", summary: String = "", state: String = "done", time: Date? = nil, agent: String = "agent", agentId: String = "", startedAt: Date? = nil, finishedAt: Date? = nil, durationMs: Int? = nil, behavior: String = "", name: String = "", size: Int = 0, mime: String = "", url: String = "") {
+    public init(kind: String, text: String = "", attachments: [String] = [], sender: String? = nil, paste: Paste? = nil, command: String? = nil, model: String? = nil, toolUseId: String = "", tool: String = "unknown", args: JSONValue = .object([:]), result: String = "", summary: String = "", state: String = "done", time: Date? = nil, agent: String = "agent", agentId: String = "", startedAt: Date? = nil, finishedAt: Date? = nil, durationMs: Int? = nil, behavior: String = "", name: String = "", size: Int = 0, mime: String = "", url: String = "") {
         self.kind = kind
         self.text = text
         self.attachments = attachments
+        self.sender = sender
         self.paste = paste
         self.command = command
         self.model = model
@@ -852,10 +857,40 @@ public func composerTextAfterSuccessfulSend(originalText: String, submittedText:
     return String(currentText.dropFirst(originalText.count).drop(while: { $0.isWhitespace }))
 }
 
+// Stockade wraps what people send: a session-start block and platform notes may come first, then
+// the [sender: …] line, and attachments add its own listing after the text.
+private let stockadePreamble = #"^(?:\[platform: session start\][\s\S]*?\[/platform\]\n)?(?:\[platform: [^\]\n]*\]\n)*\[sender: [^\]\n]*\]\n"#
+private let senderLinePrefix = "[sender: "
+private let stockadeAttachments = #"\n\nAttached files saved to your workspace:\n((?:- .+\n)+)\nYou can read, analyze, or process these files using your tools \(Read, Bash, etc\.\)\.\s*$"#
+
+/// Messages typed in this app say "via: app" and need no name; chat-platform messages keep the sender's name.
+private func stockadeSender(_ line: String) -> String? {
+    let fields = line.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+    if fields.contains("via: app") { return nil }
+    return fields.first.flatMap { $0.isEmpty ? nil : $0 }
+}
+
 public func normalisePromptText(_ value: String?) -> NormalizedPromptText {
-    let source = value ?? ""
+    var source = value ?? ""
+    var sender: String?
+    if let preamble = source.range(of: stockadePreamble, options: .regularExpression) {
+        let senderLine = source[preamble].split(separator: "\n").last.map(String.init) ?? ""
+        sender = stockadeSender(String(senderLine.dropFirst(senderLinePrefix.count).dropLast()))
+        source.removeSubrange(preamble)
+    }
+    if let listing = source.range(of: stockadeAttachments, options: .regularExpression) {
+        let lines = source[listing].split(separator: "\n").map(String.init).filter { $0.hasPrefix("- ") }
+        let attachments = lines.map { line -> String in
+            let path = line.dropFirst(2)
+                .replacingOccurrences(of: #"\s+\([^()]*, \d+ bytes\)$"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
+        }.filter { !$0.isEmpty }
+        let text = String(source[..<listing.lowerBound]).replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
+        return NormalizedPromptText(text: text, attachments: attachments, sender: sender)
+    }
     guard let match = source.range(of: "\\nAttached files:\\s*\\n((?:\\s*-\\s*.+(?:\\r?\\n|$))+)[ \\t]*$", options: [.regularExpression, .caseInsensitive]) else {
-        return NormalizedPromptText(text: source, attachments: [])
+        return NormalizedPromptText(text: source, attachments: [], sender: sender)
     }
     let suffix = String(source[match])
     let lines = suffix.split(whereSeparator: \ .isNewline).dropFirst().map(String.init)
@@ -864,7 +899,7 @@ public func normalisePromptText(_ value: String?) -> NormalizedPromptText {
         return path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
     }.filter { !$0.isEmpty }
     let text = String(source[..<match.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-    return NormalizedPromptText(text: text, attachments: attachments)
+    return NormalizedPromptText(text: text, attachments: attachments, sender: sender)
 }
 
 public func toolArgument(_ tool: String?, args: JSONValue? = nil) -> String {
@@ -1129,7 +1164,7 @@ public func entryFields(_ entry: TranscriptEntry, timeZone: TimeZone = .current,
     switch entry {
     case .prompt(let value):
         let normalized = normalisePromptText(value.text ?? value.command)
-        return EntryFields(kind: "prompt", text: normalized.text, attachments: normalized.attachments, paste: value.paste, command: value.command)
+        return EntryFields(kind: "prompt", text: normalized.text, attachments: normalized.attachments, sender: normalized.sender, paste: value.paste, command: value.command)
     case .assistant(let value):
         return EntryFields(kind: "assistant", text: value.text ?? "", model: value.model)
     case .tool(let value):
