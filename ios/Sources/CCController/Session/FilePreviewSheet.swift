@@ -1,8 +1,9 @@
 import QuickLook
 import SwiftUI
 
-/// Quick Look inside a sheet, so a downward swipe closes the preview like any other card. The
-/// navigation controller keeps Quick Look's own title and share button.
+/// Quick Look inside a sheet, for files other than images (those open in `ImagePreviewSheet`). The
+/// navigation controller keeps Quick Look's own title and share button. Quick Look draws its content
+/// in another process, so the sheet only sees a downward drag that starts on the navigation bar.
 struct FilePreviewSheet: UIViewControllerRepresentable {
     let url: URL
     let close: @MainActor () -> Void

@@ -65,25 +65,22 @@ final class AttachmentFlowTests: XCTestCase {
         addScreenshot(named: "attachment-delivered-bubble")
         image.tap()
 
+        // Images open in our own viewer: Quick Look's canvas runs in another process, where a swipe
+        // down never reaches the sheet.
+        let viewer = app.descendants(matching: .any).matching(identifier: "image-preview-canvas").firstMatch
+        XCTAssertTrue(viewer.waitToExist(timeout: 15), "The image viewer did not appear")
+        XCTAssertEqual(viewer.label, "attachment.png")
+        addScreenshot(named: "prompt-attachment-image-viewer")
+        viewer.swipeDown(velocity: .fast)
+        XCTAssertTrue(waitForNonExistence(of: viewer, timeout: 10), "A downward swipe did not close the image viewer")
+
+        // Other files still open in Quick Look.
+        csv.tap()
         let quickLook = app.otherElements["QLPreviewControllerView"]
-        guard quickLook.waitToExist(timeout: 15) else {
-            XCTFail("Quick Look controller did not appear")
-            return
-        }
-
-        let canvas = app.otherElements["Image canvas"]
-        guard canvas.waitToExist(timeout: 10) else {
-            let debug = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
-            debug.name = "prompt-attachment-quicklook-debug.txt"
-            debug.lifetime = .keepAlways
-            add(debug)
-            XCTFail("Quick Look image canvas did not appear")
-            return
-        }
+        XCTAssertTrue(quickLook.waitToExist(timeout: 15), "Quick Look did not appear for the CSV")
         addScreenshot(named: "prompt-attachment-quicklook")
-
-        canvas.swipeDown(velocity: .fast)
-        XCTAssertTrue(waitForNonExistence(of: quickLook, timeout: 10), "A downward swipe did not close Quick Look")
+        app.buttons["Done"].firstMatch.tap()
+        XCTAssertTrue(waitForNonExistence(of: quickLook, timeout: 10), "Done did not close Quick Look")
     }
 
     func testAgentSentFileShowsRealAttachmentAndQuickLook() throws {
@@ -110,22 +107,9 @@ final class AttachmentFlowTests: XCTestCase {
         addScreenshot(named: "agent-sent-file-tile")
         file.tap()
 
-        let quickLook = app.otherElements["QLPreviewControllerView"]
-        guard quickLook.waitToExist(timeout: 15) else {
-            XCTFail("Quick Look controller did not appear for agent-sent file")
-            return
-        }
-
-        let canvas = app.otherElements["Image canvas"]
-        guard canvas.waitToExist(timeout: 10) else {
-            let debug = XCTAttachment(data: Data(app.debugDescription.utf8), uniformTypeIdentifier: "public.plain-text")
-            debug.name = "agent-sent-quicklook-debug.txt"
-            debug.lifetime = .keepAlways
-            add(debug)
-            XCTFail("Agent-sent Quick Look image canvas did not appear")
-            return
-        }
-        addScreenshot(named: "agent-sent-quicklook")
+        let viewer = app.descendants(matching: .any).matching(identifier: "image-preview-canvas").firstMatch
+        XCTAssertTrue(viewer.waitToExist(timeout: 15), "The image viewer did not appear for the agent-sent file")
+        addScreenshot(named: "agent-sent-image-viewer")
     }
 
     func testLaunchAttachmentSendClearsTray() throws {

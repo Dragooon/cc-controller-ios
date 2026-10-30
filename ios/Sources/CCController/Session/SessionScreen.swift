@@ -2,6 +2,7 @@ import CCKit
 import Foundation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct SessionDestination: Hashable {
     let sessionID: String
@@ -98,11 +99,25 @@ struct SessionScreen: View {
         )
     }
 
+    /// The image at a local file URL, or nil when it isn't one, so it opens in Quick Look instead.
+    private func previewImage(at url: URL) -> UIImage? {
+        guard url.isFileURL, let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) else {
+            return nil
+        }
+        return UIImage(contentsOfFile: url.path)
+    }
+
     var body: some View {
         screen()
             .sheet(isPresented: filePreviewPresented) {
                 if let filePreviewURL {
-                    FilePreviewSheet(url: filePreviewURL, close: { self.filePreviewURL = nil })
+                    Group {
+                        if let image = previewImage(at: filePreviewURL) {
+                            ImagePreviewSheet(url: filePreviewURL, image: image, close: { self.filePreviewURL = nil })
+                        } else {
+                            FilePreviewSheet(url: filePreviewURL, close: { self.filePreviewURL = nil })
+                        }
+                    }
                         .ignoresSafeArea()
                         .presentationDragIndicator(.visible)
                 }
