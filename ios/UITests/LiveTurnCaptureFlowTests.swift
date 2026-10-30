@@ -39,28 +39,31 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         XCTAssertTrue(send.waitToExist(timeout: 10), "Send button did not load")
         send.tap()
         let sentAt = Date()
+        let timeScale = flowTimeScale()
 
-        let initialRows = visibleTranscriptLabels(in: app)
-        XCTAssertTrue(initialRows.contains(prompt), "User message did not appear before the transcript prompt")
-        XCTAssertTrue(initialRows.contains { isActivityLabel($0) }, "Activity row did not appear immediately after send")
-        XCTAssertFalse(initialRows.contains { $0.contains("↓") }, "Activity row showed output tokens before the live turn had assistant usage")
         let pendingPrompt = app.descendants(matching: .any)
             .matching(identifier: "pending-prompt")
             .matching(NSPredicate(format: "label CONTAINS[c] %@", prompt))
             .firstMatch
         let initialActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
-        XCTAssertTrue(pendingPrompt.exists, "The sent prompt bubble did not render")
-        XCTAssertTrue(initialActivity.exists, "The live activity row did not render")
-        XCTAssertLessThan(pendingPrompt.frame.maxY, initialActivity.frame.minY, "The activity row rendered above the note that started the turn")
+        // Measure before the label scans below, which cost several seconds of queries on slow machines.
+        XCTAssertTrue(pendingPrompt.waitToExist(timeout: 5 * timeScale), "The sent prompt bubble did not render")
+        XCTAssertTrue(initialActivity.waitToExist(timeout: 5 * timeScale), "The live activity row did not render")
         let activityElapsed = Date().timeIntervalSince(sentAt)
-        XCTAssertLessThan(activityElapsed, 1.0, "User message and activity row did not appear within 1 s of send")
+
+        let initialRows = visibleTranscriptLabels(in: app)
+        XCTAssertTrue(initialRows.contains(prompt), "User message did not appear before the transcript prompt")
+        XCTAssertTrue(initialRows.contains { isActivityLabel($0) }, "Activity row did not appear immediately after send")
+        XCTAssertFalse(initialRows.contains { $0.contains("↓") }, "Activity row showed output tokens before the live turn had assistant usage")
+        XCTAssertLessThan(pendingPrompt.frame.maxY, initialActivity.frame.minY, "The activity row rendered above the note that started the turn")
+        XCTAssertLessThan(activityElapsed, 1.0 * timeScale, "User message and activity row did not appear within 1 s of send")
         let activityLine = "ACTIVITY_ROW_APPEARED elapsed=\(String(format: "%.3f", activityElapsed))"
         observations.append(activityLine)
         print(activityLine)
         capture("a", moment: "right-after-send", sentAt: sentAt, in: app, scheme: scheme)
         let turnStart = try await postLiveTurn(prompt: prompt)
         let workingButton = app.buttons["composer-queue"]
-        XCTAssertTrue(workingButton.waitToExist(timeout: 3), "Working composer state did not arrive")
+        XCTAssertTrue(workingButton.waitToExist(timeout: 3 * timeScale), "Working composer state did not arrive")
         let workingElapsed = Date().timeIntervalSince(sentAt)
         let workingLine = "WORKING_STATE_FLIP elapsed=\(String(format: "%.3f", workingElapsed)) daemon_turn_start_delta=\(String(format: "%.3f", turnStart.timeIntervalSince(sentAt)))"
         observations.append(workingLine)
@@ -198,8 +201,9 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         }
     }
 
+    /// `seconds` is on the fixture's unscaled timeline; the fixture paces the turn by the same scale.
     private func waitUntil(_ start: Date, hasElapsed seconds: TimeInterval) async throws {
-        let remaining = seconds - Date().timeIntervalSince(start)
+        let remaining = seconds * flowTimeScale() - Date().timeIntervalSince(start)
         if remaining > 0 {
             try await Task.sleep(for: .milliseconds(Int((remaining * 1000).rounded())))
         }
@@ -213,7 +217,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prompt])
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prompt, "timeScale": flowTimeScale()])
         let (data, response) = try await URLSession.shared.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             let body = String(data: data, encoding: .utf8) ?? "no response body"

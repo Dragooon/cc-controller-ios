@@ -286,7 +286,12 @@ final class AttachmentFlowTests: XCTestCase {
         openLongSession(in: app)
         app.buttons["Add attachment"].tap()
         let camera = app.buttons["Camera"]
-        XCTAssertTrue(camera.waitToExist(timeout: 5), "Camera menu item did not appear")
+        if !camera.waitToExist(timeout: 5) {
+            // The menu leaves Camera out when the device has none, as on GitHub's runner VMs.
+            if app.buttons["Photos"].exists { throw XCTSkip("This simulator has no camera, so the menu has no Camera item") }
+            XCTFail("Attachment menu did not appear")
+            return
+        }
         camera.tap()
 
         let takePicture = app.buttons["Take Picture"]

@@ -33,6 +33,8 @@ jobs:
       SLICES: 5
       CC_CONTROLLER_ROOT: ${{ github.workspace }}/cc-controller
       CC_EVIDENCE_DIR: ${{ github.workspace }}/evidence
+      # The runners are 2-3x slower than the Mac; timed fixture scripts stretch by this much.
+      CC_FLOW_TIME_SCALE: 3
     steps:
       - uses: actions/checkout@v7
         with:

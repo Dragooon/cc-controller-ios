@@ -9,6 +9,13 @@ func requiredRunnerVariable(_ key: String, file: StaticString = #filePath, line:
     return value
 }
 
+/// Slow test machines (GitHub's macOS runners) set this above 1 to stretch timed fixture scripts and
+/// the timing budgets that go with them.
+func flowTimeScale() -> Double {
+    guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_FLOW_TIME_SCALE"], let scale = Double(value) else { return 1 }
+    return min(10, max(1, scale))
+}
+
 func configureLiveIndicatorAnimations(_ app: XCUIApplication, freeze: Bool = true) {
     guard freeze else { return }
     app.launchArguments += ["-CCFreezeLiveIndicators", "YES"]

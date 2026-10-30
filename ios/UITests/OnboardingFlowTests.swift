@@ -59,7 +59,8 @@ final class OnboardingFlowTests: FixtureFlowTestSupport {
         add(attachment)
 
         if springboardDump.localizedCaseInsensitiveContains("Retry") || springboardDump.localizedCaseInsensitiveContains("Cancel") {
-            XCTAssertTrue(springboard.staticTexts["Face Not Recognised"].exists)
+            // The alert follows the simulator's region: "Recognised" (en_AU) or "Recognized" (en_US, as on CI).
+            XCTAssertTrue(springboard.staticTexts.matching(NSPredicate(format: "label IN %@", ["Face Not Recognised", "Face Not Recognized"])).firstMatch.exists)
             XCTAssertTrue(springboard.buttons["Try Face ID Again"].exists || springboard.buttons["Cancel"].exists)
             springboard.buttons["Cancel"].firstMatch.tap()
             XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitToExist(timeout: 10))

@@ -38,7 +38,8 @@ final class LockFlowTests: FixtureFlowTestSupport {
     }
 
     func testUnlockExpiresWhileActiveAndKeepsDraft() async throws {
-        let app = launchOnboarding(maxUnlockAge: 8)
+        // Slow machines need longer than 8 s to open a session and type after unlocking.
+        let app = launchOnboarding(maxUnlockAge: 8 * flowTimeScale())
         defer {
             audit(app, name: "lock-active-expiry")
             app.terminate()
@@ -60,21 +61,23 @@ final class LockFlowTests: FixtureFlowTestSupport {
         composer.tap()
         composer.typeText(draft)
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 15), "Unlock age did not expire while active")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 15 * flowTimeScale()), "Unlock age did not expire while active")
         try await completeFaceID(app, until: composer, "Face ID did not unlock after active expiry")
         XCTAssertEqual(composer.value as? String, draft, "Composer draft was lost across the lock")
     }
 
     func testColdLaunchAfterUnlockWindowLocksAndCancelShowsMessage() async throws {
-        let onboarding = launchOnboarding(maxUnlockAge: 5)
+        // On slow machines Sessions takes longer than 5 s to load after Face ID, so the window scales.
+        let unlockAge = 5 * flowTimeScale()
+        let onboarding = launchOnboarding(maxUnlockAge: unlockAge)
         try await setBiometricEnrollment(true)
         try await reachFaceID(onboarding)
         onboarding.buttons["Turn on Face ID"].tap()
         try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
         onboarding.terminate()
-        try await Task.sleep(for: .seconds(6))
+        try await Task.sleep(for: .seconds(unlockAge + 1))
 
-        let app = launchCold(maxUnlockAge: 5)
+        let app = launchCold(maxUnlockAge: unlockAge)
         defer {
             audit(app, name: "lock-cold-launch-after-window")
             app.terminate()
