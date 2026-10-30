@@ -124,7 +124,8 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         capture("i", moment: "stopped", sentAt: sentAt, in: app, scheme: scheme)
 
         // Build 663 sliced this footer in half: its row was measured shorter than it draws.
-        let workedPredicate = NSPredicate(format: "label BEGINSWITH[c] '✻ Worked for'")
+        // The glyph and the text are separate elements.
+        let workedPredicate = NSPredicate(format: "label BEGINSWITH[c] 'Worked for'")
         let worked = app.staticTexts.matching(workedPredicate).firstMatch
         XCTAssertTrue(worked.waitToExist(timeout: 5 * timeScale), "Worked footer did not appear after the turn stopped")
         let workedCell = app.cells.containing(workedPredicate).firstMatch
