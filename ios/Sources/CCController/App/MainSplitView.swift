@@ -11,6 +11,9 @@ struct MainSplitView: View {
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
     @State private var regularHeaderTopInset: CGFloat = 0
+#if DEBUG
+    @State private var regularTitleMeasurement = ""
+#endif
     @State private var regularSidebarDragStartProgress: CGFloat?
     @GestureState private var regularSidebarDragActive = false
     @State private var allowFeedbackCount = 0
@@ -187,14 +190,18 @@ struct MainSplitView: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityIdentifier("regular-layout-metrics")
-                    .accessibilityValue("width=\(proxy.size.width),topInset=\(regularHeaderTopInset),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode)")
+                    .accessibilityValue("width=\(proxy.size.width),topInset=\(regularHeaderTopInset),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode),\(regularTitleMeasurement)")
             }
 #endif
             .overlay {
-                NavigationBarMetricsReader { centerY in
+                NavigationBarMetricsReader { centerY, description in
                     // The reader reports window coordinates; controls are in this GeometryReader's local space.
                     let titleRowCenterY = centerY - proxy.frame(in: .global).minY
                     let inset = max(0, titleRowCenterY - 22)
+#if DEBUG
+                    let measurement = "\(description),originY=\(proxy.frame(in: .global).minY)"
+                    if regularTitleMeasurement != measurement { regularTitleMeasurement = measurement }
+#endif
                     guard abs(regularHeaderTopInset - inset) > 0.5 else { return }
                     regularHeaderTopInset = inset
                 }
@@ -810,7 +817,8 @@ private struct SidebarApprovalModifier: AnimatableModifier {
 }
 
 private struct NavigationBarMetricsReader: UIViewRepresentable {
-    let onCenterY: (CGFloat) -> Void
+    /// The title row's centre in window coordinates, and a short description of what was measured.
+    let onCenterY: (CGFloat, String) -> Void
 
     func makeUIView(context: Context) -> NavigationBarMetricsReaderView {
         let view = NavigationBarMetricsReaderView()
@@ -825,7 +833,7 @@ private struct NavigationBarMetricsReader: UIViewRepresentable {
 }
 
 private final class NavigationBarMetricsReaderView: UIView {
-    var onCenterY: ((CGFloat) -> Void)?
+    var onCenterY: ((CGFloat, String) -> Void)?
     private var measurementScheduled = false
 
     override func layoutSubviews() {
@@ -861,7 +869,7 @@ private final class NavigationBarMetricsReaderView: UIView {
         let barFrame = bar.convert(bar.bounds, to: window)
         let subviewFrames = descendantFrames(in: bar, window: window)
         if let titleFrame = titleLikeFrame(in: subviewFrames, barFrame: barFrame) {
-            onCenterY?(titleFrame.midY)
+            onCenterY?(titleFrame.midY, describe(source: "title", frame: titleFrame, barFrame: barFrame))
             return
         }
         let contentCandidates = subviewFrames.filter { frame in
@@ -872,7 +880,13 @@ private final class NavigationBarMetricsReaderView: UIView {
         let contentFrame = contentCandidates.min { left, right in
             abs(left.height - 44) < abs(right.height - 44)
         }
-        onCenterY?((contentFrame ?? barFrame).midY)
+        let source = contentFrame == nil ? "bar" : "content"
+        let frame = contentFrame ?? barFrame
+        onCenterY?(frame.midY, describe(source: source, frame: frame, barFrame: barFrame))
+    }
+
+    private func describe(source: String, frame: CGRect, barFrame: CGRect) -> String {
+        "titleSource=\(source),titleMidY=\(frame.midY),barMinY=\(barFrame.minY),barHeight=\(barFrame.height)"
     }
 
     private func titleLikeFrame(in frames: [CGRect], barFrame: CGRect) -> CGRect? {
@@ -883,6 +897,8 @@ private final class NavigationBarMetricsReaderView: UIView {
                     && frame.height >= 15
                     && frame.height <= 30
                     && abs(frame.midX - barFrame.midX) < barFrame.width * 0.35
+                    && frame.minY >= barFrame.minY - 1
+                    && frame.maxY <= barFrame.maxY + 1
             }
             .min { left, right in
                 let leftScore = abs(left.height - 20) + abs(left.midX - barFrame.midX) / 100
@@ -891,10 +907,14 @@ private final class NavigationBarMetricsReaderView: UIView {
             }
     }
 
+    /// Frames of the bar's visible descendants. Hidden or transparent views (an unused large title,
+    /// say) are skipped with their subviews, so they can't be taken for the title row.
     private func descendantFrames(in view: UIView, window: UIWindow) -> [CGRect] {
-        view.subviews.flatMap { subview in
-            [subview.convert(subview.bounds, to: window)] + descendantFrames(in: subview, window: window)
-        }
+        view.subviews
+            .filter { !$0.isHidden && $0.alpha > 0.01 }
+            .flatMap { subview in
+                [subview.convert(subview.bounds, to: window)] + descendantFrames(in: subview, window: window)
+            }
     }
 
     private func navigationBars(in view: UIView) -> [UINavigationBar] {
