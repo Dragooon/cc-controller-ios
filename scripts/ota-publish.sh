@@ -12,7 +12,7 @@ set -euo pipefail
 
 repo=${CC_OTA_REPO:-Dragooon/cc-controller-ios}
 root=${CC_OTA_ROOT:-/var/lib/cc-ota/cc}
-key_ref=${CC_OTA_KEY_REF:-op://Private/cc-controller-ios install key/notesPlain}
+key_ref=${CC_OTA_KEY_REF:-op://Shared/cc-controller-ios install key/notesPlain}
 keep_builds=3
 
 verify=1
