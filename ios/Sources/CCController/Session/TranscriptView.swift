@@ -1903,7 +1903,7 @@ struct TranscriptRowView: View, Equatable {
         Group {
             switch row.kind {
             case .prompt(let prompt):
-                PromptBubble(prompt: prompt, sessionID: sessionID, downloadFile: promptDownload)
+                PromptBubble(prompt: prompt, sessionID: sessionID, downloadFile: promptDownload, showsChatSender: liveSession?.writable == false)
             case .item(let item):
                 TurnItemView(
                     item: item,

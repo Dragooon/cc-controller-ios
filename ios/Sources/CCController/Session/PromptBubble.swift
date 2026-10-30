@@ -34,6 +34,8 @@ struct PromptBubble: View {
     let downloadFile: (@MainActor @Sendable (String) async throws -> URL)?
     let attachmentThumbnails: [String: Data]
     let bubbleAccessibilityIdentifier: String
+    /// Read-only chat sessions name who wrote each message; sessions the owner writes in don't.
+    let showsChatSender: Bool
     @State private var isExpanded = false
 
     init(
@@ -41,13 +43,15 @@ struct PromptBubble: View {
         sessionID: String = "",
         downloadFile: (@MainActor @Sendable (String) async throws -> URL)? = nil,
         attachmentThumbnails: [String: Data] = [:],
-        bubbleAccessibilityIdentifier: String = "prompt-bubble"
+        bubbleAccessibilityIdentifier: String = "prompt-bubble",
+        showsChatSender: Bool = false
     ) {
         self.prompt = prompt
         self.sessionID = sessionID
         self.downloadFile = downloadFile
         self.attachmentThumbnails = attachmentThumbnails
         self.bubbleAccessibilityIdentifier = bubbleAccessibilityIdentifier
+        self.showsChatSender = showsChatSender
     }
 
     private var normalized: NormalizedPromptText {
@@ -56,8 +60,7 @@ struct PromptBubble: View {
 
     private var promptText: String { normalized.text }
 
-    /// Named only for messages that came from a chat platform, so a read-only chat shows who wrote each one.
-    private var chatSender: String? { peer == nil ? normalized.sender : nil }
+    private var chatSender: String? { showsChatSender && peer == nil ? normalized.sender : nil }
 
     private var collapse: PromptCollapse {
         promptCollapse(promptText, hasPaste: prompt.paste != nil)
