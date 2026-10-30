@@ -152,7 +152,7 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         add(screenshot)
 
         let rows = visibleTranscriptLabels(in: app)
-        let footer = rows.first { isActivityLabel($0) && !$0.hasPrefix("✻ Worked for") } ?? "absent"
+        let footer = rows.first { isActivityLabel($0) && !$0.hasPrefix("Worked for") } ?? "absent"
         let line = "CAPTURE \(scheme)-\(letter)-\(moment) elapsed=\(String(format: "%.3f", elapsed)) rows=[\(rows.joined(separator: " | "))] footer=\(footer)"
         observations.append(line)
         print(line)
@@ -169,25 +169,25 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             "The 8:00 PM screening has the best remaining seats.",
             "I can keep looking if you want a different time.",
         ]
+        // One snapshot of the tree: querying count and then each element races the live row, whose
+        // label changes every second.
+        guard let snapshot = try? app.snapshot() else { return [] }
+        var elements: [(label: String, type: XCUIElement.ElementType)] = []
+        var pending: [XCUIElementSnapshot] = [snapshot]
+        while !pending.isEmpty {
+            let current = pending.removeFirst()
+            if !current.label.isEmpty { elements.append((current.label, current.elementType)) }
+            pending.append(contentsOf: current.children)
+        }
+        let toolPredicate = NSPredicate(format: "SELF BEGINSWITH[c] 'Running ' OR SELF BEGINSWITH[c] 'Reading ' OR SELF BEGINSWITH[c] 'Read ' OR SELF BEGINSWITH[c] 'Ran ' OR SELF BEGINSWITH[c] 'Writing ' OR SELF BEGINSWITH[c] 'Wrote ' OR SELF BEGINSWITH[c] 'Editing ' OR SELF BEGINSWITH[c] 'Edited '")
         var labels: [String] = []
-        let textMatches = app.staticTexts.matching(NSPredicate(format: "label IN %@", Array(textLabels)))
-        for index in 0..<textMatches.count {
-            let label = textMatches.element(boundBy: index).label
-            if !label.isEmpty, !labels.contains(label) { labels.append(label) }
+        func add(_ label: String) {
+            if !labels.contains(label) { labels.append(label) }
         }
-        let toolPredicate = NSPredicate(format: "label BEGINSWITH[c] 'Running ' OR label BEGINSWITH[c] 'Reading ' OR label BEGINSWITH[c] 'Read ' OR label BEGINSWITH[c] 'Ran ' OR label BEGINSWITH[c] 'Writing ' OR label BEGINSWITH[c] 'Wrote ' OR label BEGINSWITH[c] 'Editing ' OR label BEGINSWITH[c] 'Edited '")
-        let toolMatches = app.descendants(matching: .any).matching(toolPredicate)
-        for index in 0..<toolMatches.count {
-            let label = toolMatches.element(boundBy: index).label
-            if !label.isEmpty, !labels.contains(label) { labels.append(label) }
-        }
-        let activityMatches = app.descendants(matching: .any).matching(activityLabelPredicate)
-        for index in 0..<activityMatches.count {
-            let label = activityMatches.element(boundBy: index).label
-            if !label.isEmpty, !labels.contains(label) { labels.append(label) }
-        }
-        let worked = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] '✻ Worked for'")).firstMatch
-        if worked.exists, !labels.contains(worked.label) { labels.append(worked.label) }
+        for element in elements where element.type == .staticText && textLabels.contains(element.label) { add(element.label) }
+        for element in elements where toolPredicate.evaluate(with: element.label) { add(element.label) }
+        for element in elements where isActivityLabel(element.label) { add(element.label) }
+        for element in elements where element.type == .staticText && element.label.hasPrefix("Worked for") { add(element.label) }
         return labels
     }
 
@@ -195,10 +195,6 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
 
     private func isActivityLabel(_ label: String) -> Bool {
         label.range(of: activityLabelPattern, options: .regularExpression) != nil
-    }
-
-    private var activityLabelPredicate: NSPredicate {
-        NSPredicate(format: "label MATCHES %@", activityLabelPattern)
     }
 
     private func assertRowsAppearInOrder(_ expected: [String], in app: XCUIApplication) {
