@@ -663,7 +663,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
     let downloadFile: (@MainActor @Sendable (FileEntry) async throws -> URL)?
     let readableContentMaxWidth: CGFloat
     let reduceMotion: Bool
-    let onUnbuiltDiagnostic: () -> Void
     let noteAliases: [String: String]
     @Binding var isPinnedToBottom: Bool
     @Binding var jumpToLatestRequest: Int
@@ -742,7 +741,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var onDeleteNote: (String) -> Void = { _ in }
         private var onCopyNote: (String) -> Void = { _ in }
         private var onSendAgain: (String) -> Void = { _ in }
-        private var onUnbuiltDiagnostic: () -> Void = {}
         private var transcriptExpansion: TranscriptExpansionStore?
         private var recorder: ScrollDiagnosticsRecorder?
         private var lastUnbuiltDiagnosticAt: Date?
@@ -816,7 +814,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             onDeleteNote = representable.onDeleteNote
             onCopyNote = representable.onCopyNote
             onSendAgain = representable.onSendAgain
-            onUnbuiltDiagnostic = representable.onUnbuiltDiagnostic
             noteAliases = representable.noteAliases
             if transcriptExpansion !== representable.transcriptExpansion {
                 transcriptExpansion?.onChange = nil
@@ -1292,12 +1289,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 rowsCount: currentItems.count,
                 notesCount: currentNotes.count,
                 isPinnedToBottom: isPinnedToBottom,
-                userHasScrolled: !isPinnedToBottom,
-                corrections: 0,
-                recovered: false,
-                msToRecover: 0
+                userHasScrolled: !isPinnedToBottom
             )
-            onUnbuiltDiagnostic()
         }
 
         private func traceID(_ item: TranscriptCollectionItem) -> String {

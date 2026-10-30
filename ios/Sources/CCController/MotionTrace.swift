@@ -309,7 +309,6 @@ final class MotionTrace: NSObject {
         metaWritten = true
         let arguments = ProcessInfo.processInfo.arguments
         let scenario = argumentValue("-CCMotionScenario", in: arguments) ?? "unknown"
-        let engine = argumentValue("-CCTranscriptEngine", in: arguments) ?? "collection"
         let sha = argumentValue("-CCMotionSHA", in: arguments)
             ?? ProcessInfo.processInfo.environment["CCMotionBuildSHA"]
             ?? "unknown"
@@ -321,7 +320,8 @@ final class MotionTrace: NSObject {
             "t": "meta",
             "v": 1,
             "scenario": scenario,
-            "engine": engine,
+            // The controller's motion analyzer still requires this field.
+            "engine": "collection",
             "device": device,
             "orientation": window.windowScene?.interfaceOrientation.isPortrait == true ? "portrait" : "landscape",
             "scale": window.screen.scale,

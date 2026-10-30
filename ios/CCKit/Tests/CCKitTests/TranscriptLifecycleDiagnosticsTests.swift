@@ -4,24 +4,6 @@ import XCTest
 
 @MainActor
 final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
-    func testRemountWithinFiveSecondsWritesAndAfterSixSecondsDoesNot() {
-        let clock = TestClock()
-        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
-
-        clock.now = date(0)
-        XCTAssertEqual(engine.ingest(.transcriptDisappear(sessionID: "session-123456")), [])
-        clock.now = date(5)
-        XCTAssertEqual(
-            engine.ingest(.transcriptAppear(sessionID: "session-123456")),
-            [.remount(sessionID: "session-123456")]
-        )
-
-        clock.now = date(6)
-        _ = engine.ingest(.transcriptDisappear(sessionID: "session-123456"))
-        clock.now = date(12)
-        XCTAssertEqual(engine.ingest(.transcriptAppear(sessionID: "session-123456")), [])
-    }
-
     func testReloadAfterTranscriptWrites() {
         var engine = TranscriptLifecycleTriggerEngine(clock: { Date(timeIntervalSince1970: 0) })
 
@@ -35,142 +17,32 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
         )
     }
 
-    func testSentinelUnbuiltWritesAfterThreeHundredMillisecondsWhenPinnedAndIdle() {
+    func testReloadTriggerIsThrottledForTenSeconds() {
         let clock = TestClock()
         var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
         let session = "session-123456"
 
         clock.now = date(0)
-        _ = engine.ingest(.rowsMounted(sessionID: session, mounted: true))
-        _ = engine.ingest(.pinned(sessionID: session, pinned: true))
-        _ = engine.ingest(.scrollIdle(sessionID: session, idle: true))
-        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: false))
-        clock.now = date(0.299)
-        XCTAssertEqual(engine.ingest(.sentinelCheck(sessionID: session)), [])
-        clock.now = date(0.3)
+        _ = engine.ingest(.screenBranch(screenID: "screen", sessionID: session, branch: .transcript))
+        clock.now = date(1)
         XCTAssertEqual(
-            engine.ingest(.sentinelCheck(sessionID: session)),
-            [.sentinelUnbuilt(sessionID: session)]
+            engine.ingest(.screenBranch(screenID: "screen", sessionID: session, branch: .loadingUnloaded)).count,
+            1
         )
-    }
-
-    func testSentinelUnbuiltDoesNotWriteWhileUserIsScrolling() {
-        let clock = TestClock()
-        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
-        let session = "session-123456"
-
-        clock.now = date(0)
-        _ = engine.ingest(.rowsMounted(sessionID: session, mounted: true))
-        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: false))
-        _ = engine.ingest(.scrollIdle(sessionID: session, idle: false))
-        clock.now = date(1)
-        XCTAssertEqual(engine.ingest(.sentinelCheck(sessionID: session)), [])
-    }
-
-    func testSentinelCorrectionScrollsWhenRowsAreBuiltAndPinned() {
-        XCTAssertEqual(sentinelCorrection(builtRowCount: 1, pinned: true), .scroll)
-        XCTAssertEqual(sentinelCorrection(builtRowCount: 236, pinned: true), .scroll)
-    }
-
-    func testSentinelCorrectionRebuildsWhenNoRowsAreBuilt() {
-        XCTAssertEqual(sentinelCorrection(builtRowCount: 0, pinned: true), .rebuild)
-    }
-
-    func testSentinelCorrectionDoesNothingWhenNotPinned() {
-        XCTAssertEqual(sentinelCorrection(builtRowCount: 236, pinned: false), .none)
-        XCTAssertEqual(sentinelCorrection(builtRowCount: 0, pinned: false), .none)
-    }
-
-    func testSentinelCorrectionIsEligibleAfterResume() {
-        let clock = TestClock()
-        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
-        let session = "session-resume"
-        makeSentinelEligible(&engine, session: session)
-
-        clock.now = date(0.3)
-        let result = engine.ingestWithCorrections(.sentinelCheck(sessionID: session))
-        XCTAssertEqual(result.triggers, [.sentinelUnbuilt(sessionID: session)])
-        XCTAssertEqual(result.corrections, [.sentinelUnbuilt(sessionID: session)])
-    }
-
-    func testSentinelCorrectionIsEligibleAfterSend() {
-        let clock = TestClock()
-        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
-        let session = "session-send"
-        makeSentinelEligible(&engine, session: session)
-
-        clock.now = date(0.3)
-        let result = engine.ingestWithCorrections(.sentinelCheck(sessionID: session))
-        XCTAssertEqual(result.corrections, [.sentinelUnbuilt(sessionID: session)])
-    }
-
-    func testSentinelCorrectionIsNotRateLimitedWithDiagnosticTrigger() {
-        let clock = TestClock()
-        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
-        let session = "session-throttle"
-        makeSentinelEligible(&engine, session: session)
-
-        clock.now = date(0.3)
-        XCTAssertEqual(engine.ingestWithCorrections(.sentinelCheck(sessionID: session)).triggers.count, 1)
-        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: true))
-        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: false))
-        clock.now = date(1)
-        let result = engine.ingestWithCorrections(.sentinelCheck(sessionID: session))
-        XCTAssertEqual(result.triggers, [])
-        XCTAssertEqual(result.corrections, [.sentinelUnbuilt(sessionID: session)])
-    }
-
-    func testCorrectedDiagnosticFieldsRemainHonest() {
-        let entry = ScrollDiagnosticEntry(
-            timestamp: "1970-01-01T00:00:00.000Z",
-            appVersion: "1.0",
-            build: "1",
-            sessionIDPrefix: "session-",
-            kind: .sentinelUnbuilt,
-            geometry: ScrollDiagnosticGeometry(
-                ScrollGuardGeometry(
-                    contentOffsetY: 100,
-                    contentHeight: 500,
-                    containerHeight: 678,
-                    insetTop: 0,
-                    insetBottom: 0,
-                    visibleMinY: 100,
-                    visibleMaxY: 778
-                )
-            ),
-            rowsCount: 20,
-            notesCount: 0,
-            isPinnedToBottom: true,
-            userHasScrolled: false,
-            recentEvents: [ScrollDiagnosticEvent(name: "rebuild", newValue: 1)],
-            corrections: 1,
-            recovered: true,
-            msToRecover: 500
-        )
-
-        XCTAssertEqual(entry.kind, .sentinelUnbuilt)
-        XCTAssertEqual(entry.corrections, 1)
-        XCTAssertTrue(entry.recovered)
-        XCTAssertEqual(entry.msToRecover, 500)
-    }
-
-    func testTriggerThrottleIsPerKindForTenSeconds() {
-        let clock = TestClock()
-        var engine = TranscriptLifecycleTriggerEngine(clock: { clock.now })
-        let session = "session-123456"
-
-        clock.now = date(0)
-        _ = engine.ingest(.transcriptDisappear(sessionID: session))
-        clock.now = date(1)
-        XCTAssertEqual(engine.ingest(.transcriptAppear(sessionID: session)).count, 1)
         clock.now = date(2)
-        _ = engine.ingest(.transcriptDisappear(sessionID: session))
+        _ = engine.ingest(.screenBranch(screenID: "screen", sessionID: session, branch: .transcript))
         clock.now = date(3)
-        XCTAssertEqual(engine.ingest(.transcriptAppear(sessionID: session)), [])
+        XCTAssertEqual(
+            engine.ingest(.screenBranch(screenID: "screen", sessionID: session, branch: .loadingUnloaded)),
+            []
+        )
         clock.now = date(11)
-        _ = engine.ingest(.transcriptDisappear(sessionID: session))
+        _ = engine.ingest(.screenBranch(screenID: "screen", sessionID: session, branch: .transcript))
         clock.now = date(12)
-        XCTAssertEqual(engine.ingest(.transcriptAppear(sessionID: session)).count, 1)
+        XCTAssertEqual(
+            engine.ingest(.screenBranch(screenID: "screen", sessionID: session, branch: .loadingUnloaded)).count,
+            1
+        )
     }
 
     func testGapDiagnosticsFileCapsAtFiveHundredLines() async throws {
@@ -222,13 +94,13 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
 
     func testSampleRecordJSON() throws {
         let log = TranscriptLifecycleLog(clock: { Date(timeIntervalSince1970: 0) })
-        log.record(name: "transcript-appear", sessionID: "session-123456", detail: nil)
+        log.record(name: "screen-branch", sessionID: "session-123456", detail: "transcript")
         let entry = ScrollDiagnosticEntry(
             timestamp: "1970-01-01T00:00:00.000Z",
             appVersion: "1.0",
             build: "469",
             sessionIDPrefix: "session-",
-            kind: .remount,
+            kind: .reload,
             geometry: ScrollDiagnosticGeometry(
                 ScrollGuardGeometry(
                     contentOffsetY: 0,
@@ -244,25 +116,11 @@ final class TranscriptLifecycleDiagnosticsTests: XCTestCase {
             notesCount: 0,
             isPinnedToBottom: false,
             userHasScrolled: false,
-            recentEvents: [],
-            lifecycle: log.events,
-            corrections: 0,
-            recovered: false,
-            msToRecover: 0
+            lifecycle: log.events
         )
         let json = String(decoding: try JSONEncoder().encode(entry), as: UTF8.self)
         print("SAMPLE_RECORD \(json)")
-        XCTAssertTrue(json.contains("\"kind\":\"remount\""))
-    }
-
-    private func makeSentinelEligible(
-        _ engine: inout TranscriptLifecycleTriggerEngine,
-        session: String
-    ) {
-        _ = engine.ingest(.rowsMounted(sessionID: session, mounted: true))
-        _ = engine.ingest(.pinned(sessionID: session, pinned: true))
-        _ = engine.ingest(.scrollIdle(sessionID: session, idle: true))
-        _ = engine.ingest(.sentinelBuilt(sessionID: session, built: false))
+        XCTAssertTrue(json.contains("\"kind\":\"reload\""))
     }
 
     private func date(_ offset: TimeInterval) -> Date {

@@ -233,9 +233,6 @@ final class TranscriptFlowTests: XCTestCase {
         longSession.tap()
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest long-session entry did not load")
-        let stackGeneration = app.staticTexts["transcript-stack-generation"]
-        XCTAssertTrue(stackGeneration.waitToExist(timeout: 10), "Transcript stack generation probe did not load")
-        let generationBeforeSend = stackGeneration.label
         let composer = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
         XCTAssertTrue(composer.waitToExist(timeout: 10), "Transcript composer did not load")
         composer.tap()
@@ -245,11 +242,6 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(sentMessage.waitToExist(timeout: 15), "Sent message did not land in the transcript")
         try await Task.sleep(for: .seconds(3))
 
-        XCTAssertEqual(
-            stackGeneration.label,
-            generationBeforeSend,
-            "Transcript stack rebuilt while the new message was appended"
-        )
         XCTAssertTrue(newest.isHittable, "Newest long-session entry is not visible after sending")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Sending moved the transcript away from the bottom")
         let paths = try await fixtureRequestPaths()
@@ -746,7 +738,6 @@ final class TranscriptFlowTests: XCTestCase {
         if let initialTranscriptTail {
             app.launchArguments += ["-CCFixtureInitialTranscriptTail", String(initialTranscriptTail)]
         }
-        configureTranscriptEngine(app)
         app.launchEnvironment["CCBearer"] = bearer
         configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
