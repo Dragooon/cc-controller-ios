@@ -76,8 +76,9 @@ jobs:
           bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '1' }}" "${filters[@]}"
           echo "slice ${{ matrix.slice }} wall-clock=$((SECONDS - started))s"
 
-      - name: Keep the evidence when the slice fails or a device was chosen
-        if: failure() || inputs.device != ''
+      # A test that passes on its rerun still leaves its first failure in here.
+      - name: Keep the evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: flows-evidence-slice-${{ matrix.slice }}

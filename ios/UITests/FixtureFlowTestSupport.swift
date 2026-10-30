@@ -148,10 +148,30 @@ func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> X
 @MainActor
 class FixtureFlowTestSupport: XCTestCase {
     private var auditLines: [String] = []
+    private var hasLoggedFailureState = false
 
     override func setUp() async throws {
         try await super.setUp()
+        hasLoggedFailureState = false
         try await restartFixtureIfConfigured()
+    }
+
+    /// A test that passes on its rerun leaves no failed slice to inspect, so its first failure logs what was on screen.
+    override func record(_ issue: XCTIssue) {
+        if !hasLoggedFailureState, Thread.isMainThread {
+            hasLoggedFailureState = true
+            MainActor.assumeIsolated { logFailureState() }
+        }
+        super.record(issue)
+    }
+
+    @MainActor
+    private func logFailureState() {
+        let app = XCUIApplication()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        print("FAILURE_STATE app=\(app.state.rawValue) alerts=\(springboard.alerts.allElementsBoundByIndex.map(\.label))")
+        guard app.state == .runningForeground else { return }
+        print("FAILURE_STATE hierarchy:\n\(app.debugDescription.prefix(6_000))")
     }
 
     override func tearDown() {

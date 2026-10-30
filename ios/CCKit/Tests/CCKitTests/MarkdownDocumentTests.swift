@@ -95,7 +95,9 @@ final class MarkdownDocumentTests: XCTestCase {
 
         guard let document else { return XCTFail("Expected a parsed document") }
         XCTAssertEqual(document.blocks.count, 2_000)
-        XCTAssertLessThan(bestCPUTime, 50_000_000)
+        // CI's debug build on a shared 3-vCPU runner parses slower than a developer machine does.
+        let budgetScale = ProcessInfo.processInfo.environment["CC_FLOW_TIME_SCALE"].flatMap(Double.init) ?? 1
+        XCTAssertLessThan(Double(bestCPUTime), 50_000_000 * budgetScale)
     }
 
     private func threadCPUTime() -> UInt64 {
