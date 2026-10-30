@@ -158,7 +158,35 @@ public final class AppStore {
         self.initialTranscriptTail = max(1, initialTranscriptTail)
         self.authenticationFailureHandler = authenticationFailureHandler
         self.noticePolicy = ConnectionNoticePolicy(clock: clock)
-        self.controllerInfo = controllerInfo ?? ControllerInfo(id: .mac, name: "Mac", kind: .claudeCode, capabilities: ControllerCapability.all)
+        let configuredInfo = controllerInfo ?? ControllerInfo(id: .mac, name: "Mac", kind: .claudeCode, capabilities: ControllerCapability.all)
+        let controllerInfoFile = cacheDirectory.appendingPathComponent("controller-info.json")
+        self.controllerInfoFile = controllerInfoFile
+        // Until a bootstrap succeeds (offline, or locked out after losing the device key), use the
+        // kind and capabilities the controller last reported rather than assuming Claude Code.
+        if let data = try? Data(contentsOf: controllerInfoFile),
+           let reported = try? JSONDecoder().decode(ControllerInfo.self, from: data) {
+            self.controllerInfo = ControllerInfo(
+                id: configuredInfo.id,
+                name: configuredInfo.name,
+                kind: reported.kind,
+                capabilities: reported.capabilities
+            )
+        } else {
+            self.controllerInfo = configuredInfo
+        }
+    }
+
+    @ObservationIgnored private let controllerInfoFile: URL
+
+    private func rememberControllerInfo(_ info: ControllerInfo) {
+        guard info != controllerInfo else { return }
+        controllerInfo = info
+        guard let data = try? JSONEncoder().encode(info) else { return }
+        try? FileManager.default.createDirectory(
+            at: controllerInfoFile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: controllerInfoFile, options: .atomic)
     }
 
     public func setAuthenticationFailureHandler(_ handler: (@Sendable () async -> Void)?) {
@@ -1440,7 +1468,7 @@ public final class AppStore {
         TranscriptLifecycleLog.shared.record(name: "bootstrap", detail: startedAtChanged ? "restart" : "normal")
         if startedAtChanged { resetOpenTranscripts() }
         latestBootstrap = bootstrap
-        if let controller = bootstrap.controller { controllerInfo = controller }
+        if let controller = bootstrap.controller { rememberControllerInfo(controller) }
         daemon = bootstrap.daemon
         daemonEpoch = epoch(for: bootstrap.daemon?.startedAt)
         apiVersion = bootstrap.apiVersion

@@ -31,6 +31,31 @@ final class AppStoreTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(20))
     }
 
+    func testControllerKindFromBootstrapIsRememberedForTheNextLaunch() async throws {
+        let stockade = ControllerInfo(id: .mac, name: "Mac", kind: .stockade, capabilities: [.list, .transcript, .send])
+        let bootstrap = try JSONEncoder.ccKit().encode(Bootstrap(controller: stockade, apiVersion: 2, daemon: DaemonInfo(version: "fixture", startedAt: Date(timeIntervalSince1970: 1))))
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" { return URLProtocolStub.json(bootstrap) }
+            if request.url?.path == "/api/events" {
+                return URLProtocolStub.json(Data("event: state\ndata: {\"sessions\":[],\"entries\":{}}\n\n".utf8), contentType: "text/event-stream")
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = makeApp(cacheDirectory: directory)
+        XCTAssertEqual(app.controllerInfo.kind, .claudeCode)
+        app.start()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(app.controllerInfo.kind, .stockade)
+        app.suspend()
+
+        URLProtocolStub.handler = { _ in URLProtocolStub.json(401, body: Data("{}".utf8)) }
+        let relaunched = makeApp(cacheDirectory: directory)
+        XCTAssertEqual(relaunched.controllerInfo.kind, .stockade)
+        XCTAssertEqual(relaunched.controllerInfo.capabilities, [.list, .transcript, .send])
+        try await Task.sleep(for: .milliseconds(20))
+    }
+
     func testBootstrapFailureRetriesWithinGraceAndBecomesLive() async throws {
         let clock = BootstrapClock()
         var bootstrapCalls = 0
