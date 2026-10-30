@@ -19,8 +19,9 @@ final class ComposerFlowTests: XCTestCase {
     }
 
     func testSendTargetsNewlySelectedSession() async throws {
-        let app = launchFixture()
+        // Before launch: the fixture's 30 s Dune turn would otherwise beat a slow launch.
         try await postFixture("/fixture/disable-live-event")
+        let app = launchFixture()
         defer {
             audit(app: app, name: "composer-session-target")
             attach(named: "composer-session-target")
