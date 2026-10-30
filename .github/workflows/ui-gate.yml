@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
     inputs:
       shards:
-        description: Simulators run in parallel on each runner
-        default: "2"
+        description: Simulators run in parallel on each runner (3 vCPUs, so 1 is fastest)
+        default: "1"
       controller_ref:
         description: Controller branch, tag or SHA for the fixture daemon
         default: main
@@ -38,6 +38,15 @@ jobs:
         with:
           path: cc-controller-ios
 
+      # A fresh simulator's first boot takes 5-6 minutes on these runners. Start it now so it
+      # overlaps with the installs and the build; ios.sh reuses the clone by name and waits
+      # for the boot to finish. Only slot 1's flows device is booted early.
+      - name: Start booting the flows simulator
+        run: |
+          udid=$(xcrun simctl create "ccpool-1-iPhone 16 Plus" "iPhone 16 Plus" com.apple.CoreSimulator.SimRuntime.iOS-27-0)
+          nohup xcrun simctl bootstatus "$udid" -b > "$RUNNER_TEMP/early-boot.log" 2>&1 &
+          echo "early boot started for $udid"
+
       - uses: actions/checkout@v7
         with:
           repository: Dragooon/cc-controller
@@ -56,7 +65,7 @@ jobs:
         working-directory: cc-controller-ios
         run: |
           started=$SECONDS
-          bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '2' }}"
+          bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '1' }}"
           echo "slice ${{ matrix.slice }} wall-clock=$((SECONDS - started))s"
 
       - name: Keep the evidence when the slice fails
