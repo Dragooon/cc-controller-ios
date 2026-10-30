@@ -4055,6 +4055,127 @@ cmd_ota() {
   printf '%s/index.html\n' "$base_url"
 }
 
+# Builds an install package on a CI runner: the app signed for ad hoc distribution, its icons and its metadata,
+# sealed to CC_OTA_PUBLIC_KEY so the artifact can sit on a public repo. It carries no host name:
+# scripts/ota-publish.sh unseals it on the host and writes the manifest and install page there.
+# --dry-run packages an unsigned app instead, to test everything but the signing.
+cmd_ota_package() {
+  local requested_sha='' output='' dry_run=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sha)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'ota-package --sha requires a value' >&2; return 2; }
+        requested_sha=$2
+        shift 2
+        ;;
+      --output)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'ota-package --output requires a value' >&2; return 2; }
+        output=$2
+        shift 2
+        ;;
+      --dry-run)
+        dry_run=1
+        shift
+        ;;
+      *)
+        printf 'unknown ota-package option: %s\n' "$1" >&2
+        return 2
+        ;;
+    esac
+  done
+  [[ -n "$output" ]] || { printf '%s\n' 'ota-package requires --output' >&2; return 2; }
+  [[ -n "${CC_OTA_PUBLIC_KEY:-}" ]] || { printf '%s\n' 'ota-package requires CC_OTA_PUBLIC_KEY' >&2; return 2; }
+
+  local source_sha team='' profile=''
+  source_sha=$(ota_validate_revision "$requested_sha") || return $?
+  if (( ! dry_run )); then
+    team=$(signing_team)
+    profile=${CC_OTA_PROFILE_NAME:-}
+    [[ -n "$team" ]] || { printf '%s\n' 'ota-package requires DEVELOPMENT_TEAM' >&2; return 2; }
+    [[ -n "$profile" ]] || { printf '%s\n' 'ota-package requires CC_OTA_PROFILE_NAME' >&2; return 2; }
+  fi
+  cmd_generate
+
+  local build_number ota_root archive_path package_dir app_plist bundle_id short_version
+  build_number=$(ota_next_build_number)
+  ota_root="$IOS/build/ota"
+  archive_path="$ota_root/archive/CCController-$build_number.xcarchive"
+  package_dir="$ota_root/package-$build_number"
+  mkdir -p "$package_dir" "$output"
+  # The archive stays unsigned and the export signs it, so the signing settings reach only the app and not
+  # the package targets.
+  CC_ARCHIVE_UNSIGNED=1 archive_release "$build_number" "$archive_path" '' "$ota_root/derived"
+  app_plist="$archive_path/Products/Applications/cc-controller.app/Info.plist"
+  bundle_id=$(plutil -extract CFBundleIdentifier raw "$app_plist")
+  short_version=$(plutil -extract CFBundleShortVersionString raw "$app_plist")
+
+  if (( dry_run )); then
+    local payload_dir="$ota_root/dry-run-$build_number/Payload"
+    mkdir -p "$payload_dir"
+    cp -R "$archive_path/Products/Applications/cc-controller.app" "$payload_dir/"
+    ditto -c -k --keepParent "$payload_dir" "$package_dir/CCController.ipa"
+  else
+    local export_options="$ota_root/ExportOptions-$build_number.plist" export_dir="$ota_root/export-$build_number"
+    ota_write_adhoc_export_options "$export_options" "$team" "$bundle_id" "$profile"
+    step 'ota export' xcodebuild -exportArchive -archivePath "$archive_path" -exportPath "$export_dir" \
+      -exportOptionsPlist "$export_options"
+    local exported_ipa
+    exported_ipa=$(find "$export_dir" -maxdepth 1 -type f -name '*.ipa' -print -quit)
+    [[ -n "$exported_ipa" ]] || {
+      printf 'ota-package export did not produce an IPA in %s\n' "$export_dir" >&2
+      return 1
+    }
+    mv "$exported_ipa" "$package_dir/CCController.ipa"
+  fi
+  ota_render_icons "$package_dir"
+  cat > "$package_dir/package.env" <<EOF
+build=$build_number
+sha=$source_sha
+bundle=$bundle_id
+version=$short_version
+built=$(date -u '+%Y-%m-%d %H:%M UTC')
+EOF
+
+  local public_key_file="$ota_root/ota-public-key.pem" key_file="$ota_root/ota-package-key"
+  printf '%s\n' "$CC_OTA_PUBLIC_KEY" > "$public_key_file"
+  ( umask 077; openssl rand -hex 32 > "$key_file" )
+  tar -C "$package_dir" -cf - . | openssl enc -aes-256-cbc -pbkdf2 -md sha256 -salt -pass "file:$key_file" \
+    -out "$output/install.tar.enc"
+  openssl pkeyutl -encrypt -pubin -inkey "$public_key_file" -pkeyopt rsa_padding_mode:oaep \
+    -in "$key_file" -out "$output/install.key.enc"
+  rm -f "$key_file"
+  printf 'ota-package %s: build %s (%s)\n' "$output" "$build_number" "${source_sha:0:7}"
+}
+
+ota_write_adhoc_export_options() {
+  local output=$1 team=$2 bundle_id=$3 profile=$4
+  cat > "$output" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>compileBitcode</key>
+  <false/>
+  <key>method</key>
+  <string>release-testing</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>${bundle_id}</key>
+    <string>${profile}</string>
+  </dict>
+  <key>signingCertificate</key>
+  <string>Apple Distribution</string>
+  <key>signingStyle</key>
+  <string>manual</string>
+  <key>teamID</key>
+  <string>${team}</string>
+  <key>thinning</key>
+  <string>&lt;none&gt;</string>
+</dict>
+</plist>
+EOF
+}
+
 harness_run_command() {
   local command=$1 function_name
   shift
@@ -4114,6 +4235,7 @@ case "${1:-}" in
   archive) shift; cmd_archive "$@";;
   upload) shift; cmd_upload "$@";;
   ota) shift; cmd_ota "$@";;
+  ota-package) shift; cmd_ota_package "$@";;
   gate) shift; harness_run_command gate "$@";;
   real-smoke) shift; harness_run_command real-smoke "$@";;
   shots) shift; harness_run_command shots "$@";;
@@ -4123,5 +4245,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--slice <K/N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota-package --output <dir> [--sha <commit>] [--dry-run]|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--slice <K/N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac

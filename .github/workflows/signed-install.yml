@@ -1,0 +1,76 @@
+name: Signed install
+
+# Builds the app for the owner's own registered devices, for scripts/ota-publish.sh to serve as an install link.
+# The artifact is sealed to the public key in the variable CC_OTA_PUBLIC_KEY, because a signed build carries
+# owner-specific values and this repo's artifacts are public.
+#
+# The "signing" environment only deploys from main and holds:
+#   CC_SIGNING_P12_BASE64, CC_SIGNING_P12_PASSWORD  Apple Distribution certificate and private key
+#   CC_ADHOC_PROFILE_BASE64, CC_OTA_PROFILE_NAME    ad hoc provisioning profile and its name
+#   DEVELOPMENT_TEAM                                team ID
+#   CC_APP_LOCAL_XCCONFIG                           contents of ios/Config/App.local.xcconfig
+# dry_run packages an unsigned build with none of them, to test everything but the signing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Package an unsigned build, without the signing secrets
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: xcode-27
+    timeout-minutes: 60
+    environment: ${{ !inputs.dry_run && 'signing' || '' }}
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Set up signing
+        if: ${{ !inputs.dry_run }}
+        env:
+          CC_SIGNING_P12_BASE64: ${{ secrets.CC_SIGNING_P12_BASE64 }}
+          CC_SIGNING_P12_PASSWORD: ${{ secrets.CC_SIGNING_P12_PASSWORD }}
+          CC_ADHOC_PROFILE_BASE64: ${{ secrets.CC_ADHOC_PROFILE_BASE64 }}
+          CC_APP_LOCAL_XCCONFIG: ${{ secrets.CC_APP_LOCAL_XCCONFIG }}
+        run: |
+          printf '%s\n' "$CC_APP_LOCAL_XCCONFIG" > ios/Config/App.local.xcconfig
+
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 32)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          printf '%s' "$CC_SIGNING_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$CC_SIGNING_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/xcodebuild
+          rm -f "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+          for profile_dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$profile_dir"
+            printf '%s' "$CC_ADHOC_PROFILE_BASE64" | base64 --decode > "$profile_dir/cc-controller-adhoc.mobileprovision"
+          done
+
+      - name: Build the package
+        env:
+          CC_OTA_PUBLIC_KEY: ${{ vars.CC_OTA_PUBLIC_KEY }}
+          CC_OTA_PROFILE_NAME: ${{ secrets.CC_OTA_PROFILE_NAME }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: bash scripts/ios.sh ota-package --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/install-package" ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Upload the sealed package
+        uses: actions/upload-artifact@v7
+        with:
+          name: install-package
+          path: ${{ runner.temp }}/install-package
+          retention-days: 7
+          if-no-files-found: error
