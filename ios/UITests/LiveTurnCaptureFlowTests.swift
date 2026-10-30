@@ -11,6 +11,9 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
     private var observations: [String] = []
 
     func testCaptureLiveTurn() async throws {
+        // The fixture starts a turn on the Dune session 30 s after it boots; a slow launch would
+        // otherwise open Dune already working, with Stop and Queue where Send should be.
+        try await postFixture("/fixture/disable-live-event")
         let app = launchFixture()
         let scheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"] ?? "unspecified"
         defer {
@@ -22,7 +25,6 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             app.terminate()
         }
 
-        try await postFixture("/fixture/disable-live-event")
         try await postFixtureJSON("/fixture/message-behaviour", body: ["promptDelayMs": 2_000])
         let search = openSessionSearch(in: app)
         search.typeText("Dune Part Three")
