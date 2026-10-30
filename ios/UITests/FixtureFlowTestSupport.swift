@@ -233,7 +233,8 @@ class FixtureFlowTestSupport: XCTestCase {
     }
 
     /// Matches Face ID until `target` appears. The simulator sometimes fails an evaluation outright
-    /// ("Face ID did not work. Try again."), and then only tapping `retry` again starts a new one.
+    /// ("Face ID did not work. Try again.") or reports a mismatch left over from an earlier no-match,
+    /// and then only tapping `retry` again starts a new one.
     func completeFaceID(
         _ app: XCUIApplication,
         until target: XCUIElement,
@@ -242,7 +243,9 @@ class FixtureFlowTestSupport: XCTestCase {
         _ message: String
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
-        let failure = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Face ID did not work")).firstMatch
+        let failure = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Face ID did not work", "Face ID didn't match")
+        ).firstMatch
         while !target.exists && Date() < deadline {
             if let retry, failure.exists, retry.exists, retry.isHittable {
                 retry.tap()

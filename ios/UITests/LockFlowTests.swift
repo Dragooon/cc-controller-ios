@@ -92,10 +92,16 @@ final class LockFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(cancel.waitToExist(timeout: 10), "Face ID Cancel button did not appear")
         cancel.tap()
 
-        XCTAssertTrue(app.staticTexts["Unlock with Face ID to continue."].waitToExist(timeout: 10), "Cancel message did not appear on the lock screen")
+        let cancelMessage = app.staticTexts["Unlock with Face ID to continue."]
+        if !cancelMessage.waitToExist(timeout: 10) {
+            addScreenshot(named: "lock-screen-cancel-missing")
+            let shown = app.staticTexts.allElementsBoundByIndex.map(\.label)
+            XCTFail("Cancel message did not appear on the lock screen; it showed \(shown)")
+        }
         addScreenshot(named: "lock-screen-cancel")
-        app.buttons["Unlock with Face ID"].tap()
-        try await completeFaceID(app, until: app.staticTexts["Sessions"], "Face ID did not unlock after cancel")
+        let unlockButton = app.buttons["Unlock with Face ID"]
+        unlockButton.tap()
+        try await completeFaceID(app, until: app.staticTexts["Sessions"], retry: unlockButton, "Face ID did not unlock after cancel")
     }
 
     func testColdRelaunchWithinUnlockWindowSkipsFaceID() async throws {
