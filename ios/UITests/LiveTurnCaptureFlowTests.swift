@@ -122,6 +122,17 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             in: app
         )
         capture("i", moment: "stopped", sentAt: sentAt, in: app, scheme: scheme)
+
+        // Build 663 sliced this footer in half: its row was measured shorter than it draws.
+        let workedPredicate = NSPredicate(format: "label BEGINSWITH[c] '✻ Worked for'")
+        let worked = app.staticTexts.matching(workedPredicate).firstMatch
+        XCTAssertTrue(worked.waitToExist(timeout: 5 * timeScale), "Worked footer did not appear after the turn stopped")
+        let workedCell = app.cells.containing(workedPredicate).firstMatch
+        if workedCell.exists {
+            XCTAssertGreaterThanOrEqual(worked.frame.minY, workedCell.frame.minY - 0.5, "Worked footer drew above its row")
+            XCTAssertLessThanOrEqual(worked.frame.maxY, workedCell.frame.maxY + 0.5, "Worked footer drew below its row")
+        }
+        XCTAssertLessThanOrEqual(worked.frame.maxY, composer.frame.minY, "Worked footer sat under the composer")
     }
 
     private func capture(
