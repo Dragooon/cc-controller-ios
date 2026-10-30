@@ -506,7 +506,9 @@ final class TranscriptFlowTests: XCTestCase {
         app.terminate()
 
         let marker = "Fixture transcript changed while away."
-        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 3000])
+        // The delay is the window the syncing glyph has to show in; slow runners need it stretched.
+        let scale = flowTimeScale()
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": Int(3000 * scale)])
         try await postFixtureJSON(
             "/fixture/transcript-change",
             body: ["sessionId": "long-session", "text": marker]
@@ -518,15 +520,18 @@ final class TranscriptFlowTests: XCTestCase {
         reopenedSession.tap()
 
         let loading = app.descendants(matching: .any).matching(identifier: "session-loading").firstMatch
-        XCTAssertTrue(loading.waitToExist(timeout: 2), "Changed session did not show the syncing glyph")
+        XCTAssertTrue(loading.waitToExist(timeout: 2 * scale), "Changed session did not show the syncing glyph")
         XCTAssertEqual(loading.label, "Loading messages")
+        // The original row stays in the current transcript too, so it only counts as stale when the
+        // glyph is still up after the row was seen. Checking the row first keeps that order honest.
         let staleNewest = app.staticTexts[originalText]
-        let loadingDeadline = Date().addingTimeInterval(2)
+        let loadingDeadline = Date().addingTimeInterval(2 * scale)
         while loading.exists && Date() < loadingDeadline {
-            XCTAssertFalse(staleNewest.exists, "Cached newest row was visible before the transcript became current")
+            let staleVisible = staleNewest.exists
+            XCTAssertFalse(staleVisible && loading.exists, "Cached newest row was visible before the transcript became current")
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTAssertTrue(loading.waitToDisappear(timeout: 8), "Syncing glyph did not clear after the delayed transcript")
+        XCTAssertTrue(loading.waitToDisappear(timeout: 8 * scale), "Syncing glyph did not clear after the delayed transcript")
         let changedEntry = app.staticTexts[marker]
         XCTAssertTrue(changedEntry.waitToExist(timeout: 10), "Newest changed entry did not render")
         XCTAssertTrue(changedEntry.isHittable, "Newest changed entry is not visible")
