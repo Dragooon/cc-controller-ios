@@ -19,7 +19,7 @@ final class DiskCacheTests: XCTestCase {
         await cache.saveNow(state, changedTranscripts: ["session-1": []], retainedTranscriptKeys: ["session-1"])
         let url = await cache.transcriptFileURL(for: "session-1")
         try Data("""
-        [{"kind":"assistant","id":"before","text":"Before"},{"kind":"prompt","id":"bad","paste":[]},{"kind":"assistant","id":"after","text":"After"}]
+        {"v":3,"entries":[{"kind":"assistant","id":"before","text":"Before"},{"kind":"prompt","id":"bad","paste":[]},{"kind":"assistant","id":"after","text":"After"}]}
         """.utf8).write(to: url, options: .atomic)
 
         let loaded = try await cache.load()
@@ -32,7 +32,7 @@ final class DiskCacheTests: XCTestCase {
         XCTAssertEqual(kind, "malformed")
     }
 
-    func testTranscriptV2RoundTripsEntriesRevisionAndEpoch() async throws {
+    func testTranscriptFileRoundTripsEntriesRevisionAndEpoch() async throws {
         let directory = temporaryDirectory()
         let cache = DiskCache(directory: directory)
         let state = state(value: "v2")
@@ -51,23 +51,25 @@ final class DiskCacheTests: XCTestCase {
         XCTAssertEqual(loaded.transcriptMetadata["v2"], TranscriptCacheMetadata(rev: 42, epoch: "epoch-a"))
         let data = try Data(contentsOf: await cache.transcriptFileURL(for: "v2"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(object["v"] as? Int, 2)
+        XCTAssertEqual(object["v"] as? Int, TranscriptCacheFile.currentVersion)
         XCTAssertEqual(object["rev"] as? Int, 42)
         XCTAssertEqual(object["epoch"] as? String, "epoch-a")
     }
 
-    func testLegacyTranscriptArrayHasUnknownRevisionMetadata() async throws {
+    func testOlderTranscriptFormatsAreDroppedOnLoad() async throws {
         let directory = temporaryDirectory()
         let cache = DiskCache(directory: directory)
-        let state = state(value: "legacy-transcript")
-        await cache.saveNow(state, changedTranscripts: ["legacy-transcript": [entry(id: "legacy")]], retainedTranscriptKeys: ["legacy-transcript"])
-        let url = await cache.transcriptFileURL(for: "legacy-transcript")
-        try Data("[{\"kind\":\"assistant\",\"id\":\"legacy\"}]".utf8).write(to: url, options: .atomic)
+        let state = state(value: "older")
+        await cache.saveNow(state, changedTranscripts: ["older": [entry(id: "older")]], retainedTranscriptKeys: ["older"])
+        let url = await cache.transcriptFileURL(for: "older")
+        for stale in ["[{\"kind\":\"assistant\",\"id\":\"older\"}]", "{\"v\":2,\"entries\":[{\"kind\":\"assistant\",\"id\":\"older\"}]}"] {
+            try Data(stale.utf8).write(to: url, options: .atomic)
 
-        let loadedValue = try await cache.load()
-        let loaded = try XCTUnwrap(loadedValue)
-        XCTAssertEqual(loaded.transcripts["legacy-transcript"]?.first?.id, "legacy")
-        XCTAssertEqual(loaded.transcriptMetadata["legacy-transcript"], TranscriptCacheMetadata())
+            let loadedValue = try await cache.load()
+            let loaded = try XCTUnwrap(loadedValue)
+            XCTAssertNil(loaded.transcripts["older"])
+            XCTAssertNil(loaded.transcriptMetadata["older"])
+        }
     }
 
     func testOnlyChangedTranscriptsAreWrittenAndUnopenedTranscriptSurvives() async throws {

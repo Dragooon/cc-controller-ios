@@ -1,13 +1,17 @@
 import Foundation
 
 public struct TranscriptCacheFile: Codable, Sendable, Equatable {
+    /// Bumped when a daemon's entry ids change meaning, so a cached copy can't merge into a fresh
+    /// page as duplicates. 3: a queued prompt's id comes from its enqueue record.
+    static let currentVersion = 3
+
     public let v: Int
     public var entries: [TranscriptEntry]
     public var rev: Int?
     public var epoch: String?
 
     public init(entries: [TranscriptEntry], rev: Int? = nil, epoch: String? = nil) {
-        self.v = 2
+        self.v = Self.currentVersion
         self.entries = entries
         self.rev = rev
         self.epoch = epoch
@@ -101,13 +105,10 @@ public actor DiskCache {
         var state = try JSONDecoder.ccKit().decode(DiskCacheState.self, from: stateData)
         for url in transcriptURLs() {
             guard let key = transcriptKey(for: url), let data = try? Data(contentsOf: url) else { continue }
-            if let file = try? JSONDecoder.ccKit().decode(TranscriptCacheFile.self, from: data) {
-                state.transcripts[key] = file.entries
-                state.transcriptMetadata[key] = TranscriptCacheMetadata(rev: file.rev, epoch: file.epoch)
-            } else if let entries = try? decodeTranscriptEntries(from: data, sessionID: key) {
-                state.transcripts[key] = entries
-                state.transcriptMetadata[key] = TranscriptCacheMetadata()
-            }
+            guard let file = try? JSONDecoder.ccKit().decode(TranscriptCacheFile.self, from: data),
+                  file.v == TranscriptCacheFile.currentVersion else { continue }
+            state.transcripts[key] = file.entries
+            state.transcriptMetadata[key] = TranscriptCacheMetadata(rev: file.rev, epoch: file.epoch)
         }
         return state
     }
