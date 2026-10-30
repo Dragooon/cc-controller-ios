@@ -66,7 +66,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(faceIDButton.waitToExist(timeout: 20), "Pair confirmation did not reach Face ID")
         faceIDButton.tap()
         let row = element(app, "settings-controller-mustafar")
-        try await completeFaceID(app, until: row, timeout: 45, "Add controller did not finish after Face ID")
+        try await completeFaceID(app, until: row, timeout: 45, retry: faceIDButton, "Add controller did not finish after Face ID")
 
         try await expectValue(row, "Live", timeout: 45)
         try await expectValue(probe, "mac=live,mustafar=live", timeout: 45)

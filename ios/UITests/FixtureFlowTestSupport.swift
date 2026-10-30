@@ -232,14 +232,21 @@ class FixtureFlowTestSupport: XCTestCase {
         try await postFixtureRoute(path)
     }
 
+    /// Matches Face ID until `target` appears. The simulator sometimes fails an evaluation outright
+    /// ("Face ID did not work. Try again."), and then only tapping `retry` again starts a new one.
     func completeFaceID(
         _ app: XCUIApplication,
         until target: XCUIElement,
         timeout: TimeInterval = 30,
+        retry: XCUIElement? = nil,
         _ message: String
     ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
+        let failure = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Face ID did not work")).firstMatch
         while !target.exists && Date() < deadline {
+            if let retry, failure.exists, retry.exists, retry.isHittable {
+                retry.tap()
+            }
             try await postFixture("/fixture/biometric/match")
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
