@@ -414,10 +414,12 @@ final class AppStoreTests: XCTestCase {
 
         app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entryCount: 2, reset: true)))
         try await waitUntil("reset fetch failure") { failedReset }
-        try await waitUntil("reset backoff") { clock.sleepDurations.contains(.seconds(1)) }
-        clock.resumeSleeps()
-
-        try await waitUntil("reset retry") { store.confirmedTotal == 2 }
+        // The retry either waits out the backoff or runs at once when another resync request lands
+        // first, so release any backoff sleep until the store recovers.
+        try await waitUntil("reset retry") {
+            clock.resumeSleeps()
+            return store.confirmedTotal == 2
+        }
         XCTAssertEqual(store.entries.map(\.id), ["fresh"])
         XCTAssertGreaterThanOrEqual(transcriptCalls, 3, "the failed reset was retried")
         app.closeSession("session-1")
