@@ -198,7 +198,10 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         let transcriptMiddle = transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         transcriptMiddle.press(forDuration: 0.1, thenDragTo: transcriptMiddle.withOffset(CGVector(dx: 240, dy: 0)))
-        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Swiping right across the transcript did not open the sidebar")
+        let swipeOpened = sidebar.waitToExist(timeout: 20)
+        let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
+        print("SIDEBAR_SWIPE_METRICS \(metrics.value ?? metrics.label)")
+        XCTAssertTrue(swipeOpened, "Swiping right across the transcript did not open the sidebar")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         addScreenshot(named: "sidebar-swipe-across-detail")
         XCTAssertEqual(newestCheckpoint.frame.minY, frameBeforeSwipe.minY, accuracy: 1, "Opening the sidebar scrolled the transcript")
@@ -359,10 +362,13 @@ final class SidebarOverlayFlowTests: XCTestCase {
     private func assertHeaderAlignment(in app: XCUIApplication, sidebarOpen: Bool = false) {
         let sidebarToggle = app.buttons["sidebar-toggle"]
         let navigationTitle = app.staticTexts["selected-session-name"]
+        let barButton = app.buttons["session-info"]
         XCTAssertTrue(sidebarToggle.waitToExist(timeout: 10), "Sidebar header toggle did not load")
         XCTAssertTrue(navigationTitle.waitToExist(timeout: 10), "Navigation title did not load")
+        XCTAssertTrue(barButton.waitToExist(timeout: 10), "Navigation bar button did not load")
         let sidebarCenterY = sidebarToggle.frame.midY
-        let titleCenterY = navigationTitle.frame.midY
+        // The title has a subtitle under it, so the bar's own button marks the row's centre.
+        let titleCenterY = barButton.frame.midY
         print("NAVIGATION_TITLE_FRAME \(navigationTitle.frame)")
         print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) navigation-title-center-y=\(titleCenterY) delta=\(abs(sidebarCenterY - titleCenterY))")
         XCTAssertLessThanOrEqual(abs(sidebarCenterY - titleCenterY), 1, "Sidebar toggle and navigation title were vertically misaligned")

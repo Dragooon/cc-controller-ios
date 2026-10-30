@@ -639,7 +639,11 @@ ensure_pool_devices() {
     udid=$(simulator_udid "$name" || true)
     if [[ -z "$udid" ]]; then
       runtime=$(pool_runtime_for_device "$device")
-      udid=$(xcrun simctl create "$name" "$device" "$runtime")
+      udid=$(xcrun simctl create "$name" "$device" "$runtime") || {
+        printf 'could not create %s; device types here:\n' "$device" >&2
+        xcrun simctl list devicetypes >&2
+        return 1
+      }
       printf '%s\n' "created $name ($udid)"
     fi
   done
@@ -1448,6 +1452,10 @@ cmd_flows() {
   [[ "$shard_count" =~ ^[1-9][0-9]*$ ]] || { printf 'flows --shards must be a positive integer\n' >&2; exit 2; }
   FLOW_PER_METHOD=$per_method
   [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone 16 Plus")
+  local requested_device
+  for requested_device in "${devices[@]}"; do
+    [[ " ${POOL_DEVICE_TYPES[*]} " == *" $requested_device "* ]] || POOL_DEVICE_TYPES+=("$requested_device")
+  done
 
   local flow_file flow_class flow_method
   local flow_files=() flow_methods=() flow_method_classes=()

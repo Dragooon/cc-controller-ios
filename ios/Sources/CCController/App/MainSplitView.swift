@@ -15,6 +15,9 @@ struct MainSplitView: View {
     /// Window Y of the container the fixed sidebar controls are laid out in.
     @State private var regularControlsOriginY: CGFloat = 0
     @State private var isRegularInspectorOpen = false
+#if DEBUG
+    @State private var regularSwipeDiagnostic = ""
+#endif
     @State private var regularSidebarDragStartProgress: CGFloat?
     @GestureState private var regularSidebarDragActive = false
     @State private var allowFeedbackCount = 0
@@ -190,7 +193,7 @@ struct MainSplitView: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityIdentifier("regular-layout-metrics")
-                    .accessibilityValue("width=\(proxy.size.width),rowMinY=\(regularHeaderRowMinY ?? -1),controlsOriginY=\(regularControlsOriginY),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode)")
+                    .accessibilityValue("width=\(proxy.size.width),rowMinY=\(regularHeaderRowMinY ?? -1),controlsOriginY=\(regularControlsOriginY),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode),swipe=\(regularSwipeDiagnostic)")
             }
 #endif
         }
@@ -222,17 +225,19 @@ struct MainSplitView: View {
                     .allowsHitTesting(false)
             }
         }
-        .overlay(alignment: .topLeading) {
-            Color.clear
-                .allowsHitTesting(false)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.frame(in: .global).minY
-                } action: { originY in
-                    regularControlsOriginY = originY
-                }
-            regularSidebarControls(
-                topInset: regularHeaderRowMinY.map { max(0, $0 - regularControlsOriginY) } ?? 0
-            )
+        .overlay {
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                    .allowsHitTesting(false)
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.frame(in: .global).minY
+                    } action: { originY in
+                        regularControlsOriginY = originY
+                    }
+                regularSidebarControls(
+                    topInset: regularHeaderRowMinY.map { max(0, $0 - regularControlsOriginY) } ?? 0
+                )
+            }
         }
         .onChange(of: regularSidebarDragActive) { _, isActive in
             guard !isActive, regularSidebarDragStartProgress != nil else { return }
@@ -336,6 +341,11 @@ struct MainSplitView: View {
         SidebarPanCapture(
             sidebarProgress: regularSidebarProgress,
             opensFromAnywhere: !isRegularInspectorOpen,
+            onSwipeDiagnostic: { diagnostic in
+#if DEBUG
+                regularSwipeDiagnostic = diagnostic
+#endif
+            },
             onChanged: { translationX in
                 sidebarDragChanged(translationX: translationX, sidebarWidth: sidebarWidth)
             },
@@ -846,6 +856,7 @@ private struct SidebarApprovalModifier: AnimatableModifier {
 private struct SidebarPanCapture: UIViewRepresentable {
     let sidebarProgress: CGFloat
     let opensFromAnywhere: Bool
+    let onSwipeDiagnostic: (String) -> Void
     let onChanged: (CGFloat) -> Void
     let onEnded: (CGFloat, CGFloat) -> Void
 
@@ -865,6 +876,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
     func updateUIView(_ view: SidebarCaptureView, context: Context) {
         context.coordinator.sidebarProgress = sidebarProgress
         context.coordinator.opensFromAnywhere = opensFromAnywhere
+        context.coordinator.onSwipeDiagnostic = onSwipeDiagnostic
         context.coordinator.onChanged = onChanged
         context.coordinator.onEnded = onEnded
         context.coordinator.updateAttachment(for: view, in: view.window)
@@ -873,6 +885,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var sidebarProgress: CGFloat
         var opensFromAnywhere: Bool
+        var onSwipeDiagnostic: (String) -> Void
         var onChanged: (CGFloat) -> Void
         var onEnded: (CGFloat, CGFloat) -> Void
         weak var captureView: SidebarCaptureView?
@@ -881,6 +894,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
         init(_ parent: SidebarPanCapture) {
             sidebarProgress = parent.sidebarProgress
             opensFromAnywhere = parent.opensFromAnywhere
+            onSwipeDiagnostic = parent.onSwipeDiagnostic
             onChanged = parent.onChanged
             onEnded = parent.onEnded
         }
@@ -923,38 +937,35 @@ private struct SidebarPanCapture: UIViewRepresentable {
             guard sidebarProgress <= 0.001, velocity.x > 0, abs(velocity.x) > abs(velocity.y) else { return false }
             let stripFrame = captureView.convert(captureView.bounds, to: view)
             if stripFrame.contains(initialLocation) { return true }
+            let claim = contentClaimingSwipe(at: initialLocation, in: view)
+            onSwipeDiagnostic("claim=\(claim ?? "none"),anywhere=\(opensFromAnywhere),vx=\(velocity.x),vy=\(velocity.y)")
             // Away from the edge a steeper angle is needed, so a vertical scroll isn't taken for a swipe.
-            return opensFromAnywhere
-                && abs(velocity.x) > abs(velocity.y) * 1.5
-                && !contentClaimsSwipe(at: initialLocation, in: view)
+            return opensFromAnywhere && abs(velocity.x) > abs(velocity.y) * 1.5 && claim == nil
         }
 
-        /// Whether what's under the touch has its own use for a rightward drag, or sits outside the
-        /// split view: a sheet, a pushed screen (its swipe goes back), text input or a sideways scroller.
-        private func contentClaimsSwipe(at location: CGPoint, in view: UIView) -> Bool {
+        /// What under the touch has its own use for a rightward drag, or sits outside the split view:
+        /// a sheet, a pushed screen (its swipe goes back), text input or a sideways scroller. Nil if nothing.
+        private func contentClaimingSwipe(at location: CGPoint, in view: UIView) -> String? {
             guard let rootView = view.window?.rootViewController?.view,
-                  let hitView = view.hitTest(location, with: nil),
-                  hitView.isDescendant(of: rootView) else { return true }
+                  let hitView = view.hitTest(location, with: nil) else { return "no-hit" }
+            guard hitView.isDescendant(of: rootView) else { return "presented" }
             var ancestor: UIView? = hitView
             while let current = ancestor {
-                if current is UITextField { return true }
-                if let textView = current as? UITextView, textView.isEditable { return true }
-                if let scrollView = current as? UIScrollView, scrollsHorizontally(scrollView) { return true }
+                if current is UITextField { return "text-field" }
+                if let textView = current as? UITextView, textView.isEditable { return "text-view" }
+                if let scrollView = current as? UIScrollView, scrollView.contentSize.width > scrollView.bounds.width + 1 {
+                    return "scroller-\(scrollView.contentSize.width)-\(scrollView.bounds.width)"
+                }
                 ancestor = current.superview
             }
             var responder: UIResponder? = hitView
             while let current = responder {
                 if let navigation = current as? UINavigationController, navigation.viewControllers.count > 1 {
-                    return true
+                    return "pushed"
                 }
                 responder = current.next
             }
-            return false
-        }
-
-        private func scrollsHorizontally(_ scrollView: UIScrollView) -> Bool {
-            let inset = scrollView.adjustedContentInset
-            return scrollView.contentSize.width + inset.left + inset.right > scrollView.bounds.width + 1
+            return nil
         }
 
         /// A sidebar drag shouldn't also scroll the transcript it started on.
