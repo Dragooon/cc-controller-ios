@@ -262,7 +262,8 @@ struct SessionsListView: View {
     private var bottomInset: some View {
         VStack(spacing: 8) {
             archiveToastOverlay
-            if canCreateSession && (horizontalSizeClass == .regular || hasAnySessions || isMultiController) {
+            // The compact layout puts New session in the toolbar next to search and settings.
+            if canCreateSession && horizontalSizeClass == .regular {
                 newSessionButton
             }
         }
@@ -343,6 +344,13 @@ struct SessionsListView: View {
                                 Image(systemName: "gearshape")
                             }
                             .accessibilityLabel("Settings")
+                            if canCreateSession && (hasAnySessions || isMultiController) {
+                                Button(action: onNewSession) {
+                                    Image(systemName: "square.and.pencil")
+                                }
+                                .accessibilityLabel("New session")
+                                .accessibilityIdentifier("new-session")
+                            }
                         }
                     }
                     .searchable(

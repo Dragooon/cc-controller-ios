@@ -82,7 +82,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
             XCTAssertTrue(sidebar.frame.contains(field.frame), "Portrait search field escaped sessions column: field=\(field.frame), sidebar=\(sidebar.frame)")
         } else {
             let newSession = app.buttons["new-session"]
-            XCTAssertTrue(newSession.waitToExist(timeout: 20), "Floating new-session button did not load")
+            XCTAssertTrue(newSession.waitToExist(timeout: 20), "Toolbar new-session button did not load")
             XCTAssertTrue(sidebar.frame.contains(newSession.frame), "Portrait new-session button escaped sessions sidebar: button=\(newSession.frame), sidebar=\(sidebar.frame)")
             let searchButton = app.buttons["sessions-search"]
             XCTAssertTrue(searchButton.waitToExist(timeout: 20), "Sessions search button did not load")
