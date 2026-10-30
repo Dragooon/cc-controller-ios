@@ -222,8 +222,12 @@ struct PendingPromptView: View {
     let onDelete: (String) -> Void
     let onCopy: (String) -> Void
     let onSendAgain: (String) -> Void
+    /// True when this message was just sent: the bubble pops in once from its bottom-trailing corner.
+    var popsIn = false
+    var onPoppedIn: () -> Void = {}
     @State private var confirmationPresented = false
     @State private var nonWorkingSince: Date?
+    @State private var hasPoppedIn = false
     @Environment(\.isTranscriptSizingPass) private var isTranscriptSizingPass
 
     private var promptDownload: (@MainActor @Sendable (String) async throws -> URL)? {
@@ -237,6 +241,10 @@ struct PendingPromptView: View {
     private var failureMessage: String? {
         guard case .failed(let message) = note.state else { return nil }
         return message
+    }
+
+    private var isWaitingToPopIn: Bool {
+        popsIn && !hasPoppedIn && !isTranscriptSizingPass
     }
 
     private var isFailed: Bool {
@@ -267,6 +275,12 @@ struct PendingPromptView: View {
         .onAppear {
             guard !isTranscriptSizingPass else { return }
             if sessionState != .working { nonWorkingSince = .now }
+            guard popsIn, !hasPoppedIn else { return }
+            withAnimation(.spring(duration: 0.4, bounce: 0.3)) {
+                hasPoppedIn = true
+            } completion: {
+                onPoppedIn()
+            }
         }
         .onChange(of: sessionState) { oldState, newState in
             guard !isTranscriptSizingPass else { return }
@@ -297,6 +311,10 @@ struct PendingPromptView: View {
                 attachmentThumbnails: note.attachmentThumbnails,
                 bubbleAccessibilityIdentifier: "pending-prompt-bubble"
             )
+            // Only the bubble scales, so the row's frame (and the motion trace's row probe) never
+            // overshoots; the row itself still grows with the transcript's zero-bounce update.
+            .scaleEffect(isWaitingToPopIn ? 0.6 : 1, anchor: .bottomTrailing)
+            .opacity(isWaitingToPopIn ? 0 : 1)
 
             if isFailed || needsAttention {
                 HStack(spacing: 4) {

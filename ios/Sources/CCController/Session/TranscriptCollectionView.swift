@@ -741,6 +741,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var onDeleteNote: (String) -> Void = { _ in }
         private var onCopyNote: (String) -> Void = { _ in }
         private var onSendAgain: (String) -> Void = { _ in }
+        /// Notes inserted by an animated newest-end update, whose bubbles pop in on first display.
+        private var notesToPopIn: Set<String> = []
+        /// Notes that already popped in, so a note that changes kind and is re-inserted doesn't pop again.
+        private var poppedInNotes: Set<String> = []
         private var transcriptExpansion: TranscriptExpansionStore?
         private var recorder: ScrollDiagnosticsRecorder?
         private var lastUnbuiltDiagnosticAt: Date?
@@ -1142,6 +1146,15 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 deleted: deleted,
                 reconfigured: changedItems
             )
+            if animated {
+                for item in inserted {
+                    switch item {
+                    case .startingNote(let id), .queuedNote(let id):
+                        if !poppedInNotes.contains(id) { notesToPopIn.insert(id) }
+                    case .paging, .row: break
+                    }
+                }
+            }
             if let layout = collectionView.collectionViewLayout as? TranscriptListLayout {
                 layout.invalidateHeights(for: inserted + changedItems)
                 if animated { layout.prepareForAnimatedNewestEndUpdate() }
@@ -1387,7 +1400,12 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     onEdit: onEditNote,
                     onDelete: onDeleteNote,
                     onCopy: onCopyNote,
-                    onSendAgain: onSendAgain
+                    onSendAgain: onSendAgain,
+                    popsIn: notesToPopIn.contains(note.id),
+                    onPoppedIn: { [weak self] in
+                        self?.notesToPopIn.remove(note.id)
+                        self?.poppedInNotes.insert(note.id)
+                    }
                 )
                 .transition(.identity)
                 #if DEBUG
