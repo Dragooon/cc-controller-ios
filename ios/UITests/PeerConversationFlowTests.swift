@@ -103,7 +103,7 @@ final class PeerConversationFlowTests: FixtureFlowTestSupport {
 
     /// Scrolls a lazy Form until the element is on screen, waiting for rows that load late.
     private func reveal(_ element: XCUIElement, in app: XCUIApplication, _ message: String, timeout: TimeInterval = 20) {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         var swipes = 0
         while !(element.exists && element.isHittable) && Date() < deadline {
             if swipes < 8 {

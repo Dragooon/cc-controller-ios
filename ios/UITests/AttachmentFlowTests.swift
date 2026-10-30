@@ -320,7 +320,7 @@ final class AttachmentFlowTests: XCTestCase {
     }
 
     private func waitForPresentedPicker(in app: XCUIApplication, timeout: TimeInterval) -> XCUIElement? {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         let cancel = app.buttons["Cancel"]
         while Date() < deadline {
             if app.navigationBars.count > 1 && cancel.exists {

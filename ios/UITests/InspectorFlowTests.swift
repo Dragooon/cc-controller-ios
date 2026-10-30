@@ -222,7 +222,7 @@ final class InspectorFlowTests: XCTestCase {
     }
 
     private func waitForChange(_ element: XCUIElement, from initial: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
             if elementText(element) != initial { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))

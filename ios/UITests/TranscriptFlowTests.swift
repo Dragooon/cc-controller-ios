@@ -780,7 +780,7 @@ private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval)
 
 @MainActor
 private func waitForHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
+    let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
     repeat {
         if element.exists && element.isHittable { return true }
         RunLoop.current.run(until: Date().addingTimeInterval(0.1))

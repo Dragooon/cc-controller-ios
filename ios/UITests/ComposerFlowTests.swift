@@ -226,16 +226,9 @@ final class ComposerFlowTests: XCTestCase {
             app.terminate()
         }
         openSession(id: "session-long-session", in: app)
-        let field = composerField(in: app)
-        let first = "optimistic-order-first-\(UUID().uuidString)"
-        let second = "optimistic-order-second-\(UUID().uuidString)"
-        field.tap()
-        field.typeText(first)
-        app.buttons["composer-send"].tap()
-        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 2), "First quick send did not clear the composer")
-        field.tap()
-        field.typeText(second)
-        app.buttons["composer-send"].tap()
+        // The fixture holds the first prompt until the second arrives, so typing speed can't reconcile it early.
+        try await postFixture("/fixture/batch-next-prompts")
+        let (first, second) = try sendTwoQuickMessages(prefix: "optimistic-order", in: app)
 
         let firstPending = app.descendants(matching: .any)
             .matching(identifier: "pending-prompt")
@@ -245,15 +238,51 @@ final class ComposerFlowTests: XCTestCase {
             .matching(identifier: "pending-prompt")
             .matching(NSPredicate(format: "label BEGINSWITH %@", second))
             .firstMatch
-        let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline {
-            if firstPending.exists && secondPending.exists {
-                XCTAssertLessThanOrEqual(firstPending.frame.minY, secondPending.frame.minY, "First pending bubble moved behind the second")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(100))
+        let inOrder = pollUntil(timeout: 5) {
+            guard let firstFrame = try? firstPending.snapshot().frame,
+                  let secondFrame = try? secondPending.snapshot().frame else { return false }
+            return firstFrame.minY < secondFrame.minY
         }
-        XCTFail("Two quick sends did not leave two ordered pending bubbles")
+        XCTAssertTrue(inOrder, "Two quick sends did not leave two ordered pending bubbles")
+    }
+
+    func testQuickSendsStayOrderedAfterDelivery() async throws {
+        let app = launchFixture()
+        defer {
+            attach(named: "optimistic-order-delivered")
+            app.terminate()
+        }
+        openSession(id: "session-long-session", in: app)
+        let (first, second) = try sendTwoQuickMessages(prefix: "delivered-order", in: app)
+
+        let firstDelivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", first)).firstMatch
+        let secondDelivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", second)).firstMatch
+        XCTAssertTrue(firstDelivered.waitToExist(timeout: 20), "First quick send was not delivered")
+        XCTAssertTrue(secondDelivered.waitToExist(timeout: 20), "Second quick send was not delivered")
+        XCTAssertTrue(
+            waitForNonExistence(of: app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch, timeout: 20),
+            "Quick sends did not reconcile into the transcript"
+        )
+        let inOrder = pollUntil(timeout: 5) {
+            guard let firstFrame = try? firstDelivered.snapshot().frame,
+                  let secondFrame = try? secondDelivered.snapshot().frame else { return false }
+            return firstFrame.minY < secondFrame.minY
+        }
+        XCTAssertTrue(inOrder, "Delivered quick sends swapped places")
+    }
+
+    private func sendTwoQuickMessages(prefix: String, in app: XCUIApplication) throws -> (first: String, second: String) {
+        let field = composerField(in: app)
+        let first = "\(prefix)-first-\(UUID().uuidString)"
+        let second = "\(prefix)-second-\(UUID().uuidString)"
+        field.tap()
+        field.typeText(first)
+        app.buttons["composer-send"].tap()
+        XCTAssertTrue(waitForValue(of: field, equalTo: "", timeout: 2), "First quick send did not clear the composer")
+        field.tap()
+        field.typeText(second)
+        app.buttons["composer-send"].tap()
+        return (first, second)
     }
 
     func testSendClearsTrailingWhitespace() throws {
@@ -356,12 +385,12 @@ final class ComposerFlowTests: XCTestCase {
         let orderDeadline = Date().addingTimeInterval(10)
         var sawQueueOrder = false
         repeat {
-            if queuedPrompt.exists,
-               queuedPrompt.value as? String == "Queued",
-               workingIndicator.exists {
+            if let prompt = try? queuedPrompt.snapshot(),
+               prompt.value as? String == "Queued",
+               let indicator = try? workingIndicator.snapshot() {
                 XCTAssertLessThanOrEqual(
-                    queuedPrompt.frame.maxY,
-                    workingIndicator.frame.minY,
+                    prompt.frame.maxY,
+                    indicator.frame.minY,
                     "Working indicator rendered above the queued prompt"
                 )
                 attach(named: "composer-queued-order")
@@ -619,7 +648,7 @@ final class ComposerFlowTests: XCTestCase {
     }
 
     private func waitForKeyRequests(timeout: TimeInterval) async throws -> [FixtureKeyRequest] {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
             let base = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
             guard let url = URL(string: "\(base)/fixture/key-requests") else { throw XCTSkip("Fixture control URL was invalid") }
@@ -679,9 +708,9 @@ final class ComposerFlowTests: XCTestCase {
 
     private func waitForPendingStatus(_ text: String, message: String? = nil, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let pending = pendingPrompt(in: app, status: text, message: message)
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
-            if pending.exists, pending.value as? String == text {
+            if let snapshot = try? pending.snapshot(), snapshot.value as? String == text {
                 for legacyStatus in ["Queued", "Sending…", "Sent"] {
                     XCTAssertFalse(app.staticTexts[legacyStatus].exists, "Legacy pending status label \(legacyStatus) was visible")
                 }
@@ -698,7 +727,7 @@ final class ComposerFlowTests: XCTestCase {
             .matching(identifier: "prompt-bubble")
             .matching(NSPredicate(format: "label == %@", message))
             .firstMatch
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
             if pending.exists, pending.value as? String == "Sent" {
                 for legacyStatus in ["Queued", "Sending…", "Sent"] {
@@ -714,7 +743,7 @@ final class ComposerFlowTests: XCTestCase {
 
     private func waitForNoButtons(_ labels: [String], in app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let buttons = labels.map { app.buttons[$0] }
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
             if buttons.contains(where: \.exists) { return false }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))

@@ -5,6 +5,13 @@ import XCTest
 @MainActor
 final class AddControllerFlowTests: FixtureFlowTestSupport {
     func testAddDirectTLSControllerPairsGoesLiveAndRemoves() async throws {
+        // A failure before the removal step must not leave a second controller for the rest of the slice.
+        addTeardownBlock { @MainActor in
+            let cleanup = XCUIApplication()
+            cleanup.launchArguments = ["-CCResetControllers"]
+            cleanup.launch()
+            cleanup.terminate()
+        }
         let tlsPort = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_TLS_PORT")
         let tlsPin = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_TLS_PIN")
         let controlURL = requiredRunnerVariable("TEST_RUNNER_SECOND_FIXTURE_CONTROL_URL")
@@ -108,7 +115,7 @@ final class AddControllerFlowTests: FixtureFlowTestSupport {
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<8 where !(element.exists && element.isHittable) {
+        for _ in 0..<8 where !(element.exists && element.isSafelyHittable) {
             app.swipeUp()
         }
         XCTAssertTrue(element.exists, "\(element) was not found after scrolling")

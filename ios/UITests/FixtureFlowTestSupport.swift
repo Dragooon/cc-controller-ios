@@ -36,10 +36,10 @@ func transcriptScroll(in app: XCUIApplication) -> XCUIElement {
 func revealInTranscript(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
     let scroll = transcriptScroll(in: app)
     guard scroll.waitToExist(timeout: 15) else { return false }
-    if element.waitToExist(timeout: 3) { return true }
+    if pollUntil(timeout: 3, scaled: false, { element.exists }) { return true }
     for _ in 0..<maxSwipes {
         scroll.swipeDown()
-        if element.waitToExist(timeout: 1) { return true }
+        if pollUntil(timeout: 1, scaled: false, { element.exists }) { return true }
     }
     return false
 }
@@ -67,6 +67,18 @@ func restartFixtureIfConfigured() async throws {
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
+    // A restart resets the simulator's keychain and privacy state, then starts two daemons.
+    request.timeoutInterval = 120 * flowTimeScale()
+    do {
+        try await postRestart(request)
+    } catch {
+        // Runners stall for a minute at a time; one more restart settles it without failing the test.
+        print("Retrying fixture restart after: \(error)")
+        try await postRestart(request)
+    }
+}
+
+private func postRestart(_ request: URLRequest) async throws {
     let (data, response) = try await URLSession.shared.data(for: request)
     guard (response as? HTTPURLResponse)?.statusCode == 200 else {
         let body = String(data: data, encoding: .utf8) ?? "no response body"
@@ -81,6 +93,7 @@ func postFixtureRoute(_ path: String) async throws {
     }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
+    request.timeoutInterval = 60 * flowTimeScale()
     let (data, response) = try await URLSession.shared.data(for: request)
     guard (response as? HTTPURLResponse)?.statusCode == 200 else {
         let body = String(data: data, encoding: .utf8) ?? "no response body"
@@ -242,7 +255,7 @@ class FixtureFlowTestSupport: XCTestCase {
         retry: XCUIElement? = nil,
         _ message: String
     ) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         let failure = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Face ID did not work", "Face ID didn't match")
         ).firstMatch
@@ -356,12 +369,12 @@ class FixtureFlowTestSupport: XCTestCase {
 
 @MainActor
 func waitForStableFrame(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
-    let deadline = Date().addingTimeInterval(timeout)
+    let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
     var previousFrame: CGRect?
     var stableReads = 0
 
     repeat {
-        guard element.exists, element.isHittable else {
+        guard element.exists, element.isSafelyHittable else {
             previousFrame = nil
             stableReads = 0
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))

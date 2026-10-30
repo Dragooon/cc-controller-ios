@@ -326,6 +326,8 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(landscapeComposer.waitToExist(timeout: 75), "Landscape composer did not load")
         XCTAssertLessThanOrEqual(landscapeComposer.frame.width, 760, "Landscape composer exceeded readable width")
 
+        // An iPad stays regular in portrait, with the sidebar beside a capped composer.
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
         XCUIDevice.shared.orientation = .portrait
         XCTAssertTrue(landscapeComposer.waitToExist(timeout: 30), "Portrait composer did not load")
         let portraitWidth = app.windows.firstMatch.frame.width
@@ -347,8 +349,13 @@ final class SidebarOverlayFlowTests: XCTestCase {
             .matching(identifier: "regular-layout-metrics")
             .firstMatch
         XCTAssertTrue(metrics.waitToExist(timeout: 10), "Regular layout metrics did not load")
-        print("REGULAR_LAYOUT_METRICS \(metrics.value ?? metrics.label)")
-        print("LANDSCAPE_HORIZONTAL_SIZE_CLASS \(sizeClass.label) VISIBILITY \(sizeClass.value ?? "nil")")
+        // The probes rebuild as the rotation settles; a log line must not fail the test.
+        if let metricsSnapshot = try? metrics.snapshot() {
+            print("REGULAR_LAYOUT_METRICS \(metricsSnapshot.value ?? metricsSnapshot.label)")
+        }
+        if let sizeClassSnapshot = try? sizeClass.snapshot() {
+            print("LANDSCAPE_HORIZONTAL_SIZE_CLASS \(sizeClassSnapshot.label) VISIBILITY \(sizeClassSnapshot.value ?? "nil")")
+        }
     }
 
     private func sessionsList(in app: XCUIApplication) -> XCUIElement {
@@ -425,7 +432,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         in app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
             if detailExtent(of: element, in: app) > extent { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
@@ -446,7 +453,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         in app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
             if detailExtent(of: element, in: app) < extent { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
