@@ -39,8 +39,7 @@ private struct ApprovalSessionMock: View {
             GeometryReader { proxy in
                 SessionTranscriptView(
                     turns: MockSessionData.turns,
-                    showsComposer: false,
-                    scrollAnchor: .bottom
+                    showsComposer: false
                 )
                 .safeAreaBar(edge: .bottom, spacing: 0) {
                     ApprovalBottomStackView(

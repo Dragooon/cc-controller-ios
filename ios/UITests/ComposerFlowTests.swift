@@ -636,7 +636,6 @@ final class ComposerFlowTests: XCTestCase {
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
         app.launchArguments = ["-CCServer", server]
-        configureTranscriptEngine(app)
         app.launchEnvironment["CCBearer"] = bearer
         configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)
         dismissLeftoverNotificationPrompt()

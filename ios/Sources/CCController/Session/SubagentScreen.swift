@@ -34,8 +34,7 @@ struct SubagentScreen: View {
                 turns: store.turns,
                 rows: store.rows,
                 showsComposer: false,
-                subagents: store.session.subagents ?? [],
-                scrollAnchor: .top
+                subagents: store.session.subagents ?? []
             )
             .navigationTitle(subagent?.agent ?? agentID)
             .toolbar {

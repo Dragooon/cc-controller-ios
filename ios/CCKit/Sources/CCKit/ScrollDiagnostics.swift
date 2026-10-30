@@ -30,86 +30,8 @@ public struct ScrollGuardGeometry: Equatable, Sendable {
 }
 
 public enum ScrollBlankKind: String, Codable, Sendable {
-    case overshoot
     case unbuilt
-    case remount
     case reload
-    case sentinelUnbuilt = "sentinel-unbuilt"
-}
-
-public enum SentinelCorrection: Equatable, Sendable {
-    case scroll
-    case rebuild
-    case none
-}
-
-public func sentinelCorrection(builtRowCount: Int, pinned: Bool) -> SentinelCorrection {
-    guard pinned else { return .none }
-    return builtRowCount > 0 ? .scroll : .rebuild
-}
-
-public enum ScrollBlankCondition {
-    public static func isOvershoot(
-        contentHeight: CGFloat,
-        visibleMinY: CGFloat,
-        insetTop: CGFloat
-    ) -> Bool {
-        contentHeight > 0 && visibleMinY + insetTop >= contentHeight - 1
-    }
-
-    public static func kind(
-        geometry: ScrollGuardGeometry,
-        builtRowCount: Int,
-        displayRowCount: Int,
-        queuedNoteCount: Int
-    ) -> ScrollBlankKind? {
-        guard geometry.containerHeight > 0 else { return nil }
-        if isOvershoot(
-            contentHeight: geometry.contentHeight,
-            visibleMinY: geometry.visibleMinY,
-            insetTop: geometry.insetTop
-        ) {
-            return .overshoot
-        }
-        if builtRowCount == 0, displayRowCount > 0 || queuedNoteCount > 0 {
-            return .unbuilt
-        }
-        return nil
-    }
-}
-
-public struct ScrollDiagnosticEvent: Codable, Equatable, Sendable {
-    public let name: String
-    public let oldValue: Double?
-    public let newValue: Double?
-
-    public init(name: String, oldValue: Double? = nil, newValue: Double? = nil) {
-        self.name = name
-        self.oldValue = oldValue
-        self.newValue = newValue
-    }
-}
-
-public struct ScrollDiagnosticEventRing: Sendable {
-    private var storage: [ScrollDiagnosticEvent?]
-    private var nextIndex = 0
-    private(set) public var count = 0
-
-    public init(capacity: Int = 30) {
-        storage = Array(repeating: nil, count: max(1, capacity))
-    }
-
-    public mutating func append(_ event: ScrollDiagnosticEvent) {
-        storage[nextIndex] = event
-        nextIndex = (nextIndex + 1) % storage.count
-        count = min(count + 1, storage.count)
-    }
-
-    public var values: [ScrollDiagnosticEvent] {
-        guard count > 0 else { return [] }
-        let start = count == storage.count ? nextIndex : 0
-        return (0..<count).compactMap { storage[(start + $0) % storage.count] }
-    }
 }
 
 public struct ScrollDiagnosticGeometry: Codable, Equatable, Sendable {
@@ -143,11 +65,7 @@ public struct ScrollDiagnosticEntry: Codable, Equatable, Sendable {
     public let notesCount: Int
     public let isPinnedToBottom: Bool
     public let userHasScrolled: Bool
-    public let recentEvents: [ScrollDiagnosticEvent]
     public let lifecycle: [TranscriptLifecycleEvent]
-    public let corrections: Int
-    public let recovered: Bool
-    public let msToRecover: Int
 
     public init(
         timestamp: String,
@@ -160,11 +78,7 @@ public struct ScrollDiagnosticEntry: Codable, Equatable, Sendable {
         notesCount: Int,
         isPinnedToBottom: Bool,
         userHasScrolled: Bool,
-        recentEvents: [ScrollDiagnosticEvent],
-        lifecycle: [TranscriptLifecycleEvent] = [],
-        corrections: Int,
-        recovered: Bool,
-        msToRecover: Int
+        lifecycle: [TranscriptLifecycleEvent] = []
     ) {
         self.timestamp = timestamp
         self.appVersion = appVersion
@@ -176,11 +90,7 @@ public struct ScrollDiagnosticEntry: Codable, Equatable, Sendable {
         self.notesCount = notesCount
         self.isPinnedToBottom = isPinnedToBottom
         self.userHasScrolled = userHasScrolled
-        self.recentEvents = recentEvents
         self.lifecycle = lifecycle
-        self.corrections = corrections
-        self.recovered = recovered
-        self.msToRecover = msToRecover
     }
 }
 
@@ -233,12 +143,11 @@ public actor ScrollDiagnosticsFileStore {
 
 @MainActor
 public final class ScrollDiagnosticsRecorder {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "scroll-guard")
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "scroll-diagnostics")
     private static let timestampFormatter = ISO8601DateFormatter()
 
     private let fileStore: ScrollDiagnosticsFileStore
-    private var sessionIDPrefix: String
-    private var ring = ScrollDiagnosticEventRing(capacity: 30)
+    private let sessionIDPrefix: String
     private let lifecycleLog: TranscriptLifecycleLog
     private let appVersion: String
     private let build: String
@@ -261,16 +170,6 @@ public final class ScrollDiagnosticsRecorder {
         self.build = build ?? (info["CFBundleVersion"] as? String ?? "unknown")
     }
 
-    public func sessionChanged(to sessionID: String) {
-        sessionIDPrefix = String(sessionID.prefix(8))
-        ring = ScrollDiagnosticEventRing(capacity: 30)
-        recordEvent(name: "sessionID", newValue: 1)
-    }
-
-    public func recordEvent(name: String, oldValue: Double? = nil, newValue: Double? = nil) {
-        ring.append(ScrollDiagnosticEvent(name: name, oldValue: oldValue, newValue: newValue))
-    }
-
     public func record(
         kind: ScrollBlankKind,
         geometry: ScrollGuardGeometry,
@@ -278,9 +177,6 @@ public final class ScrollDiagnosticsRecorder {
         notesCount: Int,
         isPinnedToBottom: Bool,
         userHasScrolled: Bool,
-        corrections: Int,
-        recovered: Bool,
-        msToRecover: Int,
         now: Date = Date(),
         completion: (@MainActor (Bool) -> Void)? = nil
     ) {
@@ -295,22 +191,15 @@ public final class ScrollDiagnosticsRecorder {
             notesCount: notesCount,
             isPinnedToBottom: isPinnedToBottom,
             userHasScrolled: userHasScrolled,
-            recentEvents: ring.values,
-            lifecycle: lifecycleLog.events,
-            corrections: corrections,
-            recovered: recovered,
-            msToRecover: msToRecover
+            lifecycle: lifecycleLog.events
         )
         let kindCode: Int
         switch kind {
-        case .overshoot: kindCode = 1
         case .unbuilt: kindCode = 2
-        case .remount: kindCode = 3
         case .reload: kindCode = 4
-        case .sentinelUnbuilt: kindCode = 5
         }
         Self.logger.notice(
-            "scroll guard kind=\(kindCode, privacy: .public) offset=\(entry.geometry.contentOffsetY, privacy: .public) content=\(entry.geometry.contentHeight, privacy: .public) container=\(entry.geometry.containerHeight, privacy: .public) corrections=\(corrections, privacy: .public) recovered=\(recovered ? 1 : 0, privacy: .public) ms=\(msToRecover, privacy: .public)"
+            "scroll diagnostic kind=\(kindCode, privacy: .public) offset=\(entry.geometry.contentOffsetY, privacy: .public) content=\(entry.geometry.contentHeight, privacy: .public) container=\(entry.geometry.containerHeight, privacy: .public)"
         )
         let fileStore = self.fileStore
         Task {
@@ -348,11 +237,7 @@ public final class ScrollDiagnosticsRecorder {
             notesCount: notesCount,
             isPinnedToBottom: isPinnedToBottom,
             userHasScrolled: userHasScrolled,
-            recentEvents: ring.values,
-            lifecycle: lifecycleLog.events,
-            corrections: 0,
-            recovered: false,
-            msToRecover: 0
+            lifecycle: lifecycleLog.events
         )
         let fileStore = self.fileStore
         Task {

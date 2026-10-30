@@ -21,11 +21,6 @@ func configureLiveIndicatorAnimations(_ app: XCUIApplication, freeze: Bool = tru
     app.launchArguments += ["-CCFreezeLiveIndicators", "YES"]
 }
 
-func configureTranscriptEngine(_ app: XCUIApplication) {
-    guard let engine = ProcessInfo.processInfo.environment["TEST_RUNNER_CC_TRANSCRIPT_ENGINE"], !engine.isEmpty else { return }
-    app.launchArguments += ["-CCTranscriptEngine", engine]
-}
-
 func transcriptScroll(in app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: "transcript-scroll").firstMatch
 }
@@ -346,7 +341,6 @@ class FixtureFlowTestSupport: XCTestCase {
         if let probeInterval {
             app.launchArguments += ["-CCProbeInterval", String(probeInterval)]
         }
-        configureTranscriptEngine(app)
         configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)
         dismissLeftoverNotificationPrompt()
         app.launch()

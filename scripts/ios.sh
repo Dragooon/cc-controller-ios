@@ -825,7 +825,6 @@ configure_xctestrun() {
     TEST_RUNNER_MOTION_TRACE "${TEST_RUNNER_MOTION_TRACE:-}"
     TEST_RUNNER_MOTION_SCENARIO "${TEST_RUNNER_MOTION_SCENARIO:-}"
     TEST_RUNNER_MOTION_ORIENTATION "${TEST_RUNNER_MOTION_ORIENTATION:-}"
-    TEST_RUNNER_CC_TRANSCRIPT_ENGINE "${TEST_RUNNER_CC_TRANSCRIPT_ENGINE:-}"
     CCMotionBuildSHA "${CCMotionBuildSHA:-}"
     CCMotionDevice "${CCMotionDevice:-}"
     CC_FLOW_OUTPUT_DIR "$output_dir"
@@ -1774,11 +1773,10 @@ motion_build_products() {
 
 cmd_motion() {
   prune_scratch
-  local scenarios="all" engines="both" device="iphone" out_dir="" orientation="portrait" rebuild=0 video_enabled=0
+  local scenarios="all" device="iphone" out_dir="" orientation="portrait" rebuild=0 video_enabled=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --scenario) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --scenario requires a value' >&2; return 2; }; scenarios=$2; shift 2;;
-      --engine) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --engine requires a value' >&2; return 2; }; engines=$2; shift 2;;
       --device) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --device requires a value' >&2; return 2; }; device=$2; shift 2;;
       --out) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --out requires a value' >&2; return 2; }; out_dir=$2; shift 2;;
       --orientation) [[ $# -ge 2 ]] || { printf '%s\n' 'motion --orientation requires a value' >&2; return 2; }; orientation=$2; shift 2;;
@@ -1789,16 +1787,9 @@ cmd_motion() {
   done
   [[ "$device" == iphone || "$device" == duo ]] || { printf 'motion --device must be iphone or duo\n' >&2; return 2; }
   [[ "$orientation" == portrait || "$orientation" == landscape ]] || { printf 'motion --orientation must be portrait or landscape\n' >&2; return 2; }
-  [[ "$engines" == legacy || "$engines" == collection || "$engines" == both ]] || { printf 'motion --engine must be legacy, collection, or both\n' >&2; return 2; }
   if [[ "$scenarios" == all ]]; then scenarios="K1,K2,S1,S2,H1,P1"; fi
-  local scenario engine
+  local scenario
   IFS=, read -r -a motion_scenarios <<< "$scenarios"
-  motion_engines=()
-  case "$engines" in
-    legacy) motion_engines=(legacy);;
-    collection) motion_engines=(collection);;
-    both) motion_engines=(legacy collection);;
-  esac
   for scenario in "${motion_scenarios[@]}"; do
     [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == H1 || "$scenario" == P1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
   done
@@ -1830,96 +1821,93 @@ cmd_motion() {
   app_sha=$(git -C "$ROOT" rev-parse --short HEAD)
   local device_name="$motion_device_type"
   for scenario in "${motion_scenarios[@]}"; do
-    for engine in "${motion_engines[@]}"; do
-      local run="$(printf '%s-%s' "$scenario" "$engine")"
-      local trace_name="$run.jsonl" case_log="$motion_scratch_dir/$run.xcodebuild.log" video=""
-      [[ "$video_enabled" -eq 0 ]] || video="$motion_scratch_dir/$run.mp4"
-      local result="$motion_scratch_dir/$run.xcresult" run_xctestrun="$RUN_DIR/$run.xctestrun"
-      local case_status=0 container trace_source trace_path
-      local run_load_start run_load_end trace_lines frame_count video_size
-      run_load_start=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
-      [[ -z "$video" ]] || rm -f "$video"
-      rm -f "$run_dir/$trace_name" "$run_dir/$run.analysis.json" "$run_dir/$run.analysis.stdout" "$run_dir/$run.json"
-      stop_fixture_daemon
-      reset_flow_state "$MOTION_UDID"
-      xcrun simctl ui "$MOTION_UDID" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
-      xcrun simctl install "$MOTION_UDID" "$app_bundle"
-      FIXTURE_SIM_UDID="$MOTION_UDID"
-      start_fixture_daemon "$motion_scratch_dir/$run.fixture.log"
-      local web_port bearer control_port
-      web_port=$(json_value "$FIXTURE_OUT" webPort)
-      bearer=$(json_value "$FIXTURE_OUT" bearer)
-      control_port=$(json_value "$FIXTURE_OUT" controlPort)
-      export TEST_RUNNER_MOTION_TRACE="$trace_name"
-      export TEST_RUNNER_MOTION_SCENARIO="$scenario"
-      export TEST_RUNNER_MOTION_ORIENTATION="$orientation"
-      export TEST_RUNNER_CC_TRANSCRIPT_ENGINE="$engine"
-      export CCMotionBuildSHA="$app_sha"
-      export CCMotionDevice="$device_name"
-      if ! configure_xctestrun "$source_xctestrun" "$run_xctestrun" \
-        "http://127.0.0.1:$web_port" "$bearer" "http://127.0.0.1:$control_port" \
-        "${TEST_RUNNER_COLOR_SCHEME:-light}" "$run_dir"; then
-        case_status=1
+    local run="$scenario"
+    local trace_name="$run.jsonl" case_log="$motion_scratch_dir/$run.xcodebuild.log" video=""
+    [[ "$video_enabled" -eq 0 ]] || video="$motion_scratch_dir/$run.mp4"
+    local result="$motion_scratch_dir/$run.xcresult" run_xctestrun="$RUN_DIR/$run.xctestrun"
+    local case_status=0 container trace_source trace_path
+    local run_load_start run_load_end trace_lines frame_count video_size
+    run_load_start=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
+    [[ -z "$video" ]] || rm -f "$video"
+    rm -f "$run_dir/$trace_name" "$run_dir/$run.analysis.json" "$run_dir/$run.analysis.stdout" "$run_dir/$run.json"
+    stop_fixture_daemon
+    reset_flow_state "$MOTION_UDID"
+    xcrun simctl ui "$MOTION_UDID" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
+    xcrun simctl install "$MOTION_UDID" "$app_bundle"
+    FIXTURE_SIM_UDID="$MOTION_UDID"
+    start_fixture_daemon "$motion_scratch_dir/$run.fixture.log"
+    local web_port bearer control_port
+    web_port=$(json_value "$FIXTURE_OUT" webPort)
+    bearer=$(json_value "$FIXTURE_OUT" bearer)
+    control_port=$(json_value "$FIXTURE_OUT" controlPort)
+    export TEST_RUNNER_MOTION_TRACE="$trace_name"
+    export TEST_RUNNER_MOTION_SCENARIO="$scenario"
+    export TEST_RUNNER_MOTION_ORIENTATION="$orientation"
+    export CCMotionBuildSHA="$app_sha"
+    export CCMotionDevice="$device_name"
+    if ! configure_xctestrun "$source_xctestrun" "$run_xctestrun" \
+      "http://127.0.0.1:$web_port" "$bearer" "http://127.0.0.1:$control_port" \
+      "${TEST_RUNNER_COLOR_SCHEME:-light}" "$run_dir"; then
+      case_status=1
+    fi
+    if [[ "$orientation" == landscape ]]; then
+      export TEST_RUNNER_MOTION_ORIENTATION=landscape
+    fi
+    if [[ $case_status -eq 0 ]]; then
+      if [[ "$video_enabled" -eq 1 ]]; then
+        xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
+        MOTION_VIDEO_PID=$!
       fi
-      if [[ "$orientation" == landscape ]]; then
-        export TEST_RUNNER_MOTION_ORIENTATION=landscape
-      fi
-      if [[ $case_status -eq 0 ]]; then
-        if [[ "$video_enabled" -eq 1 ]]; then
-          xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
-          MOTION_VIDEO_PID=$!
-        fi
-        local motion_method
-        case "$scenario" in
-          K1) motion_method=testK1KeyboardOpen;;
-          K2) motion_method=testK2KeyboardDismissByTranscriptDrag;;
-          S1) motion_method=testS1SendShort;;
-          S2) motion_method=testS2SendMultiline;;
-          H1) motion_method=testH1UnpinnedAppend;;
-          P1) motion_method=testP1LoadEarlier;;
-        esac
-        local args=(xcodebuild -xctestrun "$run_xctestrun" -destination "id=$MOTION_UDID" -resultBundlePath "$result" \
-          "-only-testing:CCControllerUITests/MotionFlowTests/$motion_method" -collect-test-diagnostics never test-without-building)
-        if run_flow_test "motion $run $orientation" "$case_log" "${args[@]}"; then
-          :
-        else
-          case_status=$?
-        fi
-      fi
-      stop_motion_video
-      sleep 1
-      stop_fixture_daemon
-      container=$(xcrun simctl get_app_container "$MOTION_UDID" "$BUNDLE_ID" data)
-      trace_source=$(find "$container" -type f -name "$trace_name" -print -quit)
-      if [[ -n "$trace_source" && -f "$trace_source" ]]; then
-        cp "$trace_source" "$run_dir/$trace_name"
+      local motion_method
+      case "$scenario" in
+        K1) motion_method=testK1KeyboardOpen;;
+        K2) motion_method=testK2KeyboardDismissByTranscriptDrag;;
+        S1) motion_method=testS1SendShort;;
+        S2) motion_method=testS2SendMultiline;;
+        H1) motion_method=testH1UnpinnedAppend;;
+        P1) motion_method=testP1LoadEarlier;;
+      esac
+      local args=(xcodebuild -xctestrun "$run_xctestrun" -destination "id=$MOTION_UDID" -resultBundlePath "$result" \
+        "-only-testing:CCControllerUITests/MotionFlowTests/$motion_method" -collect-test-diagnostics never test-without-building)
+      if run_flow_test "motion $run $orientation" "$case_log" "${args[@]}"; then
+        :
       else
-        printf 'motion trace missing for %s: %s\n' "$run" "$trace_name" >&2
-        case_status=1
+        case_status=$?
       fi
-      trace_path="$run_dir/$trace_name"
-      if [[ -f "$trace_path" && -f "$CONTROLLER_ROOT/scripts/motion/analyze.js" ]]; then
-        if ! node "$CONTROLLER_ROOT/scripts/motion/analyze.js" "$trace_path" --json "$run_dir/$run.analysis.json" >"$run_dir/$run.analysis.stdout" 2>&1; then
-          printf 'motion analyzer did not pass for %s; see %s\n' "$run" "$run_dir/$run.analysis.stdout" >&2
-        fi
+    fi
+    stop_motion_video
+    sleep 1
+    stop_fixture_daemon
+    container=$(xcrun simctl get_app_container "$MOTION_UDID" "$BUNDLE_ID" data)
+    trace_source=$(find "$container" -type f -name "$trace_name" -print -quit)
+    if [[ -n "$trace_source" && -f "$trace_source" ]]; then
+      cp "$trace_source" "$run_dir/$trace_name"
+    else
+      printf 'motion trace missing for %s: %s\n' "$run" "$trace_name" >&2
+      case_status=1
+    fi
+    trace_path="$run_dir/$trace_name"
+    if [[ -f "$trace_path" && -f "$CONTROLLER_ROOT/scripts/motion/analyze.js" ]]; then
+      if ! node "$CONTROLLER_ROOT/scripts/motion/analyze.js" "$trace_path" --json "$run_dir/$run.analysis.json" >"$run_dir/$run.analysis.stdout" 2>&1; then
+        printf 'motion analyzer did not pass for %s; see %s\n' "$run" "$run_dir/$run.analysis.stdout" >&2
       fi
-      run_load_end=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
-      trace_lines=0; frame_count=0
-      if [[ -f "$trace_path" ]]; then
-        trace_lines=$(wc -l < "$trace_path" | tr -d ' ')
-        frame_count=$(grep -c '"t":"frame"' "$trace_path" || true)
-      fi
-      video_size=0
-      [[ -f "$video" ]] && video_size=$(stat -f %z "$video")
-      MOTION_JSON_FILE="$run_dir/$run.json" MOTION_SCENARIO="$scenario" MOTION_ENGINE="$engine" \
-        MOTION_DEVICE="$device_name" MOTION_UDID="$MOTION_UDID" MOTION_ORIENTATION="$orientation" \
-        MOTION_LOAD_START="$run_load_start" MOTION_LOAD_END="$run_load_end" MOTION_VIDEO="$video" \
-        MOTION_SHA="$app_sha" MOTION_TRACE="$trace_path" MOTION_TRACE_LINES="$trace_lines" MOTION_FRAME_COUNT="$frame_count" \
-        MOTION_VIDEO_SIZE="$video_size" node - <<'NODE'
+    fi
+    run_load_end=$(sysctl -n vm.loadavg | tr -d '{},' | awk '{print $1}')
+    trace_lines=0; frame_count=0
+    if [[ -f "$trace_path" ]]; then
+      trace_lines=$(wc -l < "$trace_path" | tr -d ' ')
+      frame_count=$(grep -c '"t":"frame"' "$trace_path" || true)
+    fi
+    video_size=0
+    [[ -f "$video" ]] && video_size=$(stat -f %z "$video")
+    MOTION_JSON_FILE="$run_dir/$run.json" MOTION_SCENARIO="$scenario" \
+      MOTION_DEVICE="$device_name" MOTION_UDID="$MOTION_UDID" MOTION_ORIENTATION="$orientation" \
+      MOTION_LOAD_START="$run_load_start" MOTION_LOAD_END="$run_load_end" MOTION_VIDEO="$video" \
+      MOTION_SHA="$app_sha" MOTION_TRACE="$trace_path" MOTION_TRACE_LINES="$trace_lines" MOTION_FRAME_COUNT="$frame_count" \
+      MOTION_VIDEO_SIZE="$video_size" node - <<'NODE'
 const fs = require('node:fs');
 const p = {
   scenario: process.env.MOTION_SCENARIO,
-  engine: process.env.MOTION_ENGINE,
   device: process.env.MOTION_DEVICE,
   simulatorUDID: process.env.MOTION_UDID,
   orientation: process.env.MOTION_ORIENTATION,
@@ -1934,11 +1922,10 @@ const p = {
 };
 fs.writeFileSync(process.env.MOTION_JSON_FILE, JSON.stringify(p, null, 2) + '\n');
 NODE
-      printf 'motion %s trace_lines=%s frames=%s video_bytes=%s status=%s\n' "$run" "$trace_lines" "$frame_count" "$video_size" "$case_status"
-      [[ $case_status -eq 0 ]] || return 1
-    done
+    printf 'motion %s trace_lines=%s frames=%s video_bytes=%s status=%s\n' "$run" "$trace_lines" "$frame_count" "$video_size" "$case_status"
+    [[ $case_status -eq 0 ]] || return 1
   done
-  unset TEST_RUNNER_MOTION_TRACE TEST_RUNNER_MOTION_SCENARIO TEST_RUNNER_MOTION_ORIENTATION TEST_RUNNER_CC_TRANSCRIPT_ENGINE CCMotionBuildSHA CCMotionDevice
+  unset TEST_RUNNER_MOTION_TRACE TEST_RUNNER_MOTION_SCENARIO TEST_RUNNER_MOTION_ORIENTATION CCMotionBuildSHA CCMotionDevice
   xcrun simctl shutdown "$MOTION_UDID" >/dev/null 2>&1 || true
   MOTION_UDID=""
   printf 'motion evidence written to %s\n' "$out_dir"
@@ -4123,5 +4110,5 @@ case "${1:-}" in
   pool) shift; cmd_pool "$@";;
   clean) shift; cmd_clean "$@";;
   install) shift; cmd_install "$@";;
-  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--slice <K/N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--engine legacy|collection|both] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
+  *) printf 'Usage: %s {generate|build|test|release-check|perf|perf-real|archive|upload|ota [--sha <commit>] [--dry-run]|gate (CC_GATE_SHARDS overrides pool-slot shard count)|real-smoke|shots|flows [--test <Class[/method]>]... [--device <name>] [--shards <N>] [--slice <K/N>] [--no-rerun] [--per-method]|motion [--scenario K1,K2,S1,S2,H1,P1|all] [--device iphone|duo] [--orientation portrait|landscape] [--out DIR] [--rebuild] [--video]|mocks|pool|clean|install [--device <udid-or-name>] [--launch]}\n' "$0" >&2; exit 2;;
 esac
