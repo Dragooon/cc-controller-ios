@@ -36,6 +36,32 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(row.waitToExist(timeout: 10), "Unarchive did not restore the Recents row")
     }
 
+    func testPinFromLeadingSwipeAndUnpinFromContextMenu() async throws {
+        let app = launchSignedIn()
+        defer { app.terminate() }
+
+        let row = app.buttons["session-dune-part-three-imax-tickets"]
+        XCTAssertTrue(row.waitToExist(timeout: 75), "Recents fixture session was not listed")
+        row.swipeRight()
+        let pin = app.buttons["session-pin-dune-part-three-imax-tickets"]
+        XCTAssertTrue(pin.waitToExist(timeout: 10), "Pin swipe action did not appear")
+        addScreenshot(named: "pin-swipe-action")
+        pin.tap()
+
+        let header = app.descendants(matching: .any).matching(identifier: "sessions-pinned-header").firstMatch
+        XCTAssertTrue(header.waitToExist(timeout: 10), "Pinned section did not appear")
+        XCTAssertTrue(row.waitToExist(timeout: 10), "Pinned row was not listed")
+        XCTAssertLessThan(row.frame.minY, app.staticTexts["Recents"].frame.minY, "Pinned row was not above Recents")
+        addScreenshot(named: "pinned-section")
+
+        row.press(forDuration: 1)
+        let unpin = app.buttons["session-unpin-dune-part-three-imax-tickets"]
+        XCTAssertTrue(unpin.waitToExist(timeout: 10), "Unpin context action did not appear")
+        unpin.tap()
+        XCTAssertTrue(header.waitToDisappear(timeout: 10), "Pinned section stayed after unpinning")
+        XCTAssertTrue(row.waitToExist(timeout: 10), "Unpinned row did not return to Recents")
+    }
+
     func testEndBackgroundFromContextMenuThenArchiveSleepingSession() async throws {
         try await postFixture("/fixture/sleeping-seed")
         let app = launchSignedIn()

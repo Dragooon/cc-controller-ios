@@ -95,6 +95,7 @@ struct SessionsListView: View {
     @State private var archiveToast: ArchiveToast?
     @State private var archiveToastTask: Task<Void, Never>?
     @AppStorage("sessions.archived.collapsed") private var archivedCollapsed = true
+    @AppStorage("sessions.pinned") private var pinnedStored = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.colorScheme) private var colorScheme
@@ -211,7 +212,25 @@ struct SessionsListView: View {
         sortSessionItems(sessionItems.filter { sessionActivity($0.session) == .needsYou })
     }
 
+    private var pins: PinnedSessions { PinnedSessions(stored: pinnedStored) }
+
+    /// Pinned sessions stay in the order they were pinned, so they don't move as activity changes.
+    private var pinnedItems: [RecentSessionItem] {
+        let pins = self.pins
+        return unarchivedItems
+            .filter { pins.contains($0.pinKey) }
+            .sorted { (pins.position(of: $0.pinKey) ?? 0) < (pins.position(of: $1.pinKey) ?? 0) }
+    }
+
     private var recentItems: [RecentSessionItem] {
+        let pins = self.pins
+        let now = Date()
+        return unarchivedItems
+            .filter { !pins.contains($0.pinKey) }
+            .sorted { recentSessionPrecedes($0, $1, now: now) }
+    }
+
+    private var unarchivedItems: [RecentSessionItem] {
         let live = sessionItems
             .filter { $0.session.archivedAt == nil && sessionActivity($0.session) != .needsYou }
             .map(RecentSessionItem.live)
@@ -220,8 +239,13 @@ struct SessionsListView: View {
                 .filter { $0.archivedAt == nil }
                 .map { RecentSessionItem.sleeping(ControllerSleepingItem(controller: controller, session: $0)) }
         }
-        let now = Date()
-        return (live + sleeping).sorted { recentSessionPrecedes($0, $1, now: now) }
+        return live + sleeping
+    }
+
+    private func setPinned(_ pinned: Bool, key: String) {
+        var pins = self.pins
+        pins.setPinned(pinned, key: key)
+        withAnimation(reduceMotion ? nil : .smooth) { pinnedStored = pins.stored }
     }
 
     private func recentSessionPrecedes(_ left: RecentSessionItem, _ right: RecentSessionItem, now: Date) -> Bool {
@@ -485,15 +509,24 @@ struct SessionsListView: View {
                         .padding(.top, 8)
                 }
             }
+            if !pinnedItems.isEmpty {
+                Section {
+                    ForEach(pinnedItems) { item in
+                        recentRow(item)
+                    }
+                } header: {
+                    Text("Pinned")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.ccSecondary)
+                        .textCase(nil)
+                        .padding(.top, 8)
+                        .accessibilityIdentifier("sessions-pinned-header")
+                }
+            }
             if !recentItems.isEmpty {
                 Section {
                     ForEach(recentItems) { item in
-                        switch item {
-                        case .live(let item):
-                            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
-                        case .sleeping(let item):
-                            sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
-                        }
+                        recentRow(item)
                     }
                 } header: {
                     Text("Recents")
@@ -523,7 +556,7 @@ struct SessionsListView: View {
                     .padding(.top, 8)
                 }
             }
-            if needsYouItems.isEmpty && recentItems.isEmpty && archivedCount == 0 {
+            if needsYouItems.isEmpty && pinnedItems.isEmpty && recentItems.isEmpty && archivedCount == 0 {
                 Section {
                     Text(query.isEmpty ? "No sessions" : "No matches")
                         .font(.subheadline)
@@ -556,6 +589,16 @@ struct SessionsListView: View {
 
     // MARK: Shared rows
 
+    @ViewBuilder
+    private func recentRow(_ item: RecentSessionItem) -> some View {
+        switch item {
+        case .live(let item):
+            sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
+        case .sleeping(let item):
+            sleepingRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
+        }
+    }
+
     private func sleepingRow(_ session: SleepingSession, controller: SessionsListController, showsControllerName: Bool, isArchived: Bool) -> some View {
         SleepingSessionRow(
             session: session,
@@ -564,6 +607,7 @@ struct SessionsListView: View {
             canWake: controller.capabilities.contains(.wake),
             canArchive: controller.capabilities.contains(.archive),
             isArchived: isArchived,
+            pin: isArchived ? nil : pinToggle(sleepingSessionKey(controllerID: controller.id, sessionID: session.id)),
             onWake: { onWake(controller.id, session) },
             onCopyAttachCommand: { onCopyAttachCommand(session) },
             onArchive: { archive(controller.id, session.id, !isArchived, name: session.name ?? session.project) }
@@ -575,7 +619,8 @@ struct SessionsListView: View {
 
     private func sessionRow(_ session: Session, controller: SessionsListController, showsControllerName: Bool, isArchived: Bool) -> some View {
         let hasPendingApproval = controller.approval(for: session) != nil
-        let canManageSession = sessionActivity(session) != .needsYou && !hasPendingApproval
+        let needsYou = sessionActivity(session) == .needsYou
+        let canManageSession = !needsYou && !hasPendingApproval
         return SessionRow(
             session: session,
             approval: controller.approval(for: session),
@@ -590,6 +635,7 @@ struct SessionsListView: View {
             canArchive: canManageSession && controller.capabilities.contains(.archive),
             canEnd: canManageSession && controller.capabilities.contains(.close) && session.closable,
             isArchived: isArchived,
+            pin: isArchived || needsYou ? nil : session.id.map { pinToggle(sleepingSessionKey(controllerID: controller.id, sessionID: $0)) },
             onOpen: { onOpen(controller.id, session) },
             onAllow: { onAllow(controller.id, $0) },
             onDeny: { onDeny(controller.id, $0) },
@@ -603,6 +649,11 @@ struct SessionsListView: View {
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .modifier(SessionsListRowBackground())
         .listRowSeparator(.hidden)
+    }
+
+    private func pinToggle(_ key: String) -> PinToggle {
+        let isPinned = pins.contains(key)
+        return PinToggle(key: key, isPinned: isPinned) { setPinned(!isPinned, key: key) }
     }
 
     private func archive(_ controllerID: ControllerID, _ sessionID: String?, _ archived: Bool, name: String) {
@@ -639,7 +690,7 @@ struct SessionsListView: View {
     }
 
     private var listAnimationKey: [String] {
-        var keys: [String] = []
+        var keys = pinnedItems.map { "pinned:\($0.id)" }
         for (position, item) in recentItems.enumerated() {
             switch item {
             case .live(let item):
@@ -748,6 +799,14 @@ private enum RecentSessionItem: Identifiable {
         }
     }
 
+    /// "controller/session", the same for a session asleep or awake.
+    var pinKey: String {
+        switch self {
+        case .live(let item): item.session.id == nil ? "" : item.id
+        case .sleeping(let item): item.id
+        }
+    }
+
     func activityDate(now: Date) -> Date {
         switch self {
         case .live(let item):
@@ -760,6 +819,34 @@ private enum RecentSessionItem: Identifiable {
             }
         case .sleeping(let item):
             return item.session.lastActiveAt
+        }
+    }
+}
+
+/// A row's pin state and the action that flips it; rows that can't be pinned get none.
+private struct PinToggle {
+    let key: String
+    let isPinned: Bool
+    let toggle: () -> Void
+
+    var title: String { isPinned ? "Unpin" : "Pin" }
+    var systemImage: String { isPinned ? "pin.slash" : "pin" }
+    var identifier: String { "session-\(isPinned ? "unpin" : "pin")-\(key.split(separator: "/", maxSplits: 1).last ?? "")" }
+}
+
+private struct PinSwipeAction: ViewModifier {
+    let pin: PinToggle?
+
+    func body(content: Content) -> some View {
+        content.swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if let pin {
+                Button(action: pin.toggle) {
+                    Label(pin.title, systemImage: pin.systemImage)
+                }
+                .tint(.orange)
+                .accessibilityLabel("\(pin.title) session")
+                .accessibilityIdentifier(pin.identifier)
+            }
         }
     }
 }
@@ -857,6 +944,7 @@ private struct SessionRow: View {
     let canArchive: Bool
     let canEnd: Bool
     let isArchived: Bool
+    let pin: PinToggle?
     let onOpen: () -> Void
     let onAllow: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -898,6 +986,7 @@ private struct SessionRow: View {
             }
         }
         .padding(.vertical, 10)
+        .modifier(PinSwipeAction(pin: pin))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canArchive {
                 Button(action: onArchive) {
@@ -918,6 +1007,10 @@ private struct SessionRow: View {
         }
         .contextMenu {
             Button("Open", action: onOpen)
+            if let pin {
+                Button(pin.title, systemImage: pin.systemImage, action: pin.toggle)
+                    .accessibilityIdentifier(pin.identifier)
+            }
             if canArchive {
                 Button(isArchived ? "Unarchive" : "Archive", action: onArchive)
                     .accessibilityIdentifier("session-\(isArchived ? "unarchive" : "archive")-\(session.id ?? "")")
@@ -978,6 +1071,7 @@ private struct SleepingSessionRow: View {
     let canWake: Bool
     let canArchive: Bool
     let isArchived: Bool
+    let pin: PinToggle?
     let onWake: () -> Void
     let onCopyAttachCommand: () -> Void
     let onArchive: () -> Void
@@ -1017,6 +1111,7 @@ private struct SleepingSessionRow: View {
         .disabled(!canWake)
         .accessibilityIdentifier("sleeping-session-\(session.id)")
         .accessibilityValue(isWaking ? "Waking" : "asleep")
+        .modifier(PinSwipeAction(pin: pin))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canArchive {
                 Button(action: onArchive) {
@@ -1028,6 +1123,10 @@ private struct SleepingSessionRow: View {
             }
         }
         .contextMenu {
+            if let pin {
+                Button(pin.title, systemImage: pin.systemImage, action: pin.toggle)
+                    .accessibilityIdentifier(pin.identifier)
+            }
             if canArchive {
                 Button(isArchived ? "Unarchive" : "Archive", action: onArchive)
                     .accessibilityIdentifier("session-\(isArchived ? "unarchive" : "archive")-\(session.id)")
