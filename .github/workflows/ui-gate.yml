@@ -16,12 +16,18 @@ on:
       tests:
         description: Only these flows, space-separated Class or Class/method (one runner); empty runs the suite
         default: ""
+      device:
+        description: Run on this simulator instead (e.g. "iPhone Duo") and keep its screenshots
+        default: ""
+      engine:
+        description: Transcript engine for the flows that honour it (empty = collection, or "legacy")
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}
+  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}
   cancel-in-progress: true
 
 jobs:
@@ -35,6 +41,8 @@ jobs:
     env:
       SLICES: ${{ inputs.tests && 1 || 5 }}
       TESTS: ${{ inputs.tests }}
+      DEVICE: ${{ inputs.device }}
+      TEST_RUNNER_CC_TRANSCRIPT_ENGINE: ${{ inputs.engine }}
       CC_CONTROLLER_ROOT: ${{ github.workspace }}/cc-controller
       CC_EVIDENCE_DIR: ${{ github.workspace }}/evidence
       # The runners are 2-3x slower than the Mac; timed fixture scripts stretch by this much.
@@ -64,11 +72,12 @@ jobs:
           started=$SECONDS
           filters=()
           for test in $TESTS; do filters+=(--test "$test"); done
+          if [[ -n "$DEVICE" ]]; then filters+=(--device "$DEVICE"); fi
           bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '1' }}" "${filters[@]}"
           echo "slice ${{ matrix.slice }} wall-clock=$((SECONDS - started))s"
 
-      - name: Keep the evidence when the slice fails
-        if: failure()
+      - name: Keep the evidence when the slice fails or a device was chosen
+        if: failure() || inputs.device != ''
         uses: actions/upload-artifact@v7
         with:
           name: flows-evidence-slice-${{ matrix.slice }}

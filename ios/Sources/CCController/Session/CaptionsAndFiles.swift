@@ -259,7 +259,6 @@ struct WorkedFooter: View {
         }
         .font(.caption)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, -8)
     }
 }
 

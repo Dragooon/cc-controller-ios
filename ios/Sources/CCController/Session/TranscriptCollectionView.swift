@@ -682,9 +682,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         collectionView.keyboardDismissMode = .interactive
         collectionView.alwaysBounceVertical = true
         collectionView.accessibilityIdentifier = "transcript-scroll"
-        if #available(iOS 26.0, *) {
-            collectionView.bottomEdgeEffect.style = .hard
-        }
+        // No edge effect under the composer, matching the warm palette's transcript.
+        collectionView.bottomEdgeEffect.isHidden = true
         context.coordinator.attach(collectionView: collectionView)
         _ = context.coordinator.update(self)
         return collectionView
