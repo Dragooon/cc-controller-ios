@@ -73,7 +73,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         try await setBiometricEnrollment(true)
         try await reachFaceID(onboarding)
         onboarding.buttons["Turn on Face ID"].tap()
-        try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], "Onboarding did not load Sessions")
+        try await completeFaceID(onboarding, until: onboarding.staticTexts["Sessions"], retry: onboarding.buttons["Turn on Face ID"], "Onboarding did not load Sessions")
         onboarding.terminate()
         try await Task.sleep(for: .seconds(unlockAge + 1))
 
@@ -90,10 +90,15 @@ final class LockFlowTests: FixtureFlowTestSupport {
         print("Cold-launch prompt check SpringBoard alert labels: \(springboard.alerts.allElementsBoundByIndex.map(\.label))")
         let cancel = springboard.buttons["Cancel"].firstMatch
         XCTAssertTrue(cancel.waitToExist(timeout: 10), "Face ID Cancel button did not appear")
-        cancel.tap()
-
+        // A tap during the "not recognised" shake is swallowed and leaves the prompt up, so tap
+        // again until the prompt reports the cancel.
         let cancelMessage = app.staticTexts["Unlock with Face ID to continue."]
-        if !cancelMessage.waitToExist(timeout: 10) {
+        let cancelDeadline = Date().addingTimeInterval(10)
+        while !cancelMessage.exists && Date() < cancelDeadline {
+            if cancel.exists && cancel.isHittable { cancel.tap() }
+            _ = cancelMessage.waitToExist(timeout: 1.5)
+        }
+        if !cancelMessage.exists {
             addScreenshot(named: "lock-screen-cancel-missing")
             let shown = app.staticTexts.allElementsBoundByIndex.map(\.label)
             XCTFail("Cancel message did not appear on the lock screen; it showed \(shown)")
