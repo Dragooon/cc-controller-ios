@@ -38,15 +38,6 @@ jobs:
         with:
           path: cc-controller-ios
 
-      # A fresh simulator's first boot takes 5-6 minutes on these runners. Start it now so it
-      # overlaps with the installs and the build; ios.sh reuses the clone by name and waits
-      # for the boot to finish. Only slot 1's flows device is booted early.
-      - name: Start booting the flows simulator
-        run: |
-          udid=$(xcrun simctl create "ccpool-1-iPhone 16 Plus" "iPhone 16 Plus" com.apple.CoreSimulator.SimRuntime.iOS-27-0)
-          nohup xcrun simctl bootstatus "$udid" -b > "$RUNNER_TEMP/early-boot.log" 2>&1 &
-          echo "early boot started for $udid"
-
       - uses: actions/checkout@v7
         with:
           repository: Dragooon/cc-controller

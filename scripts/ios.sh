@@ -703,7 +703,15 @@ pool_shutdown_slot_devices() {
 release_pool_slot() {
   [[ -z "$POOL_SLOT" ]] && return 0
   local slot=$POOL_SLOT
-  local lock pid
+  local lock pid device name udid
+  # Devices were in use until now. Without this, a session longer than POOL_IDLE_SECONDS makes
+  # the next acquire (the rerun phase) shut down and reboot the device it is about to use.
+  for device in "${POOL_DEVICE_TYPES[@]}"; do
+    name=$(pool_device_name "$slot" "$device")
+    udid=$(simulator_udid "$name" || true)
+    [[ -n "$udid" && "$(simulator_state "$udid" || true)" == 'Booted' ]] || continue
+    printf '%s\n' "$(date +%s)" > "$(pool_last_use_file "$slot" "$device")"
+  done
   if (( slot >= 3 )); then
     pool_shutdown_slot_devices "$slot" || true
   fi
