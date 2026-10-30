@@ -175,7 +175,7 @@ final class AuthTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
-    func testRevokedSecretReturnsToUnpaired() async throws {
+    func testRevokedSecretAsksForPairingAndKeepsTheKeys() async throws {
         AuthURLProtocol.handler = { request in
             if request.url?.path == "/api/auth/native/login" { return AuthURLProtocol.json(401, body: Data("{\"error\":\"Unknown device secret\"}".utf8)) }
             return AuthURLProtocol.json(Data("{}".utf8))
@@ -186,8 +186,33 @@ final class AuthTests: XCTestCase {
         XCTAssertEqual(auth.state, .unpaired)
         let deviceToken = try await credentials.getDeviceToken()
         let nativeSecret = try await credentials.getNativeSecret()
-        XCTAssertNil(deviceToken)
-        XCTAssertNil(nativeSecret)
+        XCTAssertEqual(deviceToken, "device")
+        XCTAssertEqual(nativeSecret, "revoked")
+        _ = await auth.unpair()
+        let deviceTokenAfterUnpair = try await credentials.getDeviceToken()
+        let nativeSecretAfterUnpair = try await credentials.getNativeSecret()
+        XCTAssertNil(deviceTokenAfterUnpair)
+        XCTAssertNil(nativeSecretAfterUnpair)
+    }
+
+    func testOtherLoginRejectionsKeepThePairing() async throws {
+        let replies = [
+            AuthURLProtocol.json(401, body: Data("{\"error\":\"Unauthorized\"}".utf8)),
+            AuthURLProtocol.json(401, body: Data("<html>not the daemon</html>".utf8)),
+            AuthURLProtocol.json(Data("{\"authenticated\":false}".utf8))
+        ]
+        for reply in replies {
+            AuthURLProtocol.handler = { _ in reply }
+            let credentials = InMemoryCredentialStore(deviceToken: "device", nativeSecret: "secret")
+            let auth = AuthSession(serverURL: URL(string: "http://localhost:47832")!, credentials: credentials, session: AuthURLProtocol.session)
+            guard case .failure(let error) = await auth.unlock() else { return XCTFail("Expected a failed unlock") }
+            if case .rePair = unlockRoute(for: error) { XCTFail("\(error) should not ask for pairing") }
+            XCTAssertNotEqual(auth.state, .unpaired)
+            let deviceToken = try await credentials.getDeviceToken()
+            let nativeSecret = try await credentials.getNativeSecret()
+            XCTAssertEqual(deviceToken, "device")
+            XCTAssertEqual(nativeSecret, "secret")
+        }
     }
 
     func testAuthSessionLockDiscardsBearer() async throws {

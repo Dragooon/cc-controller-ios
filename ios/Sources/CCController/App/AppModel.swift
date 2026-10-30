@@ -989,7 +989,7 @@ final class AppModel {
         invalidateBiometricSession()
         connectionTask?.cancel()
         pairingTask?.cancel()
-        _ = await auth.unpair()
+        await auth.prepareForRepair()
         onboarding = OnboardingFlowState()
         onboarding.continueFromWelcome()
         connectionMessage = message

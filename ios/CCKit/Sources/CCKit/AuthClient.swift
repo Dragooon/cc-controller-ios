@@ -172,7 +172,8 @@ public final class AuthClient: Sendable {
         case (404, _): return .pairingExpired
         case (401, let text) where text.localizedCaseInsensitiveContains("unknown device secret"): return .unknownSecret
         case (401, let text) where text.localizedCaseInsensitiveContains("login required"): return .loginRequired
-        case (401, _): return .unknownSecret
+        // Only the daemon's explicit reply above means revoked. Any other 401 could be something else answering.
+        case (401, _): return .loginRequired
         case (409, let text) where text.localizedCaseInsensitiveContains("already enrolled"): return .alreadyEnrolled(deviceName: nil)
         case (429, _): return .rateLimited
         default: return .server(status: status, message: message)

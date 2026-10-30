@@ -189,7 +189,7 @@ public final class AuthSession {
         do {
             guard let secret = try await credentials.getNativeSecret(session: session) else { return fail(.notEnrolled) }
             let response = try await client.login(secret: secret)
-            guard response.authenticated != false, let token = response.token, !token.isEmpty else { throw AuthError.unknownSecret }
+            guard response.authenticated != false, let token = response.token, !token.isEmpty else { throw AuthError.decoding("Login response did not contain a session.") }
             let expiresAt = response.expiresAt ?? clock.now.addingTimeInterval(12 * 60 * 60)
             do {
                 try await credentials.setSessionBearer(SessionBearer(token: token, expiresAt: expiresAt))
@@ -203,8 +203,7 @@ public final class AuthSession {
         } catch {
             let mapped = asAuthError(error)
             if mapped == .unknownSecret {
-                await clearCredentials()
-                state = .unpaired
+                await prepareForRepair()
             } else {
                 state = .failed(mapped)
             }
@@ -237,6 +236,17 @@ public final class AuthSession {
             try? await credentials.deleteSessionBearer()
             return .failure(asAuthError(error))
         }
+    }
+
+    /// Asks for a new pairing without deleting the keys: a rejected login can come from the wrong responder or a
+    /// daemon mid-restart, and a new pairing overwrites them anyway. Only an explicit `unpair` deletes them.
+    public func prepareForRepair() async {
+        bearerToken = nil
+        pairingCode = nil
+        pairedDeviceToken = nil
+        deviceName = nil
+        state = .unpaired
+        try? await credentials.deleteSessionBearer()
     }
 
     public func unpair() async -> Result<Void, AuthError> {
