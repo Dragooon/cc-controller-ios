@@ -821,9 +821,13 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             noteAliases = representable.noteAliases
             if transcriptExpansion !== representable.transcriptExpansion {
                 transcriptExpansion?.onChange = nil
+                transcriptExpansion?.onHeightChange = nil
                 transcriptExpansion = representable.transcriptExpansion
                 transcriptExpansion?.onChange = { [weak self] key in
                     self?.transcriptExpansionDidChange(for: key)
+                }
+                transcriptExpansion?.onHeightChange = { [weak self] key in
+                    self?.transcriptRowHeightDidChange(for: key)
                 }
             }
             hasMoreEarlier = representable.hasMoreEarlier
@@ -866,13 +870,27 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             return readableContentMaxWidthChanged
         }
 
+        private func rowItem(forExpansionKey key: String) -> TranscriptCollectionItem? {
+            currentContent.keys.first { item in
+                guard case .row(let rowID) = item else { return false }
+                return "\(sessionIDForView):\(rowID)" == key
+            }
+        }
+
+        private func transcriptRowHeightDidChange(for key: String) {
+            guard let collectionView,
+                  let layout = collectionView.collectionViewLayout as? TranscriptListLayout,
+                  let item = rowItem(forExpansionKey: key) else { return }
+            layout.invalidateHeights(for: [item])
+            UIView.performWithoutAnimation {
+                collectionView.layoutIfNeeded()
+            }
+        }
+
         private func transcriptExpansionDidChange(for key: String) {
             guard let collectionView,
                   let layout = collectionView.collectionViewLayout as? TranscriptListLayout,
-                  let item = currentContent.keys.first(where: { item in
-                      guard case .row(let rowID) = item else { return false }
-                      return "\(sessionIDForView):\(rowID)" == key
-                  }),
+                  let item = rowItem(forExpansionKey: key),
                   let indexPath = dataSource?.indexPath(for: item),
                   let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
             let viewportTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top

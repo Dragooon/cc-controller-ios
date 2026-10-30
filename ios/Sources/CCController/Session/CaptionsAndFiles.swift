@@ -151,13 +151,19 @@ struct CompactionSummarySheet: View {
 struct FileEntryView: View {
     let entry: FileEntry
     let download: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+    let heightKey: String?
     @Environment(\.openFilePreview) private var openFilePreview
     @State private var isDownloading = false
     @State private var errorMessage: String?
 
-    init(entry: FileEntry, download: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil) {
+    init(
+        entry: FileEntry,
+        download: (@MainActor @Sendable (FileEntry) async throws -> URL)? = nil,
+        heightKey: String? = nil
+    ) {
         self.entry = entry
         self.download = download
+        self.heightKey = heightKey
     }
 
     private var fileName: String { entry.name ?? "Untitled file" }
@@ -196,7 +202,7 @@ struct FileEntryView: View {
     @ViewBuilder
     private var fileTile: some View {
         if isImage {
-            RemoteFileImageTile(entry: entry, download: download)
+            RemoteFileImageTile(entry: entry, download: download, heightKey: heightKey)
         } else {
             HStack(spacing: 10) {
                 Image(systemName: fileSymbol)

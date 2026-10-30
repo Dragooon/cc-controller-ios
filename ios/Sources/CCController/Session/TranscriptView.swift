@@ -1992,7 +1992,7 @@ struct TurnItemView: View {
         case .compaction(let entry):
             CompactionDivider(entry: entry, onOpen: onCompaction)
         case .file(let entry):
-            FileEntryView(entry: entry, download: downloadFile)
+            FileEntryView(entry: entry, download: downloadFile, heightKey: expansionKey)
         case .other:
             EmptyView()
         }

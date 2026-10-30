@@ -101,6 +101,12 @@ final class AttachmentFlowTests: XCTestCase {
         XCTAssertEqual(imageTile.frame.width, 277.0 * 280.0 / 600.0, accuracy: 1)
         XCTAssertEqual(imageTile.frame.height, 280, accuracy: 1)
         XCTAssertLessThan(imageTile.frame.width, 220)
+        // The row is first measured with the 160 pt placeholder; once the image loads it must grow.
+        let row = app.cells.containing(.any, identifier: "agent-file-image").firstMatch
+        XCTAssertTrue(
+            pollUntil(timeout: 10) { row.frame.height >= imageTile.frame.height },
+            "The transcript row (\(row.frame.height) pt) was not re-measured for the loaded image (\(imageTile.frame.height) pt)"
+        )
         addScreenshot(named: "agent-sent-file-tile")
         file.tap()
 

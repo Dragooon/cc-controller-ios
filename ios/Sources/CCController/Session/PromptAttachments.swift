@@ -8,6 +8,8 @@ final class PromptAttachmentImageCache {
     static let shared = PromptAttachmentImageCache()
 
     private let images = NSCache<NSString, UIImage>()
+    /// Pixel sizes outlive the images, so a re-measured row keeps its loaded size.
+    private var pixelSizes: [String: CGSize] = [:]
 
     private init() {
         images.countLimit = 64
@@ -19,6 +21,13 @@ final class PromptAttachmentImageCache {
 
     func insert(_ image: UIImage, sessionID: String, name: String, targetPixelSize: Int) {
         images.setObject(image, forKey: attachmentCacheKey(sessionID: sessionID, name: name, targetPixelSize: targetPixelSize) as NSString)
+        if let cgImage = image.cgImage {
+            pixelSizes["\(sessionID)/\(name)"] = CGSize(width: cgImage.width, height: cgImage.height)
+        }
+    }
+
+    func pixelSize(sessionID: String, name: String) -> CGSize? {
+        pixelSizes["\(sessionID)/\(name)"]
     }
 }
 
@@ -280,16 +289,25 @@ struct PromptAttachmentItemView: View {
 struct RemoteFileImageTile: View {
     let entry: FileEntry
     let download: (@MainActor @Sendable (FileEntry) async throws -> URL)?
+    /// The transcript row's key, so the row is measured again once the image's real size is known.
+    var heightKey: String? = nil
     @State private var image: UIImage?
     @State private var imagePixelSize: CGSize?
     @State private var unavailable = false
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.transcriptExpansion) private var transcriptExpansion
 
     private let placeholderSize = CGSize(width: 220, height: 160)
     private var targetPixelSize: Int { Int(ceil(280 * displayScale)) }
 
+    /// The sizing cell never loads the image, so it reads the size an earlier load cached.
+    private var knownPixelSize: CGSize? {
+        imagePixelSize
+            ?? PromptAttachmentImageCache.shared.pixelSize(sessionID: entry.sessionId ?? "", name: entry.name ?? "download")
+    }
+
     private var tileSize: CGSize {
-        guard let imagePixelSize else { return placeholderSize }
+        guard let imagePixelSize = knownPixelSize else { return placeholderSize }
         return fittedImageSize(
             pixelWidth: imagePixelSize.width,
             pixelHeight: imagePixelSize.height,
@@ -348,9 +366,13 @@ struct RemoteFileImageTile: View {
                 return
             }
             let image = UIImage(cgImage: decoded)
+            let measuredSize = tileSize
             cache.insert(image, sessionID: sessionID, name: name, targetPixelSize: targetPixelSize)
             self.image = image
             imagePixelSize = CGSize(width: decoded.width, height: decoded.height)
+            if let heightKey, tileSize != measuredSize {
+                transcriptExpansion?.heightChanged(for: heightKey)
+            }
         } catch {
             unavailable = true
         }
