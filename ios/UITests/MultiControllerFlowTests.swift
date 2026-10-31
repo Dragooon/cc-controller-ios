@@ -164,6 +164,7 @@ final class MultiControllerFlowTests: XCTestCase {
 
         let info = app.buttons["session-info"]
         XCTAssertTrue(info.waitToExist(timeout: 10), "Session info button did not load")
+        XCTAssertTrue(waitForStableFrame(info), "Session info button did not settle before tap")
         info.tap()
         let elapsed = app.descendants(matching: .any).matching(identifier: "inspector-elapsed").firstMatch
         XCTAssertTrue(elapsed.waitToExist(timeout: 20), "Inspector did not open")

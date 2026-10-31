@@ -732,7 +732,8 @@ final class ComposerFlowTests: XCTestCase {
             .firstMatch
         let deadline = Date().addingTimeInterval(timeout * flowTimeScale())
         repeat {
-            if pending.exists, pending.value as? String == "Sent" {
+            // The query already requires the Sent status, and the bubble can go before a second read.
+            if pending.exists {
                 for legacyStatus in ["Queued", "Sending…", "Sent"] {
                     XCTAssertFalse(app.staticTexts[legacyStatus].exists, "Legacy pending status label \(legacyStatus) was visible")
                 }

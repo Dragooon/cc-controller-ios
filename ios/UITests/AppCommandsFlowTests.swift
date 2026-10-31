@@ -108,9 +108,12 @@ final class AppCommandsFlowTests: XCTestCase {
         field.typeText("/compact")
         tapSend(in: app)
 
-        let toast = app.descendants(matching: .any).matching(identifier: "command-toast").firstMatch
+        // One query for the toast and its text: it can time out between two separate ones.
+        let toast = app.descendants(matching: .any)
+            .matching(identifier: "command-toast")
+            .matching(NSPredicate(format: "label CONTAINS %@", "Runs when the current turn ends."))
+            .firstMatch
         XCTAssertTrue(toast.waitToExist(timeout: 10), "Queued command toast did not appear")
-        XCTAssertTrue(toast.label.contains("Runs when the current turn ends."))
         addScreenshot(named: "command-queued-toast")
     }
 

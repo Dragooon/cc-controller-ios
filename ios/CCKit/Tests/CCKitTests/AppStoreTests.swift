@@ -1639,8 +1639,12 @@ final class AppStoreTests: XCTestCase {
         try await waitUntil { store.isLoaded }
         store.merge([Self.entry(id: "old")])
         app.resume()
-        try await waitUntil { bootstrapCalls >= 2 && store.entries.contains(where: { $0.id == "new" }) }
-        XCTAssertFalse(store.entries.contains(where: { $0.id == "old" }))
+        // The second bootstrap is counted before its result reaches the store, so wait for the drop itself.
+        try await waitUntil {
+            bootstrapCalls >= 2
+                && store.entries.contains(where: { $0.id == "new" })
+                && !store.entries.contains(where: { $0.id == "old" })
+        }
         app.suspend()
     }
 
