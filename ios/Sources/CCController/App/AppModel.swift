@@ -413,9 +413,6 @@ final class AppModel {
                 relayPin = try? await credentials.getRelayPin()
             }
         }
-        #if DEBUG
-        let fixtureUsesLockPolicy = arguments.contains("-CCLockInterval") || arguments.contains("-CCMaxUnlockAge")
-        #endif
         Task { @MainActor [weak self, credentials] in
             guard let self else { return }
             if debugOnboarding {
@@ -433,13 +430,6 @@ final class AppModel {
 
             lastUnlockAt = try? await credentials.getLastUnlockAt()
             lastBackgroundAt = try? await credentials.getLastBackgroundAt()
-            #if DEBUG
-            // A fixture launch that asks for no lock behaviour must not inherit an earlier test's unlock on this simulator.
-            if fixtureMode, !fixtureUsesLockPolicy {
-                lastUnlockAt = nil
-                lastBackgroundAt = nil
-            }
-            #endif
             let hasSecret = (try? await credentials.hasNativeSecret()) == true
             let hasToken = (try? await credentials.getDeviceToken()) != nil
             guard !fixtureMode else {

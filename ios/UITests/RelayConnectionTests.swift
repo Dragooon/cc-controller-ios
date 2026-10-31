@@ -7,8 +7,21 @@ final class RelayConnectionTests: FixtureFlowTestSupport {
     private var relayPin: String { requiredRunnerVariable("TEST_RUNNER_RELAY_PIN") }
     private var bearer: String { requiredRunnerVariable("TEST_RUNNER_BEARER") }
 
-    func testLoadsSessionsThroughRelay() throws {
-        let app = launchRelay(pin: relayPin, bearer: bearer)
+    /// A restart gives the fixture a new bearer, and the relay's TLS hides the header the web proxy would rewrite.
+    private func currentBearer() async throws -> String {
+        guard let supervisor = ProcessInfo.processInfo.environment["TEST_RUNNER_FIXTURE_SUPERVISOR_URL"], !supervisor.isEmpty else {
+            return bearer
+        }
+        guard let url = URL(string: "\(supervisor)/supervisor/bearer") else {
+            throw XCTSkip("Fixture supervisor URL was invalid")
+        }
+        let (data, _) = try await URLSession.shared.data(from: url)
+        let body = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return try XCTUnwrap(body?["bearer"] as? String, "Fixture supervisor returned no bearer")
+    }
+
+    func testLoadsSessionsThroughRelay() async throws {
+        let app = launchRelay(pin: relayPin, bearer: try await currentBearer())
         defer {
             addScreenshot(named: "relay-sessions-loaded")
             app.terminate()

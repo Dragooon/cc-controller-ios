@@ -206,7 +206,11 @@ final class NewSessionFlowTests: FixtureFlowTestSupport {
         let recents = app.staticTexts["Recents"]
         XCTAssertTrue(recents.waitToExist(timeout: 30), "Recents section did not load")
         addScreenshot(named: "sessions-recents")
+        // The list only holds rows near the screen, and Recents can sit at the very bottom of it.
         let row = app.buttons["sleeping-session-sleeping-dune"]
+        for _ in 0..<4 where !row.waitToExist(timeout: 3) {
+            app.collectionViews.firstMatch.swipeUp()
+        }
         XCTAssertTrue(row.waitToExist(timeout: 10), "Sleeping session row did not load")
         row.tap()
 

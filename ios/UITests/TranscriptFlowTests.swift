@@ -134,10 +134,6 @@ final class TranscriptFlowTests: XCTestCase {
 
         let divider = app.buttons["compaction-divider"]
         XCTAssertTrue(divider.waitToExist(timeout: 20), "Compaction divider did not load")
-        XCTAssertTrue(
-            divider.label.range(of: #"^Context compacted [0-2][0-9]:[0-5][0-9]$"#, options: .regularExpression) != nil,
-            "Compaction divider caption was not a short timestamped label: \(divider.label)"
-        )
         let summaryMarker = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS[c] %@", "COMPACTION_SUMMARY_MARKER")
         ).firstMatch
@@ -145,6 +141,11 @@ final class TranscriptFlowTests: XCTestCase {
         let transcriptScroll = transcriptScroll(in: app)
         scrollTowardOlderContent(until: divider, in: transcriptScroll)
         XCTAssertTrue(waitForHittable(divider, timeout: 10), "Compaction divider was not visible")
+        // Read only now: the transcript settling at the bottom can take the divider out of the list.
+        XCTAssertTrue(
+            divider.label.range(of: #"^Context compacted [0-2][0-9]:[0-5][0-9]$"#, options: .regularExpression) != nil,
+            "Compaction divider caption was not a short timestamped label: \(divider.label)"
+        )
         attach(named: "compaction-caption")
         divider.tap()
 
@@ -579,7 +580,13 @@ final class TranscriptFlowTests: XCTestCase {
         XCTAssertTrue(delivered.waitToExist(timeout: 15), "Delayed delivered prompt did not render")
         XCTAssertTrue(waitForHittable(delivered, timeout: 15), "Delayed delivered prompt was not visible at the bottom")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Reconnect and delayed delivery moved the transcript away from the bottom")
-        let paths = try await fixtureRequestPaths()
+        // Delivery can land before the reconnect that the send's closed stream starts has refetched.
+        let refetchDeadline = Date().addingTimeInterval(15 * flowTimeScale())
+        var paths = try await fixtureRequestPaths()
+        while !paths.contains(where: { $0.contains("tail=400") }), Date() < refetchDeadline {
+            try await Task.sleep(for: .milliseconds(250))
+            paths = try await fixtureRequestPaths()
+        }
         XCTAssertTrue(paths.contains { $0.contains("tail=400") }, "Delayed delivery did not exercise reconnect refetch: \(paths)")
     }
 
@@ -649,8 +656,8 @@ final class TranscriptFlowTests: XCTestCase {
     }
 
     private func scrollTowardOlderContent(until element: XCUIElement, in scrollView: XCUIElement) {
-        for _ in 0..<4 {
-            guard !element.isHittable else { return }
+        for _ in 0..<12 {
+            guard !(element.exists && element.isHittable) else { return }
             let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 120)))
         }

@@ -38,8 +38,8 @@ final class LockFlowTests: FixtureFlowTestSupport {
     }
 
     func testUnlockExpiresWhileActiveAndKeepsDraft() async throws {
-        // Slow machines need longer than 8 s to open a session and type after unlocking.
-        let app = launchOnboarding(maxUnlockAge: 8 * flowTimeScale())
+        // Long enough to open a session and type after unlocking, which took over 24 s on a loaded runner.
+        let app = launchOnboarding(maxUnlockAge: 20 * flowTimeScale())
         defer {
             audit(app, name: "lock-active-expiry")
             app.terminate()
@@ -61,7 +61,7 @@ final class LockFlowTests: FixtureFlowTestSupport {
         composer.tap()
         composer.typeText(draft)
 
-        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 15 * flowTimeScale()), "Unlock age did not expire while active")
+        XCTAssertTrue(app.staticTexts["Code is locked"].waitToExist(timeout: 30 * flowTimeScale()), "Unlock age did not expire while active")
         try await completeFaceID(app, until: composer, "Face ID did not unlock after active expiry")
         XCTAssertEqual(composer.value as? String, draft, "Composer draft was lost across the lock")
     }
