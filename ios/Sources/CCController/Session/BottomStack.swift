@@ -389,6 +389,8 @@ struct BottomStackView: View {
         #endif
         if !isSlashCommand(submittedText) {
             configuration.sendRevealCoordinator?.begin()
+            // Before the transcript's update, so the keyboard starts moving as the bubble appears.
+            composerFocused = false
         }
         isSending = true
         Task { @MainActor in

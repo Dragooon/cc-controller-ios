@@ -1130,14 +1130,16 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             var snapshot = NSDiffableDataSourceSnapshot<TranscriptCollectionSection, TranscriptCollectionItem>()
             snapshot.appendSections([.transcript])
             snapshot.appendItems(items, toSection: .transcript)
+            let oldItemSet = Set(oldItems)
+            let itemSet = Set(items)
             let changedItems = items.filter { item in
-                oldItems.contains(item) && oldContent[item] != content[item]
+                oldItemSet.contains(item) && oldContent[item] != content[item]
             }
             if !changedItems.isEmpty {
                 snapshot.reconfigureItems(changedItems)
             }
-            let inserted = items.filter { !oldItems.contains($0) }
-            let deleted = oldItems.filter { !items.contains($0) }
+            let inserted = items.filter { !oldItemSet.contains($0) }
+            let deleted = oldItems.filter { !itemSet.contains($0) }
             let animated = hasAppliedSnapshot && !reduceMotion && isNewestEndUpdate(
                 oldItems: oldItems,
                 newItems: items,
@@ -1193,11 +1195,13 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             deleted: [TranscriptCollectionItem],
             reconfigured: [TranscriptCollectionItem]
         ) -> Bool {
+            let oldItemSet = Set(oldItems)
+            let newItemSet = Set(newItems)
             let oldSurvivingContent = oldItems.enumerated().filter { _, item in
-                item != .paging && item != .row("status") && newItems.contains(item)
+                item != .paging && item != .row("status") && newItemSet.contains(item)
             }
             let newSurvivingContent = newItems.enumerated().filter { _, item in
-                item != .paging && item != .row("status") && oldItems.contains(item)
+                item != .paging && item != .row("status") && oldItemSet.contains(item)
             }
             let oldBoundary = oldSurvivingContent.last?.offset ?? -1
             let newBoundary = newSurvivingContent.last?.offset ?? -1

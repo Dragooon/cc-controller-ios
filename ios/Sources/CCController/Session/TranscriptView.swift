@@ -1857,10 +1857,13 @@ struct TranscriptStatusView: View {
     @ViewBuilder
     var body: some View {
         switch status {
+        // One height for both, so the transcript doesn't shift when a send swaps one for the other.
         case .activity(let footer):
             LiveActivityFooterView(footer: footer, session: session)
+                .frame(minHeight: 18)
         case .worked(let durationMs):
             WorkedFooter(durationMs: durationMs)
+                .frame(minHeight: 18, alignment: .leading)
         case .none:
             Color.clear
                 .frame(height: 0)
