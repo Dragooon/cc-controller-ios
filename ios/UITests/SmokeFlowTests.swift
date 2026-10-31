@@ -17,8 +17,8 @@ final class SmokeFlowTests: XCTestCase {
         dismissLeftoverNotificationPrompt()
         app.launch()
 
-        let needsYou = app.staticTexts["Needs you"]
-        XCTAssertTrue(needsYou.waitToExist(timeout: 60), "Needs you section did not load")
+        let recents = app.staticTexts["Recents"]
+        XCTAssertTrue(recents.waitToExist(timeout: 60), "Recents section did not load")
 
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "smoke-sessions"

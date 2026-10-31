@@ -296,6 +296,8 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
     public var project: String
     public var lastActiveAt: Date
     public var archivedAt: Date?
+    public var lastUserMessageAt: Date?
+    public var lastAssistantMessageAt: Date?
 
     public init(id: String, shortId: String, name: String? = nil, cwd: String, project: String, lastActiveAt: Date, archivedAt: Date? = nil) {
         self.id = id; self.shortId = shortId; self.name = name; self.cwd = cwd; self.project = project; self.lastActiveAt = lastActiveAt; self.archivedAt = archivedAt
@@ -428,6 +430,7 @@ public struct Session: Codable, Sendable, Equatable {
     public var commandRoute: String?
     public var lastUserMessageAt: Date?
     public var lastUserMessageAtExact: Bool?
+    public var lastAssistantMessageAt: Date?
     public var startedAt: Date?
     public var idleSince: Date?
     public var background: BackgroundSession?
@@ -445,7 +448,7 @@ public struct Session: Codable, Sendable, Equatable {
     public var agent: SessionAgent?
 
     private enum CodingKeys: String, CodingKey {
-        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastUserMessageAt, lastUserMessageAtExact, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
+        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
     }
 
     public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, archivedAt: Date? = nil, closable: Bool = false, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.archivedAt = archivedAt; self.closable = closable; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
@@ -489,6 +492,7 @@ public struct Session: Codable, Sendable, Equatable {
             sudo: try container.decodeIfPresent(Bool.self, forKey: .sudo),
             agent: try container.decodeIfPresent(SessionAgent.self, forKey: .agent)
         )
+        lastAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
     }
 }
 

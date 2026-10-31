@@ -11,7 +11,6 @@ struct SessionsListController: Identifiable {
     let sessions: [Session]
     let sleeping: [SleepingSession]
     let approvals: [Approval]
-    let deciding: Set<String>
     let capabilities: Set<ControllerCapability>
 
     init(
@@ -23,7 +22,6 @@ struct SessionsListController: Identifiable {
         sessions: [Session],
         sleeping: [SleepingSession] = [],
         approvals: [Approval] = [],
-        deciding: Set<String> = [],
         capabilities: Set<ControllerCapability> = ControllerCapability.all
     ) {
         self.id = id
@@ -34,7 +32,6 @@ struct SessionsListController: Identifiable {
         self.sessions = sessions
         self.sleeping = sleeping
         self.approvals = approvals
-        self.deciding = deciding
         self.capabilities = capabilities
     }
 
@@ -71,10 +68,10 @@ struct SessionsListView: View {
     let notice: String?
     let canCreateSession: Bool
     let isRegularSidebarHidden: Bool
+    /// The session on screen beside or instead of this list, as a `sleepingSessionKey`.
+    let openSessionKey: String?
     let onSessionsLoaded: () async -> Void
     let onOpen: (ControllerID, Session) -> Void
-    let onAllow: (ControllerID, Approval) -> Void
-    let onDeny: (ControllerID, Approval) -> Void
     let onRetry: (ControllerID) -> Void
     let onSignIn: (ControllerID) -> Void
     let onSettings: () -> Void
@@ -95,6 +92,7 @@ struct SessionsListView: View {
     @State private var archiveToastTask: Task<Void, Never>?
     @AppStorage("sessions.archived.collapsed") private var archivedCollapsed = true
     @AppStorage("sessions.pinned") private var pinnedStored = ""
+    @AppStorage(SessionReadMarks.storageKey) private var readMarksStored = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.colorScheme) private var colorScheme
@@ -107,10 +105,9 @@ struct SessionsListView: View {
         notice: String? = nil,
         canCreateSession: Bool = true,
         isRegularSidebarHidden: Bool = false,
+        openSessionKey: String? = nil,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
-        onAllow: @escaping (ControllerID, Approval) -> Void = { _, _ in },
-        onDeny: @escaping (ControllerID, Approval) -> Void = { _, _ in },
         onRetry: @escaping (ControllerID) -> Void = { _ in },
         onSignIn: @escaping (ControllerID) -> Void = { _ in },
         onSettings: @escaping () -> Void = {},
@@ -131,10 +128,9 @@ struct SessionsListView: View {
         self.notice = notice
         self.canCreateSession = canCreateSession
         self.isRegularSidebarHidden = isRegularSidebarHidden
+        self.openSessionKey = openSessionKey
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
-        self.onAllow = onAllow
-        self.onDeny = onDeny
         self.onRetry = onRetry
         self.onSignIn = onSignIn
         self.onSettings = onSettings
@@ -155,7 +151,6 @@ struct SessionsListView: View {
         sessions: [Session],
         sleeping: [SleepingSession] = [],
         approvals: [Approval] = [],
-        deciding: Set<String> = [],
         connection: Connection = .live,
         subtitleOverride: String? = nil,
         notice: String? = nil
@@ -168,8 +163,7 @@ struct SessionsListView: View {
                     connection: connection,
                     sessions: sessions,
                     sleeping: sleeping,
-                    approvals: approvals,
-                    deciding: deciding
+                    approvals: approvals
                 ),
             ],
             subtitleOverride: subtitleOverride,
@@ -205,11 +199,8 @@ struct SessionsListView: View {
         }
     }
 
-    private var needsYouItems: [ControllerSessionItem] {
-        sortSessionItems(sessionItems.filter { sessionActivity($0.session) == .needsYou })
-    }
-
     private var pins: PinnedSessions { PinnedSessions(stored: pinnedStored) }
+    private var readMarks: SessionReadMarks { SessionReadMarks(stored: readMarksStored) }
 
     /// Pinned sessions stay in the order they were pinned, so they don't move as activity changes.
     private var pinnedItems: [RecentSessionItem] {
@@ -221,15 +212,14 @@ struct SessionsListView: View {
 
     private var recentItems: [RecentSessionItem] {
         let pins = self.pins
-        let now = Date()
         return unarchivedItems
             .filter { !pins.contains($0.pinKey) }
-            .sorted { recentSessionPrecedes($0, $1, now: now) }
+            .sorted(by: recentSessionPrecedes)
     }
 
     private var unarchivedItems: [RecentSessionItem] {
         let live = sessionItems
-            .filter { $0.session.archivedAt == nil && sessionActivity($0.session) != .needsYou }
+            .filter { $0.session.archivedAt == nil || sessionActivity($0.session) == .needsYou }
             .map(RecentSessionItem.live)
         let sleeping = controllers.flatMap { controller in
             filteredSleeping(controller)
@@ -245,9 +235,9 @@ struct SessionsListView: View {
         withAnimation(reduceMotion ? nil : .smooth) { pinnedStored = pins.stored }
     }
 
-    private func recentSessionPrecedes(_ left: RecentSessionItem, _ right: RecentSessionItem, now: Date) -> Bool {
-        let leftDate = left.activityDate(now: now)
-        let rightDate = right.activityDate(now: now)
+    private func recentSessionPrecedes(_ left: RecentSessionItem, _ right: RecentSessionItem) -> Bool {
+        let leftDate = left.lastUserMessageDate
+        let rightDate = right.lastUserMessageDate
         if leftDate != rightDate {
             return leftDate > rightDate
         }
@@ -491,19 +481,6 @@ struct SessionsListView: View {
                 }
             }
             statusRows
-            if !needsYouItems.isEmpty {
-                Section {
-                    ForEach(needsYouItems) { item in
-                        sessionRow(item.session, controller: item.controller, showsControllerName: isMultiController, isArchived: false)
-                    }
-                } header: {
-                    Text("Needs you")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.ccSecondary)
-                        .textCase(nil)
-                        .padding(.top, 8)
-                }
-            }
             if !pinnedItems.isEmpty {
                 Section {
                     ForEach(pinnedItems) { item in
@@ -551,7 +528,7 @@ struct SessionsListView: View {
                     .padding(.top, 8)
                 }
             }
-            if needsYouItems.isEmpty && pinnedItems.isEmpty && recentItems.isEmpty && archivedCount == 0 {
+            if pinnedItems.isEmpty && recentItems.isEmpty && archivedCount == 0 {
                 Section {
                     Text(query.isEmpty ? "No sessions" : "No matches")
                         .font(.subheadline)
@@ -598,6 +575,11 @@ struct SessionsListView: View {
         SleepingSessionRow(
             session: session,
             controllerName: showsControllerName ? controller.name : nil,
+            readStatus: readMarks.status(
+                for: session,
+                key: sleepingSessionKey(controllerID: controller.id, sessionID: session.id),
+                isOpen: openSessionKey == sleepingSessionKey(controllerID: controller.id, sessionID: session.id)
+            ),
             isWaking: waking.contains(sleepingSessionKey(controllerID: controller.id, sessionID: session.id)),
             canWake: controller.capabilities.contains(.wake),
             canArchive: controller.capabilities.contains(.archive),
@@ -616,10 +598,10 @@ struct SessionsListView: View {
         let hasPendingApproval = controller.approval(for: session) != nil
         let needsYou = sessionActivity(session) == .needsYou
         let canManageSession = !needsYou && !hasPendingApproval
+        let sessionKey = session.id.map { sleepingSessionKey(controllerID: controller.id, sessionID: $0) } ?? ""
         return SessionRow(
             session: session,
-            approval: controller.approval(for: session),
-            deciding: controller.deciding,
+            readStatus: readMarks.status(for: session, key: sessionKey, isOpen: openSessionKey == sessionKey),
             frozen: controller.connection.isFrozen,
             dimmed: controller.connection.isFrozen,
             controllerName: showsControllerName ? controller.name : nil,
@@ -630,10 +612,8 @@ struct SessionsListView: View {
             canArchive: canManageSession && controller.capabilities.contains(.archive),
             canEnd: canManageSession && controller.capabilities.contains(.close) && session.closable,
             isArchived: isArchived,
-            pin: isArchived || needsYou ? nil : session.id.map { pinToggle(sleepingSessionKey(controllerID: controller.id, sessionID: $0)) },
+            pin: isArchived ? nil : session.id.map { pinToggle(sleepingSessionKey(controllerID: controller.id, sessionID: $0)) },
             onOpen: { onOpen(controller.id, session) },
-            onAllow: { onAllow(controller.id, $0) },
-            onDeny: { onDeny(controller.id, $0) },
             onInterrupt: { onInterrupt(controller.id, session) },
             onSetApprovalMode: { mode in onSetApprovalMode(controller.id, session, mode) },
             onCopySessionID: { onCopySessionID(session) },
@@ -802,18 +782,14 @@ private enum RecentSessionItem: Identifiable {
         }
     }
 
-    func activityDate(now: Date) -> Date {
+    /// When you last wrote to the session, or the nearest thing the controller knows when it can't say.
+    var lastUserMessageDate: Date {
         switch self {
         case .live(let item):
-            switch sessionActivity(item.session) {
-            case .working, .background:
-                return now
-            case .needsYou, .idle:
-                return item.session.lastUserMessageAt
-                    ?? max(item.session.idleSince ?? .distantPast, item.session.startedAt ?? .distantPast)
-            }
+            return item.session.lastUserMessageAt
+                ?? max(item.session.idleSince ?? .distantPast, item.session.startedAt ?? .distantPast)
         case .sleeping(let item):
-            return item.session.lastActiveAt
+            return item.session.lastUserMessageAt ?? item.session.lastActiveAt
         }
     }
 }
@@ -927,8 +903,7 @@ private struct ControllerSectionHeader: View {
 
 private struct SessionRow: View {
     let session: Session
-    let approval: Approval?
-    let deciding: Set<String>
+    let readStatus: SessionReadStatus
     let frozen: Bool
     let dimmed: Bool
     let controllerName: String?
@@ -941,8 +916,6 @@ private struct SessionRow: View {
     let isArchived: Bool
     let pin: PinToggle?
     let onOpen: () -> Void
-    let onAllow: (Approval) -> Void
-    let onDeny: (Approval) -> Void
     let onInterrupt: () -> Void
     let onSetApprovalMode: (ApprovalMode) -> Void
     let onCopySessionID: () -> Void
@@ -951,35 +924,22 @@ private struct SessionRow: View {
     @State private var endConfirmationPresented = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button(action: onOpen) {
-                HStack(alignment: .center, spacing: 12) {
-                    SessionStatusIndicator(session: session, frozen: frozen, dimmed: dimmed)
-                    SessionText(session: session, approval: approval, controllerName: controllerName)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
-            .accessibilityValue(activityStateLabel)
-
-            if let approval, approval.questions == nil {
-                ApprovalCard(
-                    approval: approval,
-                    style: .compact,
-                    onOpen: onOpen,
-                    onAllow: { onAllow(approval) },
-                    onAllowSession: {},
-                    onDeny: { onDeny(approval) },
-                    controllerName: controllerName,
-                    terminalPaneAvailable: session.tmuxPane?.isEmpty == false,
-                    attachCommand: claudeAttachCommand(for: session)
+        Button(action: onOpen) {
+            HStack(alignment: .center, spacing: 12) {
+                SessionStatusIndicator(
+                    status: readStatus,
+                    identifier: "session-status-\(session.id ?? "")",
+                    frozen: frozen,
+                    dimmed: dimmed
                 )
-                .disabled(isDeciding(approval))
-                .padding(.leading, 34)
+                SessionText(session: session, controllerName: controllerName)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
+        .accessibilityValue(readStatus.rawValue)
         .padding(.vertical, 10)
         .modifier(PinSwipeAction(pin: pin))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -1043,24 +1003,11 @@ private struct SessionRow: View {
         }
         return "It stops. The conversation stays in Recents, and tapping it wakes it."
     }
-
-    private var activityStateLabel: String {
-        switch sessionActivity(session) {
-        case .needsYou: "needs_you"
-        case .working: "working"
-        case .background: "background"
-        case .idle: "idle"
-        }
-    }
-
-    private func isDeciding(_ approval: Approval) -> Bool {
-        guard let key = approvalDecisionKey(approval) else { return false }
-        return deciding.contains(key)
-    }
 }
 
 private struct SleepingSessionRow: View {
     let session: SleepingSession
+    let readStatus: SessionReadStatus
     let controllerName: String?
     let isWaking: Bool
     let canWake: Bool
@@ -1074,21 +1021,22 @@ private struct SleepingSessionRow: View {
     var body: some View {
         Button(action: onWake) {
             HStack(alignment: .center, spacing: 12) {
-                Group {
-                    if isWaking {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "moon.zzz")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.ccTertiary)
-                    }
+                if isWaking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 22, height: 22)
+                } else {
+                    SessionStatusIndicator(
+                        status: readStatus,
+                        identifier: "session-status-\(session.id)",
+                        frozen: false,
+                        dimmed: false
+                    )
                 }
-                .frame(width: 22, height: 22)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(displayName)
                         .font(.body)
-                        .foregroundStyle(.ccSecondary)
+                        .foregroundStyle(.ccLabel)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .accessibilityIdentifier("sleeping-session-title-\(session.id)")
@@ -1105,7 +1053,7 @@ private struct SleepingSessionRow: View {
         .buttonStyle(.plain)
         .disabled(!canWake)
         .accessibilityIdentifier("sleeping-session-\(session.id)")
-        .accessibilityValue(isWaking ? "Waking" : "asleep")
+        .accessibilityValue(isWaking ? "Waking" : readStatus.rawValue)
         .modifier(PinSwipeAction(pin: pin))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canArchive {
@@ -1142,7 +1090,8 @@ private struct SleepingSessionRow: View {
 }
 
 private struct SessionStatusIndicator: View {
-    let session: Session
+    let status: SessionReadStatus
+    let identifier: String
     let frozen: Bool
     let dimmed: Bool
 
@@ -1152,38 +1101,29 @@ private struct SessionStatusIndicator: View {
     var body: some View {
         statusView
             .frame(width: 22, height: 22)
-            .animation(freezeLiveIndicators ? nil : .easeInOut(duration: 0.2), value: statusKey)
+            .animation(freezeLiveIndicators ? nil : .easeInOut(duration: 0.2), value: status)
     }
 
     @ViewBuilder
     private var statusView: some View {
-        switch sessionActivity(session) {
-        case .working, .background:
+        switch status {
+        case .working:
             SpinnerGlyph(active: true, frozen: frozen, dimmed: dimmed)
                 .font(.subheadline.weight(.medium))
-                .accessibilityIdentifier("session-status-\(session.id ?? "")")
+                .accessibilityIdentifier(identifier)
                 .transition(statusTransition)
-        case .needsYou:
+        case .unread:
             Circle()
                 .fill(.ccAccent)
                 .frame(width: 8, height: 8)
-                .accessibilityIdentifier("session-status-\(session.id ?? "")")
+                .accessibilityIdentifier(identifier)
                 .transition(statusTransition)
-        case .idle:
+        case .read:
             Image(systemName: "bubble.left")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.ccTertiary)
-                .accessibilityIdentifier("session-status-\(session.id ?? "")")
+                .accessibilityIdentifier(identifier)
                 .transition(statusTransition)
-        }
-    }
-
-    private var statusKey: String {
-        switch sessionActivity(session) {
-        case .working: "working"
-        case .background: "background"
-        case .needsYou: "needs-you"
-        case .idle: "idle"
         }
     }
 
@@ -1194,7 +1134,6 @@ private struct SessionStatusIndicator: View {
 
 private struct SessionText: View {
     let session: Session
-    let approval: Approval?
     let controllerName: String?
 
     var body: some View {
@@ -1217,9 +1156,6 @@ private struct SessionText: View {
     }
 
     private var subtitle: String {
-        if let approval, approval.questions != nil {
-            return approvalCaption(approval)
-        }
         let agent = session.agent?.name ?? session.agent?.id ?? session.project ?? "unknown project"
         return controllerName.map { "\(agent) · \($0)" } ?? agent
     }

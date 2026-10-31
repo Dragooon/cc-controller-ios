@@ -47,13 +47,13 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertTrue(sessions.waitToExist(timeout: 20), "Sessions list did not load")
         let macRow = app.buttons["session-approval-flow-light-mode"]
         XCTAssertTrue(bringIntoView(macRow, in: sessions), "Mac approval session was not listed")
-        XCTAssertEqual(macRow.value as? String, "needs_you")
+        XCTAssertEqual(macRow.value as? String, "unread")
         XCTAssertTrue(macRow.label.contains("Mac"), "Mac Needs-you row had no controller caption: \(macRow.label)")
         let macRowPosition = macRow.frame.minY
 
         let mustafarRow = app.buttons["session-discord-triage"]
         XCTAssertTrue(bringIntoView(mustafarRow, in: sessions), "Mustafar approval session was not listed")
-        XCTAssertEqual(mustafarRow.value as? String, "needs_you")
+        XCTAssertEqual(mustafarRow.value as? String, "unread")
         XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
         let mustafarRowPosition = mustafarRow.frame.minY
 

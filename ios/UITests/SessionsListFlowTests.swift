@@ -161,4 +161,30 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         app.launch()
         return app
     }
+
+    func testRowShowsReadThenWorkingAndWaitingSessionsAsUnread() async throws {
+        let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
+        let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
+        let app = XCUIApplication()
+        app.launchArguments = ["-CCServer", server]
+        app.launchEnvironment["CCBearer"] = bearer
+        configureLiveIndicatorAnimations(app)
+        dismissLeftoverNotificationPrompt()
+        app.launch()
+        defer { app.terminate() }
+
+        let waiting = app.buttons["session-approval-flow-light-mode"]
+        XCTAssertTrue(waiting.waitToExist(timeout: 75), "Session waiting on an approval was not listed")
+        XCTAssertEqual(waiting.value as? String, "unread")
+        XCTAssertFalse(app.staticTexts["Needs you"].exists, "The sidebar still has a Needs you section")
+        XCTAssertFalse(app.buttons["Allow"].exists, "An approval card is still in the sidebar")
+
+        let working = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(working.waitToExist(timeout: 20), "Working session was not listed")
+        XCTAssertEqual(working.value as? String, "working")
+
+        let idle = app.buttons["session-dune-part-three-imax-tickets"]
+        XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed")
+        XCTAssertEqual(idle.value as? String, "read", "A reply from before the first launch counted as unread")
+    }
 }

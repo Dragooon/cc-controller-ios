@@ -21,8 +21,8 @@ struct MainSplitView: View {
 #endif
     @State private var regularSidebarDragStartProgress: CGFloat?
     @GestureState private var regularSidebarDragActive = false
-    @State private var allowFeedbackCount = 0
-    @State private var denyFeedbackCount = 0
+    @AppStorage(SessionReadMarks.storageKey) private var readMarksStored = ""
+    @Environment(\.scenePhase) private var scenePhase
     @State private var newSessionControllerID: ControllerID = .mac
     @State private var newSessionPrompt = ""
     /// Keys from `sleepingSessionKey(controllerID:sessionID:)`.
@@ -67,8 +67,8 @@ struct MainSplitView: View {
                 .accessibilityIdentifier("relay-identity-warning")
             }
         }
-        .sensoryFeedback(.success, trigger: allowFeedbackCount)
-        .sensoryFeedback(.warning, trigger: denyFeedbackCount)
+        .task { startReadMarksIfNeeded() }
+        .onChange(of: openSessionReadTrigger, initial: true) { _, _ in markOpenSessionRead() }
         .alert(
             "Mac identity changed",
             isPresented: $model.isRelayWarningPresented
@@ -492,17 +492,12 @@ struct MainSplitView: View {
             notice: sessionNotice,
             canCreateSession: !newSessionChoices.isEmpty,
             isRegularSidebarHidden: isRegularSidebarHidden,
+            openSessionKey: openSessionKey,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
             },
             onOpen: { controllerID, session in
                 openSession(controllerID, session.id)
-            },
-            onAllow: { controllerID, approval in
-                performApprovalDecision(approval, controllerID: controllerID, scope: .once)
-            },
-            onDeny: { controllerID, approval in
-                performApprovalDeny(approval, controllerID: controllerID)
             },
             onRetry: { controllerID in model.connection(for: controllerID)?.store.resume() },
             onSignIn: { controllerID in model.signIn(controllerID: controllerID) },
@@ -539,6 +534,48 @@ struct MainSplitView: View {
             },
             onActionError: { model.actionError = $0 }
         )
+    }
+
+    /// The session the person is looking at. A phone's list covers its detail, so there it needs the detail column.
+    private var openSessionKey: String? {
+        guard let selected = model.selectedSession else { return nil }
+        guard horizontalSizeClass == .regular || preferredCompactColumn == .detail else { return nil }
+        return sleepingSessionKey(controllerID: selected.controllerID, sessionID: selected.sessionID)
+    }
+
+    private var openSessionLastReplyDate: Date? {
+        guard let selected = model.selectedSession,
+              let session = model.connection(for: selected.controllerID)?.store.sessions[selected.sessionID] else {
+            return nil
+        }
+        return sessionLastReplyDate(session)
+    }
+
+    private struct OpenSessionReadTrigger: Equatable {
+        let sessionKey: String?
+        let lastReplyDate: Date?
+        let isActive: Bool
+    }
+
+    private var openSessionReadTrigger: OpenSessionReadTrigger {
+        OpenSessionReadTrigger(
+            sessionKey: openSessionKey,
+            lastReplyDate: openSessionLastReplyDate,
+            isActive: scenePhase == .active
+        )
+    }
+
+    private func startReadMarksIfNeeded() {
+        var marks = SessionReadMarks(stored: readMarksStored)
+        marks.startIfNeeded(now: Date())
+        readMarksStored = marks.stored
+    }
+
+    private func markOpenSessionRead() {
+        guard scenePhase == .active, let key = openSessionKey else { return }
+        var marks = SessionReadMarks(stored: readMarksStored)
+        marks.markRead(key: key, through: max(openSessionLastReplyDate ?? .distantPast, Date()))
+        readMarksStored = marks.stored
     }
 
     private func openSession(_ controllerID: ControllerID, _ id: String?) {
@@ -630,7 +667,6 @@ struct MainSplitView: View {
                 sessions: store.sortedSessions,
                 sleeping: store.sleeping,
                 approvals: store.approvals,
-                deciding: store.deciding,
                 capabilities: store.controllerInfo.capabilities
             )
         }
@@ -718,32 +754,6 @@ struct MainSplitView: View {
             return .unreadable(updatedAt: lastUpdated ?? store.lastUpdated ?? .now)
         case .unauthorized:
             return .offline(updatedAt: store.lastUpdated ?? .now)
-        }
-    }
-
-    private func performApprovalDecision(_ approval: Approval, controllerID: ControllerID, scope: ApprovalScope) {
-        guard let store = model.connection(for: controllerID)?.store else { return }
-        Task { @MainActor in
-            let result = await store.allow(approval, scope: scope)
-            switch result {
-            case .success:
-                allowFeedbackCount += 1
-            case .failure(let error):
-                if error != .waitingInTerminal { model.actionError = error }
-            }
-        }
-    }
-
-    private func performApprovalDeny(_ approval: Approval, controllerID: ControllerID) {
-        guard let store = model.connection(for: controllerID)?.store else { return }
-        Task { @MainActor in
-            let result = await store.deny(approval)
-            switch result {
-            case .success:
-                denyFeedbackCount += 1
-            case .failure(let error):
-                if error != .waitingInTerminal { model.actionError = error }
-            }
         }
     }
 

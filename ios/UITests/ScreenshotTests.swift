@@ -37,10 +37,8 @@ final class ScreenshotTests: XCTestCase {
                 dismissLeftoverNotificationPrompt()
                 app.launch()
 
-                let needsYou = app.staticTexts["Needs you"]
                 let staffRow = app.buttons["session-staff-account-exclusions"]
                 let approvalRow = app.buttons["session-approval-flow-light-mode"]
-                XCTAssertTrue(needsYou.waitToExist(timeout: 75), "Needs you section did not load")
                 XCTAssertTrue(staffRow.waitToExist(timeout: 75), "Staff approval row did not load")
 
                 if only == nil || only == "sessions" {
