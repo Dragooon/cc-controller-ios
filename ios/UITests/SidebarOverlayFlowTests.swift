@@ -289,6 +289,8 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         let sidebar = sessionsList(in: app)
         XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
+        let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
+        print("REGULAR_LAYOUT_METRICS \(metrics.value ?? metrics.label) ORIENTATION \(XCUIDevice.shared.orientation.rawValue)")
         assertHeaderAlignment(in: app, sidebarOpen: true)
         assertDetailIsBesideSidebar(detail: transcript(in: app), sidebar: sidebar, in: app)
         addScreenshot(named: "sidebar-portrait-open")
@@ -494,6 +496,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         sessionID: String? = nil,
         freezeLiveIndicators: Bool = true
     ) -> XCUIApplication {
+        SimulatorHinge.applyConfiguredAngle()
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
         app.launchArguments = [
@@ -513,9 +516,12 @@ final class SidebarOverlayFlowTests: XCTestCase {
     }
 
     private func addScreenshot(named name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        // An open foldable shows the app on a display that isn't `main`, so keep every display's picture.
+        for (index, screen) in XCUIScreen.screens.enumerated() {
+            let attachment = XCTAttachment(screenshot: screen.screenshot())
+            attachment.name = index == 0 ? name : "\(name)-display-\(index)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 }

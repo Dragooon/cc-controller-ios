@@ -19,6 +19,9 @@ on:
       device:
         description: Run on this simulator instead (e.g. "iPhone Duo") and keep its screenshots
         default: ""
+      hinge:
+        description: Hinge angle for a foldable simulator (180 opens the Duo's large display), with simctl screenshots kept
+        default: ""
       motion:
         description: Instead of flows, record these motion scenarios on the Duo with video (e.g. "S1,S2")
         default: ""
@@ -30,7 +33,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}-${{ inputs.motion }}
+  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}-${{ inputs.motion }}-${{ inputs.hinge }}
   cancel-in-progress: true
 
 jobs:
@@ -44,6 +47,7 @@ jobs:
     env:
       SLICES: ${{ (inputs.tests || inputs.motion) && 1 || 5 }}
       MOTION: ${{ inputs.motion }}
+      TEST_RUNNER_HINGE_ANGLE: ${{ inputs.hinge }}
       TESTS: ${{ inputs.tests }}
       DEVICE: ${{ inputs.device }}
       TEST_RUNNER_CC_TRANSCRIPT_ENGINE: ${{ inputs.engine }}
@@ -76,6 +80,13 @@ jobs:
           if [[ -n "$MOTION" ]]; then
             bash scripts/ios.sh motion --scenario "$MOTION" --engine collection --device duo --video --out "$CC_EVIDENCE_DIR/motion"
             exit
+          fi
+          if [[ -n "$TEST_RUNNER_HINGE_ANGLE" ]]; then
+            # The runner's own screenshots can show the folded display, so also shoot what's on screen.
+            mkdir -p "$CC_EVIDENCE_DIR/booted-shots"
+            (while sleep 10; do
+              xcrun simctl io booted screenshot "$CC_EVIDENCE_DIR/booted-shots/$(date +%H%M%S).png" >/dev/null 2>&1 || true
+            done) &
           fi
           started=$SECONDS
           filters=()
