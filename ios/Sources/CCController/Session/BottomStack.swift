@@ -408,6 +408,10 @@ struct BottomStackView: View {
             configuration.sendRevealCoordinator?.begin()
             // Before the transcript's update, so the keyboard starts moving as the bubble appears.
             composerFocused = false
+            // The text leaves with the tap. A send with attachments may wait on uploads, so it keeps its text until then.
+            if configuration.attachments.isEmpty {
+                clearComposerAfterSend(originalText: originalText, submittedText: submittedText)
+            }
         }
         isSending = true
         Task { @MainActor in
@@ -432,6 +436,9 @@ struct BottomStackView: View {
                     await finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
                 case .failure(let error):
                     configuration.sendRevealCoordinator?.cancel()
+                    if text.isEmpty {
+                        text = originalText
+                    }
                     handleSendFailure(error)
                 }
             }
@@ -443,6 +450,14 @@ struct BottomStackView: View {
         recordLifecycleEvent(name: "send-focus-drop", sessionID: configuration.sessionID)
         #endif
         composerFocused = false
+        clearComposerAfterSend(originalText: originalText, submittedText: submittedText)
+        if !isSlashCommand(submittedText) {
+            await configuration.sendRevealCoordinator?.waitForReveal()
+        }
+        sendFeedbackCount += 1
+    }
+
+    private func clearComposerAfterSend(originalText: String, submittedText: String) {
         withAnimation(.spring(duration: 0.3, bounce: 0)) {
             if let nextText = composerTextAfterSuccessfulSend(
                 originalText: originalText,
@@ -457,10 +472,6 @@ struct BottomStackView: View {
                 fieldResetGeneration += 1
             }
         }
-        if !isSlashCommand(submittedText) {
-            await configuration.sendRevealCoordinator?.waitForReveal()
-        }
-        sendFeedbackCount += 1
     }
 
     private func handleSendFailure(_ error: ActionError) {

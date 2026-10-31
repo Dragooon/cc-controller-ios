@@ -361,6 +361,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let details = app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch
         XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar stayed open beside the inspector")
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
         addScreenshot(named: "sidebar-portrait-inspector")
 
         sidebarToggle(in: app).tap()

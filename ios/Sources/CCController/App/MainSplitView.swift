@@ -308,7 +308,7 @@ struct MainSplitView: View {
             }
         )
         .frame(
-            width: regularSidebarProgress > 0 || isClosingSidebar ? 80 : 20,
+            width: regularSidebarProgress > 0 || isClosingSidebar ? 80 : 32,
             height: height
         )
         .accessibilityIdentifier(
@@ -860,27 +860,31 @@ private struct SidebarPanCapture: UIViewRepresentable {
                   let view = pan.view,
                   let captureView else { return false }
             let initialLocation = pan.initialLocation ?? pan.location(in: view)
-            let velocity = pan.velocity(in: view)
+            // Direction comes from the distance moved so far. The speed at this instant may not be
+            // reliable for a swipe that starts at the screen edge.
+            let translation = pan.translation(in: view)
+            let movement = translation == .zero ? pan.velocity(in: view) : translation
             if sidebarProgress >= 0.999 {
                 // The open sidebar closes on a leftward swipe, starting on it or on the detail.
-                guard velocity.x < 0, abs(velocity.x) > abs(velocity.y) * 1.5 else { return false }
+                guard movement.x < 0, abs(movement.x) > abs(movement.y) * 1.5 else { return false }
                 return contentClaimingSwipe(from: pan.initialView, in: captureView) == nil
             }
-            guard sidebarProgress <= 0.001, velocity.x > 0, abs(velocity.x) > abs(velocity.y) else { return false }
+            guard sidebarProgress <= 0.001, movement.x > 0, abs(movement.x) > abs(movement.y) else { return false }
             let stripFrame = captureView.convert(captureView.bounds, to: view)
-            if stripFrame.contains(initialLocation) { return true }
+            if stripFrame.contains(initialLocation) {
+                return screenOwningSwipe(from: pan.initialView, in: captureView) == nil
+            }
             let claim = contentClaimingSwipe(from: pan.initialView, in: captureView)
-            onSwipeDiagnostic("claim=\(claim ?? "none"),anywhere=\(opensFromAnywhere),vx=\(velocity.x),vy=\(velocity.y)")
+            onSwipeDiagnostic("claim=\(claim ?? "none"),anywhere=\(opensFromAnywhere),x=\(movement.x),y=\(movement.y)")
             // Away from the edge a steeper angle is needed, so a vertical scroll isn't taken for a swipe.
-            return opensFromAnywhere && abs(velocity.x) > abs(velocity.y) * 1.5 && claim == nil
+            return opensFromAnywhere && abs(movement.x) > abs(movement.y) * 1.5 && claim == nil
         }
 
         /// What under the touch has its own use for a rightward drag, or sits outside the split view:
         /// a sheet, a pushed screen (its swipe goes back), text input or a sideways scroller. Nil if nothing.
         private func contentClaimingSwipe(from touchedView: UIView?, in captureView: UIView) -> String? {
-            guard let rootView = captureView.window?.rootViewController?.view else { return "no-root" }
+            if let screen = screenOwningSwipe(from: touchedView, in: captureView) { return screen }
             guard let hitView = touchedView else { return "no-view" }
-            guard hitView.isDescendant(of: rootView) else { return "presented" }
             var ancestor: UIView? = hitView
             while let current = ancestor {
                 if current is UITextField { return "text-field" }
@@ -890,6 +894,14 @@ private struct SidebarPanCapture: UIViewRepresentable {
                 }
                 ancestor = current.superview
             }
+            return nil
+        }
+
+        /// A sheet or pushed screen above the split view: the swipe is theirs, even from the edge. Nil if neither.
+        private func screenOwningSwipe(from touchedView: UIView?, in captureView: UIView) -> String? {
+            guard let rootView = captureView.window?.rootViewController?.view else { return "no-root" }
+            guard let hitView = touchedView else { return "no-view" }
+            guard hitView.isDescendant(of: rootView) else { return "presented" }
             var responder: UIResponder? = hitView
             while let current = responder {
                 if let navigation = current as? UINavigationController, navigation.viewControllers.count > 1 {
@@ -918,14 +930,6 @@ private struct SidebarPanCapture: UIViewRepresentable {
         ) -> Bool {
             guard otherGestureRecognizer is UIPanGestureRecognizer else { return false }
             return !(otherGestureRecognizer is UIScreenEdgePanGestureRecognizer)
-        }
-
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            gestureRecognizer is SidebarPanGestureRecognizer
-                && otherGestureRecognizer is UIScreenEdgePanGestureRecognizer
         }
 
         @objc func handlePan(_ recognizer: SidebarPanGestureRecognizer) {
