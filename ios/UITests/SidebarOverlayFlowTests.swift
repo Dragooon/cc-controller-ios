@@ -370,7 +370,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
     }
 
     func testPrintsWhichDeviceOrientationsTheOpenDuoHonours() throws {
-        try XCTSkipIf(ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] == nil, "Only for an open foldable")
+        try XCTSkipIf((ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] ?? "").isEmpty, "Only for an open foldable")
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")
         defer { app.terminate() }
         let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
@@ -564,7 +564,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         app.launchArguments = [
             "-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL"),
         ]
-        if orientation == .portrait, ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] != nil {
+        if orientation == .portrait, !(ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] ?? "").isEmpty {
             app.launchArguments += ["-CCRegularWidth", "669"]
         }
         if let sessionID {

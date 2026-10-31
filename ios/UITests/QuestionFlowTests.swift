@@ -90,8 +90,10 @@ final class QuestionFlowTests: FixtureFlowTestSupport {
 
         let session = app.buttons["session-question-flow"]
         XCTAssertTrue(session.waitToExist(timeout: 75), "Question flow session did not load")
-        let caption = app.staticTexts.matching(NSPredicate(format: "label == %@", "Asking: One")).firstMatch
-        XCTAssertTrue(caption.waitToExist(timeout: 20), "Sessions list did not show the question caption")
+        XCTAssertTrue(
+            pollUntil(timeout: 20) { session.value as? String == "unread" },
+            "A session waiting on a question was not unread"
+        )
         addScreenshot(named: "question-sessions-list")
         session.tap()
 

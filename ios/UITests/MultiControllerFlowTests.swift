@@ -36,7 +36,7 @@ final class MultiControllerFlowTests: XCTestCase {
         XCTAssertEqual(agent.label, "Madge · Mustafar")
     }
 
-    func testNeedsYouMergesControllersWithCaptions() throws {
+    func testWaitingSessionsShowTheirControllers() throws {
         let app = launch()
         defer { app.terminate() }
         waitForLiveControllers(in: app)
@@ -48,29 +48,13 @@ final class MultiControllerFlowTests: XCTestCase {
         let macRow = app.buttons["session-approval-flow-light-mode"]
         XCTAssertTrue(bringIntoView(macRow, in: sessions), "Mac approval session was not listed")
         XCTAssertEqual(macRow.value as? String, "unread")
-        XCTAssertTrue(macRow.label.contains("Mac"), "Mac Needs-you row had no controller caption: \(macRow.label)")
-        let macRowPosition = macRow.frame.minY
+        XCTAssertTrue(macRow.label.contains("Mac"), "Mac waiting row had no controller caption: \(macRow.label)")
 
         let mustafarRow = app.buttons["session-discord-triage"]
         XCTAssertTrue(bringIntoView(mustafarRow, in: sessions), "Mustafar approval session was not listed")
         XCTAssertEqual(mustafarRow.value as? String, "unread")
-        XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar Needs-you row had no controller caption: \(mustafarRow.label)")
-        let mustafarRowPosition = mustafarRow.frame.minY
+        XCTAssertTrue(mustafarRow.label.contains("Mustafar"), "Mustafar waiting row had no controller caption: \(mustafarRow.label)")
 
-        // Both Needs-you rows sit above the merged Recents section.
-        let recents = app.staticTexts["Recents"]
-        XCTAssertTrue(bringIntoView(recents, in: sessions), "Recents section did not load")
-        let needsYouRows = [
-            (name: "Mac", element: macRow, initialMinY: macRowPosition),
-            (name: "Mustafar", element: mustafarRow, initialMinY: mustafarRowPosition),
-        ]
-        for row in needsYouRows where row.element.exists {
-            XCTAssertLessThan(
-                row.element.frame.minY,
-                recents.frame.minY,
-                "\(row.name) Needs-you row was not pinned above Recents (initial minY: \(row.initialMinY))"
-            )
-        }
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "controller-section-mac").firstMatch.exists)
     }
 
@@ -84,11 +68,8 @@ final class MultiControllerFlowTests: XCTestCase {
             .firstMatch
         XCTAssertTrue(sessions.waitToExist(timeout: 20), "Sessions list did not load")
 
-        let needsYou = app.buttons["session-approval-flow-light-mode"]
-        XCTAssertTrue(needsYou.waitToExist(timeout: 20), "Needs-you session was not listed")
         let recents = app.staticTexts["Recents"]
         XCTAssertTrue(bringIntoView(recents, in: sessions), "Recents section did not load")
-        XCTAssertLessThan(needsYou.frame.minY, recents.frame.minY, "Needs-you session was not pinned above Recents")
 
         let expectedOrder = [
             "session-recent-review",
@@ -107,12 +88,11 @@ final class MultiControllerFlowTests: XCTestCase {
     }
 
     func testAllowingMustafarApprovalPostsToTheMustafarController() async throws {
-        let app = launch()
+        let app = launch(sessionID: "mustafar:moonlight-build")
         defer { app.terminate() }
-        waitForLiveControllers(in: app)
 
         let allow = app.buttons["approval-moonlight-build-allow"]
-        XCTAssertTrue(allow.waitToExist(timeout: 30), "Mustafar compact approval card did not load")
+        XCTAssertTrue(allow.waitToExist(timeout: 75), "Mustafar approval card did not load")
         allow.tap()
 
         let decided = "POST /api/sessions/moonlight-build/decision 200"

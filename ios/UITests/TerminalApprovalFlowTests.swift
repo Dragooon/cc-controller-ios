@@ -12,6 +12,11 @@ final class TerminalApprovalFlowTests: FixtureFlowTestSupport {
         app.launch()
         defer { app.terminate() }
 
+        // Approval cards live in the session now, not in the sidebar.
+        let paneLessRow = app.buttons["session-approval-flow-light-mode"]
+        XCTAssertTrue(paneLessRow.waitToExist(timeout: 75), "Pane-less terminal session was not listed")
+        paneLessRow.tap()
+
         let card = app.descendants(matching: .any)
             .matching(identifier: "approval-card-approval-flow-light-mode")
             .firstMatch
@@ -26,6 +31,13 @@ final class TerminalApprovalFlowTests: FixtureFlowTestSupport {
         attach.tap()
         XCTAssertTrue(app.buttons["Attach command copied"].waitToExist(timeout: 5), "Copy attach command did not confirm")
         addScreenshot(named: "pane-less-terminal-approval")
+
+        let sessionsBackButton = app.navigationBars.buttons["Sessions"]
+        XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 10), "Sessions back button did not load")
+        sessionsBackButton.tap()
+        let paneRow = app.buttons["session-pull-up-agentic-uw"]
+        XCTAssertTrue(paneRow.waitToExist(timeout: 20), "Pane terminal session was not listed")
+        paneRow.tap()
 
         let paneCard = app.descendants(matching: .any)
             .matching(identifier: "approval-card-pull-up-agentic-uw")

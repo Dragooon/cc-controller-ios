@@ -166,7 +166,7 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", server]
+        app.launchArguments = ["-CCServer", server, "-CCResetReadMarks"]
         app.launchEnvironment["CCBearer"] = bearer
         configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
@@ -183,8 +183,9 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(working.waitToExist(timeout: 20), "Working session was not listed")
         XCTAssertEqual(working.value as? String, "working")
 
-        let idle = app.buttons["session-dune-part-three-imax-tickets"]
-        XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed")
+        // Other tests in this run send to the busier sessions, so this one is left alone.
+        let idle = app.buttons["session-staff-account-exclusions"]
+        XCTAssertTrue(bringIntoView(idle, in: app.descendants(matching: .any).matching(identifier: "sessions-list").firstMatch), "Idle session was not listed")
         XCTAssertEqual(idle.value as? String, "read", "A reply from before the first launch counted as unread")
     }
 }

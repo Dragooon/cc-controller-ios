@@ -36,6 +36,7 @@ struct SessionScreen: View {
     let onShowApprovalsElsewhere: () -> Void
     /// The sidebar has just taken the room the inspector would need, so an open inspector closes.
     let sidebarCrowdsInspector: Bool
+    let onRegularInspectorWillOpen: () -> Void
     let onRegularInspectorChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -49,6 +50,7 @@ struct SessionScreen: View {
         onRetryWake: @escaping () -> Void = {},
         onShowApprovalsElsewhere: @escaping () -> Void = {},
         sidebarCrowdsInspector: Bool = false,
+        onRegularInspectorWillOpen: @escaping () -> Void = {},
         onRegularInspectorChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.sessionID = sessionID
@@ -60,6 +62,7 @@ struct SessionScreen: View {
         self.onRetryWake = onRetryWake
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
         self.sidebarCrowdsInspector = sidebarCrowdsInspector
+        self.onRegularInspectorWillOpen = onRegularInspectorWillOpen
         self.onRegularInspectorChange = onRegularInspectorChange
     }
     @State private var selectedTool: ToolEntry?
@@ -288,7 +291,7 @@ struct SessionScreen: View {
                         onCompaction: { selectedCompaction = $0 },
                         downloadFile: transcriptDownload
                     )
-                    .environment(\.openInspector, { inspectorPresented = true })
+                    .environment(\.openInspector, { openInspector() })
                     .environment(\.openFilePreview, { filePreviewURL = $0 })
                     .onAppear {
                         recordLifecycleEvent(
@@ -835,7 +838,11 @@ struct SessionScreen: View {
 
     private func sessionInfoButton(size: CGFloat?) -> some View {
         Button {
-            inspectorPresented.toggle()
+            if inspectorPresented {
+                inspectorPresented = false
+            } else {
+                openInspector()
+            }
         } label: {
             Image(systemName: "info.circle")
                 .frame(width: size, height: size)
@@ -861,6 +868,12 @@ struct SessionScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.ccBackground)
         }
+    }
+
+    /// In large mode a sidebar that doesn't leave room moves first, so the inspector opens into the full width.
+    private func openInspector() {
+        if !isCompact { onRegularInspectorWillOpen() }
+        inspectorPresented = true
     }
 
     private var compactInspectorBinding: Binding<Bool> {

@@ -365,11 +365,13 @@ struct MainSplitView: View {
                     }
                 },
                 sidebarCrowdsInspector: !regularInspectorFitsBesideSidebar && columnVisibility == .all,
-                onRegularInspectorChange: { isOpen in
-                    isRegularInspectorOpen = isOpen
-                    if isOpen, !regularInspectorFitsBesideSidebar, columnVisibility == .all {
+                onRegularInspectorWillOpen: {
+                    if !regularInspectorFitsBesideSidebar, columnVisibility == .all {
                         toggleSidebar()
                     }
+                },
+                onRegularInspectorChange: { isOpen in
+                    isRegularInspectorOpen = isOpen
                 }
             )
             .id(selectedSession)
@@ -533,6 +535,11 @@ struct MainSplitView: View {
     }
 
     private func startReadMarksIfNeeded() {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-CCResetReadMarks") {
+            readMarksStored = ""
+        }
+#endif
         var marks = SessionReadMarks(stored: readMarksStored)
         marks.startIfNeeded(now: Date())
         readMarksStored = marks.stored

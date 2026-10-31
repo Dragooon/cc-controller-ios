@@ -47,8 +47,8 @@ final class ComposerFlowTests: XCTestCase {
         let sessionB = app.buttons["session-dune-part-three-imax-tickets"]
         XCTAssertTrue(sessionB.waitToExist(timeout: 15), "Session B row did not load")
         XCTAssertTrue(
-            pollUntil(timeout: 10) { sessionB.value as? String == "idle" },
-            "Session B did not remain idle with the same model as session A"
+            pollUntil(timeout: 10) { sessionB.value as? String != "working" },
+            "Session B did not stop working with the same model as session A"
         )
         sessionB.tap()
 
