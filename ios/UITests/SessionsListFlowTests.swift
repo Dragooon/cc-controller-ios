@@ -185,7 +185,11 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
 
         // Other tests in this run send to the busier sessions, so this one is left alone.
         let idle = app.buttons["session-staff-account-exclusions"]
-        XCTAssertTrue(bringIntoView(idle, in: app.descendants(matching: .any).matching(identifier: "sessions-list").firstMatch), "Idle session was not listed")
+        let sessions = app.descendants(matching: .any).matching(identifier: "sessions-list").firstMatch
+        for _ in 0..<5 where !idle.exists {
+            sessions.swipeUp()
+        }
+        XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed")
         XCTAssertEqual(idle.value as? String, "read", "A reply from before the first launch counted as unread")
     }
 }
