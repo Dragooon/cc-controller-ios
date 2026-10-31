@@ -50,7 +50,11 @@ public struct SessionReadMarks: Equatable, Sendable, Codable {
         case .working, .background:
             return .working
         case .needsYou:
-            return isOpen ? .read : .unread
+            if isOpen { return .read }
+            // Unread until it's opened after the agent started waiting, whatever the baseline.
+            guard let readDate = readThrough[key] else { return .unread }
+            guard let waitingDate = sessionWaitingDate(session) else { return .read }
+            return waitingDate > readDate ? .unread : .read
         case .idle:
             if isOpen { return .read }
             return hasUnreadReply(at: sessionLastReplyDate(session), key: key) ? .unread : .read
@@ -66,6 +70,11 @@ public struct SessionReadMarks: Equatable, Sendable, Codable {
         guard let replyDate, let threshold = readThrough[key] ?? baseline else { return false }
         return replyDate > threshold
     }
+}
+
+/// When the session started waiting on you, as far as the controller can say.
+public func sessionWaitingDate(_ session: Session) -> Date? {
+    session.pending?.first?.receivedAt ?? session.idleSince
 }
 
 /// When the session's agent last replied, as far as the controller can say.

@@ -520,7 +520,10 @@ struct MainSplitView: View {
               let session = model.connection(for: selected.controllerID)?.store.sessions[selected.sessionID] else {
             return nil
         }
-        return sessionLastReplyDate(session)
+        guard sessionActivity(session) == .needsYou, let waitingDate = sessionWaitingDate(session) else {
+            return sessionLastReplyDate(session)
+        }
+        return max(sessionLastReplyDate(session) ?? waitingDate, waitingDate)
     }
 
     private struct OpenSessionReadTrigger: Equatable {

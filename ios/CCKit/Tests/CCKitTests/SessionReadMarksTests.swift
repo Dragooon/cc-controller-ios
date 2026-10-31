@@ -50,6 +50,20 @@ final class SessionReadMarksTests: XCTestCase {
         XCTAssertEqual(marks.status(for: session, key: "mac/one", isOpen: true), .read)
     }
 
+    func testWaitingSessionStaysReadAfterOpeningUntilANewApprovalArrives() {
+        var marks = SessionReadMarks(baseline: baseline)
+        let firstApproval = Approval(receivedAt: baseline.addingTimeInterval(10))
+        let waiting = Session(id: "one", state: .needsYou, pending: [firstApproval])
+        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: false), .unread)
+
+        marks.markRead(key: "mac/one", through: baseline.addingTimeInterval(20))
+        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: false), .read)
+
+        let secondApproval = Approval(receivedAt: baseline.addingTimeInterval(30))
+        let waitingAgain = Session(id: "one", state: .needsYou, pending: [secondApproval])
+        XCTAssertEqual(marks.status(for: waitingAgain, key: "mac/one", isOpen: false), .unread)
+    }
+
     func testSleepingSessionPrefersItsLastReplyOverItsTranscriptTime() {
         var marks = SessionReadMarks(baseline: baseline)
         let replyDate = baseline.addingTimeInterval(10)
