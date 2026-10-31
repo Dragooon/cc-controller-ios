@@ -321,6 +321,9 @@ struct BottomStackView: View {
             .padding(.top, 0)
             .padding(.bottom, 4)
         }
+        #if DEBUG
+        .task { await runMotionAutoSendIfAsked() }
+        #endif
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bottom-stack")
         .sensoryFeedback(.impact(weight: .light), trigger: sendFeedbackCount)
@@ -371,6 +374,20 @@ struct BottomStackView: View {
     private func sendNow() {
         submit(now: true)
     }
+
+    #if DEBUG
+    /// Sends from inside the app, for a motion trace free of XCUITest's work on the main thread.
+    private func runMotionAutoSendIfAsked() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-CCMotionAutoSend"), arguments.count > index + 1 else { return }
+        try? await Task.sleep(for: .seconds(20))
+        composerFocused = true
+        try? await Task.sleep(for: .seconds(2))
+        text = arguments[index + 1]
+        try? await Task.sleep(for: .seconds(2))
+        submit(now: false)
+    }
+    #endif
 
     private func submit(now: Bool) {
         let originalText = text

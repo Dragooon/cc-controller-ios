@@ -359,6 +359,7 @@ class FixtureFlowTestSupport: XCTestCase {
         }
         if let motionScenario {
             app.launchArguments += ["-CCMotionScenario", motionScenario]
+            if motionScenario == "S3" { app.launchArguments += ["-CCMotionAutoSend", "Short motion probe message"] }
         }
         if let sha = environment["CCMotionBuildSHA"], !sha.isEmpty {
             app.launchArguments += ["-CCMotionSHA", sha]

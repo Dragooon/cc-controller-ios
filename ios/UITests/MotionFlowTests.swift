@@ -63,6 +63,18 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         try await Task.sleep(for: .milliseconds(1_500))
     }
 
+    /// The app sends by itself and nothing queries it, so the trace and CPU sample show only the app's own work.
+    func testS3SendUntouched() async throws {
+        let app = launchMotion(scenario: "S3")
+        defer { app.terminate() }
+        try await postFixture("/fixture/motion-stream")
+        try await Task.sleep(for: .seconds(21))
+        if let trigger = ProcessInfo.processInfo.environment["TEST_RUNNER_SAMPLE_TRIGGER"], !trigger.isEmpty {
+            FileManager.default.createFile(atPath: trigger, contents: nil)
+        }
+        try await Task.sleep(for: .seconds(14))
+    }
+
     func testS2SendMultiline() async throws {
         let app = launchMotion(scenario: "S2")
         defer { app.terminate() }

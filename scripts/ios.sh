@@ -1829,7 +1829,7 @@ cmd_motion() {
     both) motion_engines=(legacy collection);;
   esac
   for scenario in "${motion_scenarios[@]}"; do
-    [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == H1 || "$scenario" == P1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
+    [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == S3 || "$scenario" == H1 || "$scenario" == P1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
   done
   if [[ -z "$out_dir" ]]; then out_dir="$EVIDENCE_ROOT/motion/$(date -u '+%Y%m%dT%H%M%SZ')"; fi
   local motion_scratch_dir
@@ -1898,13 +1898,16 @@ cmd_motion() {
       fi
       if [[ $case_status -eq 0 ]]; then
         if [[ "$video_enabled" -eq 1 ]]; then
-          xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
+          # The Duo has one display for each posture and recordVideo needs to be told which.
+          local video_display=()
+          [[ "$device" != duo ]] || video_display=("--display=$([[ -n "${TEST_RUNNER_HINGE_ANGLE:-}" ]] && echo 3 || echo 1)")
+          xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "${video_display[@]}" "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
           MOTION_VIDEO_PID=$!
         fi
         (
           until [[ -f "$TEST_RUNNER_SAMPLE_TRIGGER" ]]; do sleep 0.1; done
           app_pid=$(pgrep -n -f 'cc-controller.app/cc-controller' || true)
-          [[ -z "$app_pid" ]] || sample "$app_pid" 3 1 -file "$run_dir/$run.sample.txt" >/dev/null 2>&1 || true
+          [[ -z "$app_pid" ]] || sample "$app_pid" 8 1 -file "$run_dir/$run.sample.txt" >/dev/null 2>&1 || true
         ) &
         local sample_watcher=$!
         local motion_method
@@ -1913,6 +1916,7 @@ cmd_motion() {
           K2) motion_method=testK2KeyboardDismissByTranscriptDrag;;
           S1) motion_method=testS1SendShort;;
           S2) motion_method=testS2SendMultiline;;
+          S3) motion_method=testS3SendUntouched;;
           H1) motion_method=testH1UnpinnedAppend;;
           P1) motion_method=testP1LoadEarlier;;
         esac
