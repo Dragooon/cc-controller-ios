@@ -16,8 +16,8 @@ final class TerminalApprovalFlowTests: FixtureFlowTestSupport {
             .matching(identifier: "approval-card-approval-flow-light-mode")
             .firstMatch
         XCTAssertTrue(card.waitToExist(timeout: 30), "Pane-less terminal approval card did not load")
-        XCTAssertTrue(app.staticTexts["rm -f /tmp/fixture-scratch"].exists, "Subagent Bash command did not show in compact card")
-        XCTAssertTrue(app.staticTexts["Waiting in the session on your Mac"].exists, "Pane-less card did not show its waiting state")
+        XCTAssertTrue(app.staticTexts["rm -f /tmp/fixture-scratch"].waitToExist(timeout: 5), "Subagent Bash command did not show in compact card")
+        XCTAssertTrue(app.staticTexts["Waiting in the session on your Mac"].waitToExist(timeout: 5), "Pane-less card did not show its waiting state")
         XCTAssertFalse(app.buttons["approval-approval-flow-light-mode-allow"].exists, "Pane-less terminal approval must not show Allow")
         XCTAssertFalse(app.buttons["approval-approval-flow-light-mode-deny"].exists, "Pane-less terminal approval must not show Deny")
 

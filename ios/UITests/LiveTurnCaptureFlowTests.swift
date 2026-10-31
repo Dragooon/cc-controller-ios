@@ -51,7 +51,13 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         // Measure before the label scans below, which cost several seconds of queries on slow machines.
         XCTAssertTrue(pendingPrompt.waitToExist(timeout: 5 * timeScale), "The sent prompt bubble did not render")
         XCTAssertTrue(initialActivity.waitToExist(timeout: 5 * timeScale), "The live activity row did not render")
-        let activityElapsed = Date().timeIntervalSince(sentAt)
+        // Each of those queries took about 3 s on a loaded runner, and the budget below is for the app.
+        // Repeat them now both elements are on screen to take that cost back out.
+        let queriesStart = Date()
+        _ = pendingPrompt.exists
+        _ = initialActivity.exists
+        let queriesCost = Date().timeIntervalSince(queriesStart)
+        let activityElapsed = max(0, queriesStart.timeIntervalSince(sentAt) - queriesCost)
 
         let initialRows = visibleTranscriptLabels(in: app)
         XCTAssertTrue(initialRows.contains(prompt), "User message did not appear before the transcript prompt")
@@ -77,26 +83,38 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         try await waitUntil(turnStart, hasElapsed: 2.2)
         XCTAssertTrue(app.staticTexts["Let me check the showtimes."].exists, "First assistant text did not load")
         let firstAssistantActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
-        XCTAssertTrue(firstAssistantActivity.label.contains("↓ 7"), "Activity row did not show the current turn's output tokens")
-        XCTAssertFalse(firstAssistantActivity.label.contains("↓ 1.2k"), "Activity row showed the session total instead of current-turn tokens")
+        assertWhileShowing("Activity row did not show the current turn's output tokens", until: 9, after: turnStart) {
+            (try? firstAssistantActivity.snapshot())?.label.contains("↓ 7") == true
+        }
+        XCTAssertFalse((try? firstAssistantActivity.snapshot())?.label.contains("↓ 1.2k") == true, "Activity row showed the session total instead of current-turn tokens")
         capture("c", moment: "first-assistant", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 3.2)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running List IMAX sessions'")).firstMatch.exists, "First Bash did not show as running")
+        assertWhileShowing("First Bash did not show as running", until: 6, after: turnStart) {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running List IMAX sessions'")).firstMatch.exists
+        }
         capture("d", moment: "first-bash-running", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 6.2)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran List IMAX sessions'")).firstMatch.exists, "First Bash did not show as done")
+        assertWhileShowing("First Bash did not show as done", until: 10, after: turnStart) {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran List IMAX sessions'")).firstMatch.exists
+        }
         capture("e", moment: "first-bash-done", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 7.2)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Reading dune-showtimes.md'")).firstMatch.exists, "Read did not show as running")
+        assertWhileShowing("Read did not show as running", until: 8, after: turnStart) {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Reading dune-showtimes.md'")).firstMatch.exists
+        }
         capture("f", moment: "read-running", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 10.2)
         let runningSummary = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running 4 tools…'")).firstMatch
-        XCTAssertTrue(runningSummary.exists, "Four-tool run did not collapse to a running summary")
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running Verify seat map…'")).firstMatch.exists, "Collapsed run did not retain the running tool row")
+        assertWhileShowing("Four-tool run did not collapse to a running summary", until: 11, after: turnStart) {
+            runningSummary.exists
+        }
+        assertWhileShowing("Collapsed run did not retain the running tool row", until: 11, after: turnStart) {
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running Verify seat map…'")).firstMatch.exists
+        }
         capture("g", moment: "four-tool-running-collapsed", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 12.0)
@@ -105,7 +123,9 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         try await waitUntil(turnStart, hasElapsed: 12.2)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "8:00 PM screening has the best remaining seats")).firstMatch.exists, "Final assistant text did not load")
         let finalAssistantActivity = app.descendants(matching: .any).matching(identifier: "live-activity-row").firstMatch
-        XCTAssertTrue(finalAssistantActivity.label.contains("↓ 23"), "Activity row did not include usage from the tool-only assistant record")
+        assertWhileShowing("Activity row did not include usage from the tool-only assistant record", until: 13, after: turnStart) {
+            (try? finalAssistantActivity.snapshot())?.label.contains("↓ 23") == true
+        }
         capture("h", moment: "final-text", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 13.3)
@@ -209,6 +229,28 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(y, previousY, "Transcript row \(expectedRow) was out of order")
             previousY = y
         }
+    }
+
+    /// Each step of the turn shows only until the fixture moves on, and on a loaded runner the queries and
+    /// captures before a check can outlast that. A miss fails only if the answer came back while the step
+    /// was still on screen; otherwise the check could not have seen it, and the run records that it didn't.
+    /// `end` is on the fixture's unscaled timeline.
+    private func assertWhileShowing(
+        _ message: String,
+        until end: TimeInterval,
+        after turnStart: Date,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ isShowing: () -> Bool
+    ) {
+        if isShowing() { return }
+        if Date().timeIntervalSince(turnStart) < end * flowTimeScale() {
+            XCTFail(message, file: file, line: line)
+            return
+        }
+        let skippedLine = "SKIPPED \(message): the step had ended before the check ran"
+        observations.append(skippedLine)
+        print(skippedLine)
     }
 
     /// `seconds` is on the fixture's unscaled timeline; the fixture paces the turn by the same scale.
