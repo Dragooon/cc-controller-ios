@@ -1007,8 +1007,8 @@ private struct SessionRow: View {
 
 private struct SleepingSessionRow: View {
     let session: SleepingSession
-    let readStatus: SessionReadStatus
     let controllerName: String?
+    let readStatus: SessionReadStatus
     let isWaking: Bool
     let canWake: Bool
     let canArchive: Bool
