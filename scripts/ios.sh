@@ -1342,6 +1342,7 @@ run_flow_session_device() {
     fi
   fi
   stop_fixture_daemon
+  cp "$session_root/fixture.log" "$output_dir/fixture-shard-$shard_index.log" 2>/dev/null || true
   if [[ -d "$result" ]]; then
     if ! export_flow_attachments "$result" "$exported"; then
       printf '%s\n' 'failed to export shard result attachments' | tee -a "$session_log"

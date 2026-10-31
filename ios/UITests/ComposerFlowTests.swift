@@ -165,6 +165,7 @@ final class ComposerFlowTests: XCTestCase {
             waitForNoButtons(["Dismiss", "Retry", "Copy"], in: app, timeout: 2),
             "Sending bubble exposed an action menu"
         )
+        XCTAssertFalse(app.menuItems["Copy"].exists, "Sending bubble exposed a text selection menu")
         attach(named: "optimistic-sending-before-delivery")
         XCTAssertTrue(waitForDelivered(message: marker, in: app, timeout: 15), "Held send did not reconcile to Sent")
         XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Held send did not reconcile into the transcript")

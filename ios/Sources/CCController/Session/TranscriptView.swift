@@ -1742,7 +1742,8 @@ struct PendingPromptView: View {
                 sessionID: sessionID,
                 downloadFile: promptDownload,
                 attachmentThumbnails: note.attachmentThumbnails,
-                bubbleAccessibilityIdentifier: "pending-prompt-bubble"
+                bubbleAccessibilityIdentifier: "pending-prompt-bubble",
+                allowsTextSelection: false
             )
 
             if isFailed || needsAttention {

@@ -36,6 +36,8 @@ struct PromptBubble: View {
     let bubbleAccessibilityIdentifier: String
     /// Read-only chat sessions name who wrote each message; sessions the owner writes in don't.
     let showsChatSender: Bool
+    /// A bubble still being sent offers its actions through the pending prompt instead of a text selection menu.
+    let allowsTextSelection: Bool
     @State private var isExpanded = false
 
     init(
@@ -44,8 +46,10 @@ struct PromptBubble: View {
         downloadFile: (@MainActor @Sendable (String) async throws -> URL)? = nil,
         attachmentThumbnails: [String: Data] = [:],
         bubbleAccessibilityIdentifier: String = "prompt-bubble",
-        showsChatSender: Bool = false
+        showsChatSender: Bool = false,
+        allowsTextSelection: Bool = true
     ) {
+        self.allowsTextSelection = allowsTextSelection
         self.prompt = prompt
         self.sessionID = sessionID
         self.downloadFile = downloadFile
@@ -124,11 +128,15 @@ struct PromptBubble: View {
 
                 if !promptText.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(isExpanded ? promptText : collapse.visibleText)
+                        let promptLabel = Text(isExpanded ? promptText : collapse.visibleText)
                             .font(.body)
                             .foregroundStyle(.ccLabel)
                             .multilineTextAlignment(.leading)
-                            .textSelection(.enabled)
+                        if allowsTextSelection {
+                            promptLabel.textSelection(.enabled)
+                        } else {
+                            promptLabel
+                        }
 
                         if collapse.collapsed {
                             Button { isExpanded.toggle() } label: {

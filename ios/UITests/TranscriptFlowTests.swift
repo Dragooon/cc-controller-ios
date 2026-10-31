@@ -574,9 +574,10 @@ final class TranscriptFlowTests: XCTestCase {
         app.buttons["composer-send"].tap()
 
         let pending = app.descendants(matching: .any).matching(identifier: "pending-prompt").firstMatch
-        XCTAssertTrue(pending.waitToExist(timeout: 10), "Delayed delivery did not show a pending prompt")
-        XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
         let delivered = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", marker)).firstMatch
+        // An idle stall after the tap can outlast the held delivery, so the prompt may already be delivered.
+        XCTAssertTrue(pollUntil(timeout: 10) { pending.exists || delivered.exists }, "Delayed delivery did not show a pending prompt")
+        XCTAssertTrue(waitForNonExistence(of: pending, timeout: 15), "Pending prompt did not become delivered")
         XCTAssertTrue(delivered.waitToExist(timeout: 15), "Delayed delivered prompt did not render")
         XCTAssertTrue(waitForHittable(delivered, timeout: 15), "Delayed delivered prompt was not visible at the bottom")
         XCTAssertFalse(app.buttons["Jump to latest"].exists, "Reconnect and delayed delivery moved the transcript away from the bottom")
