@@ -42,6 +42,10 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         composer.tap()
         composer.typeText("Short motion probe message")
         try await postFixture("/fixture/motion-stream")
+        if let trigger = ProcessInfo.processInfo.environment["TEST_RUNNER_SAMPLE_TRIGGER"], !trigger.isEmpty {
+            FileManager.default.createFile(atPath: trigger, contents: nil)
+            try await Task.sleep(for: .milliseconds(600))
+        }
         app.buttons["composer-send"].tap()
 
         let echoedPrompt = app.descendants(matching: .any).matching(

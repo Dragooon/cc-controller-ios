@@ -830,6 +830,7 @@ configure_xctestrun() {
     TEST_RUNNER_MOTION_SCENARIO "${TEST_RUNNER_MOTION_SCENARIO:-}"
     TEST_RUNNER_MOTION_ORIENTATION "${TEST_RUNNER_MOTION_ORIENTATION:-}"
     TEST_RUNNER_HINGE_ANGLE "${TEST_RUNNER_HINGE_ANGLE:-}"
+    TEST_RUNNER_SAMPLE_TRIGGER "${TEST_RUNNER_SAMPLE_TRIGGER:-}"
     TEST_RUNNER_CC_TRANSCRIPT_ENGINE "${TEST_RUNNER_CC_TRANSCRIPT_ENGINE:-}"
     CCMotionBuildSHA "${CCMotionBuildSHA:-}"
     CCMotionDevice "${CCMotionDevice:-}"
@@ -1870,6 +1871,9 @@ cmd_motion() {
       rm -f "$run_dir/$trace_name" "$run_dir/$run.analysis.json" "$run_dir/$run.analysis.stdout" "$run_dir/$run.json"
       stop_fixture_daemon
       reset_flow_state "$MOTION_UDID"
+      # The test touches this file just before the moment it measures, and that starts the CPU sample.
+      export TEST_RUNNER_SAMPLE_TRIGGER="$motion_scratch_dir/$run.sample-trigger"
+      rm -f "$TEST_RUNNER_SAMPLE_TRIGGER"
       xcrun simctl ui "$MOTION_UDID" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
       xcrun simctl install "$MOTION_UDID" "$app_bundle"
       FIXTURE_SIM_UDID="$MOTION_UDID"
@@ -1897,6 +1901,12 @@ cmd_motion() {
           xcrun simctl io "$MOTION_UDID" recordVideo --codec=h264 --force "$video" >"$motion_scratch_dir/$run.video.log" 2>&1 &
           MOTION_VIDEO_PID=$!
         fi
+        (
+          until [[ -f "$TEST_RUNNER_SAMPLE_TRIGGER" ]]; do sleep 0.1; done
+          app_pid=$(pgrep -n -f 'cc-controller.app/cc-controller' || true)
+          [[ -z "$app_pid" ]] || sample "$app_pid" 3 1 -file "$run_dir/$run.sample.txt" >/dev/null 2>&1 || true
+        ) &
+        local sample_watcher=$!
         local motion_method
         case "$scenario" in
           K1) motion_method=testK1KeyboardOpen;;
@@ -1914,6 +1924,7 @@ cmd_motion() {
           case_status=$?
         fi
       fi
+      kill "${sample_watcher:-}" 2>/dev/null || true
       stop_motion_video
       [[ -z "$video" || ! -f "$video" ]] || cp "$video" "$run_dir/$run.mp4"
       sleep 1
