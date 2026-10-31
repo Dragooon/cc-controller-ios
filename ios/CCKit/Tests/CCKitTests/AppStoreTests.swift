@@ -193,6 +193,32 @@ final class AppStoreTests: XCTestCase {
         app.suspend()
     }
 
+    func testFailedReconnectBootstrapRetriesBeforeReopeningStream() async throws {
+        var requests: [String] = []
+        var bootstrapCalls = 0
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" {
+                bootstrapCalls += 1
+                if bootstrapCalls == 2 {
+                    requests.append("bootstrap-failed")
+                    return URLProtocolStub.json(400, body: Data())
+                }
+                requests.append("bootstrap")
+                return URLProtocolStub.json(Self.bootstrapJSON)
+            }
+            if request.url?.path == "/api/events" {
+                requests.append("events")
+                return URLProtocolStub.json(Data(), contentType: "text/event-stream")
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        app.start()
+        try await waitUntil { requests.count >= 5 }
+        app.suspend()
+        XCTAssertEqual(Array(requests.prefix(5)), ["bootstrap", "events", "bootstrap-failed", "bootstrap", "events"])
+    }
+
     func testPlaceholderStateUsageDoesNotEraseKnownUsage() {
         let app = makeApp()
         let known = Self.session(state: .idle)

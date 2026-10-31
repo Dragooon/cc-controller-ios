@@ -1306,7 +1306,7 @@ public final class AppStore {
             client: client,
             clock: clock,
             beforeReconnect: { [weak self] attempt in
-                guard let self else { return false }
+                guard let self else { return .stop }
                 return await self.prepareReconnect(attempt: attempt)
             }
         )
@@ -1417,8 +1417,8 @@ public final class AppStore {
         }
     }
 
-    private func prepareReconnect(attempt: Int) async -> Bool {
-        guard started else { return false }
+    private func prepareReconnect(attempt: Int) async -> ReconnectDecision {
+        guard started else { return .stop }
         reconnectSince = reconnectSince ?? clock.now
         isStateCurrent = false
         updateOpenStoreReadiness()
@@ -1427,20 +1427,20 @@ public final class AppStore {
             try await authenticate()
             try await bootstrapAndReconcile(resetTranscripts: false)
             reconnectSince = nil
-            return started
+            return started ? .proceed : .stop
         } catch let error as APIError {
             if error == .unauthorized {
                 guard let handler = authenticationFailureHandler else {
                     connection = .unauthorized
                     started = false
-                    return false
+                    return .stop
                 }
                 await handler()
                 do {
                     try await authenticate()
                     try await bootstrapAndReconcile(resetTranscripts: false)
                     reconnectSince = nil
-                    return started
+                    return started ? .proceed : .stop
                 } catch {
                     if let retryError = error as? APIError, case .decoding = retryError {
                         connection = connectionState(for: retryError)
@@ -1448,14 +1448,14 @@ public final class AppStore {
                         connection = .unauthorized
                     }
                     started = false
-                    return false
+                    return .stop
                 }
             }
             connection = connectionState(for: error)
-            return started
+            return started ? .retry : .stop
         } catch {
             connection = connectionState(for: error)
-            return started
+            return started ? .retry : .stop
         }
     }
 

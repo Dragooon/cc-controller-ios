@@ -1,5 +1,12 @@
 import Foundation
 
+/// What the stream does after its pre-reconnect work: a failed refetch must not leave it live on stale state.
+public enum ReconnectDecision: Sendable {
+    case proceed
+    case retry
+    case stop
+}
+
 public actor EventStream {
     public nonisolated let events: AsyncStream<LiveEvent>
     public nonisolated let statuses: AsyncStream<ConnectionStatus>
@@ -7,7 +14,7 @@ public actor EventStream {
 
     private let client: APIClient
     private let clock: any CCKitClock
-    private let beforeReconnect: (@Sendable (Int) async -> Bool)?
+    private let beforeReconnect: (@Sendable (Int) async -> ReconnectDecision)?
     private let eventContinuation: AsyncStream<LiveEvent>.Continuation
     private let statusContinuation: AsyncStream<ConnectionStatus>.Continuation
     private let unknownContinuation: AsyncStream<String>.Continuation
@@ -17,7 +24,7 @@ public actor EventStream {
         client: APIClient,
         session: URLSession = .shared,
         clock: any CCKitClock = SystemCCKitClock(),
-        beforeReconnect: (@Sendable (Int) async -> Bool)? = nil
+        beforeReconnect: (@Sendable (Int) async -> ReconnectDecision)? = nil
     ) {
         self.client = client
         self.clock = clock
@@ -55,7 +62,14 @@ public actor EventStream {
                 let delay = backoff(attempt: attempt)
                 do { try await clock.sleep(for: .nanoseconds(Int64(delay * 1_000_000_000))) } catch { break }
                 guard !Task.isCancelled else { break }
-                if let beforeReconnect, await !beforeReconnect(attempt) { break }
+                if let beforeReconnect {
+                    let decision = await beforeReconnect(attempt)
+                    if decision == .stop { break }
+                    if decision == .retry {
+                        attempt += 1
+                        continue
+                    }
+                }
                 statusContinuation.yield(.reconnecting(attempt: attempt))
             }
             do {
@@ -71,6 +85,7 @@ public actor EventStream {
                     throw APIError.http(status: response.statusCode, message: HTTPURLResponse.localizedString(forStatusCode: response.statusCode), code: nil)
                 }
                 attempt = 0
+                isFirstAttempt = false
                 statusContinuation.yield(.live)
                 eventContinuation.yield(.connected)
                 try await consume(bytes)
