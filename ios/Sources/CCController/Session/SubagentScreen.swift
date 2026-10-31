@@ -6,6 +6,8 @@ struct SubagentScreen: View {
     let agentID: String
     let store: AppStore
     @Bindable var model: AppModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         screen()
@@ -38,21 +40,19 @@ struct SubagentScreen: View {
                 scrollAnchor: .top
             )
             .navigationTitle(subagent?.agent ?? agentID)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 0) {
-                        Text(subagent?.agent ?? agentID)
-                            .font(.headline)
+            .modifier(SubagentHeaderModifier(isRegular: horizontalSizeClass == .regular, dismiss: { dismiss() }) {
+                VStack(alignment: horizontalSizeClass == .regular ? .leading : .center, spacing: 0) {
+                    Text(subagent?.agent ?? agentID)
+                        .font(.headline)
+                        .lineLimit(1)
+                    if let subagent {
+                        SubagentSubtitleView(subagent: subagent)
+                            .font(.caption)
+                            .foregroundStyle(.ccSecondary)
                             .lineLimit(1)
-                        if let subagent {
-                            SubagentSubtitleView(subagent: subagent)
-                                .font(.caption)
-                                .foregroundStyle(.ccSecondary)
-                                .lineLimit(1)
-                        }
                     }
                 }
-            }
+            })
             .navigationBarTitleDisplayMode(.inline)
             .tint(.ccAccent)
             .background(.ccBackground)
@@ -81,5 +81,42 @@ struct SubagentScreen: View {
             return urlError.code == .cancelled
         }
         return false
+    }
+}
+
+/// The system bar on a phone; in large mode the same header as the session screen, with a back button.
+private struct SubagentHeaderModifier<Title: View>: ViewModifier {
+    let isRegular: Bool
+    let dismiss: () -> Void
+    @ViewBuilder let title: () -> Title
+
+    func body(content: Content) -> some View {
+        if isRegular {
+            content
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    RegularDetailHeader {
+                        HStack(spacing: RegularHeaderMetrics.controlSpacing) {
+                            Button(action: dismiss) {
+                                Image(systemName: "chevron.left")
+                                    .frame(width: RegularHeaderMetrics.toggleSize, height: RegularHeaderMetrics.toggleSize)
+                            }
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .accessibilityLabel("Back")
+                            .accessibilityIdentifier("subagent-back")
+                            title()
+                        }
+                    } trailing: {
+                        EmptyView()
+                    }
+                }
+                .toolbar(.hidden, for: .navigationBar)
+        } else {
+            content
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        title()
+                    }
+                }
+        }
     }
 }

@@ -70,7 +70,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let sessionID: String?
     let sendRevealCoordinator: SendRevealCoordinator?
     let composer: ComposerConfiguration
-    let statusSegments: [String]
     let activitySession: Session?
     let waking: Bool
     let wakeError: String?
@@ -108,7 +107,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
         sessionID: String? = nil,
         sendRevealCoordinator: SendRevealCoordinator? = nil,
         composer: ComposerConfiguration = ComposerConfiguration(),
-        statusSegments: [String] = [],
         activitySession: Session? = nil,
         waking: Bool = false,
         wakeError: String? = nil,
@@ -143,7 +141,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.sessionID = sessionID
         self.sendRevealCoordinator = sendRevealCoordinator
         self.composer = composer
-        self.statusSegments = statusSegments
         self.activitySession = activitySession
         self.waking = waking
         self.wakeError = wakeError
@@ -181,7 +178,6 @@ struct BottomStackConfiguration: @unchecked Sendable {
             sessionID: sessionID,
             sendRevealCoordinator: sendRevealCoordinator,
             composer: composer,
-            statusSegments: statusSegments,
             activitySession: activitySession,
             waking: waking,
             wakeError: wakeError,
@@ -291,12 +287,10 @@ struct BottomStackView: View {
                 if configuration.approvals.isEmpty, configuration.waking {
                     WakeStatusLine()
                         .transition(.opacity)
-                } else if configuration.approvals.isEmpty, !configuration.statusSegments.isEmpty {
-                    StatusLineView(
-                        segments: configuration.statusSegments,
-                        activitySession: configuration.activitySession,
-                        onActivity: configuration.onActivity
-                    )
+                } else if configuration.approvals.isEmpty,
+                          let session = configuration.activitySession,
+                          let summary = activitySummaryText(for: session) {
+                    ActivityStatusChip(session: session, summary: summary, onActivity: configuration.onActivity)
                         .transition(.opacity)
                 }
 

@@ -10,11 +10,9 @@ struct MainSplitView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
-    /// Window Y of the detail's title row, from the toolbar slot that reserves the toggle's room.
-    @State private var regularHeaderRowMinY: CGFloat?
-    /// Window Y of the container the fixed sidebar controls are laid out in.
-    @State private var regularControlsOriginY: CGFloat = 0
     @State private var isRegularInspectorOpen = false
+    /// Whether the detail column still has room for the inspector with the sidebar open.
+    @State private var regularInspectorFitsBesideSidebar = true
 #if DEBUG
     @State private var regularSwipeDiagnostic = ""
 #endif
@@ -173,27 +171,21 @@ struct MainSplitView: View {
     private func regularSplitView() -> some View {
         GeometryReader { proxy in
             let sidebarWidth = min(360, max(300, proxy.size.width * 0.3))
-            let remainingWidth = proxy.size.width - sidebarWidth
-#if DEBUG
-            let forceOverlay = ProcessInfo.processInfo.arguments.contains("-CCSidebarLayout")
-                && ProcessInfo.processInfo.arguments.contains("overlay")
-#else
-            let forceOverlay = false
-#endif
-            let layoutMode = forceOverlay || remainingWidth < 440 ? "overlay" : "push"
             regularSplitContent(
                 width: proxy.size.width,
                 height: proxy.size.height,
-                sidebarWidth: sidebarWidth,
-                isOverlay: forceOverlay || remainingWidth < 440
+                sidebarWidth: sidebarWidth
             )
+            .onChange(of: proxy.size.width - sidebarWidth, initial: true) { _, remainingWidth in
+                regularInspectorFitsBesideSidebar = remainingWidth >= RegularHeaderMetrics.minimumDetailWidthWithInspector
+            }
 #if DEBUG
             .overlay {
                 Text(" ")
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityIdentifier("regular-layout-metrics")
-                    .accessibilityValue("width=\(proxy.size.width),rowMinY=\(regularHeaderRowMinY ?? -1),controlsOriginY=\(regularControlsOriginY),sidebar=\(sidebarWidth),remaining=\(remainingWidth),mode=\(layoutMode),swipe=\(regularSwipeDiagnostic)")
+                    .accessibilityValue("width=\(proxy.size.width),sidebar=\(sidebarWidth),swipe=\(regularSwipeDiagnostic)")
             }
 #endif
         }
@@ -204,14 +196,12 @@ struct MainSplitView: View {
     private func regularSplitContent(
         width: CGFloat,
         height: CGFloat,
-        sidebarWidth: CGFloat,
-        isOverlay: Bool
+        sidebarWidth: CGFloat
     ) -> some View {
         let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
         return ZStack(alignment: .leading) {
-            regularDetailColumn(width: width, sidebarWidth: sidebarWidth, isOverlay: isOverlay)
-            regularSidebarScrim(isOverlay: isOverlay)
-            regularSidebarColumn(sidebarWidth: sidebarWidth, isOverlay: isOverlay)
+            regularDetailColumn(width: width, sidebarWidth: sidebarWidth)
+            regularSidebarColumn(sidebarWidth: sidebarWidth)
             regularSidebarPanCapture(
                 sidebarWidth: sidebarWidth,
                 height: height,
@@ -225,19 +215,8 @@ struct MainSplitView: View {
                     .allowsHitTesting(false)
             }
         }
-        .overlay {
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                    .allowsHitTesting(false)
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.frame(in: .global).minY
-                    } action: { originY in
-                        regularControlsOriginY = originY
-                    }
-                regularSidebarControls(
-                    topInset: regularHeaderRowMinY.map { max(0, $0 - regularControlsOriginY) } ?? 0
-                )
-            }
+        .overlay(alignment: .topLeading) {
+            regularSidebarControls()
         }
         .onChange(of: regularSidebarDragActive) { _, isActive in
             guard !isActive, regularSidebarDragStartProgress != nil else { return }
@@ -253,8 +232,8 @@ struct MainSplitView: View {
         }
     }
 
-    private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
-        let shift = isOverlay ? 0 : sidebarWidth * regularSidebarProgress
+    private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat) -> some View {
+        let shift = sidebarWidth * regularSidebarProgress
         return regularDetailNavigation()
             .frame(width: max(0, width - shift))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -265,57 +244,24 @@ struct MainSplitView: View {
         NavigationStack {
             regularDetailContent()
         }
+        .environment(\.regularHeaderLeadingInset, regularDetailHeaderLeadingInset)
     }
 
+    /// The system bar shares the status bar's row on some devices and loses most of its width to it,
+    /// so each large-mode screen draws its own header under the status bar.
     private func regularDetailContent() -> some View {
         detailView()
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    regularSidebarControlsSlot()
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
+            .toolbar(.hidden, for: .navigationBar)
     }
 
-    /// Empty room in the detail's navigation bar under the fixed sidebar controls. The bar keeps the
-    /// title clear of it, and its position is where the controls and the sidebar header line up.
-    private func regularSidebarControlsSlot() -> some View {
-        HStack(spacing: 8) {
-            Color.clear
-                .frame(width: 44, height: 44)
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.frame(in: .global).minY
-                } action: { rowMinY in
-                    guard abs((regularHeaderRowMinY ?? .infinity) - rowMinY) > 0.5 else { return }
-                    regularHeaderRowMinY = rowMinY
-                }
-            if approvalsElsewhereCount > 0 {
-                Text(approvalsElsewhereText)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .fixedSize()
-                    .hidden()
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+    /// Room for the fixed sidebar controls, which only sit over the detail while the sidebar is closed.
+    private var regularDetailHeaderLeadingInset: CGFloat {
+        guard columnVisibility == .detailOnly else { return 0 }
+        return RegularHeaderMetrics.toggleSize + RegularHeaderMetrics.controlSpacing
     }
 
-    private func regularSidebarScrim(isOverlay: Bool) -> some View {
-        Color.black
-            .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .modifier(SidebarScrimModifier(progress: regularSidebarProgress, isOverlay: isOverlay))
-            .onTapGesture { toggleSidebar() }
-            .zIndex(0.5)
-    }
-
-    private func regularSidebarColumn(sidebarWidth: CGFloat, isOverlay: Bool) -> some View {
-        sessionsList(
-            headerRowMinY: regularHeaderRowMinY,
-            isRegularSidebarHidden: regularSidebarProgress <= 0.001,
-            closeOnOpen: isOverlay
-        )
+    private func regularSidebarColumn(sidebarWidth: CGFloat) -> some View {
+        sessionsList(isRegularSidebarHidden: regularSidebarProgress <= 0.001)
             .accessibilityHidden(regularSidebarProgress <= 0.001)
             .frame(width: sidebarWidth)
             .overlay(alignment: .trailing) {
@@ -414,8 +360,12 @@ struct MainSplitView: View {
                         columnVisibility = .all
                     }
                 },
+                sidebarCrowdsInspector: !regularInspectorFitsBesideSidebar && columnVisibility == .all,
                 onRegularInspectorChange: { isOpen in
                     isRegularInspectorOpen = isOpen
+                    if isOpen, !regularInspectorFitsBesideSidebar, columnVisibility == .all {
+                        toggleSidebar()
+                    }
                 }
             )
             .id(selectedSession)
@@ -511,25 +461,19 @@ struct MainSplitView: View {
         return .interpolatingSpring(mass: 1, stiffness: 250, damping: 28, initialVelocity: initialVelocity)
     }
 
-    private func sessionsList(
-        headerRowMinY: CGFloat? = nil,
-        isRegularSidebarHidden: Bool = false,
-        closeOnOpen: Bool = false
-    ) -> some View {
+    private func sessionsList(isRegularSidebarHidden: Bool = false) -> some View {
         SessionsListView(
             controllers: listControllers,
             waking: wakingSessionIDs,
             subtitleOverride: model.selectedSession == nil ? nil : "",
             notice: sessionNotice,
             canCreateSession: !newSessionChoices.isEmpty,
-            regularHeaderRowMinY: headerRowMinY,
             isRegularSidebarHidden: isRegularSidebarHidden,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
             },
             onOpen: { controllerID, session in
                 openSession(controllerID, session.id)
-                if closeOnOpen { toggleSidebar() }
             },
             onAllow: { controllerID, approval in
                 performApprovalDecision(approval, controllerID: controllerID, scope: .once)
@@ -596,11 +540,11 @@ struct MainSplitView: View {
         }
     }
 
-    private func regularSidebarControls(topInset: CGFloat) -> some View {
-        HStack(spacing: 8) {
+    private func regularSidebarControls() -> some View {
+        HStack(spacing: RegularHeaderMetrics.controlSpacing) {
             Button(action: toggleSidebar) {
                 Image(systemName: "sidebar.left")
-                    .frame(width: 44, height: 44)
+                    .frame(width: RegularHeaderMetrics.toggleSize, height: RegularHeaderMetrics.toggleSize)
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
@@ -623,8 +567,8 @@ struct MainSplitView: View {
                 .accessibilityLabel(approvalsElsewhereAccessibilityLabel)
             }
         }
-        .padding(.leading, 16)
-        .padding(.top, topInset)
+        .padding(.leading, RegularHeaderMetrics.horizontalPadding)
+        .padding(.top, RegularHeaderMetrics.topPadding)
     }
 
     private var approvalsElsewhereText: String {
@@ -817,23 +761,6 @@ private struct SidebarRevealModifier: AnimatableModifier {
             .opacity(progress > 0.001 ? 1 : 0)
             .allowsHitTesting(progress > 0.001)
             .accessibilityHidden(progress <= 0.001)
-    }
-}
-
-private struct SidebarScrimModifier: AnimatableModifier {
-    var progress: CGFloat
-    let isOverlay: Bool
-
-    nonisolated var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(isOverlay ? 0.25 * progress : 0)
-            .allowsHitTesting(isOverlay && progress > 0.001)
-            .accessibilityHidden(!isOverlay || progress <= 0.001)
     }
 }
 

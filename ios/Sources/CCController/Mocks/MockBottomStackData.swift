@@ -58,7 +58,6 @@ enum MockBottomStackData {
         )
     }()
 
-    static let statusSegments = ["3.1M in", "84k out", "92% cached"]
 
     static let activityFooter: ActivityFooter = {
         let activitySession = Session(
@@ -87,7 +86,6 @@ enum MockBottomStackData {
             isWorking: true,
             canInterrupt: true
         ),
-        statusSegments: statusSegments,
         activitySession: workingSession
     )
 
@@ -97,19 +95,16 @@ enum MockBottomStackData {
             isWorking: true,
             canInterrupt: true
         ),
-        statusSegments: statusSegments,
         activitySession: activitySession
     )
 
     static let slashBottomStack = BottomStackConfiguration(
         composer: ComposerConfiguration(initialText: "/"),
-        statusSegments: statusSegments,
         slashCommands: slashCommands
     )
 
     static let attachmentBottomStack = BottomStackConfiguration(
         composer: ComposerConfiguration(initialText: "Here are the screenshots"),
-        statusSegments: statusSegments,
         attachments: [
             ComposerAttachment(id: "judge-alignment", content: .image(resourceName: "judge-alignment", progress: nil)),
             ComposerAttachment(id: "rollout", content: .image(resourceName: "rollout", progress: 0.62)),
@@ -118,8 +113,7 @@ enum MockBottomStackData {
     )
 
     static let keyboardBottomStack = BottomStackConfiguration(
-        composer: ComposerConfiguration(focusesOnAppear: true),
-        statusSegments: statusSegments
+        composer: ComposerConfiguration(focusesOnAppear: true)
     )
 
     private static func decode(_ json: String) -> [Turn] {

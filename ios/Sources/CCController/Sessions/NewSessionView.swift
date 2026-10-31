@@ -15,6 +15,7 @@ struct NewSessionView: View {
     var isEmbedded = false
     let onCreated: (String, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @FocusState private var promptFocused: Bool
 
@@ -59,6 +60,12 @@ struct NewSessionView: View {
         options?.agents != nil
     }
 
+    private var newSessionTitle: some View {
+        Text("New session")
+            .font(.headline)
+            .accessibilityIdentifier("new-session-title")
+    }
+
     private var canCreate: Bool {
         guard let options, !loading, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         if isStockade { return selectedAgentID?.isEmpty == false }
@@ -67,7 +74,16 @@ struct NewSessionView: View {
 
     var body: some View {
         Group {
-            if isEmbedded {
+            if isEmbedded, horizontalSizeClass == .regular {
+                page
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        RegularDetailHeader {
+                            newSessionTitle
+                        } trailing: {
+                            EmptyView()
+                        }
+                    }
+            } else if isEmbedded {
                 page
             } else {
                 NavigationStack {
@@ -128,10 +144,10 @@ struct NewSessionView: View {
         }
         .toolbar {
             if isEmbedded {
-                ToolbarItem(placement: .principal) {
-                    Text("New session")
-                        .font(.headline)
-                        .accessibilityIdentifier("new-session-title")
+                if horizontalSizeClass != .regular {
+                    ToolbarItem(placement: .principal) {
+                        newSessionTitle
+                    }
                 }
             } else {
                 ToolbarItem(placement: .cancellationAction) {

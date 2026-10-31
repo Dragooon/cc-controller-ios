@@ -70,7 +70,6 @@ struct SessionsListView: View {
     let subtitleOverride: String?
     let notice: String?
     let canCreateSession: Bool
-    let regularHeaderRowMinY: CGFloat?
     let isRegularSidebarHidden: Bool
     let onSessionsLoaded: () async -> Void
     let onOpen: (ControllerID, Session) -> Void
@@ -90,7 +89,6 @@ struct SessionsListView: View {
     let onEnd: (ControllerID, String) async -> Result<Void, ActionError>
     let onActionError: (ActionError) -> Void
 
-    @State private var regularHeaderOriginY: CGFloat = 0
     @State private var searchText = ""
     @State private var isSearchPresented = false
     @State private var archiveToast: ArchiveToast?
@@ -108,7 +106,6 @@ struct SessionsListView: View {
         subtitleOverride: String? = nil,
         notice: String? = nil,
         canCreateSession: Bool = true,
-        regularHeaderRowMinY: CGFloat? = nil,
         isRegularSidebarHidden: Bool = false,
         onSessionsLoaded: @escaping () async -> Void = {},
         onOpen: @escaping (ControllerID, Session) -> Void = { _, _ in },
@@ -133,7 +130,6 @@ struct SessionsListView: View {
         self.subtitleOverride = subtitleOverride
         self.notice = notice
         self.canCreateSession = canCreateSession
-        self.regularHeaderRowMinY = regularHeaderRowMinY
         self.isRegularSidebarHidden = isRegularSidebarHidden
         self.onSessionsLoaded = onSessionsLoaded
         self.onOpen = onOpen
@@ -340,12 +336,7 @@ struct SessionsListView: View {
             if horizontalSizeClass == .regular {
                 list
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        regularHeader(topInset: regularHeaderRowMinY.map { max(0, $0 - regularHeaderOriginY) } ?? 0)
-                            .onGeometryChange(for: CGFloat.self) { proxy in
-                                proxy.frame(in: .global).minY
-                            } action: { originY in
-                                regularHeaderOriginY = originY
-                            }
+                        regularHeader
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         bottomInset
@@ -406,13 +397,13 @@ struct SessionsListView: View {
         }
     }
 
-    private func regularHeader(topInset: CGFloat) -> some View {
+    private var regularHeader: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Color.clear
-                    .frame(width: 44, height: 44)
+                    .frame(width: RegularHeaderMetrics.toggleSize, height: RegularHeaderMetrics.toggleSize)
                     .accessibilityHidden(true)
-                    .padding(.trailing, 8)
+                    .padding(.trailing, RegularHeaderMetrics.controlSpacing)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Sessions")
                         .font(.title3.weight(.semibold))
@@ -433,11 +424,11 @@ struct SessionsListView: View {
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Settings")
             }
-            .frame(height: 44)
-            .padding(.horizontal, 16)
+            .frame(height: RegularHeaderMetrics.toggleSize)
+            .padding(.horizontal, RegularHeaderMetrics.horizontalPadding)
             regularSearchField
         }
-        .padding(.top, topInset)
+        .padding(.top, RegularHeaderMetrics.topPadding)
         .background(.ccBackground)
     }
 

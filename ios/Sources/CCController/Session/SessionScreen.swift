@@ -34,6 +34,8 @@ struct SessionScreen: View {
     let wakeError: String?
     let onRetryWake: () -> Void
     let onShowApprovalsElsewhere: () -> Void
+    /// The sidebar has just taken the room the inspector would need, so an open inspector closes.
+    let sidebarCrowdsInspector: Bool
     let onRegularInspectorChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -46,6 +48,7 @@ struct SessionScreen: View {
         wakeError: String? = nil,
         onRetryWake: @escaping () -> Void = {},
         onShowApprovalsElsewhere: @escaping () -> Void = {},
+        sidebarCrowdsInspector: Bool = false,
         onRegularInspectorChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.sessionID = sessionID
@@ -56,6 +59,7 @@ struct SessionScreen: View {
         self.wakeError = wakeError
         self.onRetryWake = onRetryWake
         self.onShowApprovalsElsewhere = onShowApprovalsElsewhere
+        self.sidebarCrowdsInspector = sidebarCrowdsInspector
         self.onRegularInspectorChange = onRegularInspectorChange
     }
     @State private var selectedTool: ToolEntry?
@@ -146,10 +150,13 @@ struct SessionScreen: View {
         .onChange(of: regularInspectorBinding.wrappedValue, initial: true) { _, isOpen in
             onRegularInspectorChange(isOpen)
         }
+        .onChange(of: sidebarCrowdsInspector) { _, isCrowded in
+            if isCrowded, !isCompact { inspectorPresented = false }
+        }
         .overlay(alignment: .top) {
             if let commandToast {
                 CommandToastView(message: commandToast)
-                    .padding(.top, 8)
+                    .padding(.top, isCompact ? 8 : RegularHeaderMetrics.rowHeight + 8)
             }
         }
         .onDisappear {
@@ -413,7 +420,6 @@ struct SessionScreen: View {
                 canAttach: composerCapabilities.canAttach,
                 canRunCommands: composerCapabilities.canRunCommands
             ),
-            statusSegments: formatTokenUsageSegments(current.usage),
             activitySession: current,
             waking: isWaking,
             wakeError: wakeError,
@@ -748,7 +754,30 @@ struct SessionScreen: View {
         return url
     }
 
+    @ViewBuilder
     private func contentNavigation<Content: View>(
+        name: String,
+        session: Session,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if isCompact {
+            compactContentNavigation(name: name, session: session, content: content)
+        } else {
+            content()
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    RegularDetailHeader(reservedText: approvalsElsewhereCount > 0 ? approvalsElsewhereText : nil) {
+                        sessionTitle(name: name, session: session)
+                    } trailing: {
+                        sessionInfoButton(size: RegularHeaderMetrics.toggleSize)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                    }
+                }
+                .tint(.ccAccent)
+                .background(.ccBackground)
+        }
+    }
+
+    private func compactContentNavigation<Content: View>(
         name: String,
         session: Session,
         @ViewBuilder content: () -> Content
@@ -757,7 +786,7 @@ struct SessionScreen: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if isCompact, approvalsElsewhereCount > 0 {
+                if approvalsElsewhereCount > 0 {
                     ToolbarItem(placement: .topBarLeading) {
                         Button(action: onShowApprovalsElsewhere) {
                             Text(approvalsElsewhereText)
@@ -774,36 +803,45 @@ struct SessionScreen: View {
                     }
                 }
                 ToolbarItem(placement: .principal) {
-                    #if CC_PERF
-                    let _ = PerfCounters.shared.hit(.sessionHeader)
-                    #endif
-                    VStack(spacing: 0) {
-                        Text(name)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("selected-session-name")
-                            .accessibilityValue(session.id ?? sessionID)
-                        SessionSubtitleView(session: session, controllerName: model.controllerName(for: store))
-                            .font(.caption)
-                            .foregroundStyle(.ccSecondary)
-                            .lineLimit(1)
-                            .accessibilityIdentifier("selected-session-subtitle")
-                    }
+                    sessionTitle(name: name, session: session)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        inspectorPresented.toggle()
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
-                    .accessibilityLabel("Session info")
-                    .accessibilityIdentifier("session-info")
+                    sessionInfoButton(size: nil)
                 }
             }
             .tint(.ccAccent)
             .background(.ccBackground)
             .toolbarBackground(.ccBackground, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+    }
+
+    private func sessionTitle(name: String, session: Session) -> some View {
+        #if CC_PERF
+        let _ = PerfCounters.shared.hit(.sessionHeader)
+        #endif
+        return VStack(alignment: isCompact ? .center : .leading, spacing: 0) {
+            Text(name)
+                .font(.headline)
+                .lineLimit(1)
+                .accessibilityIdentifier("selected-session-name")
+                .accessibilityValue(session.id ?? sessionID)
+            SessionSubtitleView(session: session, controllerName: model.controllerName(for: store))
+                .font(.caption)
+                .foregroundStyle(.ccSecondary)
+                .lineLimit(1)
+                .accessibilityIdentifier("selected-session-subtitle")
+        }
+    }
+
+    private func sessionInfoButton(size: CGFloat?) -> some View {
+        Button {
+            inspectorPresented.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .frame(width: size, height: size)
+        }
+        .accessibilityLabel("Session info")
+        .accessibilityIdentifier("session-info")
     }
 
     @ViewBuilder

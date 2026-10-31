@@ -693,22 +693,6 @@ public func formatTokenCount(_ value: Int?) -> String {
     return formatTokenCount(Double(value))
 }
 
-public func formatTokenUsageSegments(_ usage: Usage?) -> [String] {
-    guard let usage else { return [] }
-    var segments: [String] = []
-    if let input = usage.totalInputTokens ?? usage.inputTokens, input > 0 {
-        segments.append("\(formatTokenCount(input)) in")
-    }
-    if let output = usage.outputTokens, output > 0 {
-        segments.append("\(formatTokenCount(output)) out")
-    }
-    if let cacheHitRate = usage.cacheHitRate, cacheHitRate.isFinite, cacheHitRate > 0 {
-        let percent = cacheHitRate <= 1 ? cacheHitRate * 100 : cacheHitRate
-        if percent > 0 { segments.append("\(Int(percent.rounded()))% cached") }
-    }
-    return segments
-}
-
 public func formatContextUsage(_ usage: Usage? = nil, expanded: Bool = false) -> String {
     guard let usage else { return "" }
     if expanded, let contextTokens = usage.contextTokens, let contextWindow = usage.contextWindow {

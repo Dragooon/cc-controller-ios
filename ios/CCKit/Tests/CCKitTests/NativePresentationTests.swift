@@ -99,15 +99,6 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertEqual(sessionDetailSubtitle(Session(state: .idle, usage: Usage(contextPercent: 0))), "idle")
     }
 
-    func testTokenUsageSegmentsOmitUnknownAndPlaceholderZeroValues() {
-        XCTAssertEqual(
-            formatTokenUsageSegments(Usage(totalInputTokens: 3_100_000, outputTokens: 84_000, cacheHitRate: 0.92)),
-            ["3.1M in", "84k out", "92% cached"]
-        )
-        XCTAssertEqual(formatTokenUsageSegments(Usage(inputTokens: 0, outputTokens: 0, cacheHitRate: 0)), [])
-        XCTAssertEqual(formatTokenUsageSegments(nil), [])
-    }
-
     func testDefaultSlashCommandsIncludeFullStaticComposerList() {
         XCTAssertEqual(defaultSlashCommands.map(\.command), ["/clear", "/compact", "/rename", "/model", "/context", "/cost", "/review", "/init"])
         XCTAssertEqual(defaultSlashCommands.map(\.description), ["Clear conversation", "Summarize context", "Rename session", "Switch model", "Show context use", "Show cost", "Review changes", "Initialize project"])

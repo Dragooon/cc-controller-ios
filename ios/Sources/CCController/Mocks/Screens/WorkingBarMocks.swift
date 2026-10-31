@@ -32,7 +32,6 @@ private struct WorkingBarMockConfiguration {
     let showsWorkingBar: Bool
     let composerText: String
     let focusesComposer: Bool
-    let statusSegments: [String]
     let activityFooter: CCKit.ActivityFooter?
 
     var composer: ComposerConfiguration {
@@ -117,7 +116,6 @@ private enum MockWorkingBarData {
         showsWorkingBar: true,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["38.4k in", "6.5k out", "92% cached"],
         activityFooter: nil
     )
 
@@ -128,7 +126,6 @@ private enum MockWorkingBarData {
         showsWorkingBar: true,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["41.2k in", "6.5k out", "89% cached"],
         activityFooter: nil
     )
 
@@ -139,7 +136,6 @@ private enum MockWorkingBarData {
         showsWorkingBar: true,
         composerText: "While that runs, check the release checklist too",
         focusesComposer: true,
-        statusSegments: ["38.4k in", "6.5k out", "92% cached"],
         activityFooter: nil
     )
 
@@ -150,7 +146,6 @@ private enum MockWorkingBarData {
         showsWorkingBar: false,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["38.4k in", "6.5k out", "92% cached"],
         activityFooter: nil
     )
 
@@ -161,7 +156,6 @@ private enum MockWorkingBarData {
         showsWorkingBar: false,
         composerText: "",
         focusesComposer: false,
-        statusSegments: ["41.2k in", "6.5k out", "89% cached"],
         activityFooter: activityFooterText(toolAgentsSession, now: now, verb: "Hashing")
     )
 
@@ -218,8 +212,7 @@ private struct WorkingBarMockScreen: View {
                 } else {
                     BottomStackView(
                         configuration: BottomStackConfiguration(
-                            composer: configuration.composer,
-                            statusSegments: configuration.statusSegments
+                            composer: configuration.composer
                         )
                     )
                 }
@@ -255,7 +248,6 @@ private struct WorkingBarMockBottomStack: View {
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {
-                StatusLineView(segments: configuration.statusSegments)
                 WorkingBarView(
                     session: configuration.session,
                     verb: configuration.verb,

@@ -67,7 +67,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
             XCTAssertTrue(back.waitToExist(timeout: 30), "Portrait sessions navigation did not load")
             back.tap()
         }
-        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions sidebar did not load after opening the overlay")
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions sidebar did not load")
         let sizeClass = app.descendants(matching: .any)
             .matching(identifier: "horizontal-size-class")
             .firstMatch
@@ -290,11 +290,39 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let sidebar = sessionsList(in: app)
         XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
         assertHeaderAlignment(in: app, sidebarOpen: true)
+        assertDetailIsBesideSidebar(detail: transcript(in: app), sidebar: sidebar, in: app)
+        addScreenshot(named: "sidebar-portrait-open")
 
         sidebarToggle(in: app).tap()
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Portrait sidebar did not close")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
         assertHeaderAlignment(in: app)
+        addScreenshot(named: "sidebar-portrait-closed")
+    }
+
+    func testPortraitSidebarAndInspectorTakeTurnsWhenTheyDoNotFit() throws {
+        let app = launch(orientation: .portrait, sessionID: "long-session")
+        defer { app.terminate() }
+
+        let sizeClass = app.descendants(matching: .any)
+            .matching(identifier: "horizontal-size-class")
+            .firstMatch
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
+        try XCTSkipUnless(sizeClass.label == "regular", "Only regular layouts show the sidebar beside the inspector")
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
+        let info = app.buttons["session-info"]
+        XCTAssertTrue(info.waitToExist(timeout: 30), "Session info button did not load")
+        info.tap()
+        let details = app.navigationBars["Details"]
+        XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar stayed open beside the inspector")
+        addScreenshot(named: "sidebar-portrait-inspector")
+
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sidebar did not reopen")
+        XCTAssertTrue(details.waitToDisappear(timeout: 10), "Inspector stayed open beside the sidebar")
     }
 
     func testApprovalsCapsuleFollowsSidebarVisibility() throws {
