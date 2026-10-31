@@ -1927,6 +1927,7 @@ cmd_motion() {
       kill "${sample_watcher:-}" 2>/dev/null || true
       stop_motion_video
       [[ -z "$video" || ! -f "$video" ]] || cp "$video" "$run_dir/$run.mp4"
+      cp "$motion_scratch_dir/$run.video.log" "$run_dir/" 2>/dev/null || true
       sleep 1
       stop_fixture_daemon
       container=$(xcrun simctl get_app_container "$MOTION_UDID" "$BUNDLE_ID" data)

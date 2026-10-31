@@ -47,6 +47,8 @@ final class MotionFlowTests: FixtureFlowTestSupport {
             try await Task.sleep(for: .milliseconds(600))
         }
         app.buttons["composer-send"].tap()
+        // XCUITest queries run on the app's main thread, so nothing may query while the send is measured.
+        try await Task.sleep(for: .milliseconds(2_500))
 
         let echoedPrompt = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Short motion probe message")
@@ -132,6 +134,7 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         let orientation: UIDeviceOrientation = environment["TEST_RUNNER_MOTION_ORIENTATION"] == "landscape"
             ? .landscapeRight
             : .portrait
+        SimulatorHinge.applyConfiguredAngle()
         return launchCold(
             openingSession: "long-session",
             motionTraceFile: requiredRunnerVariable("TEST_RUNNER_MOTION_TRACE"),
