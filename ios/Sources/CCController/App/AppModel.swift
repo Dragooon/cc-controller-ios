@@ -283,6 +283,17 @@ final class AppModel {
             !registry.controllers.contains { $0.id == config.id }
         }
         let configs = registry.controllers + extraConfigs
+        // Before the connections are built: each AppStore loads its drafts and queued notes as it starts.
+        #if DEBUG
+        let controllerCacheDirectory = ControllerStorage.cacheDirectory(root: cacheRoot, controllerID: selectedConfig.id)
+        if arguments.contains("-CCResetCache"), FileManager.default.fileExists(atPath: controllerCacheDirectory.path) {
+            do {
+                try FileManager.default.removeItem(at: controllerCacheDirectory)
+            } catch {
+                assertionFailure("Could not reset fixture cache: \(error)")
+            }
+        }
+        #endif
         let primaryCredentials = KeychainCredentialStore(controllerID: selectedConfig.id)
         let connections = configs.map { config in
             let credentials = config.id == selectedConfig.id
@@ -342,16 +353,6 @@ final class AppModel {
         selectedSession = nil
         #endif
 
-        #if DEBUG
-        let controllerCacheDirectory = ControllerStorage.cacheDirectory(root: cacheRoot, controllerID: selectedConfig.id)
-        if arguments.contains("-CCResetCache"), FileManager.default.fileExists(atPath: controllerCacheDirectory.path) {
-            do {
-                try FileManager.default.removeItem(at: controllerCacheDirectory)
-            } catch {
-                assertionFailure("Could not reset fixture cache: \(error)")
-            }
-        }
-        #endif
         let auth = controller.auth
         self.auth = auth
         #if DEBUG
@@ -412,6 +413,9 @@ final class AppModel {
                 relayPin = try? await credentials.getRelayPin()
             }
         }
+        #if DEBUG
+        let fixtureUsesLockPolicy = arguments.contains("-CCLockInterval") || arguments.contains("-CCMaxUnlockAge")
+        #endif
         Task { @MainActor [weak self, credentials] in
             guard let self else { return }
             if debugOnboarding {
@@ -429,6 +433,13 @@ final class AppModel {
 
             lastUnlockAt = try? await credentials.getLastUnlockAt()
             lastBackgroundAt = try? await credentials.getLastBackgroundAt()
+            #if DEBUG
+            // A fixture launch that asks for no lock behaviour must not inherit an earlier test's unlock on this simulator.
+            if fixtureMode, !fixtureUsesLockPolicy {
+                lastUnlockAt = nil
+                lastBackgroundAt = nil
+            }
+            #endif
             let hasSecret = (try? await credentials.hasNativeSecret()) == true
             let hasToken = (try? await credentials.getDeviceToken()) != nil
             guard !fixtureMode else {

@@ -60,6 +60,10 @@ struct ControllerDetailView: View {
             await settings?.loadPairedDevices()
             await settings?.loadPeerConversations()
         }
+        // Leave as soon as the controller is gone, however long the rest of the removal takes: nothing is left to show.
+        .onChange(of: row == nil) { _, isGone in
+            if isGone { onRemoved() }
+        }
         .confirmationDialog(
             "Remove \(row?.name ?? "this controller")?",
             isPresented: $showingRemoveConfirmation,

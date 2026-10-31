@@ -152,7 +152,7 @@ final class AppCommandsFlowTests: XCTestCase {
 
     private func launchFixture() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL")]
+        app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL"), "-CCResetCache"]
         app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
         configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()

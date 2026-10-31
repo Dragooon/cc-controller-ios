@@ -466,6 +466,7 @@ final class ComposerFlowTests: XCTestCase {
         attach(named: "queued-actions-dismissed")
 
         app.terminate()
+        app.launchArguments.removeAll { $0 == "-CCResetCache" }
         app.launch()
         openSession(id: "session-dune-part-three-imax-tickets", in: app)
         let relaunchedPending = app.descendants(matching: .any).matching(identifier: "pending-prompt").matching(NSPredicate(format: "label BEGINSWITH %@", marker)).firstMatch
@@ -576,6 +577,7 @@ final class ComposerFlowTests: XCTestCase {
 
         try await Task.sleep(for: .seconds(1))
         app.terminate()
+        app.launchArguments.removeAll { $0 == "-CCResetCache" }
         app.launch()
         openSession(id: "session-staff-account-exclusions", in: app)
         let relaunchedField = composerField(in: app)
@@ -665,7 +667,7 @@ final class ComposerFlowTests: XCTestCase {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", server]
+        app.launchArguments = ["-CCServer", server, "-CCResetCache"]
         configureTranscriptEngine(app)
         app.launchEnvironment["CCBearer"] = bearer
         configureLiveIndicatorAnimations(app, freeze: freezeLiveIndicators)

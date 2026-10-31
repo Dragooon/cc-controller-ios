@@ -267,7 +267,7 @@ class FixtureFlowTestSupport: XCTestCase {
 
     /// Matches Face ID until `target` appears. The simulator sometimes fails an evaluation outright
     /// ("Face ID did not work. Try again.") or reports a mismatch left over from an earlier no-match,
-    /// and then only tapping `retry` again starts a new one.
+    /// and then only tapping the screen's retry button starts a new one. `retry` overrides which button that is.
     func completeFaceID(
         _ app: XCUIApplication,
         until target: XCUIElement,
@@ -279,9 +279,12 @@ class FixtureFlowTestSupport: XCTestCase {
         let failure = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "Face ID did not work", "Face ID didn't match")
         ).firstMatch
+        let retryButton = retry ?? app.buttons.matching(
+            NSPredicate(format: "label IN %@", ["Try again", "Unlock with Face ID"])
+        ).firstMatch
         while !target.exists && Date() < deadline {
-            if let retry, failure.exists, retry.exists, retry.isHittable {
-                retry.tap()
+            if failure.exists, retryButton.exists, retryButton.isHittable {
+                retryButton.tap()
             }
             try await postFixture("/fixture/biometric/match")
             let remaining = deadline.timeIntervalSinceNow
