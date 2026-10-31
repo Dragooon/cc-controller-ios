@@ -10,6 +10,9 @@ struct MainSplitView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
+    /// Whether the detail has made room for the open sidebar. It stays false while the sidebar moves,
+    /// so the detail slides at one width and lays out once instead of on every frame.
+    @State private var regularDetailFitsBesideSidebar = true
     @State private var isRegularInspectorOpen = false
     /// Whether the detail column still has room for the inspector with the sidebar open.
     @State private var regularInspectorFitsBesideSidebar = true
@@ -139,6 +142,7 @@ struct MainSplitView: View {
                 columnVisibility = .all
                 preferredCompactColumn = .sidebar
                 regularSidebarProgress = 1
+                regularDetailFitsBesideSidebar = true
             } else {
                 synchronizeColumnVisibility()
             }
@@ -235,7 +239,7 @@ struct MainSplitView: View {
     private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat) -> some View {
         let shift = sidebarWidth * regularSidebarProgress
         return regularDetailNavigation()
-            .frame(width: max(0, width - shift))
+            .frame(width: max(0, regularDetailFitsBesideSidebar ? width - sidebarWidth : width))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .offset(x: shift)
     }
@@ -421,6 +425,7 @@ struct MainSplitView: View {
             regularSidebarDragStartProgress = regularSidebarProgress
         }
         guard let startProgress = regularSidebarDragStartProgress else { return }
+        releaseDetailForSidebarMotion()
         regularSidebarProgress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
     }
 
@@ -435,24 +440,42 @@ struct MainSplitView: View {
         } else {
             targetProgress = progress < 0.6 || velocityX < -500 ? 0 : 1
         }
-        withAnimation(sidebarAnimation(initialVelocity: Double(velocityX / sidebarWidth))) {
-            regularSidebarProgress = targetProgress
-            columnVisibility = targetProgress == 1 ? .all : .detailOnly
-        }
+        moveSidebar(to: targetProgress, initialVelocity: Double(velocityX / sidebarWidth))
     }
 
     private func toggleSidebar() {
-        let target: CGFloat = regularSidebarProgress == 0 ? 1 : 0
-        withAnimation(sidebarAnimation(initialVelocity: 0)) {
-            regularSidebarProgress = target
-            columnVisibility = target == 1 ? .all : .detailOnly
-        }
+        moveSidebar(to: regularSidebarProgress == 0 ? 1 : 0, initialVelocity: 0)
     }
 
     private func showSidebar() {
-        withAnimation(sidebarAnimation(initialVelocity: 0)) {
-            regularSidebarProgress = 1
-            columnVisibility = .all
+        moveSidebar(to: 1, initialVelocity: 0)
+    }
+
+    private func moveSidebar(to target: CGFloat, initialVelocity: Double) {
+        releaseDetailForSidebarMotion()
+        withAnimation(sidebarAnimation(initialVelocity: initialVelocity)) {
+            regularSidebarProgress = target
+            columnVisibility = target == 1 ? .all : .detailOnly
+        } completion: {
+            fitDetailBesideSidebarIfSettled()
+        }
+    }
+
+    private func releaseDetailForSidebarMotion() {
+        guard regularDetailFitsBesideSidebar else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            regularDetailFitsBesideSidebar = false
+        }
+    }
+
+    private func fitDetailBesideSidebarIfSettled() {
+        guard regularSidebarProgress == 1, regularSidebarDragStartProgress == nil else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            regularDetailFitsBesideSidebar = true
         }
     }
 
