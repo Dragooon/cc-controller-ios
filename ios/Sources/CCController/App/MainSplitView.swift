@@ -20,7 +20,6 @@ struct MainSplitView: View {
     @State private var regularSwipeDiagnostic = ""
 #endif
     @State private var regularSidebarDragStartProgress: CGFloat?
-    @GestureState private var regularSidebarDragActive = false
     @AppStorage(SessionReadMarks.storageKey) private var readMarksStored = ""
     @Environment(\.scenePhase) private var scenePhase
     @State private var newSessionControllerID: ControllerID = .mac
@@ -236,18 +235,6 @@ struct MainSplitView: View {
         .overlay(alignment: .topLeading) {
             regularSidebarControls()
         }
-        .onChange(of: regularSidebarDragActive) { _, isActive in
-            guard !isActive, regularSidebarDragStartProgress != nil else { return }
-            DispatchQueue.main.async {
-                guard let startProgress = regularSidebarDragStartProgress else { return }
-                let translationX = (regularSidebarProgress - startProgress) * sidebarWidth
-                sidebarDragEnded(
-                    translationX: translationX,
-                    velocityX: 0,
-                    sidebarWidth: sidebarWidth
-                )
-            }
-        }
     }
 
     private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat) -> some View {
@@ -288,7 +275,6 @@ struct MainSplitView: View {
                     .frame(width: 1 / displayScale)
                     .frame(maxHeight: .infinity)
             }
-            .simultaneousGesture(sidebarDragGesture(sidebarWidth: sidebarWidth), including: .all)
             .modifier(SidebarRevealModifier(progress: regularSidebarProgress, sidebarWidth: sidebarWidth))
             .zIndex(1)
 #if DEBUG
@@ -398,39 +384,6 @@ struct MainSplitView: View {
             )
             .background(.ccBackground)
         }
-    }
-
-    private func sidebarDragGesture(sidebarWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .global)
-            .updating($regularSidebarDragActive) { _, state, _ in
-                state = true
-            }
-            .onChanged { value in
-                guard horizontalSizeClass == .regular else { return }
-                if regularSidebarDragStartProgress == nil {
-                    guard abs(value.translation.width) >= 12,
-                          abs(value.translation.width) > abs(value.translation.height) else { return }
-                    let startsAtLeadingEdge = regularSidebarProgress < 0.001 && value.translation.width > 0
-                    let startsInSidebar = regularSidebarProgress > 0.5 && value.translation.width < 0
-                    guard startsAtLeadingEdge || startsInSidebar else { return }
-                    regularSidebarDragStartProgress = regularSidebarProgress
-                }
-                sidebarDragChanged(translationX: value.translation.width, sidebarWidth: sidebarWidth)
-            }
-            .onEnded { value in
-                if regularSidebarDragStartProgress == nil,
-                   abs(value.translation.width) >= 12,
-                   abs(value.translation.width) > abs(value.translation.height),
-                   regularSidebarProgress > 0.5,
-                   value.translation.width < 0 {
-                    regularSidebarDragStartProgress = regularSidebarProgress
-                }
-                sidebarDragEnded(
-                    translationX: value.translation.width,
-                    velocityX: (value.predictedEndTranslation.width - value.translation.width) / 0.2,
-                    sidebarWidth: sidebarWidth
-                )
-            }
     }
 
     private func sidebarDragChanged(translationX: CGFloat, sidebarWidth: CGFloat) {
@@ -908,6 +861,11 @@ private struct SidebarPanCapture: UIViewRepresentable {
                   let captureView else { return false }
             let initialLocation = pan.initialLocation ?? pan.location(in: view)
             let velocity = pan.velocity(in: view)
+            if sidebarProgress >= 0.999 {
+                // The open sidebar closes on a leftward swipe, starting on it or on the detail.
+                guard velocity.x < 0, abs(velocity.x) > abs(velocity.y) * 1.5 else { return false }
+                return contentClaimingSwipe(from: pan.initialView, in: captureView) == nil
+            }
             guard sidebarProgress <= 0.001, velocity.x > 0, abs(velocity.x) > abs(velocity.y) else { return false }
             let stripFrame = captureView.convert(captureView.bounds, to: view)
             if stripFrame.contains(initialLocation) { return true }

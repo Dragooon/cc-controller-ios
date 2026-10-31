@@ -174,6 +174,47 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitToExist(timeout: 10), "Leading-edge search-field tap did not focus the field")
     }
 
+    /// A finger doesn't rest before it swipes, so these start moving as soon as they touch.
+    func testFlicksOpenFromTheEdgeAndCloseFromAnywhere() throws {
+        let app = launch(orientation: .landscapeRight, sessionID: "long-session")
+        defer { app.terminate() }
+        assertRegularLandscape(in: app)
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
+        let window = app.windows.firstMatch
+        let screenWidth = window.frame.width
+        let middleY = window.frame.height * 0.5
+        func point(x: CGFloat) -> XCUICoordinate {
+            window.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: middleY))
+        }
+        func flick(fromX: CGFloat, toX: CGFloat) {
+            point(x: fromX).press(
+                forDuration: 0,
+                thenDragTo: point(x: toX),
+                withVelocity: .fast,
+                thenHoldForDuration: 0
+            )
+        }
+
+        let sidebarWidth = sidebar.frame.width
+        flick(fromX: sidebarWidth + 300, toX: sidebarWidth + 40)
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Left flick on the detail did not close the sidebar")
+
+        flick(fromX: 3, toX: min(320, screenWidth * 0.5))
+        let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
+        let opened = sidebar.waitToExist(timeout: 10)
+        print("SIDEBAR_SWIPE_METRICS \(metrics.value ?? metrics.label)")
+        XCTAssertTrue(opened, "Right flick from the screen edge did not open the sidebar")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+
+        flick(fromX: sidebarWidth * 0.8, toX: 20)
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Left flick on the sidebar did not close it")
+
+        flick(fromX: min(400, screenWidth * 0.5), toX: min(400, screenWidth * 0.5) + 260)
+        XCTAssertTrue(sidebar.waitToExist(timeout: 10), "Right flick across the detail did not open the sidebar")
+    }
+
     func testLandscapeSwipeAcrossDetailOpensSidebar() throws {
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")
         defer { app.terminate() }

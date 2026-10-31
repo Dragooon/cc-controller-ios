@@ -907,6 +907,7 @@ private struct ControllerSectionHeader: View {
 }
 
 private struct SessionRow: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let session: Session
     let readStatus: SessionReadStatus
     let frozen: Bool
@@ -948,7 +949,8 @@ private struct SessionRow: View {
         .padding(.vertical, 10)
         .modifier(PinSwipeAction(pin: pin))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if canArchive {
+            // In large mode a left swipe closes the sidebar; these stay in the context menu.
+            if canArchive, horizontalSizeClass != .regular {
                 Button(action: onArchive) {
                     Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
                 }
@@ -956,7 +958,7 @@ private struct SessionRow: View {
                 .accessibilityLabel(isArchived ? "Unarchive session" : "Archive session")
                 .accessibilityIdentifier("session-\(isArchived ? "unarchive" : "archive")-\(session.id ?? "")")
             }
-            if canEnd {
+            if canEnd, horizontalSizeClass != .regular {
                 Button { endConfirmationPresented = true } label: {
                     Label("End session", systemImage: "stop.circle")
                 }
@@ -1011,6 +1013,7 @@ private struct SessionRow: View {
 }
 
 private struct SleepingSessionRow: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let session: SleepingSession
     let controllerName: String?
     let readStatus: SessionReadStatus
@@ -1061,7 +1064,8 @@ private struct SleepingSessionRow: View {
         .accessibilityValue(isWaking ? "Waking" : readStatus.rawValue)
         .modifier(PinSwipeAction(pin: pin))
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if canArchive {
+            // In large mode a left swipe closes the sidebar; these stay in the context menu.
+            if canArchive, horizontalSizeClass != .regular {
                 Button(action: onArchive) {
                     Label(isArchived ? "Unarchive" : "Archive", systemImage: "archivebox")
                 }
