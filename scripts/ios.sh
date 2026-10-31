@@ -1472,7 +1472,7 @@ cmd_flows() {
   done
   [[ "$shard_count" =~ ^[1-9][0-9]*$ ]] || { printf 'flows --shards must be a positive integer\n' >&2; exit 2; }
   FLOW_PER_METHOD=$per_method
-  [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone 16 Plus")
+  [[ ${#devices[@]} -gt 0 ]] || devices=("iPhone Duo")
   local requested_device
   for requested_device in "${devices[@]}"; do
     [[ " ${POOL_DEVICE_TYPES[*]} " == *" $requested_device "* ]] || POOL_DEVICE_TYPES+=("$requested_device")

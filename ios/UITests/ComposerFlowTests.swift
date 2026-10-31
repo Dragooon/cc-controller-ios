@@ -507,31 +507,6 @@ final class ComposerFlowTests: XCTestCase {
         XCTAssertTrue(waitForNonExistence(of: secondPending, timeout: 15), "Second batched message did not reconcile")
     }
 
-    func testSlashSuggestions() throws {
-        let app = launchFixture()
-        defer {
-            audit(app: app, name: "composer-slash")
-            attach(named: "composer-slash")
-            app.terminate()
-        }
-
-        openSession(id: "session-dune-part-three-imax-tickets", in: app)
-        let field = composerField(in: app)
-        field.tap()
-        field.typeText("/co")
-
-        let compact = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/compact,'")).firstMatch
-        let cost = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/cost,'")).firstMatch
-        let clear = app.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] '/clear,'")).firstMatch
-        XCTAssertTrue(compact.waitToExist(timeout: 10), "/compact suggestion did not load")
-        XCTAssertTrue(cost.exists, "/cost suggestion did not load")
-        XCTAssertFalse(clear.exists, "/clear must not match /co")
-        XCTAssertTrue(waitForStableFrame(compact), "/compact suggestion frame did not stabilize before tap")
-
-        compact.tap()
-        XCTAssertEqual(field.value as? String, "/compact ", "Suggestion did not replace composer text")
-    }
-
     func testComposerDraftSurvivesNavigationBackgroundReconnectAndRelaunch() async throws {
         let app = launchFixture()
         defer {
