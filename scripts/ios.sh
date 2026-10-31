@@ -1283,6 +1283,20 @@ for (const entry of entries) {
 NODE
 }
 
+# A UI query that times out means the app or the simulator stopped answering, and the test log can't
+# say which. Sample the app while it happens: its main thread stack can.
+watch_for_query_stalls() {
+  local session_log=$1 output_dir=$2 seen=0 retries pid
+  while sleep 5; do
+    retries=$(grep -c '(retry [0-9]*)$' "$session_log" 2>/dev/null || true)
+    [[ ${retries:-0} -gt $seen ]] || continue
+    seen=$retries
+    pid=$(pgrep -n -f 'cc-controller.app/cc-controller' || true)
+    [[ -n "$pid" ]] || continue
+    sample "$pid" 3 -file "$output_dir/stall-sample-$seen.txt" >/dev/null 2>&1 || true
+  done
+}
+
 run_flow_session_device() {
   local shard_index=$1 shard_count=$2 result_file=$3 app_bundle=$4 source_xctestrun=$5 flow_root=$6 flow_scratch_root=$7 device=$8 udid=$9 device_index=${10}
   local device_key=$(echo "$device" | tr ' ()' '---')
@@ -1335,11 +1349,15 @@ run_flow_session_device() {
       only_args+=("-only-testing:CCControllerUITests/$flow_class/$flow_method")
     done
     local args=(xcodebuild -xctestrun "$session_xctestrun" -destination "id=$udid" -resultBundlePath "$result" -collect-test-diagnostics never "${only_args[@]}" test-without-building)
+    watch_for_query_stalls "$session_log" "$output_dir" &
+    local stall_watcher=$!
     if run_flow_test "flows shard-$shard_index $device" "$session_log" "${args[@]}"; then
       :
     else
       session_status=$?
     fi
+    kill "$stall_watcher" 2>/dev/null || true
+    wait "$stall_watcher" 2>/dev/null || true
   fi
   stop_fixture_daemon
   cp "$session_root/fixture.log" "$output_dir/fixture-shard-$shard_index.log" 2>/dev/null || true

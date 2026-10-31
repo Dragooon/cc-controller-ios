@@ -142,6 +142,8 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(picker.waitToExist(timeout: 10), "Lock interval picker did not appear")
         picker.tap()
         XCTAssertTrue(app.buttons["Immediately"].waitToExist(timeout: 5), "Immediately option did not appear")
+        // A tap while the menu is still opening is swallowed and leaves the menu up.
+        XCTAssertTrue(waitForStableFrame(app.buttons["Immediately"]), "Immediately option did not settle before tap")
         app.buttons["Immediately"].tap()
         try await expectValue(app, "settings-lock-interval", equals: "Immediately")
         app.buttons["Done"].tap()
@@ -160,6 +162,8 @@ final class SettingsFlowTests: FixtureFlowTestSupport {
         let persistedPicker = element(app, "settings-lock-interval")
         persistedPicker.tap()
         XCTAssertTrue(app.buttons["After 1 hour"].waitToExist(timeout: 5), "After 1 hour option did not appear")
+        // A tap while the menu is still opening is swallowed and leaves the menu up.
+        XCTAssertTrue(waitForStableFrame(app.buttons["After 1 hour"]), "After 1 hour option did not settle before tap")
         app.buttons["After 1 hour"].tap()
         try await expectValue(app, "settings-lock-interval", equals: "After 1 hour")
         app.buttons["Done"].tap()
