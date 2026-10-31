@@ -191,9 +191,10 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         }
         XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed")
         idle.tap()
-        let sessionsBackButton = app.navigationBars.buttons["Sessions"]
-        XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 20), "Sessions back button did not load")
-        sessionsBackButton.tap()
+        // The folded Duo's bar is too narrow for the back button to carry a title.
+        let backButton = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(backButton.waitToExist(timeout: 20), "Back button did not load")
+        backButton.tap()
         XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed after going back")
         XCTAssertEqual(idle.value as? String, "read", "A session stayed unread after it was opened")
     }
