@@ -36,7 +36,7 @@ struct SessionScreen: View {
     let onShowApprovalsElsewhere: () -> Void
     /// The sidebar has just taken the room the inspector would need, so an open inspector closes.
     let sidebarCrowdsInspector: Bool
-    let onRegularInspectorWillOpen: () -> Void
+    let onRegularInspectorWillOpen: (@escaping () -> Void) -> Void
     let onRegularInspectorChange: (Bool) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -50,7 +50,7 @@ struct SessionScreen: View {
         onRetryWake: @escaping () -> Void = {},
         onShowApprovalsElsewhere: @escaping () -> Void = {},
         sidebarCrowdsInspector: Bool = false,
-        onRegularInspectorWillOpen: @escaping () -> Void = {},
+        onRegularInspectorWillOpen: @escaping (@escaping () -> Void) -> Void = { open in open() },
         onRegularInspectorChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.sessionID = sessionID
@@ -870,10 +870,13 @@ struct SessionScreen: View {
         }
     }
 
-    /// In large mode a sidebar that doesn't leave room moves first, so the inspector opens into the full width.
+    /// In large mode a sidebar that doesn't leave room finishes moving first. The inspector doesn't open otherwise.
     private func openInspector() {
-        if !isCompact { onRegularInspectorWillOpen() }
-        inspectorPresented = true
+        if isCompact {
+            inspectorPresented = true
+        } else {
+            onRegularInspectorWillOpen { inspectorPresented = true }
+        }
     }
 
     private var compactInspectorBinding: Binding<Bool> {

@@ -365,9 +365,11 @@ struct MainSplitView: View {
                     }
                 },
                 sidebarCrowdsInspector: !regularInspectorFitsBesideSidebar && columnVisibility == .all,
-                onRegularInspectorWillOpen: {
+                onRegularInspectorWillOpen: { open in
                     if !regularInspectorFitsBesideSidebar, columnVisibility == .all {
-                        toggleSidebar()
+                        moveSidebar(to: 0, initialVelocity: 0, completion: open)
+                    } else {
+                        open()
                     }
                 },
                 onRegularInspectorChange: { isOpen in
@@ -420,13 +422,14 @@ struct MainSplitView: View {
         moveSidebar(to: 1, initialVelocity: 0)
     }
 
-    private func moveSidebar(to target: CGFloat, initialVelocity: Double) {
+    private func moveSidebar(to target: CGFloat, initialVelocity: Double, completion: @escaping () -> Void = {}) {
         releaseDetailForSidebarMotion()
         withAnimation(sidebarAnimation(initialVelocity: initialVelocity)) {
             regularSidebarProgress = target
             columnVisibility = target == 1 ? .all : .detailOnly
         } completion: {
             fitDetailBesideSidebarIfSettled()
+            completion()
         }
     }
 
