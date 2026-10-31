@@ -636,10 +636,28 @@ private final class SessionStoreURLProtocol: URLProtocol {
     }
 
     nonisolated(unsafe) static var body = Data()
-    nonisolated(unsafe) static var bodies: [Data] = []
-    nonisolated(unsafe) static var requests: [URLRequest] = []
-    nonisolated(unsafe) static var completions: [Completion] = []
-    nonisolated(unsafe) static var suspended: [SessionStoreURLProtocol] = []
+    // URLSession calls startLoading on its own thread while the test reads these.
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var storedBodies: [Data] = []
+    nonisolated(unsafe) private static var storedRequests: [URLRequest] = []
+    nonisolated(unsafe) private static var storedCompletions: [Completion] = []
+    nonisolated(unsafe) private static var storedSuspended: [SessionStoreURLProtocol] = []
+    static var bodies: [Data] {
+        get { lock.withLock { storedBodies } }
+        set { lock.withLock { storedBodies = newValue } }
+    }
+    static var requests: [URLRequest] {
+        get { lock.withLock { storedRequests } }
+        set { lock.withLock { storedRequests = newValue } }
+    }
+    static var completions: [Completion] {
+        get { lock.withLock { storedCompletions } }
+        set { lock.withLock { storedCompletions = newValue } }
+    }
+    static var suspended: [SessionStoreURLProtocol] {
+        get { lock.withLock { storedSuspended } }
+        set { lock.withLock { storedSuspended = newValue } }
+    }
     static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SessionStoreURLProtocol.self]
@@ -655,9 +673,13 @@ private final class SessionStoreURLProtocol: URLProtocol {
     }
 
     static func completeNext(_ completion: Completion? = nil) {
-        guard !suspended.isEmpty else { return }
-        let request = suspended.removeFirst()
-        let next = completion ?? (completions.isEmpty ? .succeed(body) : completions.removeFirst())
+        let taken: (SessionStoreURLProtocol, Completion)? = lock.withLock {
+            guard !storedSuspended.isEmpty else { return nil }
+            let request = storedSuspended.removeFirst()
+            let next = completion ?? (storedCompletions.isEmpty ? .succeed(body) : storedCompletions.removeFirst())
+            return (request, next)
+        }
+        guard let (request, next) = taken else { return }
         request.complete(next)
     }
 
@@ -665,10 +687,16 @@ private final class SessionStoreURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.requests.append(request)
-        let completion = Self.completions.isEmpty
-            ? .succeed(Self.bodies.isEmpty ? Self.body : Self.bodies.removeFirst())
-            : Self.completions.removeFirst()
+        // A test that sees this request may complete it straight away, so it must already be suspended.
+        let completion: Completion = Self.lock.withLock {
+            Self.storedRequests.append(request)
+            let completion: Completion = Self.storedCompletions.isEmpty
+                ? .succeed(Self.storedBodies.isEmpty ? Self.body : Self.storedBodies.removeFirst())
+                : Self.storedCompletions.removeFirst()
+            if case .suspend = completion { Self.storedSuspended.append(self) }
+            return completion
+        }
+        if case .suspend = completion { return }
         complete(completion)
     }
 
