@@ -317,7 +317,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let info = app.buttons["session-info"]
         XCTAssertTrue(info.waitToExist(timeout: 30), "Session info button did not load")
         info.tap()
-        let details = app.navigationBars["Details"]
+        let details = app.buttons["Copy session ID"]
         XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar stayed open beside the inspector")
         addScreenshot(named: "sidebar-portrait-inspector")

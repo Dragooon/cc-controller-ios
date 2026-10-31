@@ -4,8 +4,9 @@ import XCTest
 /// Opens or closes a foldable simulator's hinge. A Duo simulator boots folded, on its compact outer
 /// display, and `simctl` can't change that. Set TEST_RUNNER_HINGE_ANGLE to 180 for the large display.
 ///
-/// The hinge is driven by a vendor-defined HID event carrying an OSSerializeBinary dictionary, the
-/// same event mobilecli's device agent sends (mobile-next/devicekit-ios, `device.io.hinge.set`).
+/// The hinge is driven by a vendor-defined HID event carrying an OSSerializeBinary dictionary.
+/// Adapted from `IOHingeSet.swift` in mobile-next/devicekit-ios, Copyright 2025-2026 Mobile Next HQ, Inc.,
+/// under the Functional Source License, Version 1.1, ALv2 Future License.
 enum SimulatorHinge {
     private static let vendorUsagePage: UInt32 = 0xFF61
     private static let hingeUsage: UInt32 = 0x5B
