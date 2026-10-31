@@ -369,6 +369,33 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(details.waitToDisappear(timeout: 10), "Inspector stayed open beside the sidebar")
     }
 
+    func testPortraitInspectorOpensWithTheSidebarAlreadyClosed() throws {
+        let app = launch(orientation: .portrait, sessionID: "long-session")
+        defer { app.terminate() }
+
+        let sizeClass = app.descendants(matching: .any)
+            .matching(identifier: "horizontal-size-class")
+            .firstMatch
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
+        try XCTSkipUnless(sizeClass.label == "regular", "Only regular layouts show the sidebar beside the inspector")
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+
+        let info = app.buttons["session-info"]
+        XCTAssertTrue(info.waitToExist(timeout: 30), "Session info button did not load")
+        info.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(3))
+        addScreenshot(named: "sidebar-portrait-inspector-sidebar-closed")
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch.waitToExist(timeout: 15),
+            "Inspector did not open with the sidebar closed"
+        )
+    }
+
     func testPrintsWhichDeviceOrientationsTheOpenDuoHonours() throws {
         try XCTSkipIf((ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] ?? "").isEmpty, "Only for an open foldable")
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")

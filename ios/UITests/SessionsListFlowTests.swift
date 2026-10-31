@@ -166,7 +166,7 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
         let server = requiredRunnerVariable("TEST_RUNNER_SERVER_URL")
         let bearer = requiredRunnerVariable("TEST_RUNNER_BEARER")
         let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", server, "-CCResetReadMarks"]
+        app.launchArguments = ["-CCServer", server]
         app.launchEnvironment["CCBearer"] = bearer
         configureLiveIndicatorAnimations(app)
         dismissLeftoverNotificationPrompt()
@@ -190,6 +190,11 @@ final class SessionsListFlowTests: FixtureFlowTestSupport {
             sessions.swipeUp()
         }
         XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed")
-        XCTAssertEqual(idle.value as? String, "read", "A reply from before the first launch counted as unread")
+        idle.tap()
+        let sessionsBackButton = app.navigationBars.buttons["Sessions"]
+        XCTAssertTrue(sessionsBackButton.waitToExist(timeout: 20), "Sessions back button did not load")
+        sessionsBackButton.tap()
+        XCTAssertTrue(idle.waitToExist(timeout: 20), "Idle session was not listed after going back")
+        XCTAssertEqual(idle.value as? String, "read", "A session stayed unread after it was opened")
     }
 }

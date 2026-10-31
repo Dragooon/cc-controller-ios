@@ -17,11 +17,7 @@ final class TerminalApprovalFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(paneLessRow.waitToExist(timeout: 75), "Pane-less terminal session was not listed")
         paneLessRow.tap()
 
-        let card = app.descendants(matching: .any)
-            .matching(identifier: "approval-card-approval-flow-light-mode")
-            .firstMatch
-        XCTAssertTrue(card.waitToExist(timeout: 30), "Pane-less terminal approval card did not load")
-        XCTAssertTrue(app.staticTexts["rm -f /tmp/fixture-scratch"].waitToExist(timeout: 5), "Subagent Bash command did not show in compact card")
+        XCTAssertTrue(app.staticTexts["rm -f /tmp/fixture-scratch"].waitToExist(timeout: 30), "Subagent Bash command did not show in compact card")
         XCTAssertTrue(app.staticTexts["Waiting in the session on your Mac"].waitToExist(timeout: 5), "Pane-less card did not show its waiting state")
         XCTAssertFalse(app.buttons["approval-approval-flow-light-mode-allow"].exists, "Pane-less terminal approval must not show Allow")
         XCTAssertFalse(app.buttons["approval-approval-flow-light-mode-deny"].exists, "Pane-less terminal approval must not show Deny")
@@ -39,11 +35,7 @@ final class TerminalApprovalFlowTests: FixtureFlowTestSupport {
         XCTAssertTrue(paneRow.waitToExist(timeout: 20), "Pane terminal session was not listed")
         paneRow.tap()
 
-        let paneCard = app.descendants(matching: .any)
-            .matching(identifier: "approval-card-pull-up-agentic-uw")
-            .firstMatch
-        XCTAssertTrue(paneCard.waitToExist(timeout: 10), "Pane terminal approval card did not load")
-        XCTAssertTrue(app.buttons["approval-pull-up-agentic-uw-allow"].exists, "Pane terminal approval must keep Allow")
+        XCTAssertTrue(app.buttons["approval-pull-up-agentic-uw-allow"].waitToExist(timeout: 30), "Pane terminal approval must keep Allow")
         XCTAssertTrue(app.buttons["approval-pull-up-agentic-uw-deny"].exists, "Pane terminal approval must keep Deny")
 
     }

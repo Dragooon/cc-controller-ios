@@ -535,11 +535,6 @@ struct MainSplitView: View {
     }
 
     private func startReadMarksIfNeeded() {
-#if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-CCResetReadMarks") {
-            readMarksStored = ""
-        }
-#endif
         var marks = SessionReadMarks(stored: readMarksStored)
         marks.startIfNeeded(now: Date())
         readMarksStored = marks.stored
