@@ -1914,6 +1914,7 @@ cmd_motion() {
         fi
       fi
       stop_motion_video
+      [[ -z "$video" || ! -f "$video" ]] || cp "$video" "$run_dir/$run.mp4"
       sleep 1
       stop_fixture_daemon
       container=$(xcrun simctl get_app_container "$MOTION_UDID" "$BUNDLE_ID" data)

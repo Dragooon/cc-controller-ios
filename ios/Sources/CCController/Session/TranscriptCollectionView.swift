@@ -459,7 +459,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         frame.size.height = 0
         frame.origin.y = final.frame.minY
         final.frame = frame
-        final.alpha = 1
+        final.alpha = 0
         return final
     }
 
@@ -1348,9 +1348,13 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             sizing: Bool
         ) -> UIContentConfiguration {
             UIHostingConfiguration {
+                // A row keeps its own height and stays at the top of its cell when the cell is another
+                // height, which happens while a row appears and for a moment after it expands.
                 self.hostedView(for: item)
                     .environment(\.isTranscriptSizingPass, sizing)
                     .environment(\.transcriptExpansion, transcriptExpansion)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxHeight: sizing ? nil : .infinity, alignment: .top)
             }
             .margins(.all, 0)
         }

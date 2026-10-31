@@ -89,14 +89,11 @@ private struct ToolRow: View {
 
     private var toolRow: some View {
         Button { onOpen(entry) } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(spacing: 8) {
                 ToolSymbol(tool: entry.tool ?? "Tool")
                     .font(.footnote)
                     .foregroundStyle(.ccSecondary)
-                    .frame(width: 20, height: 20)
-                    .alignmentGuide(.firstTextBaseline) { dimensions in
-                        dimensions[.bottom]
-                    }
+                    .frame(width: 20, height: 20, alignment: .leading)
 
                 Text(toolPhrase(entry))
                     .font(.subheadline)
@@ -123,14 +120,11 @@ private struct QuestionRow: View {
 
     var body: some View {
         Button { onOpen(entry) } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(spacing: 8) {
                 Image(systemName: "questionmark.bubble")
                     .font(.footnote)
                     .foregroundStyle(row.pending ? .ccAccent : .ccSecondary)
-                    .frame(width: 20, height: 20)
-                    .alignmentGuide(.firstTextBaseline) { dimensions in
-                        dimensions[.bottom]
-                    }
+                    .frame(width: 20, height: 20, alignment: .leading)
 
                 Text(row.text)
                     .font(.subheadline)
@@ -156,22 +150,24 @@ private struct ToolRowStatus: View {
     let entry: ToolEntry
 
     var body: some View {
-        if entry.state == .running {
-            ProgressView()
-                .controlSize(.mini)
-                .tint(.ccSecondary)
-                .accessibilityHidden(true)
-        } else if isFailed {
-            Image(systemName: "exclamationmark")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.ccRed)
-                .accessibilityHidden(true)
-        } else {
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.ccTertiary)
-                .accessibilityHidden(true)
+        // A fixed box, so a row keeps its height and the chevron column stays put as its state changes.
+        Group {
+            if entry.state == .running {
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(.ccSecondary)
+            } else if isFailed {
+                Image(systemName: "exclamationmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.ccRed)
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.ccTertiary)
+            }
         }
+        .frame(width: 20, height: 20, alignment: .trailing)
+        .accessibilityHidden(true)
     }
 
     private var isFailed: Bool {

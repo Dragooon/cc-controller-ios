@@ -19,6 +19,9 @@ on:
       device:
         description: Run on this simulator instead (e.g. "iPhone Duo") and keep its screenshots
         default: ""
+      motion:
+        description: Instead of flows, record these motion scenarios on the Duo with video (e.g. "S1,S2")
+        default: ""
       engine:
         description: Transcript engine for the flows that honour it (empty = collection, or "legacy")
         default: ""
@@ -27,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}
+  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}-${{ inputs.motion }}
   cancel-in-progress: true
 
 jobs:
@@ -37,9 +40,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slice: ${{ fromJSON(inputs.tests && '[0]' || '[0, 1, 2, 3, 4]') }}
+        slice: ${{ fromJSON((inputs.tests || inputs.motion) && '[0]' || '[0, 1, 2, 3, 4]') }}
     env:
-      SLICES: ${{ inputs.tests && 1 || 5 }}
+      SLICES: ${{ (inputs.tests || inputs.motion) && 1 || 5 }}
+      MOTION: ${{ inputs.motion }}
       TESTS: ${{ inputs.tests }}
       DEVICE: ${{ inputs.device }}
       TEST_RUNNER_CC_TRANSCRIPT_ENGINE: ${{ inputs.engine }}
@@ -69,6 +73,10 @@ jobs:
       - name: Run flows slice ${{ matrix.slice }}
         working-directory: cc-controller-ios
         run: |
+          if [[ -n "$MOTION" ]]; then
+            bash scripts/ios.sh motion --scenario "$MOTION" --engine collection --device duo --video --out "$CC_EVIDENCE_DIR/motion"
+            exit
+          fi
           started=$SECONDS
           filters=()
           for test in $TESTS; do filters+=(--test "$test"); done
