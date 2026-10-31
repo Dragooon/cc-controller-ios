@@ -68,6 +68,9 @@ struct MainSplitView: View {
             }
         }
         .task { startReadMarksIfNeeded() }
+#if DEBUG
+        .task { requestPortraitForTestsIfAsked() }
+#endif
         .onChange(of: openSessionReadTrigger, initial: true) { _, _ in markOpenSessionRead() }
         .alert(
             "Mac identity changed",
@@ -564,6 +567,18 @@ struct MainSplitView: View {
             isActive: scenePhase == .active
         )
     }
+
+#if DEBUG
+    /// The open Duo simulator ignores device orientation changes, but its scene can ask for portrait itself.
+    private func requestPortraitForTestsIfAsked() {
+        guard ProcessInfo.processInfo.arguments.contains("-CCRequestPortrait") else { return }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { error in
+                print("REQUEST_PORTRAIT_FAILED \(error)")
+            }
+        }
+    }
+#endif
 
     private func startReadMarksIfNeeded() {
         var marks = SessionReadMarks(stored: readMarksStored)

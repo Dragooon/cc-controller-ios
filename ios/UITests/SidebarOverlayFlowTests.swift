@@ -502,6 +502,9 @@ final class SidebarOverlayFlowTests: XCTestCase {
         app.launchArguments = [
             "-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL"),
         ]
+        if orientation == .portrait, ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] != nil {
+            app.launchArguments += ["-CCRequestPortrait"]
+        }
         if let sessionID {
             app.launchArguments += ["-CCSession", sessionID]
         }
