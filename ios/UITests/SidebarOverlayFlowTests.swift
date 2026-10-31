@@ -317,7 +317,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let info = app.buttons["session-info"]
         XCTAssertTrue(info.waitToExist(timeout: 30), "Session info button did not load")
         info.tap()
-        let details = app.buttons["Copy session ID"]
+        let details = app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch
         XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar stayed open beside the inspector")
         addScreenshot(named: "sidebar-portrait-inspector")
@@ -325,6 +325,26 @@ final class SidebarOverlayFlowTests: XCTestCase {
         sidebarToggle(in: app).tap()
         XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sidebar did not reopen")
         XCTAssertTrue(details.waitToDisappear(timeout: 10), "Inspector stayed open beside the sidebar")
+    }
+
+    func testPrintsWhichDeviceOrientationsTheOpenDuoHonours() throws {
+        try XCTSkipIf(ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] == nil, "Only for an open foldable")
+        let app = launch(orientation: .landscapeRight, sessionID: "long-session")
+        defer { app.terminate() }
+        let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
+        XCTAssertTrue(metrics.waitToExist(timeout: 75), "Regular layout metrics did not load")
+        let orientations: [(String, UIDeviceOrientation)] = [
+            ("landscapeLeft", .landscapeLeft),
+            ("portrait", .portrait),
+            ("portraitUpsideDown", .portraitUpsideDown),
+            ("landscapeRight", .landscapeRight),
+        ]
+        for (name, orientation) in orientations {
+            XCUIDevice.shared.orientation = orientation
+            RunLoop.current.run(until: Date().addingTimeInterval(4))
+            print("DUO_ORIENTATION \(name) app=\(app.frame) metrics=\(metrics.value ?? metrics.label)")
+            addScreenshot(named: "duo-orientation-\(name)")
+        }
     }
 
     func testApprovalsCapsuleFollowsSidebarVisibility() throws {
@@ -503,7 +523,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
             "-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL"),
         ]
         if orientation == .portrait, ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"] != nil {
-            app.launchArguments += ["-CCRequestPortrait"]
+            app.launchArguments += ["-CCRegularWidth", "669"]
         }
         if let sessionID {
             app.launchArguments += ["-CCSession", sessionID]

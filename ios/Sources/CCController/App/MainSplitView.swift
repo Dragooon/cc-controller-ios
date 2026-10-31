@@ -68,9 +68,6 @@ struct MainSplitView: View {
             }
         }
         .task { startReadMarksIfNeeded() }
-#if DEBUG
-        .task { requestPortraitForTestsIfAsked() }
-#endif
         .onChange(of: openSessionReadTrigger, initial: true) { _, _ in markOpenSessionRead() }
         .alert(
             "Mac identity changed",
@@ -176,14 +173,16 @@ struct MainSplitView: View {
     }
 
     private func regularSplitView() -> some View {
-        GeometryReader { proxy in
-            let sidebarWidth = min(360, max(300, proxy.size.width * 0.3))
+        GeometryReader { outerProxy in
+            let proxySize = regularLayoutSize(available: outerProxy.size)
+            let sidebarWidth = min(360, max(300, proxySize.width * 0.3))
             regularSplitContent(
-                width: proxy.size.width,
-                height: proxy.size.height,
+                width: proxySize.width,
+                height: proxySize.height,
                 sidebarWidth: sidebarWidth
             )
-            .onChange(of: proxy.size.width - sidebarWidth, initial: true) { _, remainingWidth in
+            .frame(width: proxySize.width, alignment: .leading)
+            .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, remainingWidth in
                 regularInspectorFitsBesideSidebar = remainingWidth >= RegularHeaderMetrics.minimumDetailWidthWithInspector
             }
 #if DEBUG
@@ -192,12 +191,24 @@ struct MainSplitView: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .accessibilityIdentifier("regular-layout-metrics")
-                    .accessibilityValue("width=\(proxy.size.width),sidebar=\(sidebarWidth),swipe=\(regularSwipeDiagnostic)")
+                    .accessibilityValue("width=\(proxySize.width),sidebar=\(sidebarWidth),swipe=\(regularSwipeDiagnostic)")
             }
 #endif
         }
         .tint(.ccAccent)
         .background(.ccBackground)
+    }
+
+    /// The open Duo simulator stays in landscape, so tests can ask for the width the phone has in portrait.
+    private func regularLayoutSize(available: CGSize) -> CGSize {
+#if DEBUG
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-CCRegularWidth"),
+           ProcessInfo.processInfo.arguments.count > index + 1,
+           let width = Double(ProcessInfo.processInfo.arguments[index + 1]) {
+            return CGSize(width: min(available.width, width), height: available.height)
+        }
+#endif
+        return available
     }
 
     private func regularSplitContent(
@@ -567,18 +578,6 @@ struct MainSplitView: View {
             isActive: scenePhase == .active
         )
     }
-
-#if DEBUG
-    /// The open Duo simulator ignores device orientation changes, but its scene can ask for portrait itself.
-    private func requestPortraitForTestsIfAsked() {
-        guard ProcessInfo.processInfo.arguments.contains("-CCRequestPortrait") else { return }
-        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-            scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { error in
-                print("REQUEST_PORTRAIT_FAILED \(error)")
-            }
-        }
-    }
-#endif
 
     private func startReadMarksIfNeeded() {
         var marks = SessionReadMarks(stored: readMarksStored)
