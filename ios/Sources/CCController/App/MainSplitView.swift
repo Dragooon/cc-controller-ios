@@ -181,8 +181,8 @@ struct MainSplitView: View {
                 sidebarWidth: sidebarWidth
             )
             .frame(width: proxySize.width, alignment: .leading)
-            .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, remainingWidth in
-                regularInspectorFitsBesideSidebar = remainingWidth >= RegularHeaderMetrics.minimumDetailWidthWithInspector
+            .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, _ in
+                regularInspectorFitsBesideSidebar = inspectorFitsBesideSidebar(width: proxySize.width, sidebarWidth: sidebarWidth)
             }
 #if DEBUG
             .overlay {
@@ -618,16 +618,10 @@ struct MainSplitView: View {
         guard horizontalSizeClass == .regular,
               columnVisibility == .detailOnly,
               let selectedSession = model.selectedSession else { return 0 }
-        var sessionKeys: Set<String> = []
-        for connection in model.connections {
-            let controllerID = connection.config.id
-            for approval in connection.store.approvals {
-                guard let sessionID = approval.sessionId else { continue }
-                if controllerID == selectedSession.controllerID, sessionID == selectedSession.sessionID { continue }
-                sessionKeys.insert(sleepingSessionKey(controllerID: controllerID, sessionID: sessionID))
-            }
-        }
-        return sessionKeys.count
+        return CCKit.approvalsElsewhereCount(
+            approvals: model.connections.map { (controllerID: $0.config.id, approvals: $0.store.approvals) },
+            selected: selectedSession
+        )
     }
 
     private var listControllers: [SessionsListController] {

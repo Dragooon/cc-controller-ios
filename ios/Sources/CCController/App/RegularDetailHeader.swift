@@ -7,8 +7,6 @@ enum RegularHeaderMetrics {
     static let topPadding: CGFloat = 6
     static let bottomPadding: CGFloat = 6
     static let rowHeight = topPadding + toggleSize + bottomPadding
-    /// The inspector's default 320 points plus a usable transcript beside it.
-    static let minimumDetailWidthWithInspector: CGFloat = 640
 }
 
 extension EnvironmentValues {

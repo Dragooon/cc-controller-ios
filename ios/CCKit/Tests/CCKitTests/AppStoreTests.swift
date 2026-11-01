@@ -1080,6 +1080,24 @@ final class AppStoreTests: XCTestCase {
         }
     }
 
+    func testTwoEnqueuesSendAndStayInOrderOnSuccess() async throws {
+        var messageTexts: [String] = []
+        URLProtocolStub.handler = { request in
+            if request.url?.path.hasSuffix("/message") == true {
+                let object = try? JSONSerialization.jsonObject(with: Self.bodyData(for: request)) as? [String: Any]
+                messageTexts.append(object?["text"] as? String ?? "")
+                return URLProtocolStub.json(Data("{\"delivered\":true,\"queued\":false}".utf8))
+            }
+            return URLProtocolStub.json(Data("{}".utf8))
+        }
+        let app = makeApp()
+        guard case .success = await app.enqueueMessage(text: "first", to: "session-1"),
+              case .success = await app.enqueueMessage(text: "second", to: "session-1") else { return XCTFail("Enqueue was rejected") }
+        try await waitUntil { app.queuedNotes(for: "session-1").allSatisfy { $0.state == .sent } }
+        XCTAssertEqual(messageTexts, ["first", "second"])
+        XCTAssertEqual(app.queuedNotes(for: "session-1").map(\.text), ["first", "second"])
+    }
+
     func testQueuedNotePersistenceFailsSendingAndDropsOldNotes() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let now = Date(timeIntervalSince1970: 1_800_000_000)
