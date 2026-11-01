@@ -249,15 +249,6 @@ class FixtureFlowTestSupport: XCTestCase {
         addScreenshot(named: "onboarding-faceid-prompt")
     }
 
-    @discardableResult
-    func waitForNotificationAuthorizationPrompt(in springboard: XCUIApplication, timeout: TimeInterval = 30) -> XCUIElement {
-        let prompt = springboard.alerts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
-        ).firstMatch
-        XCTAssertTrue(prompt.waitToExist(timeout: timeout), "Notification authorization prompt did not appear")
-        return prompt
-    }
-
     func dismissNotificationAuthorizationPromptIfPresent(in springboard: XCUIApplication, timeout: TimeInterval = 5) {
         let prompt = springboard.alerts.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Would Like to Send You Notifications")
