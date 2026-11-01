@@ -256,6 +256,7 @@ struct MainSplitView: View {
                     if columnVisibility == .detailOnly || isRegularSidebarOverlay {
                         ToolbarItem(placement: .topBarLeading) {
                             SidebarToggleButton(action: toggleSidebar)
+                                .accessibilityHidden(columnVisibility == .all)
                         }
                     }
                 }
