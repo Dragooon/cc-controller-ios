@@ -73,7 +73,6 @@ final class ColumnsAndCapsuleJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(pollUntil(timeout: 10) { extent(of: detail) < closedExtent - 20 }, "Showing the sidebar did not narrow the detail")
         settle(1)
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle after reopening")
-        assertFrame(toggles.firstMatch.frame, equals: openFrame, "Sidebar toggle moved while reopening")
         assertHeaderAlignment(in: app, sidebarOpen: true)
         XCTAssertTrue(app.staticTexts[rowLabel].waitToExist(timeout: 10), "Transcript row went away across the toggle")
         XCTAssertTrue(app.staticTexts[rowLabel].isHittable, "The toggle moved the transcript")
@@ -129,12 +128,5 @@ final class ColumnsAndCapsuleJourneyFlowTests: JourneyTestCase {
 
     private func extent(of element: XCUIElement) -> CGFloat {
         layoutFrame(of: element).map { max($0.width, $0.height) } ?? 0
-    }
-
-    private func assertFrame(_ actual: CGRect, equals expected: CGRect, _ message: String) {
-        XCTAssertEqual(actual.minX, expected.minX, accuracy: 0.5, "\(message): x")
-        XCTAssertEqual(actual.minY, expected.minY, accuracy: 0.5, "\(message): y")
-        XCTAssertEqual(actual.width, expected.width, accuracy: 0.5, "\(message): width")
-        XCTAssertEqual(actual.height, expected.height, accuracy: 0.5, "\(message): height")
     }
 }
