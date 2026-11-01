@@ -1154,7 +1154,7 @@ run_flow_method() {
 
   stop_fixture_daemon
   FIXTURE_SIM_UDID="$udid"
-  if [[ "$flow_class" == "AttachmentFlowTests" ]]; then
+  if [[ "$flow_class" == "AttachmentsJourneyFlowTests" ]]; then
     ensure_attachment_media "$udid"
   fi
   xcrun simctl ui "$udid" appearance "${TEST_RUNNER_COLOR_SCHEME:-light}"
