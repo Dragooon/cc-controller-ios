@@ -29,7 +29,7 @@ enum SimulatorHinge {
         RunLoop.current.run(until: Date().addingTimeInterval(settleSeconds))
     }
 
-    private static func set(angle: Double) -> Bool {
+    static func set(angle: Double) -> Bool {
         guard let ioKit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
               let createEventSymbol = dlsym(ioKit, "IOHIDEventCreateVendorDefinedEvent"),
               let createClientSymbol = dlsym(ioKit, "IOHIDEventSystemClientCreateWithType"),
