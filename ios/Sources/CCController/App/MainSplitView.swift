@@ -13,7 +13,7 @@ struct MainSplitView: View {
     @State private var sidebarMotion = RegularSidebarMotion()
     @State private var isRegularSidebarOverlay = false
     @State private var isRegularInspectorOpen = false
-    /// The system shows the inspector over everything at this width, so it has to go before the sidebar comes.
+    /// A swipe can open the sidebar while the inspector is up, and only one of them should show at this width.
     @State private var overlaySidebarClosesInspector = false
     /// Whether the detail column still has room for the inspector with the sidebar open.
     @State private var regularInspectorFitsBesideSidebar = true

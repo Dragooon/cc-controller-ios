@@ -371,9 +371,13 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
         addScreenshot(named: "overlay-inspector")
 
-        sidebarToggle(in: app).tap()
+        // At this width the system dims the detail behind the inspector, and the first tap only dismisses it.
+        let toggle = app.buttons["sidebar-toggle"]
+        toggle.tap()
+        XCTAssertTrue(details.waitToDisappear(timeout: 10), "Tapping outside the inspector did not close it")
         addScreenshot(named: "overlay-after-inspector")
-        XCTAssertTrue(details.waitToDisappear(timeout: 10), "The sidebar opened without closing the inspector")
+        toggle.tap()
+        addScreenshot(named: "overlay-sidebar-after-inspector")
         XCTAssertTrue(sessionsList(in: app).waitToExist(timeout: 20), "Sidebar did not open")
     }
 
