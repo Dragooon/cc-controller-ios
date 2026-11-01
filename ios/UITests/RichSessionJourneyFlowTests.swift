@@ -29,9 +29,6 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.menuItems["Copy"].waitToExist(timeout: 10), "Reply's menu did not offer Copy")
         dismissMenu(in: app)
 
-        // The reply is above the tool group, so go back down first.
-        if app.jumpToLatest.exists { app.jumpToLatest.tap() }
-
         // A tool group survives fast scrolling, expands and opens its detail sheet.
         let toolGroup = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools'")).firstMatch
         XCTAssertTrue(revealInTranscript(toolGroup, in: app), "Tool group did not load")
@@ -58,7 +55,7 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         let divider = app.buttons["compaction-divider"]
         let summary = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@", "COMPACTION_SUMMARY_MARKER")).firstMatch
         XCTAssertFalse(summary.exists, "Compaction summary leaked into the transcript")
-        XCTAssertTrue(revealInTranscript(divider, in: app, maxSwipes: 12), "Compaction divider did not load")
+        XCTAssertTrue(revealInTranscript(divider, in: app), "Compaction divider did not load")
         for _ in 0..<12 where !divider.isSafelyHittable {
             let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 120)))

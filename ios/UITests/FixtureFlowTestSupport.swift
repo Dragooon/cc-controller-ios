@@ -30,16 +30,21 @@ func transcriptScroll(in app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: "transcript-scroll").firstMatch
 }
 
-/// The collection transcript builds rows only on or near the screen, so an older row has to be scrolled to.
+/// The collection transcript builds rows only on or near the screen, so a row out of view has to be scrolled to.
+/// Held drags rather than swipes: a swipe's momentum can carry a row past the screen between two checks. Older rows first, then newer ones.
 @MainActor
 @discardableResult
-func revealInTranscript(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 8) -> Bool {
+func revealInTranscript(_ element: XCUIElement, in app: XCUIApplication, maxSwipes: Int = 12) -> Bool {
     let scroll = transcriptScroll(in: app)
     guard scroll.waitToExist(timeout: 15) else { return false }
     if pollUntil(timeout: 3, scaled: false, { element.exists }) { return true }
-    for _ in 0..<maxSwipes {
-        scroll.swipeDown()
-        if pollUntil(timeout: 1, scaled: false, { element.exists }) { return true }
+    let upper = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+    let lower = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+    for (start, end) in [(upper, lower), (lower, upper)] {
+        for _ in 0..<maxSwipes {
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .default, thenHoldForDuration: 0.2)
+            if pollUntil(timeout: 1, scaled: false, { element.exists }) { return true }
+        }
     }
     return false
 }
