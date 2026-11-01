@@ -42,7 +42,7 @@ final class WorkingSessionJourneyFlowTests: JourneyTestCase {
         addScreenshot(named: "working-queued")
         XCTAssertTrue(app.staticTexts[delivered].waitToExist(timeout: 15), "Queued message did not render")
         XCTAssertTrue(queued.waitToDisappear(timeout: 10), "Queued caption did not clear after delivery")
-        XCTAssertTrue(pollUntil(timeout: 10) { field.value as? String == "" }, "Composer did not clear after queueing")
+        XCTAssertTrue(pollUntil(timeout: 10) { field.typedText == "" }, "Composer did not clear after queueing")
         XCTAssertLessThanOrEqual(abs(field.frame.height - fieldHeight), 2, "Composer field did not reset")
         XCTAssertLessThanOrEqual(abs(glass.frame.height - glassHeight), 2, "Composer glass did not reset")
         XCTAssertTrue(app.staticText(containing: "ctx 6%").waitToExist(timeout: 10), "Subtitle did not show ctx 6%")

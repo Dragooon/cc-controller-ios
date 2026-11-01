@@ -15,14 +15,15 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(composer.waitToExist(timeout: 15), "Composer did not come back after Deny")
         let draft = "draft-survives-\(UUID().uuidString)"
         typeInComposer(draft, in: app)
-        XCTAssertEqual(composer.value as? String, draft)
+        XCTAssertEqual(composer.typedText, draft)
         dismissKeyboard(in: app)
 
         // A long press on a reply offers Copy.
         let reply = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "The exclusion is ready for monitored rollout"))
             .firstMatch
-        XCTAssertTrue(reply.waitToExist(timeout: 15), "Assistant reply did not load")
+        XCTAssertTrue(revealInTranscript(reply, in: app), "Assistant reply did not load")
+        for _ in 0..<4 where !reply.isHittable { app.transcriptScroll.swipeDown() }
         XCTAssertTrue(reply.isHittable, "Assistant reply was not on screen")
         reply.press(forDuration: 1.0)
         XCTAssertTrue(app.menuItems["Copy"].waitToExist(timeout: 10), "Reply's menu did not offer Copy")
@@ -89,7 +90,7 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(backFromSubagent.waitToExist(timeout: 10), "Subagent screen had no back button")
         backFromSubagent.tap()
         XCTAssertTrue(composer.waitToExist(timeout: 10), "Composer did not come back after the subagent")
-        XCTAssertEqual(composer.value as? String, draft, "Draft was lost after the subagent")
+        XCTAssertEqual(composer.typedText, draft, "Draft was lost after the subagent")
 
         // A subagent card pushes its screen, and the card and draft are there on the way back.
         let card = app.buttons["subagent-card-agent-done"]
@@ -108,28 +109,30 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         backFromSubagent.tap()
         XCTAssertTrue(app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitToExist(timeout: 15), "Session did not come back after the subagent")
         XCTAssertTrue(app.buttons["subagent-card-agent-done"].waitToExist(timeout: 15), "Subagent card was gone after returning")
-        XCTAssertEqual(composer.value as? String, draft, "Draft was lost after the subagent card")
+        XCTAssertEqual(composer.typedText, draft, "Draft was lost after the subagent card")
 
         // The draft survives backgrounding, a registry event, and a relaunch.
-        XCUIDevice.shared.press(.home)
+        sendToBackground(app)
         app.activate()
         XCTAssertTrue(composer.waitToExist(timeout: 10), "Composer did not come back after foregrounding")
-        XCTAssertEqual(composer.value as? String, draft, "Draft was lost after backgrounding")
+        XCTAssertEqual(composer.typedText, draft, "Draft was lost after backgrounding")
         try await postFixture("/fixture/registry-event")
         try await Task.sleep(for: .seconds(2))
-        XCTAssertEqual(composer.value as? String, draft, "Draft was lost after a registry event")
+        XCTAssertEqual(composer.typedText, draft, "Draft was lost after a registry event")
         // Drafts save with a short debounce, so give that a moment before killing the app.
         try await Task.sleep(for: .seconds(1))
         app.terminate()
         app = launchSignedIn(resetCache: false)
         openSession("staff-account-exclusions", in: app)
         XCTAssertTrue(composer.waitToExist(timeout: 15), "Composer did not load after relaunch")
-        XCTAssertEqual(composer.value as? String, draft, "Draft was not restored after relaunch")
+        XCTAssertEqual(composer.typedText, draft, "Draft was not restored after relaunch")
     }
 
     private func dismissKeyboard(in app: XCUIApplication) {
         guard app.keyboards.firstMatch.exists else { return }
-        app.transcriptScroll.swipeDown()
+        // A held drag: the keyboard follows the finger out, and a quick swipe only scrolls.
+        let start = app.transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        start.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)))
         XCTAssertTrue(pollUntil(timeout: 5) { app.keyboards.count == 0 }, "Keyboard did not go away")
     }
 

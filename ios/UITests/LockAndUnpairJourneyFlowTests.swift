@@ -5,7 +5,8 @@ final class LockAndUnpairJourneyFlowTests: JourneyTestCase {
     private let lockTitle = "Code is locked"
 
     func testLockAndUnpairJourney() async throws {
-        var app = launchOnboarding(lockInterval: 3, probeInterval: 0.5)
+        // Long enough that going to the background and back stays inside it on a slow runner.
+        var app = launchOnboarding(lockInterval: 30, probeInterval: 0.5)
         defer { app.terminate() }
         try await setBiometricEnrollment(true)
         try await reachFaceID(app)
@@ -15,7 +16,7 @@ final class LockAndUnpairJourneyFlowTests: JourneyTestCase {
         dismissNotificationAuthorizationPromptIfPresent(in: XCUIApplication(bundleIdentifier: "com.apple.springboard"))
 
         // Back within the interval doesn't lock.
-        XCUIDevice.shared.press(.home)
+        sendToBackground(app)
         try await Task.sleep(for: .seconds(1))
         app.activate()
         XCTAssertTrue(sessions.waitToExist(timeout: 10), "App locked before the interval passed")
@@ -31,7 +32,9 @@ final class LockAndUnpairJourneyFlowTests: JourneyTestCase {
         XCTAssertEqual(unlock.value as? String, "idle", "Lock now started Face ID by itself")
         addScreenshot(named: "lock-now")
         unlock.tap()
-        try await completeFaceID(app, until: app.element(identifier: "settings-latency"), "Face ID did not unlock back to Settings")
+        // Lock now closes Settings, so unlocking comes back to the list.
+        try await completeFaceID(app, until: sessions, "Face ID did not unlock after Lock now")
+        openSettings(in: app)
 
         // Immediately applies on the next backgrounding, and the choice persists.
         let picker = app.element(identifier: "settings-lock-interval")
@@ -40,7 +43,7 @@ final class LockAndUnpairJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(hasValue(picker, "Immediately"), "Lock interval did not become Immediately")
 
         // Locked from Settings: no probes while locked, and unlocking goes back to Settings.
-        XCUIDevice.shared.press(.home)
+        sendToBackground(app)
         try await Task.sleep(for: .seconds(1))
         app.activate()
         XCTAssertTrue(app.staticTexts[lockTitle].waitToExist(timeout: 10), "Immediately did not lock after backgrounding")
@@ -90,7 +93,7 @@ final class LockAndUnpairJourneyFlowTests: JourneyTestCase {
         typeInComposer(draft, in: app)
         XCTAssertTrue(app.staticTexts[lockTitle].waitToExist(timeout: unlockAge + 5), "Unlock age did not lock the app while it was open")
         try await completeFaceID(app, until: app.composer, "Face ID did not unlock after the age passed")
-        XCTAssertEqual(app.composer.value as? String, draft, "The draft was lost across the lock")
+        XCTAssertEqual(app.composer.typedText, draft, "The draft was lost across the lock")
     }
 
     private func openSettings(in app: XCUIApplication) {

@@ -39,7 +39,7 @@ final class SettingsAndPeersJourneyFlowTests: JourneyTestCase {
         try await expectNoProbes("after Settings closed")
         openSettings(in: app)
         expectValue(app, "settings-latency", matches: "[0-9]+ ms")
-        XCUIDevice.shared.press(.home)
+        sendToBackground(app)
         try await expectNoProbes("in the background")
         app.activate()
         expectValue(app, "settings-latency", matches: "[0-9]+ ms")

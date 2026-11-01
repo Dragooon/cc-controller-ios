@@ -14,19 +14,19 @@ final class CacheReopenJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(newest.waitToExist(timeout: 30), "Cold transcript did not load")
         let cold = try await firstRowsMilliseconds(in: app)
         print("INSTANT_OPEN_COLD_IN_APP_MS \(String(format: "%.1f", cold))")
-        let older = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
-        for _ in 0..<80 where !older.isSafelyHittable { app.transcriptScroll.swipeDown(velocity: .fast) }
-        XCTAssertTrue(older.waitToExist(timeout: 20), "Paging did not fill the cache with a middle row")
+        _ = pageBackPastFirstPage(in: app)
         goBackToSessions(in: app)
 
         // A session that hasn't changed reopens from the cache with no syncing glyph, even in the same launch.
         openSession("long-session", in: app)
         let loading = app.element(identifier: "session-loading")
         let deadline = Date().addingTimeInterval(1.5)
+        // It may come back where it was left rather than at the newest row.
+        let cached = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] 'Long-session prompt '")).firstMatch
         var sawRow = false
         while Date() < deadline {
             XCTAssertFalse(loading.exists, "A current cache showed the syncing glyph")
-            sawRow = sawRow || (newest.exists && newest.isHittable)
+            sawRow = sawRow || (cached.exists && cached.isHittable)
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertTrue(sawRow, "Cached rows were not on screen while checking for the glyph")

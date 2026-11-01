@@ -79,7 +79,7 @@ class JourneyTestCase: FixtureFlowTestSupport {
 
     func emptyComposer(in app: XCUIApplication) {
         let field = app.composer
-        let length = (field.value as? String)?.count ?? 0
+        let length = field.typedText.count
         guard length > 0 else { return }
         field.tap()
         field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: length))
@@ -121,6 +121,29 @@ class JourneyTestCase: FixtureFlowTestSupport {
         return false
     }
 
+    /// `XCUIDevice.press(.home)` leaves the app in the foreground on the folded Duo, so a step that relies on
+    /// it tests nothing. Bringing another app forward really backgrounds this one, and this checks that it did.
+    func sendToBackground(_ app: XCUIApplication) {
+        XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+        XCTAssertTrue(
+            pollUntil(timeout: 5) { app.state == .runningBackground || app.state == .runningBackgroundSuspended },
+            "The app did not go to the background: state \(app.state.rawValue)"
+        )
+    }
+
+    /// Scrolls back past the first page, which ends at prompt 490, and returns a row from the page before it.
+    /// A fast swipe covers several prompts and takes about five seconds on a runner, so don't wait for one exact row.
+    func pageBackPastFirstPage(in app: XCUIApplication) -> XCUIElement {
+        let paged = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "Long-session prompt 4[0-8][0-9]: inspect the next checkpoint\\."))
+        for _ in 0..<12 {
+            app.transcriptScroll.swipeDown(velocity: .fast)
+            let row = paged.firstMatch
+            if row.exists, row.isHittable { return app.staticTexts[row.label] }
+        }
+        XCTFail("Paging did not reach a row before the first page")
+        return paged.firstMatch
+    }
+
     /// Lets the app settle where a check needs a pause before it can mean anything.
     func settle(_ seconds: TimeInterval) {
         RunLoop.current.run(until: Date().addingTimeInterval(seconds))
@@ -156,5 +179,14 @@ extension XCUIApplication {
 
     func staticText(containing text: String) -> XCUIElement {
         staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+    }
+}
+
+@MainActor
+extension XCUIElement {
+    /// What's been typed. An empty field reports its placeholder as its value.
+    var typedText: String {
+        let text = value as? String ?? ""
+        return text == placeholderValue ? "" : text
     }
 }
