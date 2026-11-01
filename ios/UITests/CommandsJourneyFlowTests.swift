@@ -55,7 +55,7 @@ final class CommandsJourneyFlowTests: JourneyTestCase {
         sendComposer("/compact", in: app)
         let toast = app.element(identifier: "command-toast")
         XCTAssertTrue(
-            pollUntil(timeout: 10) { toast.label.contains("Runs when the current turn ends.") },
+            pollUntil(timeout: 10) { toast.exists && toast.label.contains("Runs when the current turn ends.") },
             "Queued command toast did not appear"
         )
 
