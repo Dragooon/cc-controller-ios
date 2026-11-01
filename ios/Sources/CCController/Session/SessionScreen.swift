@@ -565,12 +565,6 @@ struct SessionScreen: View {
         }
     }
 
-    private func shouldPresentSendError(_ error: ActionError) -> Bool {
-        guard case .invalid(let message) = error else { return true }
-        return message != "Remove or retry the failed attachment"
-            && message != "Remove the file that is too large"
-    }
-
     @MainActor
     private func interrupt(sessionID: String, using model: AppModel) async -> Result<Void, ActionError> {
         let result = await store.interrupt(sessionID: sessionID)

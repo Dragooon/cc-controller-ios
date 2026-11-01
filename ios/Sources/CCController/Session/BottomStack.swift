@@ -266,12 +266,13 @@ struct BottomStackView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if !filteredCommands.isEmpty {
                     SlashSuggestionsView(commands: filteredCommands) { command in
-                        if command.command == "/model" {
+                        switch slashSuggestionAction(command: command.command) {
+                        case .openModelSheet:
                             text = ""
                             composerFocused = false
                             configuration.onModel()
-                        } else {
-                            text = "\(command.command) "
+                        case .fillComposer(let filled):
+                            text = filled
                             composerFocused = true
                         }
                     }
@@ -392,9 +393,7 @@ struct BottomStackView: View {
     }
 
     private var filteredCommands: [SlashCommand] {
-        guard text.hasPrefix("/") else { return [] }
-        let prefix = text.split(whereSeparator: \ .isWhitespace).first.map(String.init) ?? text
-        return configuration.slashCommands.filter { $0.command.lowercased().hasPrefix(prefix.lowercased()) }
+        slashSuggestions(text: text, commands: configuration.slashCommands, name: \.command)
     }
 
     private func send() {

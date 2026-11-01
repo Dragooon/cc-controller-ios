@@ -152,6 +152,58 @@ final class ActionTests: XCTestCase {
         XCTFail("Attachment did not finish uploading")
     }
 
+    func testDenyPostsADenyDecisionAndRemovesTheApproval() async throws {
+        var decisionBody = Data()
+        ActionURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/sessions/s/decision":
+                decisionBody = ActionURLProtocol.bodyData(for: request) ?? Data()
+                return ActionURLProtocol.json(Data("{\"decided\":true,\"sessionId\":\"s\"}".utf8))
+            case "/api/state":
+                return ActionURLProtocol.json(Data("{\"sessions\":[{\"id\":\"s\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"s\":0}}".utf8))
+            default:
+                return ActionURLProtocol.json(Data("{}".utf8))
+            }
+        }
+        let app = makeApp()
+        app.apply(.state(StateSnapshot(sessions: [session()], entries: ["s": 0])))
+        let approval = Approval(requestId: "r", sessionId: "s", toolName: "Bash")
+        app.apply(.approval(ApprovalEvent(sessionId: "s", requestId: "r", toolName: "Bash")))
+        XCTAssertEqual(app.approvals(for: "s").map(\.requestId), ["r"])
+
+        guard case .success = await app.deny(approval) else { return XCTFail("Deny failed") }
+
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: decisionBody) as? [String: Any])
+        XCTAssertEqual(body["requestId"] as? String, "r")
+        XCTAssertEqual(body["behavior"] as? String, "deny")
+        XCTAssertTrue(app.approvals(for: "s").isEmpty, "A denied approval stayed on the session")
+    }
+
+    func testInterruptPostsTheEscapeKey() async throws {
+        var keysBody = Data()
+        ActionURLProtocol.handler = { request in
+            if request.url?.path == "/api/sessions/s/keys" {
+                keysBody = ActionURLProtocol.bodyData(for: request) ?? Data()
+            }
+            return ActionURLProtocol.json(Data("{\"sent\":true}".utf8))
+        }
+        let app = makeApp()
+
+        guard case .success = await app.interrupt(sessionID: "s") else { return XCTFail("Interrupt failed") }
+
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: keysBody) as? [String: Any])
+        XCTAssertEqual(body["key"] as? String, "escape")
+    }
+
+    func testNoCommandRouteMapsToCommandsUnavailable() {
+        let app = makeApp()
+        let message = "Commands need the cc-controller plugin in this session."
+        XCTAssertEqual(
+            app.actionError(for: APIError.http(status: 409, message: message, code: "no_command_route")),
+            .commandsUnavailable(message)
+        )
+    }
+
     func testComposerSendIncludesFilesAndUsesSeeAttached() async throws {
         var requestBody = ""
         ActionURLProtocol.handler = { request in

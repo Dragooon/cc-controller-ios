@@ -1691,15 +1691,6 @@ struct PendingPromptView: View {
         return false
     }
 
-    private var statusText: String {
-        switch note.state {
-        case .sending: "Sending…"
-        case .sent: "Sent"
-        case .queued: "Queued"
-        case .failed: "Not sent · Tap to retry"
-        }
-    }
-
     private func statusColor(needsAttention: Bool) -> Color {
         if needsAttention { return .ccAmber }
         if failureMessage != nil { return .ccRed }
@@ -1733,9 +1724,10 @@ struct PendingPromptView: View {
             nonWorkingSince: nonWorkingSince,
             now: now
         )
+        let actions = pendingNoteActions(state: note.state, needsAttention: needsAttention)
         let isPendingActionable = note.state == .sent || note.state == .queued
-        let actionable = needsAttention || isPendingActionable || isFailed
-        let text = needsAttention ? "Sent · not received yet" : statusText
+        let actionable = !actions.isEmpty
+        let text = needsAttention ? "Sent · not received yet" : pendingNoteStatusText(note.state)
         let view = VStack(alignment: .trailing, spacing: 4) {
             PromptBubble(
                 prompt: PromptEntry(text: note.text, attachments: note.attachments),
@@ -1776,19 +1768,15 @@ struct PendingPromptView: View {
             isPresented: $confirmationPresented,
             titleVisibility: .visible
         ) {
-            if needsAttention {
-                Button("Copy") { onCopy(note.id) }
-                Button("Send again") { onSendAgain(note.id) }
-                Button("Edit message") { onEdit(note.id) }
-                Button("Dismiss") { onDelete(note.id) }
-            } else if failureMessage != nil {
-                Button("Retry") { onRetry(note.id) }
-                Button("Edit message") { onEdit(note.id) }
-                Button("Delete", role: .destructive) { onDelete(note.id) }
-            } else if isPendingActionable {
-                Button("Copy") { onCopy(note.id) }
-                Button("Edit message") { onEdit(note.id) }
-                Button("Dismiss") { onDelete(note.id) }
+            ForEach(actions, id: \.self) { action in
+                switch action {
+                case .copy: Button("Copy") { onCopy(note.id) }
+                case .sendAgain: Button("Send again") { onSendAgain(note.id) }
+                case .retry: Button("Retry") { onRetry(note.id) }
+                case .edit: Button("Edit message") { onEdit(note.id) }
+                case .delete: Button("Delete", role: .destructive) { onDelete(note.id) }
+                case .dismiss: Button("Dismiss") { onDelete(note.id) }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {

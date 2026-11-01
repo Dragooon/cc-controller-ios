@@ -295,15 +295,12 @@ struct AttachmentTrayView: View {
     }
 
     private func accessibilityLabel(for attachment: ComposerAttachment) -> String {
-        switch attachment.state {
-        case .uploading(let progress):
-            progress >= 1 ? "\(attachment.name), uploaded, waiting for server" : "\(attachment.name), uploading \(Int(progress * 100)) percent"
-        case .attached: "\(attachment.name), attached"
-        case .failed(let reason):
-            attachment.canRetry
-                ? "\(attachment.name), upload failed, double-tap to retry"
-                : "\(attachment.name), upload failed, \(reason)"
+        let state: AttachmentTileState = switch attachment.state {
+        case .uploading(let progress): .uploading(progress: progress)
+        case .attached: .attached
+        case .failed(let reason): .failed(reason: reason, canRetry: attachment.canRetry)
         }
+        return attachmentAccessibilityLabel(name: attachment.name, state: state)
     }
 
     private func fileSymbol(for name: String) -> String {

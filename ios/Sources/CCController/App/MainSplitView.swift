@@ -29,8 +29,6 @@ struct MainSplitView: View {
     @State private var wakeFailures: [String: String] = [:]
     @State private var sessionNotice: String?
 
-    /// The inspector's default 320 points plus a usable transcript beside it.
-    private static let minimumDetailWidthWithInspector: CGFloat = 640
     /// Below this the sidebar can't sit beside a usable transcript, so it slides over the detail instead.
     private static let minimumDetailWidthBesideSidebar: CGFloat = 480
 
@@ -184,8 +182,8 @@ struct MainSplitView: View {
                 sidebarWidth: sidebarWidth
             )
             .frame(width: proxySize.width, alignment: .leading)
-            .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, remainingWidth in
-                regularInspectorFitsBesideSidebar = remainingWidth >= Self.minimumDetailWidthWithInspector
+            .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, _ in
+                regularInspectorFitsBesideSidebar = inspectorFitsBesideSidebar(width: proxySize.width, sidebarWidth: sidebarWidth)
             }
             .onChange(of: proxySize.width - sidebarWidth < Self.minimumDetailWidthBesideSidebar, initial: true) { wasOverlay, isOverlay in
                 isRegularSidebarOverlay = isOverlay
@@ -609,16 +607,10 @@ struct MainSplitView: View {
         guard horizontalSizeClass == .regular,
               columnVisibility == .detailOnly,
               let selectedSession = model.selectedSession else { return 0 }
-        var sessionKeys: Set<String> = []
-        for connection in model.connections {
-            let controllerID = connection.config.id
-            for approval in connection.store.approvals {
-                guard let sessionID = approval.sessionId else { continue }
-                if controllerID == selectedSession.controllerID, sessionID == selectedSession.sessionID { continue }
-                sessionKeys.insert(sleepingSessionKey(controllerID: controllerID, sessionID: sessionID))
-            }
-        }
-        return sessionKeys.count
+        return CCKit.approvalsElsewhereCount(
+            approvals: model.connections.map { (controllerID: $0.config.id, approvals: $0.store.approvals) },
+            selected: selectedSession
+        )
     }
 
     private var listControllers: [SessionsListController] {
