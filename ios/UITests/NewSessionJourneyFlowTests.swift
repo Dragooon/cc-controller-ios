@@ -104,9 +104,11 @@ final class NewSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(openOnMac.label.contains("Copy attach command"), "Open on Mac lost its command: \(openOnMac.label)")
         addScreenshot(named: "new-session-open-on-mac")
         openOnMac.tap()
-        // The details are scrolled down by now, so a swipe on the content only scrolls them. The grabber closes the sheet.
-        let grabber = app.buttons["Sheet Grabber"]
-        for _ in 0..<3 where grabber.exists { grabber.swipeDown(); settle(1) }
+        // The details are scrolled down by now, so a swipe on the content only scrolls them. Dragging the grabber
+        // only takes the sheet from large to medium, and then a tap on the dimmed area above it closes it.
+        app.buttons["Sheet Grabber"].swipeDown()
+        settle(1)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap()
         XCTAssertTrue(openOnMac.waitToDisappear(timeout: 10), "Details did not close")
 
         // Back on the list, New session opens again with those values, and Send doesn't crowd the agent chip.
