@@ -437,10 +437,6 @@ struct BottomStackView: View {
         if !isSlashCommand(submittedText) {
             configuration.sendRevealCoordinator?.begin()
             composerFocused = false
-            // The text leaves with the tap. A send with attachments may wait on uploads, so it keeps its text until then.
-            if configuration.attachments.isEmpty {
-                clearComposerAfterSend(originalText: originalText, submittedText: submittedText)
-            }
         }
         isSending = true
         Task { @MainActor in
@@ -458,13 +454,23 @@ struct BottomStackView: View {
                     handleSendFailure(error)
                 }
             } else {
-                // The keyboard leaves first, then the bubble moves into place on a settled screen.
-                await KeyboardPresence.shared.waitUntilHidden(timeout: .milliseconds(700))
-                let result = await configuration.onEnqueue(submittedText, now)
+                // Losing focus commits any autocorrection into the field and writes it back to the text,
+                // so the text is only final, and safe to clear, once that has happened.
+                try? await Task.sleep(for: .milliseconds(30))
+                let committedText = text
+                let sentText = committedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                let textToSend = sentText.isEmpty ? submittedText : sentText
+                // A send with attachments may wait on uploads, so it keeps its text until then.
+                if configuration.attachments.isEmpty {
+                    clearComposerAfterSend(originalText: committedText, submittedText: textToSend)
+                }
+                // The keyboard is on its way out by now, and the transcript follows it down.
+                await KeyboardPresence.shared.waitUntilHidden(timeout: .milliseconds(220))
+                let result = await configuration.onEnqueue(textToSend, now)
                 isSending = false
                 switch result {
                 case .success:
-                    await finishSuccessfulSend(originalText: originalText, submittedText: submittedText)
+                    await finishSuccessfulSend(originalText: committedText, submittedText: textToSend)
                 case .failure(let error):
                     configuration.sendRevealCoordinator?.cancel()
                     if text.isEmpty {

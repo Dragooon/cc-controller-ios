@@ -9,24 +9,14 @@ struct MainSplitView: View {
     @Environment(\.displayScale) private var displayScale
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
-    @State private var regularSidebarProgress: CGFloat = 1
-    /// Whether the detail has made room for the open sidebar. It only changes behind the blur,
-    /// so the detail slides at one width and lays out once, out of sight, instead of on every frame.
-    @State private var regularDetailFitsBesideSidebar = true
-    /// Whether the detail is behind its blur for a sidebar move.
-    @State private var isRegularDetailCovered = false
-    /// The blur has finished fading in, so the detail can change width unseen.
-    @State private var isRegularDetailFullyCovered = false
-    @State private var regularDetailFitsOnceCovered = true
-    /// Tells a finished move apart from one a newer move has replaced.
-    @State private var regularSidebarMotionID = 0
+    /// Read only by the small views that move, so a sidebar move never re-renders the columns.
+    @State private var sidebarMotion = RegularSidebarMotion()
     @State private var isRegularInspectorOpen = false
     /// Whether the detail column still has room for the inspector with the sidebar open.
     @State private var regularInspectorFitsBesideSidebar = true
 #if DEBUG
     @State private var regularSwipeDiagnostic = ""
 #endif
-    @State private var regularSidebarDragStartProgress: CGFloat?
     @AppStorage(SessionReadMarks.storageKey) private var readMarksStored = ""
     @Environment(\.scenePhase) private var scenePhase
     @State private var newSessionControllerID: ControllerID = .mac
@@ -150,10 +140,8 @@ struct MainSplitView: View {
             if newSizeClass == .regular {
                 columnVisibility = .all
                 preferredCompactColumn = .sidebar
-                regularSidebarProgress = 1
-                regularDetailFitsBesideSidebar = true
-                isRegularDetailCovered = false
-                isRegularDetailFullyCovered = false
+                sidebarMotion.progress = 1
+                sidebarMotion.isDetailCovered = false
             } else {
                 synchronizeColumnVisibility()
             }
@@ -227,32 +215,21 @@ struct MainSplitView: View {
         height: CGFloat,
         sidebarWidth: CGFloat
     ) -> some View {
-        let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
-        return ZStack(alignment: .leading) {
+        ZStack(alignment: .leading) {
             regularDetailColumn(width: width, sidebarWidth: sidebarWidth)
-            if isRegularDetailCovered {
-                Rectangle()
-                    .fill(.regularMaterial)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-                    .accessibilityIdentifier("detail-motion-cover")
-            }
+            RegularDetailMotionCover(motion: sidebarMotion)
             regularSidebarColumn(sidebarWidth: sidebarWidth)
-            regularSidebarPanCapture(
-                sidebarWidth: sidebarWidth,
-                height: height,
-                isClosingSidebar: isClosingSidebar
-            )
+            regularSidebarPanCapture(sidebarWidth: sidebarWidth, height: height)
         }
     }
 
+    /// Only changes once a sidebar move has settled, behind the blur.
     private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat) -> some View {
-        let shift = sidebarWidth * regularSidebarProgress
+        let isBesideSidebar = columnVisibility == .all
         return regularDetailNavigation()
-            .frame(width: max(0, regularDetailFitsBesideSidebar ? width - sidebarWidth : width))
+            .frame(width: max(0, isBesideSidebar ? width - sidebarWidth : width))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .offset(x: shift)
+            .offset(x: isBesideSidebar ? sidebarWidth : 0)
     }
 
     private func regularDetailNavigation() -> some View {
@@ -269,30 +246,29 @@ struct MainSplitView: View {
     }
 
     private func regularSidebarColumn(sidebarWidth: CGFloat) -> some View {
-        sessionsList(isRegularSidebarHidden: regularSidebarProgress <= 0.001)
-            .accessibilityHidden(regularSidebarProgress <= 0.001)
-            .frame(width: sidebarWidth)
-            .overlay(alignment: .trailing) {
-                Rectangle()
-                    .fill(.ccSeparator)
-                    .frame(width: 1 / displayScale)
-                    .frame(maxHeight: .infinity)
-            }
-            .modifier(SidebarRevealModifier(progress: regularSidebarProgress, sidebarWidth: sidebarWidth))
-            .zIndex(1)
+        let isHidden = columnVisibility == .detailOnly
+        return RegularSidebarReveal(motion: sidebarMotion, sidebarWidth: sidebarWidth) {
+            sessionsList(isRegularSidebarHidden: isHidden)
+                .accessibilityHidden(isHidden)
+                .frame(width: sidebarWidth)
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(.ccSeparator)
+                        .frame(width: 1 / displayScale)
+                        .frame(maxHeight: .infinity)
+                }
+        }
+        .zIndex(1)
 #if DEBUG
-            .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
+        .overlay { LayoutFrameProbe(identifier: "sessions-list-frame") }
 #endif
-            .accessibilityHidden(regularSidebarProgress <= 0.001)
+        .accessibilityHidden(isHidden)
     }
 
-    private func regularSidebarPanCapture(
-        sidebarWidth: CGFloat,
-        height: CGFloat,
-        isClosingSidebar: Bool
-    ) -> some View {
-        SidebarPanCapture(
-            sidebarProgress: regularSidebarProgress,
+    private func regularSidebarPanCapture(sidebarWidth: CGFloat, height: CGFloat) -> some View {
+        let isSidebarOpen = columnVisibility == .all
+        return SidebarPanCapture(
+            motion: sidebarMotion,
             opensFromAnywhere: !isRegularInspectorOpen,
             onSwipeDiagnostic: { diagnostic in
 #if DEBUG
@@ -310,13 +286,8 @@ struct MainSplitView: View {
                 )
             }
         )
-        .frame(
-            width: regularSidebarProgress > 0 || isClosingSidebar ? 80 : 32,
-            height: height
-        )
-        .accessibilityIdentifier(
-            regularSidebarProgress > 0 || isClosingSidebar ? "sidebar-close-strip" : "sidebar-edge-strip"
-        )
+        .frame(width: isSidebarOpen ? 80 : 32, height: height)
+        .accessibilityIdentifier(isSidebarOpen ? "sidebar-close-strip" : "sidebar-edge-strip")
         .zIndex(2)
     }
 
@@ -395,17 +366,17 @@ struct MainSplitView: View {
 
     private func sidebarDragChanged(translationX: CGFloat, sidebarWidth: CGFloat) {
         guard horizontalSizeClass == .regular else { return }
-        if regularSidebarDragStartProgress == nil {
-            regularSidebarDragStartProgress = regularSidebarProgress
-            coverDetailForSidebarMotion(fitsBesideSidebarOnceCovered: false)
+        if sidebarMotion.dragStartProgress == nil {
+            sidebarMotion.dragStartProgress = sidebarMotion.progress
+            coverDetailForSidebarMotion()
         }
-        guard let startProgress = regularSidebarDragStartProgress else { return }
-        regularSidebarProgress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
+        guard let startProgress = sidebarMotion.dragStartProgress else { return }
+        sidebarMotion.progress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
     }
 
     private func sidebarDragEnded(translationX: CGFloat, velocityX: CGFloat, sidebarWidth: CGFloat) {
-        guard let startProgress = regularSidebarDragStartProgress else { return }
-        regularSidebarDragStartProgress = nil
+        guard let startProgress = sidebarMotion.dragStartProgress else { return }
+        sidebarMotion.dragStartProgress = nil
         let isOpening = startProgress == 0
         let progress = min(1, max(0, startProgress + translationX / sidebarWidth))
         let targetProgress: CGFloat
@@ -418,7 +389,7 @@ struct MainSplitView: View {
     }
 
     private func toggleSidebar() {
-        moveSidebar(to: regularSidebarProgress == 0 ? 1 : 0, initialVelocity: 0)
+        moveSidebar(to: sidebarMotion.progress < 0.5 ? 1 : 0, initialVelocity: 0)
     }
 
     private func showSidebar() {
@@ -426,54 +397,43 @@ struct MainSplitView: View {
     }
 
     private func moveSidebar(to target: CGFloat, initialVelocity: Double, completion: @escaping () -> Void = {}) {
-        coverDetailForSidebarMotion(fitsBesideSidebarOnceCovered: target == 1)
-        let motionID = regularSidebarMotionID
+        coverDetailForSidebarMotion()
+        let motionID = sidebarMotion.currentMoveID
         withAnimation(sidebarAnimation(initialVelocity: initialVelocity)) {
-            regularSidebarProgress = target
-            columnVisibility = target == 1 ? .all : .detailOnly
+            sidebarMotion.progress = target
         } completion: {
-            if motionID == regularSidebarMotionID {
-                uncoverDetailAfterSidebarMotion()
+            if motionID == sidebarMotion.currentMoveID {
+                settleSidebar(at: target)
             }
             completion()
         }
     }
 
-    /// The detail goes behind a blur before it changes width, so its transcript is never seen reflowing.
-    private func coverDetailForSidebarMotion(fitsBesideSidebarOnceCovered fits: Bool) {
-        regularSidebarMotionID += 1
-        regularDetailFitsOnceCovered = fits
-        if isRegularDetailFullyCovered {
-            setDetailFitsBesideSidebar(fits)
-        }
-        guard !isRegularDetailCovered else { return }
-        withAnimation(.easeOut(duration: 0.14)) {
-            isRegularDetailCovered = true
-        } completion: {
-            guard isRegularDetailCovered else { return }
-            isRegularDetailFullyCovered = true
-            setDetailFitsBesideSidebar(regularDetailFitsOnceCovered)
+    private func coverDetailForSidebarMotion() {
+        sidebarMotion.currentMoveID += 1
+        guard !sidebarMotion.isDetailCovered else { return }
+        withAnimation(.easeOut(duration: 0.12)) {
+            sidebarMotion.isDetailCovered = true
         }
     }
 
-    private func uncoverDetailAfterSidebarMotion() {
-        let motionID = regularSidebarMotionID
-        Task { @MainActor in
-            // The bar animates its items to the new width, and that should finish out of sight too.
-            try? await Task.sleep(for: .milliseconds(250))
-            guard motionID == regularSidebarMotionID else { return }
-            isRegularDetailFullyCovered = false
-            withAnimation(.easeInOut(duration: 0.24)) {
-                isRegularDetailCovered = false
-            }
-        }
-    }
-
-    private func setDetailFitsBesideSidebar(_ fits: Bool) {
+    /// The columns change here, all at once and out of sight, then the blur lifts.
+    private func settleSidebar(at target: CGFloat) {
+        let motionID = sidebarMotion.currentMoveID
+        let settledVisibility: NavigationSplitViewVisibility = target == 1 ? .all : .detailOnly
+        let columnsChange = columnVisibility != settledVisibility
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            regularDetailFitsBesideSidebar = fits
+            columnVisibility = settledVisibility
+        }
+        Task { @MainActor in
+            // The bar animates its items to a new width, and that should finish out of sight too.
+            try? await Task.sleep(for: .milliseconds(columnsChange ? 350 : 50))
+            guard motionID == sidebarMotion.currentMoveID else { return }
+            withAnimation(.easeInOut(duration: 0.22)) {
+                sidebarMotion.isDetailCovered = false
+            }
         }
     }
 
@@ -594,6 +554,7 @@ struct MainSplitView: View {
         guard model.selectedSession != nil else {
             columnVisibility = .all
             preferredCompactColumn = .sidebar
+            sidebarMotion.progress = 1
             return
         }
         if horizontalSizeClass == .compact {
@@ -742,6 +703,49 @@ struct MainSplitView: View {
     #endif
 }
 
+@MainActor
+@Observable
+private final class RegularSidebarMotion {
+    var progress: CGFloat = 1
+    var isDetailCovered = false
+    @ObservationIgnored var dragStartProgress: CGFloat?
+    /// Tells a finished move apart from one a newer move has replaced.
+    @ObservationIgnored var currentMoveID = 0
+}
+
+private struct RegularDetailMotionCover: View {
+    let motion: RegularSidebarMotion
+
+    var body: some View {
+        if motion.isDetailCovered {
+            Rectangle()
+                .fill(.regularMaterial)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .accessibilityIdentifier("detail-motion-cover")
+        }
+    }
+}
+
+private struct RegularSidebarReveal<Content: View>: View {
+    let motion: RegularSidebarMotion
+    let sidebarWidth: CGFloat
+    let content: Content
+
+    /// Takes the content built once, so following the progress doesn't rebuild the sessions list.
+    init(motion: RegularSidebarMotion, sidebarWidth: CGFloat, @ViewBuilder content: () -> Content) {
+        self.motion = motion
+        self.sidebarWidth = sidebarWidth
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .modifier(SidebarRevealModifier(progress: motion.progress, sidebarWidth: sidebarWidth))
+    }
+}
+
 private struct SidebarRevealModifier: AnimatableModifier {
     var progress: CGFloat
     let sidebarWidth: CGFloat
@@ -761,7 +765,7 @@ private struct SidebarRevealModifier: AnimatableModifier {
 }
 
 private struct SidebarPanCapture: UIViewRepresentable {
-    let sidebarProgress: CGFloat
+    let motion: RegularSidebarMotion
     let opensFromAnywhere: Bool
     let onSwipeDiagnostic: (String) -> Void
     let onChanged: (CGFloat) -> Void
@@ -781,7 +785,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
     }
 
     func updateUIView(_ view: SidebarCaptureView, context: Context) {
-        context.coordinator.sidebarProgress = sidebarProgress
+        context.coordinator.motion = motion
         context.coordinator.opensFromAnywhere = opensFromAnywhere
         context.coordinator.onSwipeDiagnostic = onSwipeDiagnostic
         context.coordinator.onChanged = onChanged
@@ -790,7 +794,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var sidebarProgress: CGFloat
+        var motion: RegularSidebarMotion
         var opensFromAnywhere: Bool
         var onSwipeDiagnostic: (String) -> Void
         var onChanged: (CGFloat) -> Void
@@ -799,7 +803,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
         weak var pan: SidebarPanGestureRecognizer?
 
         init(_ parent: SidebarPanCapture) {
-            sidebarProgress = parent.sidebarProgress
+            motion = parent.motion
             opensFromAnywhere = parent.opensFromAnywhere
             onSwipeDiagnostic = parent.onSwipeDiagnostic
             onChanged = parent.onChanged
@@ -842,6 +846,7 @@ private struct SidebarPanCapture: UIViewRepresentable {
             let initialLocation = pan.initialLocation ?? pan.location(in: view)
             // Direction comes from the distance moved so far. The speed at this instant may not be
             // reliable for a swipe that starts at the screen edge.
+            let sidebarProgress = motion.progress
             let translation = pan.translation(in: view)
             let movement = translation == .zero ? pan.velocity(in: view) : translation
             if sidebarProgress >= 0.999 {

@@ -69,6 +69,7 @@ struct SessionScreen: View {
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
     @State private var inspectorPresented = false
+    @State private var contentWidth: CGFloat = 0
     @State private var activityPresented = false
     @State private var filePreviewURL: URL?
     @State private var destination: SessionDestination?
@@ -763,6 +764,7 @@ struct SessionScreen: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { contentWidth = $0 }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -784,6 +786,9 @@ struct SessionScreen: View {
                 }
                 ToolbarItem(placement: .principal) {
                     sessionTitle(name: name, session: session)
+                        .frame(maxWidth: .infinity)
+                        // The bar keeps a title at the width it first measured, so it needs a new one when the width changes.
+                        .id(contentWidth)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     sessionInfoButton

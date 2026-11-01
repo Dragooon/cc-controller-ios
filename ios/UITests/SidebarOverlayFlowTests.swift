@@ -317,6 +317,31 @@ final class SidebarOverlayFlowTests: XCTestCase {
         addScreenshot(named: "sidebar-open-system-bar")
     }
 
+    func testLongTitleTakesTheRoomWhenTheSidebarCloses() throws {
+        let app = launch(orientation: .portrait, sessionID: "staff-account-exclusions")
+        defer { app.terminate() }
+
+        let sidebar = sessionsList(in: app)
+        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
+        let title = app.staticTexts["selected-session-name"]
+        XCTAssertTrue(title.waitToExist(timeout: 20), "Session title did not load")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        let widthBesideSidebar = title.frame.width
+        addScreenshot(named: "long-title-sidebar-open")
+
+        sidebarToggle(in: app).tap()
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
+        assertDetailCoverCleared(in: app)
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        addScreenshot(named: "long-title-sidebar-closed")
+        print("LONG_TITLE_WIDTHS open=\(widthBesideSidebar) closed=\(title.frame.width)")
+        XCTAssertGreaterThan(
+            title.frame.width,
+            widthBesideSidebar + 50,
+            "The title kept its narrow width after the sidebar closed"
+        )
+    }
+
     func testPortraitSidebarToggleAlignsWithNavigationTitle() throws {
         let app = launch(orientation: .portrait, sessionID: "long-session")
         defer { app.terminate() }
