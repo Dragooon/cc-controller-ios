@@ -38,6 +38,33 @@ DERIVED="$IOS/build"
 RUNTIME="com.apple.CoreSimulator.SimRuntime.iOS-27-0"
 DEFAULT_DEVICES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)")
 POOL_DEVICE_TYPES=("iPhone 18 Pro" "iPhone 16 Plus" "iPhone SE (3rd generation)" "iPhone Duo")
+# The UI gate's two tiers. Core runs before merging, nightly on a schedule. Each class sets its own posture.
+CORE_JOURNEYS=(
+  SendAndDeliverJourneyFlowTests
+  WorkingSessionJourneyFlowTests
+  CommandsJourneyFlowTests
+  LongSessionJourneyFlowTests
+  ApprovalsAndQuestionsJourneyFlowTests
+  SessionsListJourneyFlowTests
+  SidebarGesturesJourneyFlowTests
+  ColumnsAndCapsuleJourneyFlowTests
+)
+NIGHTLY_JOURNEYS=(
+  OnboardingAndColdRelaunchJourneyFlowTests
+  LockAndUnpairJourneyFlowTests
+  RichSessionJourneyFlowTests
+  CacheReopenJourneyFlowTests
+  AttachmentsJourneyFlowTests
+  NewSessionJourneyFlowTests
+  SleepingAndResumeJourneyFlowTests
+  SettingsAndPeersJourneyFlowTests
+  TwoControllersAndStockadeJourneyFlowTests
+  ConnectionEdgesJourneyFlowTests
+  AddControllerFlowTests
+  LiveTurnCaptureFlowTests
+  PhoneWidthPanesJourneyFlowTests
+  InspectorPaneJourneyFlowTests
+)
 POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
 EVIDENCE_ROOT="${CC_EVIDENCE_DIR:-$HOME/dev/cc-controller-evidence}"
 SCRATCH_ROOT="${CC_IOS_SCRATCH:-$HOME/Library/Caches/cc-controller-scratch}"
@@ -1447,6 +1474,15 @@ cmd_flows() {
         test_filters+=("$2")
         shift 2
         ;;
+      --tier)
+        [[ $# -ge 2 ]] || { printf '%s\n' 'flows --tier requires core or nightly' >&2; exit 2; }
+        case "$2" in
+          core) test_filters+=("${CORE_JOURNEYS[@]}");;
+          nightly) test_filters+=("${NIGHTLY_JOURNEYS[@]}");;
+          *) printf '%s\n' 'flows --tier requires core or nightly' >&2; exit 2;;
+        esac
+        shift 2
+        ;;
       --shards)
         [[ $# -ge 2 ]] || { printf '%s\n' 'flows --shards requires a value' >&2; exit 2; }
         shard_count=$2
@@ -1492,7 +1528,7 @@ cmd_flows() {
       flow_method_classes+=("$flow_class")
       flow_methods+=("$flow_method")
     done < <(sed -nE 's/^[[:space:]]*func[[:space:]]+(test[A-Za-z0-9_]*).*/\1/p' "$flow_file")
-  done < <(find "$IOS/UITests" -type f \( -name '*FlowTests.swift' -o -name 'SmokeFlowTests.swift' -o -name 'RealControllerSmokeTests.swift' -o -name 'RelayConnectionTests.swift' \) -print | sort)
+  done < <(find "$IOS/UITests" -type f -name '*FlowTests.swift' -print | sort)
   if [[ ${#flow_files[@]} -eq 0 ]]; then
     printf '%s\n' 'no flow tests found'
     return 0
@@ -3756,7 +3792,7 @@ cmd_gate() {
   prune_scratch
   local gate_started=$SECONDS flows_started flows_status=0 smoke_started smoke_status=0 flows_label
   flows_started=$SECONDS
-  cmd_flows --shards "${CC_GATE_SHARDS:-$POOL_SLOTS}" || flows_status=$?
+  cmd_flows --tier core --device "iPhone Duo" --shards "${CC_GATE_SHARDS:-$POOL_SLOTS}" || flows_status=$?
   if [[ $flows_status -ne 0 ]]; then
     flows_label=FAIL
   elif [[ $FLOWS_FLAKY_COUNT -gt 0 ]]; then
@@ -3764,7 +3800,7 @@ cmd_gate() {
   else
     flows_label=PASS
   fi
-  printf 'gate full-ui wall-clock=%ss status=%s\n' "$((SECONDS - flows_started))" "$flows_label"
+  printf 'gate core wall-clock=%ss status=%s\n' "$((SECONDS - flows_started))" "$flows_label"
   smoke_started=$SECONDS
   cmd_real_smoke "$@" || smoke_status=$?
   printf 'gate real-smoke wall-clock=%ss status=%s\n' "$((SECONDS - smoke_started))" "$([[ $smoke_status -eq 0 ]] && printf PASS || printf FAIL)"

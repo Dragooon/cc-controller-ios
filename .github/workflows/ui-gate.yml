@@ -1,12 +1,19 @@
 name: UI gate
 
-# The full UI flow suite, split across parallel runners. Each job checks out the private
-# controller (read-only deploy key) for the fixture daemon and runs one slice of the flows.
+# The UI journeys on the iPhone Duo, folded and unfolded, in one run. Each journey sets its own
+# posture. The job checks out the private controller (read-only deploy key) for the fixture daemon.
+# Started by hand it runs the core tier, required before merging; the schedule runs the nightly tier.
 # Real-smoke still needs the real daemon on the Mac and is not part of this gate.
 
 on:
+  # About 35 runner minutes a night. GitHub only fires this from the default branch.
+  schedule:
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
+      tier:
+        description: Which journeys to run when tests is empty (core or nightly)
+        default: core
       shards:
         description: Simulators run in parallel on each runner (3 vCPUs, so 1 is fastest)
         default: "1"
@@ -14,13 +21,13 @@ on:
         description: Controller branch, tag or SHA for the fixture daemon
         default: main
       tests:
-        description: Only these flows, space-separated Class or Class/method (one runner); empty runs the suite
+        description: Only these flows, space-separated Class or Class/method; empty runs the tier
         default: ""
       device:
-        description: Run on this simulator instead (e.g. "iPhone Duo") and keep its screenshots
-        default: ""
+        description: Simulator to run on
+        default: iPhone Duo
       hinge:
-        description: Hinge angle for a foldable simulator (180 opens the Duo's large display), with simctl screenshots kept
+        description: Hinge angle for tests outside the journeys, such as Motion (180 opens the Duo; empty is folded)
         default: ""
       motion:
         description: Instead of flows, record these motion scenarios on the Duo with video (e.g. "S1,S2")
@@ -33,23 +40,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-gate-${{ github.ref }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}-${{ inputs.motion }}-${{ inputs.hinge }}
+  group: ui-gate-${{ github.ref }}-${{ github.event_name }}-${{ inputs.tier }}-${{ inputs.tests }}-${{ inputs.device }}-${{ inputs.engine }}-${{ inputs.motion }}-${{ inputs.hinge }}
   cancel-in-progress: true
 
 jobs:
   flows:
     runs-on: xcode-27
     timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        slice: ${{ fromJSON((inputs.tests || inputs.motion) && '[0]' || '[0, 1, 2, 3, 4]') }}
     env:
-      SLICES: ${{ (inputs.tests || inputs.motion) && 1 || 5 }}
+      TIER: ${{ github.event_name == 'schedule' && 'nightly' || inputs.tier || 'core' }}
       MOTION: ${{ inputs.motion }}
       TEST_RUNNER_HINGE_ANGLE: ${{ inputs.hinge }}
       TESTS: ${{ inputs.tests }}
-      DEVICE: ${{ inputs.device }}
+      DEVICE: ${{ inputs.device || 'iPhone Duo' }}
       TEST_RUNNER_CC_TRANSCRIPT_ENGINE: ${{ inputs.engine }}
       CC_CONTROLLER_ROOT: ${{ github.workspace }}/cc-controller
       CC_EVIDENCE_DIR: ${{ github.workspace }}/evidence
@@ -74,33 +77,26 @@ jobs:
         working-directory: cc-controller
         run: npm ci
 
-      - name: Run flows slice ${{ matrix.slice }}
+      - name: Run the journeys
         working-directory: cc-controller-ios
         run: |
           if [[ -n "$MOTION" ]]; then
             bash scripts/ios.sh motion --scenario "$MOTION" --engine collection --device duo --video --out "$CC_EVIDENCE_DIR/motion"
             exit
           fi
-          if [[ -n "$TEST_RUNNER_HINGE_ANGLE" ]]; then
-            # The runner's own screenshots can show the folded display, so also shoot what's on screen.
-            mkdir -p "$CC_EVIDENCE_DIR/booted-shots"
-            (while sleep 10; do
-              xcrun simctl io booted screenshot "$CC_EVIDENCE_DIR/booted-shots/$(date +%H%M%S).png" >/dev/null 2>&1 || true
-            done) &
-          fi
           started=$SECONDS
           filters=()
           for test in $TESTS; do filters+=(--test "$test"); done
-          if [[ -n "$DEVICE" ]]; then filters+=(--device "$DEVICE"); fi
-          bash scripts/ios.sh flows --slice "${{ matrix.slice }}/$SLICES" --shards "${{ inputs.shards || '1' }}" "${filters[@]}"
-          echo "slice ${{ matrix.slice }} wall-clock=$((SECONDS - started))s"
+          if [[ -z "$TESTS" ]]; then filters+=(--tier "$TIER"); fi
+          bash scripts/ios.sh flows --device "$DEVICE" --shards "${{ inputs.shards || '1' }}" "${filters[@]}"
+          echo "flows wall-clock=$((SECONDS - started))s"
 
       # A test that passes on its rerun still leaves its first failure in here.
       - name: Keep the evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: flows-evidence-slice-${{ matrix.slice }}
+          name: flows-evidence
           path: evidence
           retention-days: 3
           if-no-files-found: ignore
