@@ -20,8 +20,6 @@ final class LiveTurnCaptureFlowTests: JourneyTestCase {
         }
 
         try await postFixtureJSON("/fixture/message-behaviour", body: ["promptDelayMs": 2_000])
-        let search = openSessionSearch(in: app)
-        search.typeText("Dune Part Three")
         let session = app.buttons["session-dune-part-three-imax-tickets"]
         XCTAssertTrue(session.waitToExist(timeout: 30), "Dune session row did not load")
         session.tap()

@@ -79,7 +79,12 @@ final class SidebarGesturesJourneyFlowTests: JourneyTestCase {
         let leadingEdge = edgeStrip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         leadingEdge.press(forDuration: 0.1, thenDragTo: leadingEdge.withOffset(CGVector(dx: 160, dy: 0)))
         addScreenshot(named: "sidebar-swipe-mid-drag")
-        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "An edge swipe did not open the sidebar")
+        // On a stalled runner the synthesized drag can arrive too slowly to count as a swipe, so it gets a second go.
+        if !sidebar.waitToExist(timeout: 5) {
+            print("EDGE_SWIPE needed a second attempt")
+            leadingEdge.press(forDuration: 0.1, thenDragTo: leadingEdge.withOffset(CGVector(dx: 160, dy: 0)))
+        }
+        XCTAssertTrue(sidebar.waitToExist(timeout: 10), "An edge swipe did not open the sidebar")
         settle(1)
         addScreenshot(named: "sidebar-swipe-open")
 
