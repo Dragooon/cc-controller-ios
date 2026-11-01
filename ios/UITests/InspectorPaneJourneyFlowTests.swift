@@ -51,12 +51,11 @@ final class InspectorPaneJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(engineer.waitToExist(timeout: 15), "Subagent row did not load")
         XCTAssertTrue(engineer.label.localizedCaseInsensitiveContains("done"), "Subagent row lost its state: \(engineer.label)")
         engineer.tap()
-        // A known app bug: the pane closes and the subagent never opens, because only the folded details sheet calls
-        // presentPendingInspectorDestination when it goes. This fails loudly once that's fixed, so the rest of the step can come back.
-        XCTExpectFailure("Tapping a subagent in the open Duo's details pane closes the pane without opening the subagent") {
-            XCTAssertTrue(app.navigationBars["engineer"].waitToExist(timeout: 3), "Subagent screen did not load")
-        }
+        let subagentBar = app.navigationBars["engineer"]
+        XCTAssertTrue(subagentBar.waitToExist(timeout: 15), "Subagent screen did not load")
         addScreenshot(named: "inspector-pane-subagent")
+        app.buttons["BackButton"].tap()
+        XCTAssertTrue(subagentBar.waitToDisappear(timeout: 15), "Back did not leave the subagent screen")
         XCTAssertTrue(app.staticTexts["Staff Account Exclusions Atlas Monitoring"].waitToExist(timeout: 15), "Session did not stay on screen after the subagent")
 
         // A session with context and usage shows them, and the screen reader hears them whole.

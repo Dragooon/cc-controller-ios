@@ -37,17 +37,16 @@ final class ColumnsAndCapsuleJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(search.waitToExist(timeout: 20), "Sidebar search did not load")
         XCTAssertTrue(sidebar.frame.contains(search.frame), "Search left the sidebar: field=\(search.frame), sidebar=\(sidebar.frame)")
 
-        // There's one toggle, and it stays put while the sidebar closes. Closing widens the detail.
+        // There's one toggle, in the bar of whichever column is showing. Closing widens the detail, behind a blur that lifts.
         let toggles = app.buttons.matching(identifier: "sidebar-toggle")
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while open")
-        let openFrame = toggles.firstMatch.frame
         let openExtent = extent(of: detail)
         toggles.firstMatch.tap()
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
         XCTAssertTrue(pollUntil(timeout: 10) { extent(of: detail) > openExtent + 20 }, "Hiding the sidebar did not widen the detail")
         settle(1)
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while closed")
-        assertFrame(toggles.firstMatch.frame, equals: openFrame, "Sidebar toggle moved while closing")
+        XCTAssertTrue(app.element(identifier: "detail-motion-cover").waitToDisappear(timeout: 5), "The blur stayed after the sidebar settled")
         assertHeaderAlignment(in: app)
         let closedExtent = extent(of: detail)
         addScreenshot(named: "columns-sidebar-closed")
