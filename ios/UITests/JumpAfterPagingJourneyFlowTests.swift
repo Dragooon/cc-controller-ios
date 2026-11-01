@@ -1,7 +1,7 @@
 import XCTest
 
-/// Jump to latest from history that has just been paged in, on the folded Duo. Apart from the long session's journey
-/// because of a known app bug: the transcript snaps far up, then takes minutes to crawl back down, which would cost the core tier a couple of minutes.
+/// Jump to latest from paged-in history after a registry reconcile, on the folded Duo. Apart from the long session's
+/// journey because of a known app bug: the transcript snaps far up, then takes minutes to crawl back down, which would cost the core tier a couple of minutes.
 final class JumpAfterPagingJourneyFlowTests: JourneyTestCase {
     func testJumpAfterPagingJourney() async throws {
         let app = launchSignedIn(session: "long-session", arguments: ["-CCFixtureInitialTranscriptTail", "20"])
@@ -9,6 +9,8 @@ final class JumpAfterPagingJourneyFlowTests: JourneyTestCase {
         let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
         XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest entry did not load on the short first page")
         _ = pageBackPastFirstPage(in: app)
+        try await postFixtureRoute("/fixture/registry-blip")
+        try await Task.sleep(for: .seconds(2))
         XCTAssertTrue(app.jumpToLatest.waitToExist(timeout: 10), "Jump to latest did not show")
         app.jumpToLatest.tap()
         // It sometimes works, so this can't be strict. Remove the expectation when the bug is fixed.
