@@ -450,7 +450,9 @@ struct BottomStackView: View {
             clearComposerAfterSend(originalText: committedText, submittedText: textToSend)
         }
         isSending = true
-        Task { @MainActor in
+        // Runs up to its first suspension right here, so the note lands in the same commit as the keyboard hiding
+        // and the two start together. The transcript only moves one way when they do.
+        Task.immediate { @MainActor in
             #if DEBUG
             recordLifecycleEvent(name: "send-task-start", sessionID: configuration.sessionID)
             #endif

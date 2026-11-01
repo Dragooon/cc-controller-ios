@@ -237,8 +237,9 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 
     func invalidateHeights(for items: [TranscriptCollectionItem]) {
         itemsRequiringMeasurement.formUnion(items)
-        for item in items {
-            measuredHeights = measuredHeights.filter { $0.key.item != item }
+        if !items.isEmpty {
+            let invalidated = Set(items)
+            measuredHeights = measuredHeights.filter { !invalidated.contains($0.key.item) }
         }
         invalidateLayout()
     }
@@ -1124,6 +1125,8 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             return .queuedNote(noteID)
         }
 
+        private static let mostRowsToMeasureOnInsert = 20
+
         private func apply(
             items: [TranscriptCollectionItem],
             content: [TranscriptCollectionItem: TranscriptCollectionContent],
@@ -1161,7 +1164,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 reconfigured: changedItems
             )
             if let layout = collectionView.collectionViewLayout as? TranscriptListLayout {
-                layout.invalidateHeights(for: inserted + changedItems)
+                // A page of rows gets measured as it nears the viewport. Measuring it all here would hold up the
+                // main thread for as long as the page is big, which is what opening a session used to do.
+                let insertedToMeasure = inserted.count > Self.mostRowsToMeasureOnInsert ? [] : inserted
+                layout.invalidateHeights(for: insertedToMeasure + changedItems)
                 if animated { layout.prepareForAnimatedNewestEndUpdate() }
             }
             #if DEBUG
