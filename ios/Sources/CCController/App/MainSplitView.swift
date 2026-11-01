@@ -488,7 +488,6 @@ struct MainSplitView: View {
             canCreateSession: !newSessionChoices.isEmpty,
             isRegularSidebarHidden: isRegularSidebarHidden,
             openSessionKey: openSessionKey,
-            onToggleSidebar: toggleSidebar,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
             },
@@ -498,6 +497,7 @@ struct MainSplitView: View {
             onRetry: { controllerID in model.connection(for: controllerID)?.store.resume() },
             onSignIn: { controllerID in model.signIn(controllerID: controllerID) },
             onSettings: { model.isSettingsPresented = true },
+            onToggleSidebar: toggleSidebar,
             onRefresh: {
                 for connection in model.connections {
                     connection.store.resume()
