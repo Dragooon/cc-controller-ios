@@ -52,7 +52,7 @@ final class CacheReopenJourneyFlowTests: JourneyTestCase {
 
         // A session that changed while away shows the glyph rather than stale rows, until it's current.
         let marker = "Fixture transcript changed while away."
-        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": Int(3000 * scale)])
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": Int(5000 * scale)])
         try await postFixtureJSON("/fixture/transcript-change", body: ["sessionId": "long-session", "text": marker])
         app = launchSignedIn(resetCache: false, arguments: shortFirstPage)
         openSession("long-session", in: app)

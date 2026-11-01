@@ -127,6 +127,10 @@ final class SessionsListJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(archiveSleeping.waitToExist(timeout: 10), "Sleeping session had no archive action")
         archiveSleeping.tap()
         XCTAssertTrue(app.buttons["archive-undo"].waitToExist(timeout: 10), "Archiving the sleeping session did not complete")
-        XCTAssertTrue(sleeping.waitToDisappear(timeout: 10), "Archived sleeping session stayed in Recents")
+        // The Archived section is still open from earlier, so the row carries on existing below its header.
+        XCTAssertTrue(
+            pollUntil(timeout: 10) { !sleeping.exists || sleeping.frame.minY > archivedHeader.frame.minY },
+            "Archived sleeping session stayed in Recents"
+        )
     }
 }

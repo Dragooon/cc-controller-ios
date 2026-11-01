@@ -64,6 +64,7 @@ NIGHTLY_JOURNEYS=(
   LiveTurnCaptureFlowTests
   PhoneWidthPanesJourneyFlowTests
   InspectorPaneJourneyFlowTests
+  JumpAfterPagingJourneyFlowTests
 )
 POOL_CACHE="${CC_IOS_POOL_CACHE:-$HOME/Library/Caches/cc-controller-ios-pool}"
 EVIDENCE_ROOT="${CC_EVIDENCE_DIR:-$HOME/dev/cc-controller-evidence}"

@@ -29,6 +29,9 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.menuItems["Copy"].waitToExist(timeout: 10), "Reply's menu did not offer Copy")
         dismissMenu(in: app)
 
+        // The reply is above the tool group, so go back down first.
+        if app.jumpToLatest.exists { app.jumpToLatest.tap() }
+
         // A tool group survives fast scrolling, expands and opens its detail sheet.
         let toolGroup = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Ran' AND label CONTAINS[c] 'tools'")).firstMatch
         XCTAssertTrue(revealInTranscript(toolGroup, in: app), "Tool group did not load")
@@ -45,7 +48,8 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         bash.tap()
         XCTAssertTrue(app.staticTexts["OUTPUT"].waitToExist(timeout: 15), "Tool detail's output did not load")
         addScreenshot(named: "rich-tool-sheet")
-        let close = app.navigationBars.buttons["Close"]
+        // On the rail, not in the navigation bar.
+        let close = app.buttons["Close"]
         XCTAssertTrue(close.waitToExist(timeout: 10), "Tool detail's Close did not load")
         close.tap()
         XCTAssertTrue(toolGroup.waitToExist(timeout: 10), "Transcript did not come back after closing the sheet")
@@ -68,7 +72,7 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.navigationBars["Context compacted"].waitToExist(timeout: 15), "Summary sheet did not open")
         XCTAssertTrue(summary.waitToExist(timeout: 15), "Summary did not load in its sheet")
         addScreenshot(named: "rich-compaction-sheet")
-        app.navigationBars["Context compacted"].buttons.firstMatch.tap()
+        close.tap()
         XCTAssertTrue(app.navigationBars["Context compacted"].waitToDisappear(timeout: 10), "Summary sheet did not close")
 
         // A subagent result opens its sheet, then its transcript. Back returns to the session with the draft.

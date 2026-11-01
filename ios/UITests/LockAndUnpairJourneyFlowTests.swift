@@ -109,7 +109,8 @@ final class LockAndUnpairJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(item.waitToExist(timeout: 5), "\(option) did not appear")
         // A tap while the menu is still opening is swallowed and leaves the menu up.
         XCTAssertTrue(waitForStableFrame(item), "\(option) did not settle before the tap")
-        item.tap()
+        // By coordinate: when a menu item's activation point goes stale, a plain tap falls back to scrolling, and that drags the Settings sheet away.
+        item.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     private func hasValue(_ element: XCUIElement, _ expected: String) -> Bool {
