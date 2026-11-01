@@ -13,7 +13,7 @@ final class JumpAfterPagingJourneyFlowTests: JourneyTestCase {
         try await Task.sleep(for: .seconds(2))
         XCTAssertTrue(app.jumpToLatest.waitToExist(timeout: 10), "Jump to latest did not show")
         app.jumpToLatest.tap()
-        // It sometimes works, so this can't be strict. Remove the expectation when the bug is fixed.
+        // It's worked once in five runs, so this can't be strict. Remove the expectation when the bug is fixed.
         XCTExpectFailure("Jump to latest after paging lands far above the newest entry", options: .nonStrict()) {
             XCTAssertTrue(pollUntil(timeout: 5) { newest.exists && newest.isHittable }, "Jump to latest did not show the newest entry")
         }

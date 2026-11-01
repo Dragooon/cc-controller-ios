@@ -124,33 +124,6 @@ func fixtureRequestPaths() async throws -> [String] {
 }
 
 @MainActor
-@discardableResult
-func openSessionSearch(in app: XCUIApplication, timeout: TimeInterval = 15) -> XCUIElement {
-    let regularField = app.textFields["sessions-search-field"]
-    if regularField.exists {
-        regularField.tap()
-        return regularField
-    }
-
-    let search = app.searchFields.firstMatch
-    if search.exists {
-        search.tap()
-        return search
-    }
-
-    let button = app.buttons["sessions-search"]
-    if button.waitToExist(timeout: min(timeout, 2)) {
-        button.tap()
-        XCTAssertTrue(search.waitToExist(timeout: timeout), "Session search field did not load")
-        return search
-    }
-
-    XCTAssertTrue(regularField.waitToExist(timeout: timeout), "Session search field did not load")
-    regularField.tap()
-    return regularField
-}
-
-@MainActor
 class FixtureFlowTestSupport: XCTestCase {
     private var auditLines: [String] = []
     private var hasLoggedFailureState = false
@@ -284,7 +257,9 @@ class FixtureFlowTestSupport: XCTestCase {
         let usualRetry = app.buttons.matching(
             NSPredicate(format: "label IN %@", ["Try again", "Unlock with Face ID"])
         ).firstMatch
-        while !target.exists && Date() < deadline {
+        // Remembered, because a short unlock age can lock the app again straight after this reached the target.
+        var reached = target.exists
+        while !reached && Date() < deadline {
             if failure.exists {
                 let button = retry?.exists == true ? retry! : usualRetry
                 if button.exists, button.isHittable { button.tap() }
@@ -292,9 +267,9 @@ class FixtureFlowTestSupport: XCTestCase {
             try await postFixture("/fixture/biometric/match")
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
-            _ = target.waitToExist(timeout: min(3, remaining))
+            reached = target.waitToExist(timeout: min(3, remaining))
         }
-        XCTAssertTrue(target.exists, message)
+        XCTAssertTrue(reached, message)
     }
 
     func setBiometricEnrollment(_ enrolled: Bool) async throws {
