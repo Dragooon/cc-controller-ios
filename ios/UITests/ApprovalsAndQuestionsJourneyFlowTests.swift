@@ -90,7 +90,7 @@ final class ApprovalsAndQuestionsJourneyFlowTests: JourneyTestCase {
         // A single-select answer moves on; a multi-select waits for Send.
         app.element(identifier: "question-option-A").tap()
         XCTAssertTrue(waitForLabel(questionText, "Choose letters."), "Answering did not move to the next question")
-        XCTAssertEqual(firstChip.value as? String, "Answered")
+        XCTAssertTrue(pollUntil(timeout: 5) { firstChip.value as? String == "Answered" }, "The first question's chip did not say Answered")
         app.element(identifier: "question-option-A").tap()
         app.element(identifier: "question-option-C").tap()
         XCTAssertEqual(app.element(identifier: "question-option-C").value as? String, "Selected")

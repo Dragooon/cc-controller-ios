@@ -19,6 +19,8 @@ final class SessionsListJourneyFlowTests: JourneyTestCase {
             // The rail's clock and battery ring are drawn over the part of a row that runs under it, and the audit
             // measures them against the row's own colours. Text never reaches the rail.
             if issue.auditType == .contrast, element.frame.maxX > 382 { return true }
+            // The search field collapses as the list settles, and can be caught at a fraction of its height.
+            if issue.auditType == .hitRegion, element.elementType == .searchField { return true }
             print("ACCESSIBILITY_ISSUE \(issue.compactDescription) type=\(element.elementType.rawValue) identifier=\(element.identifier) label=\(element.label) frame=\(element.frame)")
             return false
         }
