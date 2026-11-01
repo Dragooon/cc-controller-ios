@@ -1,28 +1,14 @@
 import XCTest
 
 /// Everything the composer's commands do, in one launch of one session on the folded Duo.
-@MainActor
-final class CommandsJourneyFlowTests: XCTestCase {
+final class CommandsJourneyFlowTests: JourneyTestCase {
     private let noRouteMessage = "Commands need the cc-controller plugin in this session. Run /reload-plugins in its terminal"
 
-    override func setUp() async throws {
-        try await super.setUp()
-        try await restartFixtureIfConfigured()
-    }
-
     func testCommandsJourney() async throws {
-        let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL"), "-CCResetCache"]
-        app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
-        configureLiveIndicatorAnimations(app)
-        dismissLeftoverNotificationPrompt()
-        app.launch()
+        let app = launchSignedIn()
         defer { app.terminate() }
-
-        let row = app.buttons["session-pull-up-agentic-uw"]
-        XCTAssertTrue(row.waitToExist(timeout: 75), "Fixture session did not load")
-        row.tap()
-        let field = app.descendants(matching: .any).matching(identifier: "composer-text").firstMatch
+        openSession("pull-up-agentic-uw", in: app)
+        let field = app.composer
         XCTAssertTrue(field.waitToExist(timeout: 20), "Composer did not load")
 
         // Suggestions match what's typed and fill the composer.
@@ -35,7 +21,7 @@ final class CommandsJourneyFlowTests: XCTestCase {
         XCTAssertTrue(waitForStableFrame(compact), "/compact suggestion did not settle before tap")
         compact.tap()
         XCTAssertEqual(field.value as? String, "/compact ", "Suggestion did not replace the composer text")
-        emptyComposer(field)
+        emptyComposer(in: app)
 
         // The model sheet shows the current model and sends the choice.
         openModelSheet(field: field, in: app)
@@ -58,34 +44,34 @@ final class CommandsJourneyFlowTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Model"].waitToDisappear(timeout: 10), "Model sheet did not close")
 
         // Any other command without a route shows an alert.
-        send("/context", field: field, in: app)
+        sendComposer("/context", in: app)
         let alert = app.alerts["Commands unavailable"]
         XCTAssertTrue(alert.waitToExist(timeout: 10), "No-route alert did not appear")
         alert.buttons["OK"].tap()
-        emptyComposer(field)
+        emptyComposer(in: app)
 
         // A queued command shows a toast.
         try await postFixture("/fixture/command-queued")
-        send("/compact", field: field, in: app)
-        let toast = app.descendants(matching: .any)
-            .matching(identifier: "command-toast")
-            .matching(NSPredicate(format: "label CONTAINS %@", "Runs when the current turn ends."))
-            .firstMatch
-        XCTAssertTrue(toast.waitToExist(timeout: 10), "Queued command toast did not appear")
+        sendComposer("/compact", in: app)
+        let toast = app.element(identifier: "command-toast")
+        XCTAssertTrue(
+            pollUntil(timeout: 10) { toast.label.contains("Runs when the current turn ends.") },
+            "Queued command toast did not appear"
+        )
 
         // A command's output opens its own sheet, with the keyboard out of the way.
         try await postFixture("/fixture/command-output")
-        send("/context", field: field, in: app)
+        sendComposer("/context", in: app)
         XCTAssertTrue(app.navigationBars["/context"].waitToExist(timeout: 10), "Output sheet did not open")
         XCTAssertEqual(app.keyboards.count, 0, "Keyboard stayed up over the output sheet")
         XCTAssertTrue(app.staticTexts["Context use: 42%"].waitToExist(timeout: 10), "Command output did not render")
+        addScreenshot(named: "command-output-sheet")
         app.buttons["Done"].tap()
 
         // /clear moves to the new session ID and stays on screen.
-        send("/clear", field: field, in: app)
-        let selectedSession = app.staticTexts["selected-session-name"]
+        sendComposer("/clear", in: app)
         XCTAssertTrue(
-            pollUntil(timeout: 10) { selectedSession.value as? String == "pull-up-agentic-uw-cleared" },
+            pollUntil(timeout: 10) { app.selectedSessionName.value as? String == "pull-up-agentic-uw-cleared" },
             "Session screen did not follow the rotated session ID"
         )
         XCTAssertTrue(pollUntil(timeout: 10) { field.value as? String == "" }, "Composer was not empty after /clear")
@@ -104,36 +90,8 @@ final class CommandsJourneyFlowTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Model"].waitToExist(timeout: 10), "Model sheet did not open")
     }
 
-    private func send(_ text: String, field: XCUIElement, in app: XCUIApplication) {
-        field.tap()
-        field.typeText(text)
-        let send = app.buttons["composer-send"]
-        if send.exists {
-            send.tap()
-        } else {
-            app.buttons["composer-queue"].tap()
-        }
-    }
-
-    private func emptyComposer(_ field: XCUIElement) {
-        let length = (field.value as? String)?.count ?? 0
-        guard length > 0 else { return }
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: length))
-    }
-
-    private func postFixture(_ path: String) async throws {
-        var request = URLRequest(url: URL(string: requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL") + path)!)
-        request.httpMethod = "POST"
-        let (_, response) = try await URLSession.shared.data(for: request)
-        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "Fixture route \(path) failed")
-    }
-
     private func commandRequests() async throws -> [String] {
-        let base = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
-        let (data, _) = try await URLSession.shared.data(from: URL(string: "\(base)/fixture/command-requests")!)
-        let value = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let requests = value?["requests"] as? [[String: Any]] ?? []
+        let requests = try await fixtureJSON("/fixture/command-requests")["requests"] as? [[String: Any]] ?? []
         return requests.compactMap { $0["text"] as? String }
     }
 }

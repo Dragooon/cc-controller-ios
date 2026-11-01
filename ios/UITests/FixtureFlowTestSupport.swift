@@ -171,7 +171,12 @@ class FixtureFlowTestSupport: XCTestCase {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         print("FAILURE_STATE app=\(app.state.rawValue) alerts=\(springboard.alerts.allElementsBoundByIndex.map(\.label))")
         guard app.state == .runningForeground else { return }
-        print("FAILURE_STATE hierarchy:\n\(app.debugDescription.prefix(6_000))")
+        let hierarchy = app.debugDescription
+        print("FAILURE_STATE hierarchy:\n\(hierarchy.prefix(6_000))")
+        let attachment = XCTAttachment(data: Data(hierarchy.utf8), uniformTypeIdentifier: "public.plain-text")
+        attachment.name = "failure-hierarchy.txt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     override func tearDown() {
@@ -324,11 +329,14 @@ class FixtureFlowTestSupport: XCTestCase {
         }
     }
 
+    /// Keeps every display's picture: the app is on display 0 folded and display 1 open, and the other one is black.
     func addScreenshot(named name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = name
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        for (index, screen) in XCUIScreen.screens.enumerated() {
+            let attachment = XCTAttachment(screenshot: screen.screenshot())
+            attachment.name = index == 0 ? name : "\(name)-display-\(index)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
     }
 
     private func launchFixture(
