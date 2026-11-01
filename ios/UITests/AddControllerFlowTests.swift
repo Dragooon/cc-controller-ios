@@ -3,7 +3,7 @@ import XCTest
 /// Settings > Add controller against the second fixture's direct TLS listener: pair with the identity check,
 /// turn on Face ID, see the controller go live beside the primary, then remove it.
 @MainActor
-final class AddControllerFlowTests: FixtureFlowTestSupport {
+final class AddControllerFlowTests: JourneyTestCase {
     func testAddDirectTLSControllerPairsGoesLiveAndRemoves() async throws {
         // A failure before the removal step must not leave a second controller for the rest of the slice.
         addTeardownBlock { @MainActor in

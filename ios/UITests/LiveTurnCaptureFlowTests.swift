@@ -1,20 +1,14 @@
 import Foundation
 import XCTest
 
-@MainActor
-final class LiveTurnCaptureFlowTests: XCTestCase {
-    override func setUp() async throws {
-        try await super.setUp()
-        try await restartFixtureIfConfigured()
-    }
-
+final class LiveTurnCaptureFlowTests: JourneyTestCase {
     private var observations: [String] = []
 
     func testCaptureLiveTurn() async throws {
         // The fixture starts a turn on the Dune session 30 s after it boots; a slow launch would
         // otherwise open Dune already working, with Stop and Queue where Send should be.
         try await postFixture("/fixture/disable-live-event")
-        let app = launchFixture()
+        let app = launchSignedIn(resetCache: false)
         let scheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"] ?? "unspecified"
         defer {
             let report = observations.joined(separator: "\n")
@@ -166,10 +160,9 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         scheme: String
     ) {
         let elapsed = Date().timeIntervalSince(sentAt)
-        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        screenshot.name = "\(scheme)-\(letter)-\(moment).png"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+        if ["a", "c", "g", "i"].contains(letter) {
+            addScreenshot(named: "\(scheme)-\(letter)-\(moment)")
+        }
 
         let rows = visibleTranscriptLabels(in: app)
         let footer = rows.first { isActivityLabel($0) && !$0.hasPrefix("Worked for") } ?? "absent"
@@ -280,49 +273,6 @@ final class LiveTurnCaptureFlowTests: XCTestCase {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return try XCTUnwrap(formatter.date(from: startedAt))
-    }
-
-    private func postFixture(_ path: String) async throws {
-        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
-        guard let url = URL(string: "\(value)\(path)") else {
-            throw XCTSkip("Fixture control URL was invalid")
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "no response body"
-            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(body)"])
-        }
-    }
-
-    private func postFixtureJSON(_ path: String, body: [String: Any]) async throws {
-        let value = requiredRunnerVariable("TEST_RUNNER_FIXTURE_CONTROL_URL")
-        guard let url = URL(string: "\(value)\(path)") else {
-            throw XCTSkip("Fixture control URL was invalid")
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            let responseBody = String(data: data, encoding: .utf8) ?? "no response body"
-            throw NSError(domain: "FixtureFlow", code: 1, userInfo: [NSLocalizedDescriptionKey: "Fixture control route failed for \(path): \(responseBody)"])
-        }
-    }
-
-    private func launchFixture() -> XCUIApplication {
-        let app = XCUIApplication()
-        app.launchArguments = ["-CCServer", requiredRunnerVariable("TEST_RUNNER_SERVER_URL")]
-        app.launchEnvironment["CCBearer"] = requiredRunnerVariable("TEST_RUNNER_BEARER")
-        if let scheme = ProcessInfo.processInfo.environment["TEST_RUNNER_COLOR_SCHEME"], !scheme.isEmpty {
-            app.launchArguments += ["-CCColorScheme", scheme]
-        }
-        configureLiveIndicatorAnimations(app)
-        dismissLeftoverNotificationPrompt()
-        app.launch()
-        return app
     }
 
     private func waitForNonExistence(of element: XCUIElement, timeout: TimeInterval) -> Bool {
