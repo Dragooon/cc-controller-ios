@@ -20,7 +20,7 @@ final class CommandsJourneyFlowTests: JourneyTestCase {
         XCTAssertFalse(suggestion("/clear", in: app).exists, "/clear must not match /co")
         XCTAssertTrue(waitForStableFrame(compact), "/compact suggestion did not settle before tap")
         compact.tap()
-        XCTAssertEqual(field.value as? String, "/compact ", "Suggestion did not replace the composer text")
+        XCTAssertEqual(field.typedText, "/compact ", "Suggestion did not replace the composer text")
         emptyComposer(in: app)
 
         // The model sheet shows the current model and sends the choice.
@@ -74,7 +74,7 @@ final class CommandsJourneyFlowTests: JourneyTestCase {
             pollUntil(timeout: 10) { app.selectedSessionName.value as? String == "pull-up-agentic-uw-cleared" },
             "Session screen did not follow the rotated session ID"
         )
-        XCTAssertTrue(pollUntil(timeout: 10) { field.value as? String == "" }, "Composer was not empty after /clear")
+        XCTAssertTrue(pollUntil(timeout: 10) { field.typedText == "" }, "Composer was not empty after /clear")
     }
 
     private func suggestion(_ command: String, in app: XCUIApplication) -> XCUIElement {

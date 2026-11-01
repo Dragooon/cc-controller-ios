@@ -22,6 +22,8 @@ final class ConnectionEdgesJourneyFlowTests: JourneyTestCase {
         expectValue(app, "settings-test-result", matches: "Can't reach the Mac, tested at .+")
         expectValue(app, "settings-device-name", equals: "Unavailable")
         expectValue(app, "settings-device-paired", equals: "Unavailable")
+        // The test result pushes this row off the folded display, and the form only builds rows near the screen.
+        reveal(app.element(identifier: "settings-device-expiry"), in: app)
         expectValue(app, "settings-device-expiry", equals: "Unavailable")
         addScreenshot(named: "edges-settings-unreachable")
         let devicesError = app.element(identifier: "settings-devices-error")
@@ -163,12 +165,12 @@ final class ConnectionEdgesJourneyFlowTests: JourneyTestCase {
 
     private func expectValue(_ app: XCUIApplication, _ identifier: String, equals expected: String) {
         let element = app.element(identifier: identifier)
-        XCTAssertTrue(pollUntil(timeout: 15) { element.value as? String == expected }, "Expected \(identifier) == \(expected); found \(String(describing: element.exists ? element.value : "no element"))")
+        XCTAssertTrue(pollUntil(timeout: 15) { element.exists && element.value as? String == expected }, "Expected \(identifier) == \(expected); found \(String(describing: element.exists ? element.value : "no element"))")
     }
 
     private func expectValue(_ app: XCUIApplication, _ identifier: String, matches pattern: String) {
         let element = app.element(identifier: identifier)
         let predicate = NSPredicate(format: "value MATCHES %@", pattern)
-        XCTAssertTrue(pollUntil(timeout: 15) { predicate.evaluate(with: element) }, "Expected \(identifier) to match \(pattern); found \(String(describing: element.exists ? element.value : "no element"))")
+        XCTAssertTrue(pollUntil(timeout: 15) { element.exists && predicate.evaluate(with: element) }, "Expected \(identifier) to match \(pattern); found \(String(describing: element.exists ? element.value : "no element"))")
     }
 }

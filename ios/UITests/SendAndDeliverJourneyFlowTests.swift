@@ -15,11 +15,11 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
         openSession("dune-part-three-imax-tickets", in: app)
         let field = app.composer
         XCTAssertTrue(field.waitToExist(timeout: 20), "Dune composer did not load")
-        XCTAssertEqual(field.value as? String, "", "The long session's draft carried into Dune")
+        XCTAssertEqual(field.typedText, "", "The long session's draft carried into Dune")
         let target = "send-target-\(UUID().uuidString)"
         sendComposer(target, in: app)
         XCTAssertTrue(app.staticText(containing: target).waitToExist(timeout: 10), "Message did not appear in Dune")
-        XCTAssertTrue(pollUntil(timeout: 10) { field.value as? String == "" }, "Composer did not clear after the send")
+        XCTAssertTrue(pollUntil(timeout: 10) { field.typedText == "" }, "Composer did not clear after the send")
         let reachedDune = try await waitForFixtureRequest("POST /api/sessions/dune-part-three-imax-tickets/message")
         XCTAssertTrue(reachedDune, "The send did not reach Dune")
         let reachedLongSession = try await fixtureRequestCount("POST /api/sessions/long-session/message")
@@ -27,7 +27,7 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
         goBackToSessions(in: app)
         openSession("long-session", in: app)
         XCTAssertTrue(field.waitToExist(timeout: 20), "Long session composer did not load")
-        XCTAssertEqual(field.value as? String, "draft-for-the-long-session", "The long session lost its draft")
+        XCTAssertEqual(field.typedText, "draft-for-the-long-session", "The long session lost its draft")
         XCTAssertFalse(app.staticText(containing: target).exists, "Dune's message showed in the long session")
         emptyComposer(in: app)
 
@@ -40,7 +40,7 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
         app.buttons["composer-send"].tap()
         let pending = app.pendingPrompt(message: marker)
         XCTAssertTrue(pending.waitToExist(timeout: 10), "Sent message did not appear as a pending bubble")
-        XCTAssertTrue(pollUntil(timeout: 10) { field.value as? String == "" }, "Composer did not clear after the send")
+        XCTAssertTrue(pollUntil(timeout: 10) { field.typedText == "" }, "Composer did not clear after the send")
         XCTAssertLessThanOrEqual(abs(field.frame.height - initialHeight), 2, "Composer did not reset its height")
         XCTAssertTrue(pollUntil(timeout: 3) { app.keyboards.count == 0 }, "Keyboard stayed up after the send")
 
@@ -73,14 +73,14 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
             app.pendingPrompt(message: rejected, status: "Not sent · Tap to retry").waitToExist(timeout: 10),
             "Rejected send did not stay as Not sent"
         )
-        XCTAssertTrue(pollUntil(timeout: 3) { field.value as? String == "" }, "Composer kept the rejected text")
+        XCTAssertTrue(pollUntil(timeout: 3) { field.typedText == "" }, "Composer kept the rejected text")
         XCTAssertFalse(app.alerts.firstMatch.exists, "Rejected send also showed an alert")
 
         // Text typed during a slow send survives the send finishing.
         try await postFixtureJSON("/fixture/message-behaviour", body: ["delayMs": 4_000])
         let held = "held-send-\(UUID().uuidString)"
         sendComposer(held, in: app)
-        XCTAssertTrue(pollUntil(timeout: 3) { field.value as? String == "" }, "Held send did not clear the composer")
+        XCTAssertTrue(pollUntil(timeout: 3) { field.typedText == "" }, "Held send did not clear the composer")
         typeInComposer("while sending", in: app)
         let heldSent = app.pendingPrompt(message: held, status: "Sent")
         let heldDelivered = app.staticText(containing: held)
@@ -88,7 +88,7 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
             pollUntil(timeout: 15) { heldSent.exists || !app.pendingPrompt(message: held).exists && heldDelivered.exists },
             "Held send did not finish"
         )
-        XCTAssertEqual(field.value as? String, "while sending", "Text typed during the send was wiped when it finished")
+        XCTAssertEqual(field.typedText, "while sending", "Text typed during the send was wiped when it finished")
         emptyComposer(in: app)
 
         // Two quick sends stay in order while pending. The fixture holds the first until the second
@@ -97,7 +97,7 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
         let first = "quick-first-\(UUID().uuidString)"
         let second = "quick-second-\(UUID().uuidString)"
         sendComposer(first, in: app)
-        XCTAssertTrue(pollUntil(timeout: 2) { field.value as? String == "" }, "First quick send did not clear the composer")
+        XCTAssertTrue(pollUntil(timeout: 2) { field.typedText == "" }, "First quick send did not clear the composer")
         sendComposer(second, in: app)
         let firstPending = app.pendingPrompt(message: first)
         let secondPending = app.pendingPrompt(message: second)

@@ -91,19 +91,10 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
 
         // With a short first page, scrolling back loads older history and offers a jump.
         app = launchSignedIn(session: "long-session", arguments: ["-CCFixtureInitialTranscriptTail", "20"])
-        let scroll = app.transcriptScroll
         XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest entry did not load on the short first page")
         XCTAssertFalse(app.jumpToLatest.exists, "Jump to latest showed at the bottom")
-        let older = app.staticTexts["Long-session prompt 485: inspect the next checkpoint."]
-        var sawJump = false
-        for _ in 0..<80 {
-            scroll.swipeDown(velocity: .fast)
-            sawJump = sawJump || app.jumpToLatest.exists
-            if older.exists && older.isHittable { break }
-        }
-        XCTAssertTrue(sawJump, "Jump to latest did not show while paging back")
-        XCTAssertTrue(older.waitToExist(timeout: 20), "Paging did not load prompt 485, below the first page's boundary at 490")
-        XCTAssertTrue(older.isHittable, "Paging did not put prompt 485 on screen")
+        let older = pageBackPastFirstPage(in: app)
+        XCTAssertTrue(app.jumpToLatest.exists, "Jump to latest did not show while paged back")
         addScreenshot(named: "long-session-paged")
 
         // A registry blip in the middle shows no spinner and doesn't move the row.
@@ -119,7 +110,7 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.jumpToLatest.waitToExist(timeout: 10), "Jump to latest did not show")
         app.jumpToLatest.tap()
         XCTAssertTrue(app.jumpToLatest.waitToDisappear(timeout: 10), "Jump to latest did not go away after the tap")
-        XCTAssertTrue(newest.isHittable, "Jump to latest did not show the newest entry")
+        XCTAssertTrue(pollUntil(timeout: 5) { newest.exists && newest.isHittable }, "Jump to latest did not show the newest entry")
         XCTAssertLessThanOrEqual(newest.frame.maxY, composer.frame.minY, "Newest entry was not above the composer")
     }
 }

@@ -45,7 +45,7 @@ final class SleepingAndResumeJourneyFlowTests: JourneyTestCase {
         addScreenshot(named: "sleeping-wake-live")
 
         // Coming back after longer than the threshold opens a new chat.
-        XCUIDevice.shared.press(.home)
+        sendToBackground(app)
         try await Task.sleep(for: .seconds(3))
         app.activate()
         XCTAssertTrue(app.staticTexts["new-session-greeting"].waitToExist(timeout: 15), "Coming back after the threshold did not open New session")

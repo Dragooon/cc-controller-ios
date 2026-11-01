@@ -23,11 +23,7 @@ final class OnboardingAndColdRelaunchJourneyFlowTests: JourneyTestCase {
         let inlineMismatch = app.staticTexts["Face ID didn't match. Try again."]
         XCTAssertTrue(pollUntil(timeout: 10) { cancel.exists || inlineMismatch.exists }, "Mismatch did not explain itself")
         if cancel.exists {
-            // The alert follows the simulator's region: "Recognised" (en_AU) or "Recognized" (en_US, as on CI).
-            XCTAssertTrue(
-                springboard.staticTexts.matching(NSPredicate(format: "label IN %@", ["Face Not Recognised", "Face Not Recognized"])).firstMatch.exists,
-                "System prompt did not say the face wasn't recognised"
-            )
+            XCTAssertTrue(springboard.alerts["Try Again"].exists, "System prompt did not ask to try again")
             tapCancelUntil(app.staticTexts["Unlock with Face ID to continue."], appears: cancel)
         }
         let tryAgain = app.buttons["Try again"]

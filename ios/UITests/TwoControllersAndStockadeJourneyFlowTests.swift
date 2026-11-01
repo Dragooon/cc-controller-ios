@@ -5,6 +5,8 @@ final class TwoControllersAndStockadeJourneyFlowTests: JourneyTestCase {
     private let secondControl = "TEST_RUNNER_SECOND_FIXTURE_CONTROL_URL"
 
     func testTwoControllersAndStockadeJourney() async throws {
+        // The fixture's Dune turn 30 s in counts as a new message, and would move Dune up Recents mid-journey.
+        try await postFixture("/fixture/disable-live-event")
         let app = launchSignedIn(extraControllers: true)
         defer { app.terminate() }
 
