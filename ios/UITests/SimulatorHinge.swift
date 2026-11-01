@@ -1,8 +1,15 @@
 import Foundation
 import XCTest
 
+enum DuoPosture {
+    case folded
+    case unfolded
+
+    var hingeAngle: Double { self == .folded ? 0 : 180 }
+}
+
 /// Opens or closes a foldable simulator's hinge. A Duo simulator boots folded, on its compact outer
-/// display, and `simctl` can't change that. Set TEST_RUNNER_HINGE_ANGLE to 180 for the large display.
+/// display, and `simctl` can't change that. The event works in both directions on a running simulator.
 ///
 /// The hinge is driven by a vendor-defined HID event carrying an OSSerializeBinary dictionary.
 /// Adapted from `IOHingeSet.swift` in mobile-next/devicekit-ios, Copyright 2025-2026 Mobile Next HQ, Inc.,
@@ -18,10 +25,9 @@ enum SimulatorHinge {
     private typealias CreateEventSystemClient = @convention(c) (CFAllocator?, Int32, CFDictionary?) -> Unmanaged<CFTypeRef>?
     private typealias DispatchEvent = @convention(c) (CFTypeRef, CFTypeRef) -> Void
 
-    /// Applies the configured angle, if any, and gives the simulator time to switch displays.
+    /// Applies TEST_RUNNER_HINGE_ANGLE, which is folded when empty, and gives the simulator time to switch displays.
     static func applyConfiguredAngle(settleSeconds: TimeInterval = 4) {
-        guard let value = ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"],
-              let angle = Double(value) else { return }
+        let angle = ProcessInfo.processInfo.environment["TEST_RUNNER_HINGE_ANGLE"].flatMap { Double($0) } ?? DuoPosture.folded.hingeAngle
         guard set(angle: angle) else {
             XCTFail("Could not dispatch the hinge event for angle \(angle)")
             return
@@ -29,7 +35,26 @@ enum SimulatorHinge {
         RunLoop.current.run(until: Date().addingTimeInterval(settleSeconds))
     }
 
-    static func set(angle: Double) -> Bool {
+    /// Puts the Duo in a posture and waits until the display has really switched.
+    @MainActor
+    static func apply(_ posture: DuoPosture) {
+        guard current != posture else { return }
+        guard set(angle: posture.hingeAngle) else {
+            XCTFail("Could not dispatch the hinge event for \(posture)")
+            return
+        }
+        // Budgeted: an unfolding Duo takes a few seconds, and the app isn't running yet at this point.
+        XCTAssertTrue(pollUntil(timeout: 15) { current == posture }, "The Duo did not reach \(posture); journeys need the iPhone Duo simulator")
+    }
+
+    /// The main screen is the outer display, which the simulator reports as landscape while the Duo is open.
+    @MainActor
+    private static var current: DuoPosture {
+        let size = XCUIScreen.main.screenshot().image.size
+        return size.width > size.height ? .unfolded : .folded
+    }
+
+    private static func set(angle: Double) -> Bool {
         guard let ioKit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW),
               let createEventSymbol = dlsym(ioKit, "IOHIDEventCreateVendorDefinedEvent"),
               let createClientSymbol = dlsym(ioKit, "IOHIDEventSystemClientCreateWithType"),
