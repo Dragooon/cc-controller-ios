@@ -148,17 +148,17 @@ final class NativePresentationTests: XCTestCase {
         XCTAssertNil(composerModelName("model"))
     }
 
-    func testSessionDetailSubtitleOmitsAgentCount() {
+    func testSessionDetailSubtitleCountsRunningAgentsWhileWorking() {
         let session = Session(
             state: .working,
             usage: Usage(contextPercent: 32),
-            subagents: [Subagent(agent: "researcher"), Subagent(agent: "engineer")],
+            subagents: [Subagent(agent: "researcher", state: .running), Subagent(agent: "engineer", state: .done)],
             startedAt: Date(timeIntervalSince1970: 2_000)
         )
 
         XCTAssertEqual(
             sessionDetailSubtitle(session, now: Date(timeIntervalSince1970: 2_000 + 65 * 60)),
-            "working · 1h 5m · ctx 32%"
+            "working · 1h 5m · 1 agent · ctx 32%"
         )
     }
 

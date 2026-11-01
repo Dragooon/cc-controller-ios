@@ -69,8 +69,6 @@ struct SessionScreen: View {
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
     @State private var inspectorPresented = false
-    /// A closed inspector that has never opened isn't built, so a session switch doesn't pay for it.
-    @State private var inspectorHasOpened = false
     @State private var contentWidth: CGFloat = 0
     @State private var activityPresented = false
     @State private var filePreviewURL: URL?
@@ -151,12 +149,9 @@ struct SessionScreen: View {
             inspectorContent()
         }
         .inspector(isPresented: regularInspectorBinding) {
-            if inspectorPresented || inspectorHasOpened {
-                inspectorContent()
-            }
+            inspectorContent()
         }
         .onChange(of: regularInspectorBinding.wrappedValue, initial: true) { _, isOpen in
-            if isOpen { inspectorHasOpened = true }
             onRegularInspectorChange(isOpen)
             if !isOpen { presentPendingInspectorDestination() }
         }
@@ -430,11 +425,9 @@ struct SessionScreen: View {
                 canAttach: composerCapabilities.canAttach,
                 canRunCommands: composerCapabilities.canRunCommands
             ),
-            activitySession: current,
             waking: isWaking,
             wakeError: wakeError,
             onRetryWake: onRetryWake,
-            onActivity: { activityPresented = true },
             slashCommands: slashCommands(commands, for: current),
             attachments: (store.attachments[sessionID] ?? []).map(ComposerAttachment.init(item:)),
             attachmentNotice: store.attachmentNotices[sessionID],
@@ -804,6 +797,7 @@ struct SessionScreen: View {
         #if CC_PERF
         let _ = PerfCounters.shared.hit(.sessionHeader)
         #endif
+        let hasActivity = activitySummaryText(for: session) != nil
         return VStack(spacing: 0) {
             Text(name)
                 .font(.headline)
@@ -815,6 +809,11 @@ struct SessionScreen: View {
                 .foregroundStyle(.ccSecondary)
                 .lineLimit(1)
                 .accessibilityIdentifier("selected-session-subtitle")
+                .modifier(ShowsActivityAction(isAvailable: hasActivity) { activityPresented = true })
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if hasActivity { activityPresented = true }
         }
     }
 
@@ -903,6 +902,20 @@ struct SessionScreen: View {
             if case .failure(let error) = result {
                 model.actionError = error
             }
+        }
+    }
+}
+
+private struct ShowsActivityAction: ViewModifier {
+    let isAvailable: Bool
+    let action: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isAvailable {
+            content.accessibilityAction(named: "Show activity", action)
+        } else {
+            content
         }
     }
 }

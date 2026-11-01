@@ -99,11 +99,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let sessionID: String?
     let sendRevealCoordinator: SendRevealCoordinator?
     let composer: ComposerConfiguration
-    let activitySession: Session?
     let waking: Bool
     let wakeError: String?
     let onRetryWake: () -> Void
-    let onActivity: () -> Void
     let slashCommands: [SlashCommand]
     let attachments: [ComposerAttachment]
     let attachmentNotice: String?
@@ -136,11 +134,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
         sessionID: String? = nil,
         sendRevealCoordinator: SendRevealCoordinator? = nil,
         composer: ComposerConfiguration = ComposerConfiguration(),
-        activitySession: Session? = nil,
         waking: Bool = false,
         wakeError: String? = nil,
         onRetryWake: @escaping () -> Void = {},
-        onActivity: @escaping () -> Void = {},
         slashCommands: [SlashCommand] = [],
         attachments: [ComposerAttachment] = [],
         attachmentNotice: String? = nil,
@@ -170,11 +166,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.sessionID = sessionID
         self.sendRevealCoordinator = sendRevealCoordinator
         self.composer = composer
-        self.activitySession = activitySession
         self.waking = waking
         self.wakeError = wakeError
         self.onRetryWake = onRetryWake
-        self.onActivity = onActivity
         self.slashCommands = slashCommands
         self.attachments = attachments
         self.attachmentNotice = attachmentNotice
@@ -207,11 +201,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
             sessionID: sessionID,
             sendRevealCoordinator: sendRevealCoordinator,
             composer: composer,
-            activitySession: activitySession,
             waking: waking,
             wakeError: wakeError,
             onRetryWake: onRetryWake,
-            onActivity: onActivity,
             slashCommands: slashCommands,
             attachments: attachments,
             attachmentNotice: attachmentNotice,
@@ -316,11 +308,6 @@ struct BottomStackView: View {
 
                 if configuration.approvals.isEmpty, configuration.waking {
                     WakeStatusLine()
-                        .transition(.opacity)
-                } else if configuration.approvals.isEmpty,
-                          let session = configuration.activitySession,
-                          let summary = activitySummaryText(for: session) {
-                    ActivityStatusChip(session: session, summary: summary, onActivity: configuration.onActivity)
                         .transition(.opacity)
                 }
 

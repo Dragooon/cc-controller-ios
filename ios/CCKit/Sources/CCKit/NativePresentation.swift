@@ -61,7 +61,7 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
 
     switch activity {
     case .background:
-        if let summary = activitySummaryText(for: session) { parts.append(summary) }
+        break
     case .working:
         if let started = session.startedAt {
             let milliseconds = max(0, Int(started.distance(to: now) * 1000.0))
@@ -78,6 +78,8 @@ public func sessionDetailSubtitle(_ session: Session, now: Date = .now) -> Strin
             parts.append(displayDuration(milliseconds))
         }
     }
+
+    if let summary = activitySummaryText(for: session) { parts.append(summary) }
 
     let context = formatContextUsage(session.usage)
     if !context.isEmpty {

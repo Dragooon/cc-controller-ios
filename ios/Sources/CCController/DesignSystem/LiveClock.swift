@@ -53,11 +53,21 @@ struct SessionSubtitleView: View {
         #endif
         if isLive, hasAnchor {
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(prefixed(sessionDetailSubtitle(session, now: context.date)))
+                Text(highlightingActivity(in: prefixed(sessionDetailSubtitle(session, now: context.date))))
             }
         } else {
-            Text(prefixed(sessionDetailSubtitle(session)))
+            Text(highlightingActivity(in: prefixed(sessionDetailSubtitle(session))))
         }
+    }
+
+    /// Running agents and shells stand out from the rest of the line, so they're seen at a glance.
+    private func highlightingActivity(in subtitle: String) -> AttributedString {
+        var text = AttributedString(subtitle)
+        if let summary = activitySummaryText(for: session), let range = text.range(of: summary) {
+            text[range].foregroundColor = Color.ccAccent
+            text[range].font = Font.caption.weight(.semibold)
+        }
+        return text
     }
 
     private func prefixed(_ subtitle: String) -> String {

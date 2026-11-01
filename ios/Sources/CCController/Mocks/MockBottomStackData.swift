@@ -85,8 +85,7 @@ enum MockBottomStackData {
             placeholder: "Queue a message",
             isWorking: true,
             canInterrupt: true
-        ),
-        activitySession: workingSession
+        )
     )
 
     static let activityBottomStack = BottomStackConfiguration(
@@ -94,8 +93,7 @@ enum MockBottomStackData {
             placeholder: "Queue a message",
             isWorking: true,
             canInterrupt: true
-        ),
-        activitySession: activitySession
+        )
     )
 
     static let slashBottomStack = BottomStackConfiguration(
