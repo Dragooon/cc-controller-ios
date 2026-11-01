@@ -153,6 +153,7 @@ struct SessionScreen: View {
         }
         .onChange(of: regularInspectorBinding.wrappedValue, initial: true) { _, isOpen in
             onRegularInspectorChange(isOpen)
+            if !isOpen { presentPendingInspectorDestination() }
         }
         .onChange(of: sidebarCrowdsInspector) { _, isCrowded in
             if isCrowded, !isCompact { inspectorPresented = false }

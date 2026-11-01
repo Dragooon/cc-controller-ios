@@ -13,6 +13,8 @@ struct MainSplitView: View {
     @State private var sidebarMotion = RegularSidebarMotion()
     @State private var isRegularSidebarOverlay = false
     @State private var isRegularInspectorOpen = false
+    /// The system shows the inspector over everything at this width, so it has to go before the sidebar comes.
+    @State private var overlaySidebarClosesInspector = false
     /// Whether the detail column still has room for the inspector with the sidebar open.
     @State private var regularInspectorFitsBesideSidebar = true
 #if DEBUG
@@ -353,7 +355,8 @@ struct MainSplitView: View {
                         columnVisibility = .all
                     }
                 },
-                sidebarCrowdsInspector: !regularInspectorFitsBesideSidebar && !isRegularSidebarOverlay && columnVisibility == .all,
+                sidebarCrowdsInspector: overlaySidebarClosesInspector
+                    || (!regularInspectorFitsBesideSidebar && !isRegularSidebarOverlay && columnVisibility == .all),
                 onRegularInspectorWillOpen: { open in
                     if !regularInspectorFitsBesideSidebar, !isRegularSidebarOverlay, columnVisibility == .all {
                         moveSidebar(to: 0, initialVelocity: 0, completion: open)
@@ -363,6 +366,7 @@ struct MainSplitView: View {
                 },
                 onRegularInspectorChange: { isOpen in
                     isRegularInspectorOpen = isOpen
+                    if !isOpen { overlaySidebarClosesInspector = false }
                 }
             )
             .id(selectedSession)
@@ -384,6 +388,7 @@ struct MainSplitView: View {
         if sidebarMotion.dragStartProgress == nil {
             sidebarMotion.dragStartProgress = sidebarMotion.progress
             coverDetailForSidebarMotion()
+            closeInspectorForOverlaySidebar()
         }
         guard let startProgress = sidebarMotion.dragStartProgress else { return }
         sidebarMotion.progress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
@@ -413,6 +418,7 @@ struct MainSplitView: View {
 
     private func moveSidebar(to target: CGFloat, initialVelocity: Double, completion: @escaping () -> Void = {}) {
         coverDetailForSidebarMotion()
+        if target == 1 { closeInspectorForOverlaySidebar() }
         let motionID = sidebarMotion.currentMoveID
         withAnimation(sidebarAnimation(initialVelocity: initialVelocity)) {
             sidebarMotion.progress = target
@@ -430,6 +436,11 @@ struct MainSplitView: View {
         withAnimation(.easeOut(duration: 0.12)) {
             sidebarMotion.isDetailCovered = true
         }
+    }
+
+    private func closeInspectorForOverlaySidebar() {
+        guard isRegularSidebarOverlay, isRegularInspectorOpen else { return }
+        overlaySidebarClosesInspector = true
     }
 
     private func arrangeRegularSidebar(isOverlay: Bool) {

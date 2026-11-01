@@ -359,7 +359,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertEqual(title.label, "Approval Flow Light Mode")
     }
 
-    func testPortraitInspectorOpensAndTheSidebarOpensAfterIt() throws {
+    func testPortraitSidebarClosesTheInspector() throws {
         let app = launch(orientation: .portrait, sessionID: "long-session")
         defer { app.terminate() }
         try skipUnlessRegular(in: app)
@@ -371,10 +371,9 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
         addScreenshot(named: "overlay-inspector")
 
-        // At this width the system dims the detail behind the inspector, and a tap there dismisses it.
         sidebarToggle(in: app).tap()
-        XCTAssertTrue(details.waitToDisappear(timeout: 10), "Tapping outside the inspector did not close it")
-        sidebarToggle(in: app).tap()
+        addScreenshot(named: "overlay-after-inspector")
+        XCTAssertTrue(details.waitToDisappear(timeout: 10), "The sidebar opened without closing the inspector")
         XCTAssertTrue(sessionsList(in: app).waitToExist(timeout: 20), "Sidebar did not open")
     }
 
