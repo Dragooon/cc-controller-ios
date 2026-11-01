@@ -128,6 +128,9 @@ struct MainSplitView: View {
             .onAppear { model.settingsDidAppear() }
             .onDisappear { model.settingsDidDisappear() }
         }
+#if DEBUG
+        .task { await runMotionAutoSwitchIfAsked() }
+#endif
         .onAppear {
             synchronizeColumnVisibility()
             consumeResumeNewSessionRequest()
@@ -577,6 +580,28 @@ struct MainSplitView: View {
         marks.markRead(key: key, through: max(openSessionLastReplyDate ?? .distantPast, Date()))
         readMarksStored = marks.stored
     }
+
+    #if DEBUG
+    /// Opens the sidebar and switches sessions from inside the app, for a motion trace free of XCUITest's work on
+    /// the main thread. The first switch loads a transcript, the others go to one already loaded.
+    private func runMotionAutoSwitchIfAsked() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-CCMotionAutoSwitch"), arguments.count > index + 1 else { return }
+        let otherSessionID = arguments[index + 1]
+        try? await Task.sleep(for: .seconds(15))
+        guard let first = model.selectedSession else { return }
+        MotionTrace.shared.touchSampleTrigger()
+        try? await Task.sleep(for: .milliseconds(600))
+        for sessionID in [otherSessionID, first.sessionID, otherSessionID] {
+            MotionTrace.shared.recordEvent("sidebarOpen")
+            moveSidebar(to: 1, initialVelocity: 0)
+            try? await Task.sleep(for: .seconds(1))
+            MotionTrace.shared.recordEvent("sessionTapped", data: ["id": sessionID])
+            openSession(first.controllerID, sessionID)
+            try? await Task.sleep(for: .milliseconds(1_400))
+        }
+    }
+    #endif
 
     private func openSession(_ controllerID: ControllerID, _ id: String?) {
         guard let id else { return }

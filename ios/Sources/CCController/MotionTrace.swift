@@ -166,6 +166,13 @@ final class MotionTrace: NSObject {
         append(object)
     }
 
+    /// Starts the runner's CPU sample at a moment only the app knows, without an XCUITest query on the main thread.
+    func touchSampleTrigger() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let path = argumentValue("-CCSampleTrigger", in: arguments) else { return }
+        FileManager.default.createFile(atPath: path, contents: nil)
+    }
+
     func recordPin(before: CGFloat, after: CGFloat, reason: String) {
         recordEvent("pin", data: ["before": before, "after": after, "reason": reason])
     }

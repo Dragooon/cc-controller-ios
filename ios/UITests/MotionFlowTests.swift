@@ -68,12 +68,8 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         let app = launchMotion(scenario: "S3")
         defer { app.terminate() }
         try await postFixture("/fixture/motion-stream")
-        // The app sends about 24 seconds after it launches, and the CPU sample covers the 8 seconds after this.
-        try await Task.sleep(for: .seconds(10))
-        if let trigger = ProcessInfo.processInfo.environment["TEST_RUNNER_SAMPLE_TRIGGER"], !trigger.isEmpty {
-            FileManager.default.createFile(atPath: trigger, contents: nil)
-        }
-        try await Task.sleep(for: .seconds(25))
+        // The app sends about 25 seconds after it launches and starts the CPU sample itself just before.
+        try await Task.sleep(for: .seconds(35))
     }
 
     func testS2SendMultiline() async throws {
@@ -173,6 +169,20 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         try await Task.sleep(for: .seconds(2))
         drag(from: 0.003, to: 0.6, velocity: .slow)
         try await Task.sleep(for: .seconds(2))
+    }
+
+    /// The sidebar opens and a session is picked, three times, with nothing querying the app. B2 is the portrait
+    /// overlay and B3 the side-by-side sidebar.
+    func testB2SessionSwitchOverlay() async throws {
+        let app = launchMotion(scenario: "B2")
+        defer { app.terminate() }
+        try await Task.sleep(for: .seconds(28))
+    }
+
+    func testB3SessionSwitchColumns() async throws {
+        let app = launchMotion(scenario: "B3")
+        defer { app.terminate() }
+        try await Task.sleep(for: .seconds(28))
     }
 
     private func launchMotion(scenario: String) -> XCUIApplication {

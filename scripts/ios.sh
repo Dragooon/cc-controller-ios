@@ -1866,7 +1866,7 @@ cmd_motion() {
     both) motion_engines=(legacy collection);;
   esac
   for scenario in "${motion_scenarios[@]}"; do
-    [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == S3 || "$scenario" == H1 || "$scenario" == P1 || "$scenario" == B1 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
+    [[ "$scenario" == K1 || "$scenario" == K2 || "$scenario" == S1 || "$scenario" == S2 || "$scenario" == S3 || "$scenario" == H1 || "$scenario" == P1 || "$scenario" == B1 || "$scenario" == B2 || "$scenario" == B3 ]] || { printf 'unknown motion scenario: %s\n' "$scenario" >&2; return 2; }
   done
   if [[ -z "$out_dir" ]]; then out_dir="$EVIDENCE_ROOT/motion/$(date -u '+%Y%m%dT%H%M%SZ')"; fi
   local motion_scratch_dir
@@ -1957,6 +1957,8 @@ cmd_motion() {
           H1) motion_method=testH1UnpinnedAppend;;
           P1) motion_method=testP1LoadEarlier;;
           B1) motion_method=testB1SidebarMoves;;
+          B2) motion_method=testB2SessionSwitchOverlay;;
+          B3) motion_method=testB3SessionSwitchColumns;;
         esac
         local args=(xcodebuild -xctestrun "$run_xctestrun" -destination "id=$MOTION_UDID" -resultBundlePath "$result" \
           "-only-testing:CCControllerUITests/MotionFlowTests/$motion_method" -collect-test-diagnostics never test-without-building)

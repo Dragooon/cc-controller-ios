@@ -188,6 +188,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     private var measuredHeights: [HeightKey: CGFloat] = [:]
     #if DEBUG
     private var lastMeasuredHeights: [HeightKey: CGFloat] = [:]
+    private var measuredCountThisPrepare = 0
+    private var measuredSecondsThisPrepare: CFTimeInterval = 0
     #endif
     private var itemsRequiringMeasurement: Set<TranscriptCollectionItem> = []
     private var preparedWidth: CGFloat = -1
@@ -303,6 +305,15 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         contentSize = CGSize(width: collectionView.bounds.width, height: height + 18)
         #if DEBUG
         recordLayoutPrepareIfContentHeightChanged(from: previousContentHeight)
+        if measuredCountThisPrepare > 0 {
+            MotionTrace.shared.recordEvent("layoutMeasured", data: [
+                "count": measuredCountThisPrepare,
+                "ms": measuredSecondsThisPrepare * 1000,
+                "items": itemCount,
+            ])
+            measuredCountThisPrepare = 0
+            measuredSecondsThisPrepare = 0
+        }
         #endif
         preparedWidth = width
         itemsRequiringMeasurement.subtract(itemIdentifiers)
@@ -580,8 +591,13 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         let key = HeightKey(item: item, width: width)
         if let cached = measuredHeights[key] { return cached }
         guard force else { return 80 }
+        #if DEBUG
+        let measureStart = CACurrentMediaTime()
+        #endif
         let measured = max(0, heightProvider(item, width))
         #if DEBUG
+        measuredCountThisPrepare += 1
+        measuredSecondsThisPrepare += CACurrentMediaTime() - measureStart
         if MotionTrace.shared.isEnabled {
             if let previous = lastMeasuredHeights[key], abs(previous - measured) > 0.5 {
                 MotionTrace.shared.recordEvent("remeasure", data: [

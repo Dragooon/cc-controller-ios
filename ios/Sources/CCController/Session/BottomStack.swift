@@ -414,6 +414,8 @@ struct BottomStackView: View {
         try? await Task.sleep(for: .seconds(2))
         text = arguments[index + 1]
         try? await Task.sleep(for: .seconds(2))
+        MotionTrace.shared.touchSampleTrigger()
+        try? await Task.sleep(for: .milliseconds(600))
         submit(now: false)
     }
     #endif

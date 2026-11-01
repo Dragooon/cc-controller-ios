@@ -338,6 +338,13 @@ class FixtureFlowTestSupport: XCTestCase {
         }
         if let motionScenario {
             app.launchArguments += ["-CCMotionScenario", motionScenario]
+            if let trigger = environment["TEST_RUNNER_SAMPLE_TRIGGER"], !trigger.isEmpty {
+                app.launchArguments += ["-CCSampleTrigger", trigger]
+            }
+            if motionScenario == "B2" || motionScenario == "B3" {
+                app.launchArguments += ["-CCMotionAutoSwitch", "staff-account-exclusions"]
+            }
+            if motionScenario == "B2" { app.launchArguments += ["-CCRegularWidth", "669"] }
             if motionScenario == "S3" { app.launchArguments += ["-CCMotionAutoSend", "Short motion probe message"] }
         }
         if let sha = environment["CCMotionBuildSHA"], !sha.isEmpty {
