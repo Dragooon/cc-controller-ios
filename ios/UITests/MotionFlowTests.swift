@@ -141,6 +141,39 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         try await Task.sleep(for: .milliseconds(1_500))
     }
 
+    /// Every way the sidebar moves, for the recording: the button, a flick and a slow drag, both ways.
+    func testB1SidebarMoves() async throws {
+        let app = launchMotion(scenario: "B1")
+        defer { app.terminate() }
+
+        let newest = app.staticTexts["Checkpoint 499 is complete; the fixture remains responsive."]
+        XCTAssertTrue(newest.waitForExistence(timeout: 30), "Newest long-session entry did not load")
+        let toggle = app.buttons["sidebar-toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10), "Sidebar toggle did not load")
+        let window = app.windows.firstMatch
+        func drag(from startX: CGFloat, to endX: CGFloat, velocity: XCUIGestureVelocity) {
+            window.coordinate(withNormalizedOffset: CGVector(dx: startX, dy: 0.5)).press(
+                forDuration: 0.01,
+                thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: endX, dy: 0.5)),
+                withVelocity: velocity,
+                thenHoldForDuration: 0
+            )
+        }
+        try await Task.sleep(for: .seconds(2))
+        toggle.tap()
+        try await Task.sleep(for: .seconds(2))
+        toggle.tap()
+        try await Task.sleep(for: .seconds(2))
+        drag(from: 0.7, to: 0.2, velocity: .fast)
+        try await Task.sleep(for: .seconds(2))
+        drag(from: 0.003, to: 0.6, velocity: .fast)
+        try await Task.sleep(for: .seconds(2))
+        drag(from: 0.7, to: 0.2, velocity: .slow)
+        try await Task.sleep(for: .seconds(2))
+        drag(from: 0.003, to: 0.6, velocity: .slow)
+        try await Task.sleep(for: .seconds(2))
+    }
+
     private func launchMotion(scenario: String) -> XCUIApplication {
         let environment = ProcessInfo.processInfo.environment
         let orientation: UIDeviceOrientation = environment["TEST_RUNNER_MOTION_ORIENTATION"] == "landscape"

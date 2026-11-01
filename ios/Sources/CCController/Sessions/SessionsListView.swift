@@ -75,6 +75,7 @@ struct SessionsListView: View {
     let onRetry: (ControllerID) -> Void
     let onSignIn: (ControllerID) -> Void
     let onSettings: () -> Void
+    let onToggleSidebar: () -> Void
     let onRefresh: () async -> Void
     let onInterrupt: (ControllerID, Session) -> Void
     let onSetApprovalMode: (ControllerID, Session, ApprovalMode) -> Void
@@ -111,6 +112,7 @@ struct SessionsListView: View {
         onRetry: @escaping (ControllerID) -> Void = { _ in },
         onSignIn: @escaping (ControllerID) -> Void = { _ in },
         onSettings: @escaping () -> Void = {},
+        onToggleSidebar: @escaping () -> Void = {},
         onRefresh: @escaping () async -> Void = {},
         onInterrupt: @escaping (ControllerID, Session) -> Void = { _, _ in },
         onSetApprovalMode: @escaping (ControllerID, Session, ApprovalMode) -> Void = { _, _, _ in },
@@ -134,6 +136,7 @@ struct SessionsListView: View {
         self.onRetry = onRetry
         self.onSignIn = onSignIn
         self.onSettings = onSettings
+        self.onToggleSidebar = onToggleSidebar
         self.onRefresh = onRefresh
         self.onInterrupt = onInterrupt
         self.onSetApprovalMode = onSetApprovalMode
@@ -326,12 +329,26 @@ struct SessionsListView: View {
             if horizontalSizeClass == .regular {
                 list
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        regularHeader
+                        regularSearchField
+                            .background(.ccBackground)
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         bottomInset
                     }
-                    .toolbar(.hidden, for: .navigationBar)
+                    .navigationTitle("Sessions")
+                    .navigationSubtitle(subtitle ?? "")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            SidebarToggleButton(action: onToggleSidebar)
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(action: onSettings) {
+                                Label("Settings", systemImage: "gearshape")
+                            }
+                        }
+                    }
+                    .horizontalToolbarInSideColumn()
                     .refreshable { await onRefresh() }
             } else {
                 list
@@ -385,41 +402,6 @@ struct SessionsListView: View {
             guard !allSessions.isEmpty else { return }
             await onSessionsLoaded()
         }
-    }
-
-    private var regularHeader: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Color.clear
-                    .frame(width: RegularHeaderMetrics.toggleSize, height: RegularHeaderMetrics.toggleSize)
-                    .accessibilityHidden(true)
-                    .padding(.trailing, RegularHeaderMetrics.controlSpacing)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Sessions")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.ccLabel)
-                        .accessibilityLabel("Sessions")
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.ccSecondary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 8)
-                Button(action: onSettings) {
-                    Image(systemName: "gearshape")
-                        .frame(width: 44, height: 44)
-                }
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Settings")
-            }
-            .frame(height: RegularHeaderMetrics.toggleSize)
-            .padding(.horizontal, RegularHeaderMetrics.horizontalPadding)
-            regularSearchField
-        }
-        .padding(.top, RegularHeaderMetrics.topPadding)
-        .background(.ccBackground)
     }
 
     private var regularSearchField: some View {

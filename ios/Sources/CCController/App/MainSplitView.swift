@@ -11,8 +11,12 @@ struct MainSplitView: View {
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
     /// Whether the detail has made room for the open sidebar. It stays false while the sidebar moves,
-    /// so the detail slides at one width and lays out once instead of on every frame.
+    /// so the detail slides at one width and lays out once, out of sight, instead of on every frame.
     @State private var regularDetailFitsBesideSidebar = true
+    /// Whether the detail is behind its blur for a sidebar move.
+    @State private var isRegularDetailCovered = false
+    /// Tells a finished move apart from one a newer move has replaced.
+    @State private var regularSidebarMotionID = 0
     @State private var isRegularInspectorOpen = false
     /// Whether the detail column still has room for the inspector with the sidebar open.
     @State private var regularInspectorFitsBesideSidebar = true
@@ -28,6 +32,9 @@ struct MainSplitView: View {
     @State private var wakingSessionIDs: Set<String> = []
     @State private var wakeFailures: [String: String] = [:]
     @State private var sessionNotice: String?
+
+    /// The inspector's default 320 points plus a usable transcript beside it.
+    private static let minimumDetailWidthWithInspector: CGFloat = 640
 
     init(model: AppModel) {
         self.model = model
@@ -142,6 +149,7 @@ struct MainSplitView: View {
                 preferredCompactColumn = .sidebar
                 regularSidebarProgress = 1
                 regularDetailFitsBesideSidebar = true
+                isRegularDetailCovered = false
             } else {
                 synchronizeColumnVisibility()
             }
@@ -182,7 +190,7 @@ struct MainSplitView: View {
             )
             .frame(width: proxySize.width, alignment: .leading)
             .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, remainingWidth in
-                regularInspectorFitsBesideSidebar = remainingWidth >= RegularHeaderMetrics.minimumDetailWidthWithInspector
+                regularInspectorFitsBesideSidebar = remainingWidth >= Self.minimumDetailWidthWithInspector
             }
 #if DEBUG
             .overlay {
@@ -218,22 +226,20 @@ struct MainSplitView: View {
         let isClosingSidebar = regularSidebarDragStartProgress.map { $0 > 0 } ?? false
         return ZStack(alignment: .leading) {
             regularDetailColumn(width: width, sidebarWidth: sidebarWidth)
+            if isRegularDetailCovered {
+                Rectangle()
+                    .fill(.regularMaterial)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("detail-motion-cover")
+            }
             regularSidebarColumn(sidebarWidth: sidebarWidth)
             regularSidebarPanCapture(
                 sidebarWidth: sidebarWidth,
                 height: height,
                 isClosingSidebar: isClosingSidebar
             )
-        }
-        .overlay {
-            if regularSidebarDragStartProgress != nil {
-                Color.black
-                    .opacity(0.18 * regularSidebarProgress)
-                    .allowsHitTesting(false)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            regularSidebarControls()
         }
     }
 
@@ -247,22 +253,15 @@ struct MainSplitView: View {
 
     private func regularDetailNavigation() -> some View {
         NavigationStack {
-            regularDetailContent()
+            detailView()
+                .toolbar {
+                    if columnVisibility == .detailOnly {
+                        ToolbarItem(placement: .topBarLeading) {
+                            SidebarToggleButton(action: toggleSidebar)
+                        }
+                    }
+                }
         }
-        .environment(\.regularHeaderLeadingInset, regularDetailHeaderLeadingInset)
-    }
-
-    /// The system bar shares the status bar's row on some devices and loses most of its width to it,
-    /// so each large-mode screen draws its own header under the status bar.
-    private func regularDetailContent() -> some View {
-        detailView()
-            .toolbar(.hidden, for: .navigationBar)
-    }
-
-    /// Room for the fixed sidebar controls, which only sit over the detail while the sidebar is closed.
-    private var regularDetailHeaderLeadingInset: CGFloat {
-        guard columnVisibility == .detailOnly else { return 0 }
-        return RegularHeaderMetrics.toggleSize + RegularHeaderMetrics.controlSpacing
     }
 
     private func regularSidebarColumn(sidebarWidth: CGFloat) -> some View {
@@ -394,9 +393,9 @@ struct MainSplitView: View {
         guard horizontalSizeClass == .regular else { return }
         if regularSidebarDragStartProgress == nil {
             regularSidebarDragStartProgress = regularSidebarProgress
+            coverDetailForSidebarMotion()
         }
         guard let startProgress = regularSidebarDragStartProgress else { return }
-        releaseDetailForSidebarMotion()
         regularSidebarProgress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
     }
 
@@ -423,31 +422,55 @@ struct MainSplitView: View {
     }
 
     private func moveSidebar(to target: CGFloat, initialVelocity: Double, completion: @escaping () -> Void = {}) {
-        releaseDetailForSidebarMotion()
+        coverDetailForSidebarMotion()
+        let motionID = regularSidebarMotionID
         withAnimation(sidebarAnimation(initialVelocity: initialVelocity)) {
             regularSidebarProgress = target
             columnVisibility = target == 1 ? .all : .detailOnly
         } completion: {
-            fitDetailBesideSidebarIfSettled()
+            if motionID == regularSidebarMotionID {
+                uncoverDetailAfterSidebarMotion()
+            }
             completion()
         }
     }
 
-    private func releaseDetailForSidebarMotion() {
-        guard regularDetailFitsBesideSidebar else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            regularDetailFitsBesideSidebar = false
+    /// The detail goes behind a blur before it changes width, so its transcript is never seen reflowing.
+    private func coverDetailForSidebarMotion() {
+        regularSidebarMotionID += 1
+        guard !isRegularDetailCovered else { return }
+        withAnimation(.easeOut(duration: 0.14)) {
+            isRegularDetailCovered = true
+        } completion: {
+            releaseDetailIfSidebarIsMoving()
         }
     }
 
-    private func fitDetailBesideSidebarIfSettled() {
-        guard regularSidebarProgress == 1, regularSidebarDragStartProgress == nil else { return }
+    private func releaseDetailIfSidebarIsMoving() {
+        guard regularDetailFitsBesideSidebar, regularSidebarProgress < 1 || regularSidebarDragStartProgress != nil else { return }
+        setDetailFitsBesideSidebar(false)
+    }
+
+    private func uncoverDetailAfterSidebarMotion() {
+        let motionID = regularSidebarMotionID
+        if regularSidebarProgress == 1 {
+            setDetailFitsBesideSidebar(true)
+        }
+        Task { @MainActor in
+            // The transcript needs a moment to lay out at its new width before it shows again.
+            try? await Task.sleep(for: .milliseconds(80))
+            guard motionID == regularSidebarMotionID else { return }
+            withAnimation(.easeInOut(duration: 0.24)) {
+                isRegularDetailCovered = false
+            }
+        }
+    }
+
+    private func setDetailFitsBesideSidebar(_ fits: Bool) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            regularDetailFitsBesideSidebar = true
+            regularDetailFitsBesideSidebar = fits
         }
     }
 
@@ -465,6 +488,7 @@ struct MainSplitView: View {
             canCreateSession: !newSessionChoices.isEmpty,
             isRegularSidebarHidden: isRegularSidebarHidden,
             openSessionKey: openSessionKey,
+            onToggleSidebar: toggleSidebar,
             onSessionsLoaded: {
                 await model.requestNotificationAuthorizationAfterSessionsLoaded()
             },
@@ -573,45 +597,6 @@ struct MainSplitView: View {
             columnVisibility = .detailOnly
             preferredCompactColumn = .detail
         }
-    }
-
-    private func regularSidebarControls() -> some View {
-        HStack(spacing: RegularHeaderMetrics.controlSpacing) {
-            Button(action: toggleSidebar) {
-                Image(systemName: "sidebar.left")
-                    .frame(width: RegularHeaderMetrics.toggleSize, height: RegularHeaderMetrics.toggleSize)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .accessibilityLabel("Toggle sidebar")
-            .accessibilityIdentifier("sidebar-toggle")
-
-            if approvalsElsewhereCount > 0 {
-                Button(action: showSidebar) {
-                    Text(approvalsElsewhereText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.ccAmber)
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                }
-                .buttonStyle(.plain)
-                .fixedSize(horizontal: true, vertical: false)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .modifier(SidebarApprovalModifier(progress: regularSidebarProgress))
-                .accessibilityIdentifier("approvals-elsewhere")
-                .accessibilityLabel(approvalsElsewhereAccessibilityLabel)
-            }
-        }
-        .padding(.leading, RegularHeaderMetrics.horizontalPadding)
-        .padding(.top, RegularHeaderMetrics.topPadding)
-    }
-
-    private var approvalsElsewhereText: String {
-        approvalsElsewhereCount == 1 ? "1 needs you" : "\(approvalsElsewhereCount) need you"
-    }
-
-    private var approvalsElsewhereAccessibilityLabel: String {
-        approvalsElsewhereCount == 1 ? "1 session needs you" : "\(approvalsElsewhereCount) sessions need you"
     }
 
     private var approvalsElsewhereCount: Int {
@@ -769,22 +754,6 @@ private struct SidebarRevealModifier: AnimatableModifier {
             .opacity(progress > 0.001 ? 1 : 0)
             .allowsHitTesting(progress > 0.001)
             .accessibilityHidden(progress <= 0.001)
-    }
-}
-
-private struct SidebarApprovalModifier: AnimatableModifier {
-    var progress: CGFloat
-
-    nonisolated var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(max(0, min(1, 1 - progress)))
-            .allowsHitTesting(progress <= 0.001)
-            .accessibilityHidden(progress > 0.001)
     }
 }
 

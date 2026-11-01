@@ -74,16 +74,7 @@ struct NewSessionView: View {
 
     var body: some View {
         Group {
-            if isEmbedded, horizontalSizeClass == .regular {
-                page
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        RegularDetailHeader {
-                            newSessionTitle
-                        } trailing: {
-                            EmptyView()
-                        }
-                    }
-            } else if isEmbedded {
+            if isEmbedded {
                 page
             } else {
                 NavigationStack {
@@ -144,10 +135,8 @@ struct NewSessionView: View {
         }
         .toolbar {
             if isEmbedded {
-                if horizontalSizeClass != .regular {
-                    ToolbarItem(placement: .principal) {
-                        newSessionTitle
-                    }
+                ToolbarItem(placement: .principal) {
+                    newSessionTitle
                 }
             } else {
                 ToolbarItem(placement: .cancellationAction) {

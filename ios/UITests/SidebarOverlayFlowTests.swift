@@ -28,7 +28,7 @@ final class SidebarOverlayFlowTests: XCTestCase {
         let detail = transcript(in: app)
         XCTAssertTrue(detail.waitToExist(timeout: 30), "Transcript detail did not load")
         assertDetailIsBesideSidebar(detail: detail, sidebar: sessionsList, in: app)
-        assertHeaderAlignment(in: app, sidebarOpen: true)
+        assertHeaderDoesNotOverlap(in: app)
         addScreenshot(named: "sidebar-landscape-visible")
 
         let otherSession = app.buttons["session-approval-flow-light-mode"]
@@ -291,31 +291,30 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertFalse(newest.isHittable, "Sidebar toggle remounted the transcript at the latest row")
     }
 
-    func testSidebarToggleStaysFixedAcrossStates() throws {
+    func testOneSidebarToggleInEitherState() throws {
         let app = launch(orientation: .landscapeRight, sessionID: "long-session")
         defer { app.terminate() }
         assertRegularLandscape(in: app)
 
         let sidebar = sessionsList(in: app)
         XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
-        assertHeaderAlignment(in: app, sidebarOpen: true)
+        assertHeaderDoesNotOverlap(in: app)
         let toggles = app.buttons.matching(identifier: "sidebar-toggle")
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while open")
-        let openFrame = toggles.firstMatch.frame
 
         toggles.firstMatch.tap()
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        assertDetailCoverCleared(in: app)
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle while closed")
-        assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while closing")
-        assertHeaderAlignment(in: app)
+        assertHeaderDoesNotOverlap(in: app)
+        addScreenshot(named: "sidebar-closed-system-bar")
 
         toggles.firstMatch.tap()
         XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sidebar did not reopen")
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        assertDetailCoverCleared(in: app)
         XCTAssertEqual(toggles.count, 1, "Expected one sidebar toggle after reopening")
-        assertFrame(openFrame, equals: toggles.firstMatch.frame, message: "Sidebar toggle moved while reopening")
-        assertHeaderAlignment(in: app, sidebarOpen: true)
+        assertHeaderDoesNotOverlap(in: app)
+        addScreenshot(named: "sidebar-open-system-bar")
     }
 
     func testPortraitSidebarToggleAlignsWithNavigationTitle() throws {
@@ -332,14 +331,14 @@ final class SidebarOverlayFlowTests: XCTestCase {
         XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
         let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
         print("REGULAR_LAYOUT_METRICS \(metrics.value ?? metrics.label) ORIENTATION \(XCUIDevice.shared.orientation.rawValue)")
-        assertHeaderAlignment(in: app, sidebarOpen: true)
+        assertHeaderDoesNotOverlap(in: app)
         assertDetailIsBesideSidebar(detail: transcript(in: app), sidebar: sidebar, in: app)
         addScreenshot(named: "sidebar-portrait-open")
 
         sidebarToggle(in: app).tap()
         XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Portrait sidebar did not close")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        assertHeaderAlignment(in: app)
+        assertHeaderDoesNotOverlap(in: app)
         addScreenshot(named: "sidebar-portrait-closed")
     }
 
@@ -485,28 +484,21 @@ final class SidebarOverlayFlowTests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: "session-detail-frame").firstMatch
     }
 
-    private func assertHeaderAlignment(in app: XCUIApplication, sidebarOpen: Bool = false) {
+    private func assertHeaderDoesNotOverlap(in app: XCUIApplication) {
         let sidebarToggle = app.buttons["sidebar-toggle"]
         let navigationTitle = app.staticTexts["selected-session-name"]
         let barButton = app.buttons["session-info"]
-        XCTAssertTrue(sidebarToggle.waitToExist(timeout: 10), "Sidebar header toggle did not load")
+        XCTAssertTrue(sidebarToggle.waitToExist(timeout: 10), "Sidebar toggle did not load")
         XCTAssertTrue(navigationTitle.waitToExist(timeout: 10), "Navigation title did not load")
         XCTAssertTrue(barButton.waitToExist(timeout: 10), "Navigation bar button did not load")
-        let sidebarCenterY = sidebarToggle.frame.midY
-        // The title has a subtitle under it, so the bar's own button marks the row's centre.
-        let titleCenterY = barButton.frame.midY
-        print("NAVIGATION_TITLE_FRAME \(navigationTitle.frame)")
-        print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) navigation-title-center-y=\(titleCenterY) delta=\(abs(sidebarCenterY - titleCenterY))")
-        XCTAssertLessThanOrEqual(abs(sidebarCenterY - titleCenterY), 1, "Sidebar toggle and navigation title were vertically misaligned")
+        print("BAR_FRAMES toggle=\(sidebarToggle.frame) title=\(navigationTitle.frame) info=\(barButton.frame)")
         XCTAssertFalse(sidebarToggle.frame.intersects(navigationTitle.frame), "Sidebar toggle overlapped the navigation title: toggle=\(sidebarToggle.frame), title=\(navigationTitle.frame)")
-        guard sidebarOpen else { return }
-        let sidebarSettings = app.buttons["Settings"]
-        XCTAssertTrue(sidebarSettings.waitToExist(timeout: 10), "Sidebar settings control did not load")
-        let settingsCenterY = sidebarSettings.frame.midY
-        print("SIDEBAR_HEADER_SETTINGS_FRAME \(sidebarSettings.frame)")
-        print("HEADER_ALIGNMENT sidebar-toggle-center-y=\(sidebarCenterY) sidebar-settings-center-y=\(settingsCenterY) navigation-title-center-y=\(titleCenterY) sidebar-delta=\(abs(sidebarCenterY - settingsCenterY))")
-        XCTAssertLessThanOrEqual(abs(sidebarCenterY - settingsCenterY), 1, "Sidebar toggle and settings control were vertically misaligned")
-        XCTAssertLessThanOrEqual(abs(settingsCenterY - titleCenterY), 1, "Sidebar settings control and navigation title were vertically misaligned")
+        XCTAssertFalse(barButton.frame.intersects(navigationTitle.frame), "Session info overlapped the navigation title: info=\(barButton.frame), title=\(navigationTitle.frame)")
+    }
+
+    private func assertDetailCoverCleared(in app: XCUIApplication) {
+        let cover = app.descendants(matching: .any).matching(identifier: "detail-motion-cover").firstMatch
+        XCTAssertTrue(cover.waitToDisappear(timeout: 5), "The blur over the detail stayed after the sidebar settled")
     }
 
     private func assertDetailIsBesideSidebar(detail: XCUIElement, sidebar: XCUIElement, in app: XCUIApplication) {

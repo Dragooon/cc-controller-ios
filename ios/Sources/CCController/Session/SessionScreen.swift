@@ -159,7 +159,7 @@ struct SessionScreen: View {
         .overlay(alignment: .top) {
             if let commandToast {
                 CommandToastView(message: commandToast)
-                    .padding(.top, isCompact ? 8 : RegularHeaderMetrics.rowHeight + 8)
+                    .padding(.top, 8)
             }
         }
         .onDisappear {
@@ -757,30 +757,7 @@ struct SessionScreen: View {
         return url
     }
 
-    @ViewBuilder
     private func contentNavigation<Content: View>(
-        name: String,
-        session: Session,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        if isCompact {
-            compactContentNavigation(name: name, session: session, content: content)
-        } else {
-            content()
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    RegularDetailHeader(reservedText: approvalsElsewhereCount > 0 ? approvalsElsewhereText : nil) {
-                        sessionTitle(name: name, session: session)
-                    } trailing: {
-                        sessionInfoButton(size: RegularHeaderMetrics.toggleSize)
-                            .glassEffect(.regular.interactive(), in: .circle)
-                    }
-                }
-                .tint(.ccAccent)
-                .background(.ccBackground)
-        }
-    }
-
-    private func compactContentNavigation<Content: View>(
         name: String,
         session: Session,
         @ViewBuilder content: () -> Content
@@ -809,7 +786,7 @@ struct SessionScreen: View {
                     sessionTitle(name: name, session: session)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    sessionInfoButton(size: nil)
+                    sessionInfoButton
                 }
             }
             .tint(.ccAccent)
@@ -822,7 +799,7 @@ struct SessionScreen: View {
         #if CC_PERF
         let _ = PerfCounters.shared.hit(.sessionHeader)
         #endif
-        return VStack(alignment: isCompact ? .center : .leading, spacing: 0) {
+        return VStack(spacing: 0) {
             Text(name)
                 .font(.headline)
                 .lineLimit(1)
@@ -836,7 +813,7 @@ struct SessionScreen: View {
         }
     }
 
-    private func sessionInfoButton(size: CGFloat?) -> some View {
+    private var sessionInfoButton: some View {
         Button {
             if inspectorPresented {
                 inspectorPresented = false
@@ -844,8 +821,7 @@ struct SessionScreen: View {
                 openInspector()
             }
         } label: {
-            Image(systemName: "info.circle")
-                .frame(width: size, height: size)
+            Label("Session info", systemImage: "info.circle")
         }
         .accessibilityLabel("Session info")
         .accessibilityIdentifier("session-info")
