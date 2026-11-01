@@ -436,7 +436,17 @@ struct BottomStackView: View {
         #endif
         if !isSlashCommand(submittedText) {
             configuration.sendRevealCoordinator?.begin()
+            // Resigning here rather than on the next update commits any autocorrection into the text
+            // before it's read, so everything can happen on the tap.
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             composerFocused = false
+        }
+        let committedText = text
+        let committedTrimmedText = committedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let textToSend = committedTrimmedText.isEmpty ? submittedText : committedTrimmedText
+        // A send with attachments may wait on uploads, so it keeps its text until then.
+        if !isSlashCommand(submittedText), configuration.attachments.isEmpty {
+            clearComposerAfterSend(originalText: committedText, submittedText: textToSend)
         }
         isSending = true
         Task { @MainActor in
@@ -454,16 +464,6 @@ struct BottomStackView: View {
                     handleSendFailure(error)
                 }
             } else {
-                // Losing focus commits any autocorrection into the field and writes it back to the text,
-                // so the text is only final, and safe to clear, once that has happened.
-                try? await Task.sleep(for: .milliseconds(30))
-                let committedText = text
-                let sentText = committedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let textToSend = sentText.isEmpty ? submittedText : sentText
-                // A send with attachments may wait on uploads, so it keeps its text until then.
-                if configuration.attachments.isEmpty {
-                    clearComposerAfterSend(originalText: committedText, submittedText: textToSend)
-                }
                 let result = await configuration.onEnqueue(textToSend, now)
                 isSending = false
                 switch result {

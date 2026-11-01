@@ -68,11 +68,12 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         let app = launchMotion(scenario: "S3")
         defer { app.terminate() }
         try await postFixture("/fixture/motion-stream")
-        try await Task.sleep(for: .seconds(21))
+        // The app sends about 24 seconds after it launches, and the CPU sample covers the 8 seconds after this.
+        try await Task.sleep(for: .seconds(10))
         if let trigger = ProcessInfo.processInfo.environment["TEST_RUNNER_SAMPLE_TRIGGER"], !trigger.isEmpty {
             FileManager.default.createFile(atPath: trigger, contents: nil)
         }
-        try await Task.sleep(for: .seconds(14))
+        try await Task.sleep(for: .seconds(25))
     }
 
     func testS2SendMultiline() async throws {
