@@ -11,6 +11,7 @@ struct MainSplitView: View {
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     /// Read only by the small views that move, so a sidebar move never re-renders the columns.
     @State private var sidebarMotion = RegularSidebarMotion()
+    @State private var isRegularSidebarOverlay = false
     @State private var isRegularInspectorOpen = false
     /// Whether the detail column still has room for the inspector with the sidebar open.
     @State private var regularInspectorFitsBesideSidebar = true
@@ -28,6 +29,8 @@ struct MainSplitView: View {
 
     /// The inspector's default 320 points plus a usable transcript beside it.
     private static let minimumDetailWidthWithInspector: CGFloat = 640
+    /// Below this the sidebar can't sit beside a usable transcript, so it slides over the detail instead.
+    private static let minimumDetailWidthBesideSidebar: CGFloat = 480
 
     init(model: AppModel) {
         self.model = model
@@ -138,9 +141,7 @@ struct MainSplitView: View {
         }
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             if newSizeClass == .regular {
-                columnVisibility = .all
                 preferredCompactColumn = .sidebar
-                sidebarMotion.progress = 1
                 sidebarMotion.isDetailCovered = false
             } else {
                 synchronizeColumnVisibility()
@@ -184,6 +185,13 @@ struct MainSplitView: View {
             .onChange(of: proxySize.width - sidebarWidth, initial: true) { _, remainingWidth in
                 regularInspectorFitsBesideSidebar = remainingWidth >= Self.minimumDetailWidthWithInspector
             }
+            .onChange(of: proxySize.width - sidebarWidth < Self.minimumDetailWidthBesideSidebar, initial: true) { wasOverlay, isOverlay in
+                isRegularSidebarOverlay = isOverlay
+                // Fresh on screen, or now covering the detail. Becoming side by side leaves it as it was.
+                if wasOverlay == isOverlay || isOverlay {
+                    arrangeRegularSidebar(isOverlay: isOverlay)
+                }
+            }
 #if DEBUG
             .overlay {
                 Text(" ")
@@ -218,6 +226,11 @@ struct MainSplitView: View {
         ZStack(alignment: .leading) {
             regularDetailColumn(width: width, sidebarWidth: sidebarWidth)
             RegularDetailMotionCover(motion: sidebarMotion)
+            if isRegularSidebarOverlay {
+                RegularSidebarScrim(motion: sidebarMotion) {
+                    moveSidebar(to: 0, initialVelocity: 0)
+                }
+            }
             regularSidebarColumn(sidebarWidth: sidebarWidth)
             regularSidebarPanCapture(sidebarWidth: sidebarWidth, height: height)
         }
@@ -225,18 +238,20 @@ struct MainSplitView: View {
 
     /// Only changes once a sidebar move has settled, behind the blur.
     private func regularDetailColumn(width: CGFloat, sidebarWidth: CGFloat) -> some View {
-        let isBesideSidebar = columnVisibility == .all
+        let isBesideSidebar = columnVisibility == .all && !isRegularSidebarOverlay
         return regularDetailNavigation()
             .frame(width: max(0, isBesideSidebar ? width - sidebarWidth : width))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .offset(x: isBesideSidebar ? sidebarWidth : 0)
+            .accessibilityHidden(isRegularSidebarOverlay && columnVisibility == .all)
     }
 
     private func regularDetailNavigation() -> some View {
         NavigationStack {
             detailView()
                 .toolbar {
-                    if columnVisibility == .detailOnly {
+                    // Under an overlay sidebar the bar stays as it is, so moving the sidebar changes nothing here.
+                    if columnVisibility == .detailOnly || isRegularSidebarOverlay {
                         ToolbarItem(placement: .topBarLeading) {
                             SidebarToggleButton(action: toggleSidebar)
                         }
@@ -338,9 +353,9 @@ struct MainSplitView: View {
                         columnVisibility = .all
                     }
                 },
-                sidebarCrowdsInspector: !regularInspectorFitsBesideSidebar && columnVisibility == .all,
+                sidebarCrowdsInspector: !regularInspectorFitsBesideSidebar && !isRegularSidebarOverlay && columnVisibility == .all,
                 onRegularInspectorWillOpen: { open in
-                    if !regularInspectorFitsBesideSidebar, columnVisibility == .all {
+                    if !regularInspectorFitsBesideSidebar, !isRegularSidebarOverlay, columnVisibility == .all {
                         moveSidebar(to: 0, initialVelocity: 0, completion: open)
                     } else {
                         open()
@@ -411,10 +426,23 @@ struct MainSplitView: View {
 
     private func coverDetailForSidebarMotion() {
         sidebarMotion.currentMoveID += 1
-        guard !sidebarMotion.isDetailCovered else { return }
+        guard !isRegularSidebarOverlay, !sidebarMotion.isDetailCovered else { return }
         withAnimation(.easeOut(duration: 0.12)) {
             sidebarMotion.isDetailCovered = true
         }
+    }
+
+    private func arrangeRegularSidebar(isOverlay: Bool) {
+        let isSomethingOpen = model.selectedSession != nil || model.isNewSessionPresented
+        let startsClosed = isOverlay && isSomethingOpen
+        sidebarMotion.progress = startsClosed ? 0 : 1
+        columnVisibility = startsClosed ? .detailOnly : .all
+    }
+
+    /// An overlay sidebar covers what was just opened, so it gets out of the way.
+    private func closeOverlaySidebar() {
+        guard horizontalSizeClass == .regular, isRegularSidebarOverlay, sidebarMotion.progress > 0 else { return }
+        moveSidebar(to: 0, initialVelocity: 0)
     }
 
     /// The columns change here, all at once and out of sight, then the blur lifts.
@@ -548,6 +576,7 @@ struct MainSplitView: View {
         if horizontalSizeClass == .compact {
             columnVisibility = .detailOnly
         }
+        closeOverlaySidebar()
     }
 
     private func synchronizeColumnVisibility() {
@@ -561,6 +590,7 @@ struct MainSplitView: View {
             columnVisibility = .detailOnly
             preferredCompactColumn = .detail
         }
+        closeOverlaySidebar()
     }
 
     private var approvalsElsewhereCount: Int {
@@ -623,6 +653,7 @@ struct MainSplitView: View {
         if horizontalSizeClass == .compact {
             columnVisibility = .detailOnly
         }
+        closeOverlaySidebar()
     }
 
     private var actionErrorTitle: String {
@@ -725,6 +756,25 @@ private struct RegularDetailMotionCover: View {
                 .transition(.opacity)
                 .accessibilityIdentifier("detail-motion-cover")
         }
+    }
+}
+
+private struct RegularSidebarScrim: View {
+    let motion: RegularSidebarMotion
+    let onClose: () -> Void
+
+    var body: some View {
+        Color.black
+            .opacity(0.25 * motion.progress)
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .allowsHitTesting(motion.progress > 0.001)
+            .onTapGesture(perform: onClose)
+            .accessibilityElement()
+            .accessibilityLabel("Close sidebar")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("sidebar-scrim")
+            .accessibilityHidden(motion.progress <= 0.001)
     }
 }
 

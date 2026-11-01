@@ -63,9 +63,10 @@ final class SidebarOverlayFlowTests: XCTestCase {
 
         let sidebar = sessionsList(in: app)
         if !sidebar.waitToExist(timeout: 15) {
-            let back = app.buttons["BackButton"]
-            XCTAssertTrue(back.waitToExist(timeout: 30), "Portrait sessions navigation did not load")
-            back.tap()
+            let toggle = app.buttons["sidebar-toggle"]
+            let opener = toggle.exists ? toggle : app.buttons["BackButton"]
+            XCTAssertTrue(opener.waitToExist(timeout: 30), "Portrait sessions navigation did not load")
+            opener.tap()
         }
         XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions sidebar did not load")
         let sizeClass = app.descendants(matching: .any)
@@ -317,107 +318,66 @@ final class SidebarOverlayFlowTests: XCTestCase {
         addScreenshot(named: "sidebar-open-system-bar")
     }
 
-    func testLongTitleTakesTheRoomWhenTheSidebarCloses() throws {
+    func testPortraitSidebarSlidesOverAStillDetail() throws {
         let app = launch(orientation: .portrait, sessionID: "staff-account-exclusions")
         defer { app.terminate() }
+        try skipUnlessRegular(in: app)
 
         let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Sessions list did not load")
         let title = app.staticTexts["selected-session-name"]
-        XCTAssertTrue(title.waitToExist(timeout: 20), "Session title did not load")
+        XCTAssertTrue(title.waitToExist(timeout: 75), "Session title did not load")
+        XCTAssertFalse(sidebar.exists, "The sidebar covered the session it opened with")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        let widthBesideSidebar = title.frame.width
-        addScreenshot(named: "long-title-sidebar-open")
+        let titleFrame = title.frame
+        print("PORTRAIT_TITLE_FRAME \(titleFrame)")
+        XCTAssertGreaterThan(titleFrame.width, 300, "The long title was cut off with room to spare")
+        addScreenshot(named: "overlay-closed")
 
-        sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
-        assertDetailCoverCleared(in: app)
+        let toggle = app.buttons["sidebar-toggle"]
+        toggle.tap()
+        XCTAssertTrue(sidebar.waitToExist(timeout: 10), "Sidebar did not open")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        addScreenshot(named: "long-title-sidebar-closed")
-        print("LONG_TITLE_WIDTHS open=\(widthBesideSidebar) closed=\(title.frame.width)")
-        XCTAssertGreaterThan(
-            title.frame.width,
-            widthBesideSidebar + 50,
-            "The title kept its narrow width after the sidebar closed"
+        addScreenshot(named: "overlay-open")
+        XCTAssertFalse(
+            app.descendants(matching: .any).matching(identifier: "detail-motion-cover").firstMatch.exists,
+            "An overlay sidebar shouldn't need the blur"
         )
-    }
 
-    func testPortraitSidebarToggleAlignsWithNavigationTitle() throws {
-        let app = launch(orientation: .portrait, sessionID: "long-session")
-        defer { app.terminate() }
-
-        let sizeClass = app.descendants(matching: .any)
-            .matching(identifier: "horizontal-size-class")
-            .firstMatch
-        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
-        try XCTSkipUnless(sizeClass.label == "regular", "Portrait navigation-title alignment is only applicable to regular layouts")
-
-        let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
-        let metrics = app.descendants(matching: .any).matching(identifier: "regular-layout-metrics").firstMatch
-        print("REGULAR_LAYOUT_METRICS \(metrics.value ?? metrics.label) ORIENTATION \(XCUIDevice.shared.orientation.rawValue)")
-        assertHeaderDoesNotOverlap(in: app)
-        assertDetailIsBesideSidebar(detail: transcript(in: app), sidebar: sidebar, in: app)
-        addScreenshot(named: "sidebar-portrait-open")
-
-        sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Portrait sidebar did not close")
+        let scrim = app.descendants(matching: .any).matching(identifier: "sidebar-scrim").firstMatch
+        XCTAssertTrue(scrim.waitToExist(timeout: 5), "Scrim did not appear")
+        scrim.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Tapping the dimmed detail did not close the sidebar")
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        assertHeaderDoesNotOverlap(in: app)
-        addScreenshot(named: "sidebar-portrait-closed")
+        assertFrame(titleFrame, equals: title.frame, message: "The detail moved under the overlay sidebar")
+
+        toggle.tap()
+        XCTAssertTrue(sidebar.waitToExist(timeout: 10), "Sidebar did not reopen")
+        let otherSession = app.buttons["session-approval-flow-light-mode"]
+        XCTAssertTrue(otherSession.waitToExist(timeout: 20), "Other session did not appear")
+        otherSession.tap()
+        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Opening a session did not close the sidebar")
+        XCTAssertEqual(title.label, "Approval Flow Light Mode")
     }
 
-    func testPortraitSidebarAndInspectorTakeTurnsWhenTheyDoNotFit() throws {
+    func testPortraitInspectorStaysUnderTheOverlaySidebar() throws {
         let app = launch(orientation: .portrait, sessionID: "long-session")
         defer { app.terminate() }
+        try skipUnlessRegular(in: app)
 
-        let sizeClass = app.descendants(matching: .any)
-            .matching(identifier: "horizontal-size-class")
-            .firstMatch
-        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
-        try XCTSkipUnless(sizeClass.label == "regular", "Only regular layouts show the sidebar beside the inspector")
-
-        let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
         let info = app.buttons["session-info"]
-        XCTAssertTrue(info.waitToExist(timeout: 30), "Session info button did not load")
+        XCTAssertTrue(info.waitToExist(timeout: 75), "Session info button did not load")
         info.tap()
         let details = app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch
         XCTAssertTrue(details.waitToExist(timeout: 15), "Inspector did not open")
-        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar stayed open beside the inspector")
-        RunLoop.current.run(until: Date().addingTimeInterval(2))
-        addScreenshot(named: "sidebar-portrait-inspector")
+        addScreenshot(named: "overlay-inspector")
 
         sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitToExist(timeout: 20), "Sidebar did not reopen")
-        XCTAssertTrue(details.waitToDisappear(timeout: 10), "Inspector stayed open beside the sidebar")
-    }
-
-    func testPortraitInspectorOpensWithTheSidebarAlreadyClosed() throws {
-        let app = launch(orientation: .portrait, sessionID: "long-session")
-        defer { app.terminate() }
-
-        let sizeClass = app.descendants(matching: .any)
-            .matching(identifier: "horizontal-size-class")
-            .firstMatch
-        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
-        try XCTSkipUnless(sizeClass.label == "regular", "Only regular layouts show the sidebar beside the inspector")
-
-        let sidebar = sessionsList(in: app)
-        XCTAssertTrue(sidebar.waitToExist(timeout: 75), "Portrait sessions list did not load")
-        sidebarToggle(in: app).tap()
-        XCTAssertTrue(sidebar.waitToDisappear(timeout: 10), "Sidebar did not close")
-        RunLoop.current.run(until: Date().addingTimeInterval(2))
-
-        let info = app.buttons["session-info"]
-        XCTAssertTrue(info.waitToExist(timeout: 30), "Session info button did not load")
-        info.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(3))
-        addScreenshot(named: "sidebar-portrait-inspector-sidebar-closed")
-        XCTAssertTrue(
-            app.descendants(matching: .any).matching(identifier: "inspector-responses").firstMatch.waitToExist(timeout: 15),
-            "Inspector did not open with the sidebar closed"
-        )
+        XCTAssertTrue(sessionsList(in: app).waitToExist(timeout: 20), "Sidebar did not open")
+        let scrim = app.descendants(matching: .any).matching(identifier: "sidebar-scrim").firstMatch
+        XCTAssertTrue(scrim.waitToExist(timeout: 5), "Scrim did not appear")
+        scrim.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertTrue(sessionsList(in: app).waitToDisappear(timeout: 10), "Sidebar did not close")
+        XCTAssertTrue(details.waitToExist(timeout: 10), "Opening the sidebar closed the inspector")
     }
 
     func testPrintsWhichDeviceOrientationsTheOpenDuoHonours() throws {
@@ -499,6 +459,14 @@ final class SidebarOverlayFlowTests: XCTestCase {
         if let sizeClassSnapshot = try? sizeClass.snapshot() {
             print("LANDSCAPE_HORIZONTAL_SIZE_CLASS \(sizeClassSnapshot.label) VISIBILITY \(sizeClassSnapshot.value ?? "nil")")
         }
+    }
+
+    private func skipUnlessRegular(in app: XCUIApplication) throws {
+        let sizeClass = app.descendants(matching: .any)
+            .matching(identifier: "horizontal-size-class")
+            .firstMatch
+        XCTAssertTrue(sizeClass.waitToExist(timeout: 30), "Horizontal size-class probe did not load")
+        try XCTSkipUnless(sizeClass.label == "regular", "Only the open phone has an overlay sidebar")
     }
 
     private func sessionsList(in app: XCUIApplication) -> XCUIElement {
