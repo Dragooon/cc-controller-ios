@@ -69,6 +69,8 @@ struct SessionScreen: View {
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
     @State private var inspectorPresented = false
+    /// A closed inspector that has never opened isn't built, so a session switch doesn't pay for it.
+    @State private var inspectorHasOpened = false
     @State private var contentWidth: CGFloat = 0
     @State private var activityPresented = false
     @State private var filePreviewURL: URL?
@@ -149,9 +151,12 @@ struct SessionScreen: View {
             inspectorContent()
         }
         .inspector(isPresented: regularInspectorBinding) {
-            inspectorContent()
+            if inspectorPresented || inspectorHasOpened {
+                inspectorContent()
+            }
         }
         .onChange(of: regularInspectorBinding.wrappedValue, initial: true) { _, isOpen in
+            if isOpen { inspectorHasOpened = true }
             onRegularInspectorChange(isOpen)
             if !isOpen { presentPendingInspectorDestination() }
         }

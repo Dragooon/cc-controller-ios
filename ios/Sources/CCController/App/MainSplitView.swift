@@ -389,6 +389,7 @@ struct MainSplitView: View {
         guard horizontalSizeClass == .regular else { return }
         if sidebarMotion.dragStartProgress == nil {
             sidebarMotion.dragStartProgress = sidebarMotion.progress
+            SidebarMotionGate.shared.moveBegan()
             coverDetailForSidebarMotion()
             closeInspectorForOverlaySidebar()
         }
@@ -419,6 +420,7 @@ struct MainSplitView: View {
     }
 
     private func moveSidebar(to target: CGFloat, initialVelocity: Double, completion: @escaping () -> Void = {}) {
+        SidebarMotionGate.shared.moveBegan()
         coverDetailForSidebarMotion()
         if target == 1 { closeInspectorForOverlaySidebar() }
         let motionID = sidebarMotion.currentMoveID
@@ -426,6 +428,7 @@ struct MainSplitView: View {
             sidebarMotion.progress = target
         } completion: {
             if motionID == sidebarMotion.currentMoveID {
+                SidebarMotionGate.shared.moveEnded()
                 settleSidebar(at: target)
             }
             completion()

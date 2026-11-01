@@ -166,6 +166,49 @@ private final class TranscriptListCell: UICollectionViewCell {
     }
 }
 
+/// Lets a transcript that arrives while the sidebar is moving wait until it stops. Laying out a page of rows takes
+/// long enough to drop frames, and the sidebar's animation runs on the same thread.
+@MainActor
+final class SidebarMotionGate {
+    static let shared = SidebarMotionGate()
+
+    private(set) var isSidebarMoving = false
+    private var currentMoveID = 0
+    private var isMoveActive = false
+    private var waiting: [() -> Void] = []
+
+    func moveBegan() {
+        currentMoveID += 1
+        isMoveActive = true
+        let moveID = currentMoveID
+        // From the next turn of the run loop: a transcript already loaded is laid out with the tap, before the
+        // sidebar has visibly moved, and needn't wait.
+        DispatchQueue.main.async { [self] in
+            guard isMoveActive, moveID == currentMoveID else { return }
+            isSidebarMoving = true
+        }
+    }
+
+    func moveEnded() {
+        isMoveActive = false
+        isSidebarMoving = false
+        let waitingNow = waiting
+        waiting = []
+        waitingNow.forEach { $0() }
+    }
+
+    /// Runs once the sidebar stops, or after a second if a finger is holding it.
+    func whenSidebarStops(_ action: @escaping () -> Void) {
+        waiting.append(action)
+        let moveID = currentMoveID
+        Task { @MainActor [self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard moveID == currentMoveID else { return }
+            moveEnded()
+        }
+    }
+}
+
 private final class TranscriptListLayout: UICollectionViewLayout {
     enum Anchor {
         case bottom
@@ -762,6 +805,11 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var lastUnbuiltDiagnosticAt: Date?
         private var didRunInitialMeasureCheck = false
         private var didPositionInitialLayout = false
+        private var heldUpdate: (
+            items: [TranscriptCollectionItem],
+            content: [TranscriptCollectionItem: TranscriptCollectionContent],
+            notes: [QueuedNote]
+        )?
         private var isScrollingToTop = false
         private var pinnedBinding = Binding.constant(true)
         private var lastJumpToLatestRequest = 0
@@ -1126,6 +1174,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         }
 
         private static let mostRowsToMeasureOnInsert = 20
+        private static let fewestRowsToHoldForSidebar = 5
 
         private func apply(
             items: [TranscriptCollectionItem],
@@ -1133,6 +1182,20 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             notes: [QueuedNote]
         ) {
             guard let collectionView, let dataSource else { return }
+            if items.count - currentItems.count >= Self.fewestRowsToHoldForSidebar,
+               SidebarMotionGate.shared.isSidebarMoving {
+                let isFirstToWait = heldUpdate == nil
+                heldUpdate = (items, content, notes)
+                if isFirstToWait {
+                    SidebarMotionGate.shared.whenSidebarStops { [weak self] in
+                        guard let self, let held = self.heldUpdate else { return }
+                        self.heldUpdate = nil
+                        self.apply(items: held.items, content: held.content, notes: held.notes)
+                    }
+                }
+                return
+            }
+            heldUpdate = nil
             let oldItems = currentItems
             let oldContent = currentContent
             currentItems = items
