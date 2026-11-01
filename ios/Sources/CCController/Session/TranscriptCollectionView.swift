@@ -455,9 +455,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         else {
             return super.initialLayoutAttributesForAppearingItem(at: itemIndexPath)
         }
-        // Fully formed from the first frame, rising into place from just below it.
-        final.frame.origin.y += 24
-        final.alpha = 0
+        // Fully formed from the first frame, rising into place from behind the composer.
+        final.frame.origin.y += final.frame.height + 12
         return final
     }
 
@@ -1155,7 +1154,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 "deleted": deleted.map(traceID),
                 "reconfigured": changedItems.map(traceID),
                 "animated": animated,
-                "duration": animated ? 0.3 : 0,
+                "duration": animated ? 0.38 : 0,
             ])
             #endif
             let markApplied = { [weak self] in
@@ -1168,7 +1167,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             }
             if animated {
                 UIView.animate(
-                    springDuration: 0.3,
+                    springDuration: 0.38,
                     bounce: 0,
                     initialSpringVelocity: 0,
                     delay: 0,

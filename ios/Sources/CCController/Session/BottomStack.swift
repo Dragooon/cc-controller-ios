@@ -59,7 +59,7 @@ final class SendRevealCoordinator {
     }
 }
 
-/// Whether the software keyboard is on screen, so a send can wait for it to leave.
+/// Whether the software keyboard is on screen, so work can wait for it to leave.
 @MainActor
 final class KeyboardPresence {
     static let shared = KeyboardPresence()
@@ -464,13 +464,12 @@ struct BottomStackView: View {
                 if configuration.attachments.isEmpty {
                     clearComposerAfterSend(originalText: committedText, submittedText: textToSend)
                 }
-                // The keyboard is on its way out by now, and the transcript follows it down.
-                await KeyboardPresence.shared.waitUntilHidden(timeout: .milliseconds(220))
                 let result = await configuration.onEnqueue(textToSend, now)
                 isSending = false
                 switch result {
                 case .success:
                     await finishSuccessfulSend(originalText: committedText, submittedText: textToSend)
+                    await clearTextWrittenBackAfterSend()
                 case .failure(let error):
                     configuration.sendRevealCoordinator?.cancel()
                     if text.isEmpty {
@@ -480,6 +479,16 @@ struct BottomStackView: View {
                 }
             }
         }
+    }
+
+    /// A slow focus change can write the sent text back after it was cleared. Once the keyboard has gone,
+    /// anything left in an unfocused composer is that, since nobody could have typed it.
+    private func clearTextWrittenBackAfterSend() async {
+        await KeyboardPresence.shared.waitUntilHidden(timeout: .milliseconds(700))
+        guard !composerFocused, !text.isEmpty else { return }
+        text = ""
+        fieldResetRestoresFocus = false
+        fieldResetGeneration += 1
     }
 
     private func finishSuccessfulSend(originalText: String, submittedText: String) async {
