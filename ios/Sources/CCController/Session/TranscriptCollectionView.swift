@@ -455,10 +455,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         else {
             return super.initialLayoutAttributesForAppearingItem(at: itemIndexPath)
         }
-        var frame = final.frame
-        frame.size.height = 0
-        frame.origin.y = final.frame.minY
-        final.frame = frame
+        // Fully formed from the first frame, rising into place from just below it.
+        final.frame.origin.y += 24
         final.alpha = 0
         return final
     }

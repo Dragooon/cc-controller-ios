@@ -59,6 +59,35 @@ final class SendRevealCoordinator {
     }
 }
 
+/// Whether the software keyboard is on screen, so a send can wait for it to leave.
+@MainActor
+final class KeyboardPresence {
+    static let shared = KeyboardPresence()
+
+    private var isVisible = false
+
+    private init() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isVisible = true }
+        }
+        center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.isVisible = false }
+        }
+    }
+
+    func start() {}
+
+    /// Returns at once with no keyboard up. The timeout covers a keyboard that gets refocused on its way down.
+    func waitUntilHidden(timeout: Duration) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while isVisible, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
+}
+
 struct SlashCommand: Identifiable {
     let command: String
     let description: String
@@ -324,6 +353,7 @@ struct BottomStackView: View {
         #if DEBUG
         .task { await runMotionAutoSendIfAsked() }
         #endif
+        .onAppear { KeyboardPresence.shared.start() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bottom-stack")
         .sensoryFeedback(.impact(weight: .light), trigger: sendFeedbackCount)
@@ -406,7 +436,6 @@ struct BottomStackView: View {
         #endif
         if !isSlashCommand(submittedText) {
             configuration.sendRevealCoordinator?.begin()
-            // Before the transcript's update, so the keyboard starts moving as the bubble appears.
             composerFocused = false
             // The text leaves with the tap. A send with attachments may wait on uploads, so it keeps its text until then.
             if configuration.attachments.isEmpty {
@@ -429,6 +458,8 @@ struct BottomStackView: View {
                     handleSendFailure(error)
                 }
             } else {
+                // The keyboard leaves first, then the bubble moves into place on a settled screen.
+                await KeyboardPresence.shared.waitUntilHidden(timeout: .milliseconds(700))
                 let result = await configuration.onEnqueue(submittedText, now)
                 isSending = false
                 switch result {
