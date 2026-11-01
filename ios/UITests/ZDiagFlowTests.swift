@@ -168,7 +168,7 @@ final class ZDiagFlowTests: XCTestCase {
         report("boot")
         for (name, angle) in [("angle-180", 180.0), ("angle-0", 0.0), ("angle-180-again", 180.0), ("angle-0-again", 0.0)] {
             print("DIAG set \(name) = \(SimulatorHinge.set(angle: angle))")
-            RunLoop.current.run(until: Date().addingTimeInterval(4))
+            try await Task.sleep(for: .seconds(4))
             report(name)
         }
         // Relaunch in each posture: does a fresh launch see the same display?
@@ -178,12 +178,12 @@ final class ZDiagFlowTests: XCTestCase {
         report("relaunch-after-0")
         folded.terminate()
         print("DIAG set open = \(SimulatorHinge.set(angle: 180))")
-        RunLoop.current.run(until: Date().addingTimeInterval(4))
+        try await Task.sleep(for: .seconds(4))
         let open = launchApp()
         XCTAssertTrue(sizeClass.waitToExist(timeout: 40))
         report("relaunch-open")
         print("DIAG set closed while running = \(SimulatorHinge.set(angle: 0))")
-        RunLoop.current.run(until: Date().addingTimeInterval(4))
+        try await Task.sleep(for: .seconds(4))
         report("closed-while-running")
         open.terminate()
     }
