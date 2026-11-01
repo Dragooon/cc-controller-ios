@@ -10,11 +10,14 @@ struct MainSplitView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @State private var regularSidebarProgress: CGFloat = 1
-    /// Whether the detail has made room for the open sidebar. It stays false while the sidebar moves,
+    /// Whether the detail has made room for the open sidebar. It only changes behind the blur,
     /// so the detail slides at one width and lays out once, out of sight, instead of on every frame.
     @State private var regularDetailFitsBesideSidebar = true
     /// Whether the detail is behind its blur for a sidebar move.
     @State private var isRegularDetailCovered = false
+    /// The blur has finished fading in, so the detail can change width unseen.
+    @State private var isRegularDetailFullyCovered = false
+    @State private var regularDetailFitsOnceCovered = true
     /// Tells a finished move apart from one a newer move has replaced.
     @State private var regularSidebarMotionID = 0
     @State private var isRegularInspectorOpen = false
@@ -150,6 +153,7 @@ struct MainSplitView: View {
                 regularSidebarProgress = 1
                 regularDetailFitsBesideSidebar = true
                 isRegularDetailCovered = false
+                isRegularDetailFullyCovered = false
             } else {
                 synchronizeColumnVisibility()
             }
@@ -393,7 +397,7 @@ struct MainSplitView: View {
         guard horizontalSizeClass == .regular else { return }
         if regularSidebarDragStartProgress == nil {
             regularSidebarDragStartProgress = regularSidebarProgress
-            coverDetailForSidebarMotion()
+            coverDetailForSidebarMotion(fitsBesideSidebarOnceCovered: false)
         }
         guard let startProgress = regularSidebarDragStartProgress else { return }
         regularSidebarProgress = min(1, max(0, startProgress + translationX / max(1, sidebarWidth)))
@@ -422,7 +426,7 @@ struct MainSplitView: View {
     }
 
     private func moveSidebar(to target: CGFloat, initialVelocity: Double, completion: @escaping () -> Void = {}) {
-        coverDetailForSidebarMotion()
+        coverDetailForSidebarMotion(fitsBesideSidebarOnceCovered: target == 1)
         let motionID = regularSidebarMotionID
         withAnimation(sidebarAnimation(initialVelocity: initialVelocity)) {
             regularSidebarProgress = target
@@ -436,30 +440,29 @@ struct MainSplitView: View {
     }
 
     /// The detail goes behind a blur before it changes width, so its transcript is never seen reflowing.
-    private func coverDetailForSidebarMotion() {
+    private func coverDetailForSidebarMotion(fitsBesideSidebarOnceCovered fits: Bool) {
         regularSidebarMotionID += 1
+        regularDetailFitsOnceCovered = fits
+        if isRegularDetailFullyCovered {
+            setDetailFitsBesideSidebar(fits)
+        }
         guard !isRegularDetailCovered else { return }
         withAnimation(.easeOut(duration: 0.14)) {
             isRegularDetailCovered = true
         } completion: {
-            releaseDetailIfSidebarIsMoving()
+            guard isRegularDetailCovered else { return }
+            isRegularDetailFullyCovered = true
+            setDetailFitsBesideSidebar(regularDetailFitsOnceCovered)
         }
-    }
-
-    private func releaseDetailIfSidebarIsMoving() {
-        guard regularDetailFitsBesideSidebar, regularSidebarProgress < 1 || regularSidebarDragStartProgress != nil else { return }
-        setDetailFitsBesideSidebar(false)
     }
 
     private func uncoverDetailAfterSidebarMotion() {
         let motionID = regularSidebarMotionID
-        if regularSidebarProgress == 1 {
-            setDetailFitsBesideSidebar(true)
-        }
         Task { @MainActor in
-            // The transcript needs a moment to lay out at its new width before it shows again.
-            try? await Task.sleep(for: .milliseconds(80))
+            // The bar animates its items to the new width, and that should finish out of sight too.
+            try? await Task.sleep(for: .milliseconds(250))
             guard motionID == regularSidebarMotionID else { return }
+            isRegularDetailFullyCovered = false
             withAnimation(.easeInOut(duration: 0.24)) {
                 isRegularDetailCovered = false
             }
