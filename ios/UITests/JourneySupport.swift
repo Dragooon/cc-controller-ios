@@ -122,13 +122,15 @@ class JourneyTestCase: FixtureFlowTestSupport {
     }
 
     /// `XCUIDevice.press(.home)` leaves the app in the foreground on the folded Duo, so a step that relies on
-    /// it tests nothing. Bringing another app forward really backgrounds this one, and this checks that it did.
+    /// it tests nothing. Bringing something else forward really backgrounds it, and this checks that it did.
     func sendToBackground(_ app: XCUIApplication) {
-        XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
-        XCTAssertTrue(
-            pollUntil(timeout: 5) { app.state == .runningBackground || app.state == .runningBackgroundSuspended },
-            "The app did not go to the background: state \(app.state.rawValue)"
-        )
+        let inBackground = { app.state == .runningBackground || app.state == .runningBackgroundSuspended }
+        XCUIApplication(bundleIdentifier: "com.apple.springboard").activate()
+        if !pollUntil(timeout: 3, inBackground) {
+            print("SpringBoard did not background the app, trying Settings")
+            XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+        }
+        XCTAssertTrue(pollUntil(timeout: 5, inBackground), "The app did not go to the background: state \(app.state.rawValue)")
     }
 
     /// Scrolls back past the first page, which ends at prompt 490, and returns a row from the page before it.

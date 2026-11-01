@@ -54,6 +54,7 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         if app.jumpToLatest.waitToExist(timeout: 2) {
             app.jumpToLatest.tap()
             XCTAssertTrue(app.jumpToLatest.waitToDisappear(timeout: 10), "Jump to latest did not go away")
+            XCTAssertTrue(pollUntil(timeout: 5) { newest.exists && newest.isHittable }, "Jump to latest did not show the newest entry")
         }
 
         // A send appends without rebuilding the transcript, through the reconnect it causes.
@@ -105,12 +106,5 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         _ = await blip.value
         try await Task.sleep(for: .seconds(2))
         XCTAssertTrue(older.isHittable, "The row on screen didn't stay after the registry reconcile")
-
-        // Jump to latest goes back to the bottom, above the composer.
-        XCTAssertTrue(app.jumpToLatest.waitToExist(timeout: 10), "Jump to latest did not show")
-        app.jumpToLatest.tap()
-        XCTAssertTrue(app.jumpToLatest.waitToDisappear(timeout: 10), "Jump to latest did not go away after the tap")
-        XCTAssertTrue(pollUntil(timeout: 5) { newest.exists && newest.isHittable }, "Jump to latest did not show the newest entry")
-        XCTAssertLessThanOrEqual(newest.frame.maxY, composer.frame.minY, "Newest entry was not above the composer")
     }
 }

@@ -91,8 +91,9 @@ final class SendAndDeliverJourneyFlowTests: JourneyTestCase {
         XCTAssertEqual(field.typedText, "while sending", "Text typed during the send was wiped when it finished")
         emptyComposer(in: app)
 
-        // Two quick sends stay in order while pending. The fixture holds the first until the second
-        // arrives, so typing speed can't deliver it early.
+        // Two quick sends stay in order while pending. The fixture holds the first's request, and delivers neither
+        // until both have arrived, so both stay pending long enough to read.
+        try await postFixtureJSON("/fixture/message-behaviour", body: ["delayMs": Int(5_000 * flowTimeScale())])
         try await postFixture("/fixture/batch-next-prompts")
         let first = "quick-first-\(UUID().uuidString)"
         let second = "quick-second-\(UUID().uuidString)"

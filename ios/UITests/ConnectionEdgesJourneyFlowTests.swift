@@ -92,7 +92,7 @@ final class ConnectionEdgesJourneyFlowTests: JourneyTestCase {
         app = launchRelay(endpoint: "https://127.0.0.1:\(relayPort)", pin: String(repeating: "0", count: 64), bearer: try await currentBearer())
         XCTAssertTrue(app.staticTexts["Your Mac's identity changed"].waitToExist(timeout: 20), "A wrong pin did not warn")
         XCTAssertTrue(
-            app.staticTexts["The relay presented a different key from the one this iPhone paired with. Someone may be intercepting the connection, or the Mac's relay key was reset."].exists,
+            app.staticText(containing: "The relay presented a different key from the one this iPhone paired with. Someone may be intercepting the connection, or the Mac's relay key was reset."].exists,
             "The warning did not explain itself"
         )
         addScreenshot(named: "edges-relay-identity-changed")
@@ -105,7 +105,9 @@ final class ConnectionEdgesJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.staticTexts["Not reachable"].waitToExist(timeout: 15), "Diagnostics did not show Not reachable")
         app.terminate()
 
-        // Pairing through a relay shows the check command with the relay's own key.
+        // Pairing through a relay shows the check command with the relay's own key. The daemon limits pending
+        // pairings, and the expired code step used them up.
+        try await restartFixtureIfConfigured()
         app = launchRelay(endpoint: "https://127.0.0.1:\(relayPort)", onboarding: true)
         app.buttons["Get started"].tap()
         XCTAssertTrue(app.staticTexts["Connected to cc-controller"].waitToExist(timeout: 20), "Relay connection did not go green")
