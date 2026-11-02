@@ -810,10 +810,10 @@ struct SessionScreen: View {
                 .lineLimit(1)
                 .accessibilityIdentifier("selected-session-subtitle")
                 .modifier(ShowsActivityAction(isAvailable: hasActivity) { activityPresented = true })
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if hasActivity { activityPresented = true }
+                .contentShape(Rectangle().inset(by: -6))
+                .onTapGesture {
+                    if hasActivity { activityPresented = true }
+                }
         }
     }
 

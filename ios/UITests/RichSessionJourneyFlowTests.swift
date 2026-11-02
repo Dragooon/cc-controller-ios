@@ -138,7 +138,8 @@ final class RichSessionJourneyFlowTests: JourneyTestCase {
     }
 
     private func dismissMenu(in app: XCUIApplication) {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        // Above the title, whose subtitle opens the activity sheet.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.035)).tap()
         XCTAssertTrue(app.menuItems["Copy"].waitToDisappear(timeout: 5), "Reply's menu did not close")
     }
 }
