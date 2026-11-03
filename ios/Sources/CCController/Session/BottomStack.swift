@@ -65,11 +65,18 @@ final class KeyboardPresence {
     static let shared = KeyboardPresence()
 
     private var isVisible = false
+    private var lastHide: (duration: TimeInterval, curve: UInt, startedAt: CFTimeInterval)?
 
     private init() {
         let center = NotificationCenter.default
         center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.isVisible = true }
+        }
+        center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] notification in
+            let info = notification.userInfo
+            let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
+            let curve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 7
+            MainActor.assumeIsolated { self?.lastHide = (duration, curve, CACurrentMediaTime()) }
         }
         center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.isVisible = false }
@@ -77,6 +84,12 @@ final class KeyboardPresence {
     }
 
     func start() {}
+
+    /// The keyboard's own timing when it has just started hiding, so something moving with it can match it exactly.
+    func hideStartedJustNow() -> (duration: TimeInterval, options: UIView.AnimationOptions)? {
+        guard let lastHide, lastHide.duration > 0, CACurrentMediaTime() - lastHide.startedAt < 0.15 else { return nil }
+        return (lastHide.duration, UIView.AnimationOptions(rawValue: lastHide.curve << 16))
+    }
 
     /// Returns at once with no keyboard up. The timeout covers a keyboard that gets refocused on its way down.
     func waitUntilHidden(timeout: Duration) async {
