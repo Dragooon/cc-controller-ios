@@ -365,7 +365,7 @@ struct SessionTranscriptView: View {
                     .transition(.scale.combined(with: .opacity))
                 }
             }
-            .composerBar {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 if showsComposer {
                     let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
                     BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
@@ -476,7 +476,7 @@ struct SessionTranscriptView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .composerBar {
+        .safeAreaBar(edge: .bottom, spacing: 0) {
             if showsComposer {
                 let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
                 BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
@@ -1981,35 +1981,6 @@ struct TurnItemView: View {
             FileEntryView(entry: entry, download: downloadFile, heightKey: expansionKey)
         case .other:
             EmptyView()
-        }
-    }
-}
-
-/// How the composer is attached at the bottom. A Settings switch for now, to compare on the phone how each follows the
-/// keyboard as it hides: the system bar sat flush on the screen edge and then sprang up past the home indicator gap.
-enum ComposerAttachmentStyle: String, CaseIterable {
-    case systemBar
-    case inset
-
-    static let storageKey = "composer.attachmentStyle"
-}
-
-extension View {
-    func composerBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
-        ComposerBarHost(content: self, bar: bar())
-    }
-}
-
-private struct ComposerBarHost<Content: View, Bar: View>: View {
-    let content: Content
-    let bar: Bar
-    @AppStorage(ComposerAttachmentStyle.storageKey) private var style = ComposerAttachmentStyle.systemBar.rawValue
-
-    var body: some View {
-        if style == ComposerAttachmentStyle.inset.rawValue {
-            content.safeAreaInset(edge: .bottom, spacing: 0) { bar }
-        } else {
-            content.safeAreaBar(edge: .bottom, spacing: 0) { bar }
         }
     }
 }

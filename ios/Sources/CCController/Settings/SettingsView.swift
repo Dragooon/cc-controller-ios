@@ -469,17 +469,11 @@ struct SettingsView: View {
         .accessibilityElement(children: .combine)
     }
 
-    @AppStorage(ComposerAttachmentStyle.storageKey) private var composerAttachmentStyle = ComposerAttachmentStyle.systemBar.rawValue
     @State private var motionTraceRecording = false
     @State private var motionTraceFileExists = false
 
     private var composerTestSection: some View {
         Section {
-            Picker("Composer", selection: $composerAttachmentStyle) {
-                Text("System bar").tag(ComposerAttachmentStyle.systemBar.rawValue)
-                Text("Inset").tag(ComposerAttachmentStyle.inset.rawValue)
-            }
-            .accessibilityIdentifier("settings-composer-attachment")
             Toggle("Record motion trace", isOn: Binding(
                 get: { motionTraceRecording },
                 set: { recording in
@@ -497,7 +491,7 @@ struct SettingsView: View {
         } header: {
             Text("Motion test")
         } footer: {
-            Text("Temporary. To record: turn on the trace, open a different session than the one you were in, send a message, then come back, turn it off and share the file. It stops by itself after two minutes.")
+            Text("To record: turn on the trace, open a different session than the one you were in, send a message, then come back, turn it off and share the file. It stops by itself after two minutes.")
         }
         .onAppear(perform: refreshMotionTraceState)
         .onReceive(NotificationCenter.default.publisher(for: MotionTrace.recordingDidChange)) { _ in
