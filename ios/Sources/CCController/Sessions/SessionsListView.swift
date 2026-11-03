@@ -1105,7 +1105,7 @@ private struct SessionStatusIndicator: View {
         case .needsYou:
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.ccAmber)
+                .foregroundStyle(.ccAmberText)
                 .accessibilityIdentifier(identifier)
                 .transition(statusTransition)
         case .working:
@@ -1159,7 +1159,7 @@ private struct SessionText: View {
 
     private var subtitleText: Text {
         guard let attentionText else { return Text(subtitle) }
-        let attention = Text(attentionText).fontWeight(.semibold).foregroundStyle(.ccAmber)
+        let attention = Text(attentionText).fontWeight(.semibold).foregroundStyle(.ccAmberText)
         return Text("\(attention) · \(subtitle)")
     }
 
