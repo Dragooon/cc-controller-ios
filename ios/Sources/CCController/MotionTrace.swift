@@ -1,4 +1,3 @@
-#if DEBUG
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -30,7 +29,7 @@ final class MotionTrace: NSObject {
     private var displayLinkTarget: DisplayLinkTarget?
     private var flushTimer: Timer?
     private let writeQueue = DispatchQueue(label: "\(Bundle.main.bundleIdentifier ?? "cc-controller").motion-trace", qos: .utility)
-    private let fileURL: URL?
+    private(set) var fileURL: URL?
     private var pendingLines: [String] = []
     private var lastTimestamp: CFTimeInterval?
     private var frameCount = 0
@@ -40,7 +39,13 @@ final class MotionTrace: NSObject {
     private var keyboardVisible = false
     private var metaWritten = false
 
-    let isEnabled: Bool
+    private(set) var isEnabled: Bool
+    private var observersAdded = false
+    private var recordingStopTask: Task<Void, Never>?
+
+    /// Set from Settings so a trace can be recorded on a phone, where there's no launch argument.
+    static let recordingKey = "motion.trace.recording"
+    static let recordingFileName = "motion-trace.jsonl"
 
     private struct WeakView {
         weak var value: UIView?
@@ -67,6 +72,9 @@ final class MotionTrace: NSObject {
             let name = URL(fileURLWithPath: arguments[index + 1]).lastPathComponent
             let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             fileURL = documents.appendingPathComponent(name.isEmpty ? "motion-trace.jsonl" : name)
+        } else if UserDefaults.standard.bool(forKey: Self.recordingKey) {
+            isEnabled = true
+            fileURL = Self.recordingFileURL
         } else {
             isEnabled = false
             fileURL = nil
@@ -77,7 +85,66 @@ final class MotionTrace: NSObject {
         start()
     }
 
+    static var recordingFileURL: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(recordingFileName)
+    }
+
+    /// Starts or stops a trace from Settings. A new trace replaces the last one, and it stops on its own
+    /// after two minutes so a forgotten switch doesn't keep sampling every frame.
+    func setRecording(_ recording: Bool) {
+        UserDefaults.standard.set(recording, forKey: Self.recordingKey)
+        recordingStopTask?.cancel()
+        recordingStopTask = nil
+        if recording {
+            guard !isEnabled else { return }
+            let url = Self.recordingFileURL
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            fileURL = url
+            isEnabled = true
+            metaWritten = false
+            didWriteStats = false
+            frameCount = 0
+            totalProbeCost = 0
+            maximumProbeCost = 0
+            lastTimestamp = nil
+            start()
+            NotificationCenter.default.post(name: Self.recordingDidChange, object: nil)
+            recordingStopTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(120))
+                guard !Task.isCancelled else { return }
+                self?.setRecording(false)
+            }
+        } else {
+            guard isEnabled else { return }
+            stopAndFlush()
+            isEnabled = false
+            probes.removeAll()
+            NotificationCenter.default.post(name: Self.recordingDidChange, object: nil)
+        }
+    }
+
+    static let recordingDidChange = Notification.Name("CCMotionTraceRecordingDidChange")
+
     private func start() {
+        if !observersAdded {
+            observersAdded = true
+            addObservers()
+        }
+        if displayLink == nil {
+            displayLinkTarget = DisplayLinkTarget(owner: self)
+            let link = CADisplayLink(target: displayLinkTarget!, selector: #selector(DisplayLinkTarget.tick(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+        if flushTimer == nil {
+            let timer = Timer(timeInterval: 0.5, target: self, selector: #selector(periodicFlush), userInfo: nil, repeats: true)
+            RunLoop.main.add(timer, forMode: .common)
+            flushTimer = timer
+        }
+    }
+
+    private func addObservers() {
         let center = NotificationCenter.default
         let names: [Notification.Name] = [
             UIResponder.keyboardWillShowNotification,
@@ -86,18 +153,12 @@ final class MotionTrace: NSObject {
             UIResponder.keyboardDidHideNotification,
             UIApplication.willResignActiveNotification,
             UIApplication.willTerminateNotification,
+            UIApplication.didBecomeActiveNotification,
             Notification.Name("CCMotionTraceEvent"),
         ]
         for name in names {
             center.addObserver(self, selector: #selector(handleNotification(_:)), name: name, object: nil)
         }
-        displayLinkTarget = DisplayLinkTarget(owner: self)
-        let link = CADisplayLink(target: displayLinkTarget!, selector: #selector(DisplayLinkTarget.tick(_:)))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
-        let timer = Timer(timeInterval: 0.5, target: self, selector: #selector(periodicFlush), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer, forMode: .common)
-        flushTimer = timer
     }
 
     @objc private func periodicFlush() {
@@ -198,7 +259,11 @@ final class MotionTrace: NSObject {
         case UIResponder.keyboardDidHideNotification:
             keyboardNotification(note, name: "keyboardDidHide", visible: false)
         case UIApplication.willResignActiveNotification, UIApplication.willTerminateNotification:
+            guard isEnabled else { return }
             stopAndFlush()
+        case UIApplication.didBecomeActiveNotification:
+            guard isEnabled, displayLink == nil else { return }
+            start()
         case Notification.Name("CCMotionTraceEvent"):
             guard let name = note.userInfo?["name"] as? String else { return }
             recordEvent(name, data: note.userInfo?["data"] as? [String: Any] ?? [:])
@@ -243,6 +308,9 @@ final class MotionTrace: NSObject {
         let started = CACurrentMediaTime()
         guard let window = activeWindow() else { return }
         self.window = window
+        if keyboardProbe == nil, let root = window.rootViewController?.view {
+            installKeyboardProbe(in: root)
+        }
         writeMetaIfNeeded(window: window)
         let timestamp = CACurrentMediaTime()
         let dt = lastTimestamp.map { timestamp - $0 } ?? 0
@@ -268,6 +336,8 @@ final class MotionTrace: NSObject {
             "dt": dt,
             "kb": keyboardRect?.minY ?? windowRect.maxY,
             "kbVisible": keyboardVisible,
+            "safeBottom": window.safeAreaInsets.bottom,
+            "composerSafeBottom": probes["composer"]?.value?.safeAreaInsets.bottom ?? -1,
             "composerTop": composerRect?.minY ?? windowRect.maxY,
             "composerBottom": composerRect?.maxY ?? windowRect.maxY,
             "viewportTop": viewportTop,
@@ -500,4 +570,3 @@ struct MotionTraceRootProbe: UIViewRepresentable {
         deinit { marker?.removeFromSuperview() }
     }
 }
-#endif

@@ -470,6 +470,8 @@ struct SettingsView: View {
     }
 
     @AppStorage(ComposerAttachmentStyle.storageKey) private var composerAttachmentStyle = ComposerAttachmentStyle.systemBar.rawValue
+    @State private var motionTraceRecording = false
+    @State private var motionTraceFileExists = false
 
     private var composerTestSection: some View {
         Section {
@@ -478,11 +480,34 @@ struct SettingsView: View {
                 Text("Inset").tag(ComposerAttachmentStyle.inset.rawValue)
             }
             .accessibilityIdentifier("settings-composer-attachment")
+            Toggle("Record motion trace", isOn: Binding(
+                get: { motionTraceRecording },
+                set: { recording in
+                    MotionTrace.shared.setRecording(recording)
+                    refreshMotionTraceState()
+                }
+            ))
+            .accessibilityIdentifier("settings-motion-trace")
+            if !motionTraceRecording, motionTraceFileExists {
+                ShareLink(item: MotionTrace.recordingFileURL) {
+                    Label("Share motion trace", systemImage: "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("settings-motion-trace-share")
+            }
         } header: {
             Text("Motion test")
         } footer: {
-            Text("Temporary. Compares how the composer follows the keyboard as it hides.")
+            Text("Temporary. To record: turn on the trace, open a different session than the one you were in, send a message, then come back, turn it off and share the file. It stops by itself after two minutes.")
         }
+        .onAppear(perform: refreshMotionTraceState)
+        .onReceive(NotificationCenter.default.publisher(for: MotionTrace.recordingDidChange)) { _ in
+            refreshMotionTraceState()
+        }
+    }
+
+    private func refreshMotionTraceState() {
+        motionTraceRecording = MotionTrace.shared.isEnabled
+        motionTraceFileExists = FileManager.default.fileExists(atPath: MotionTrace.recordingFileURL.path)
     }
 
     private var aboutSection: some View {

@@ -433,8 +433,8 @@ struct BottomStackView: View {
         }
         #if DEBUG
         recordLifecycleEvent(name: "send-tap", sessionID: configuration.sessionID)
-        MotionTrace.shared.recordEvent("sendTapped", data: ["noteID": submittedText])
         #endif
+        MotionTrace.shared.recordEvent("sendTapped")
         if !isSlashCommand(submittedText) {
             configuration.sendRevealCoordinator?.begin()
             // Resigning here rather than on the next update commits any autocorrection into the text
@@ -515,9 +515,7 @@ struct BottomStackView: View {
             currentText: text
         ) {
             text = nextText
-            #if DEBUG
             MotionTrace.shared.recordComposerCleared()
-            #endif
             fieldResetRestoresFocus = false
             fieldResetGeneration += 1
         }

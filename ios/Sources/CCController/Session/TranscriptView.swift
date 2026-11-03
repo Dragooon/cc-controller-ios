@@ -371,9 +371,7 @@ struct SessionTranscriptView: View {
                     BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
                         .frame(maxWidth: readableContentMaxWidth)
                         .frame(maxWidth: .infinity)
-                        #if DEBUG
                         .background(MotionTraceProbe(id: "composer"))
-                        #endif
                 }
             }
             .alert(
@@ -484,9 +482,7 @@ struct SessionTranscriptView: View {
                 BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
                     .frame(maxWidth: readableContentMaxWidth)
                     .frame(maxWidth: .infinity)
-                    #if DEBUG
                     .background(MotionTraceProbe(id: "composer"))
-                    #endif
             }
         }
         .alert(
@@ -1407,9 +1403,7 @@ struct SessionTranscriptView: View {
         .onDisappear {
             builtRowDidDisappear(id: currentStatusRow.id)
         }
-        #if DEBUG
         .background(MotionTraceProbe(id: "status"))
-        #endif
 
         Color.clear
             .frame(height: 1)

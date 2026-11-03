@@ -837,11 +837,9 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             collectionView.didChangeTraits = { [weak self] in
                 self?.sizingTraitsDidChange()
             }
-            #if DEBUG
             MotionTrace.shared.registerScrollView(collectionView, pinned: { [weak self] in
                 self?.isPinnedToBottom == true
             })
-            #endif
             dataSource = UICollectionViewDiffableDataSource<TranscriptCollectionSection, TranscriptCollectionItem>(
                 collectionView: collectionView
             ) { [weak self] collectionView, indexPath, item in
@@ -1482,9 +1480,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                     downloadFile: downloadFile
                 )
                 .equatable()
-                #if DEBUG
                 .background(MotionTraceProbe(id: row.id))
-                #endif
             case .note(let note, let sessionState):
                 PendingPromptView(
                     sessionID: sessionIDForView,
