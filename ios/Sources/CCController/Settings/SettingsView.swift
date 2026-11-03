@@ -125,6 +125,7 @@ struct SettingsView: View {
                 if !controllers.isEmpty {
                     controllersSection
                 }
+                composerTestSection
                 aboutSection
             }
             .formStyle(.grouped)
@@ -466,6 +467,22 @@ struct SettingsView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    @AppStorage(ComposerAttachmentStyle.storageKey) private var composerAttachmentStyle = ComposerAttachmentStyle.systemBar.rawValue
+
+    private var composerTestSection: some View {
+        Section {
+            Picker("Composer", selection: $composerAttachmentStyle) {
+                Text("System bar").tag(ComposerAttachmentStyle.systemBar.rawValue)
+                Text("Inset").tag(ComposerAttachmentStyle.inset.rawValue)
+            }
+            .accessibilityIdentifier("settings-composer-attachment")
+        } header: {
+            Text("Motion test")
+        } footer: {
+            Text("Temporary. Compares how the composer follows the keyboard as it hides.")
+        }
     }
 
     private var aboutSection: some View {

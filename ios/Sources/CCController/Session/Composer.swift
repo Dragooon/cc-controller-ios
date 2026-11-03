@@ -1,3 +1,4 @@
+import AVFoundation
 import CCKit
 import OSLog
 import PhotosUI
@@ -161,7 +162,7 @@ struct ComposerView: View, Equatable {
         let _ = PerfCounters.shared.hit(.composerBody)
         #endif
         bodyContent
-            .photosPicker(isPresented: $photosPresented, selection: $selectedPhotos, maxSelectionCount: 10, matching: .images)
+            .photosPicker(isPresented: $photosPresented, selection: $selectedPhotos, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
             .fileImporter(isPresented: $filesPresented, allowedContentTypes: [.item], allowsMultipleSelection: true, onCompletion: handleFileImport)
             .fullScreenCover(isPresented: $cameraPresented) {
                 CameraPicker { image in
@@ -357,11 +358,41 @@ struct ComposerView: View, Equatable {
         selectedPhotos = []
         Task { @MainActor in
             for (index, item) in items.enumerated() {
+                if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                    guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else { continue }
+                    defer { try? FileManager.default.removeItem(at: movie.url) }
+                    guard let data = await Self.compressedMovie(at: movie.url) else { continue }
+                    add(AttachmentNormalizer.prepareFile(data: data, name: "video-\(index + 1).mp4", mimeType: "video/mp4"))
+                    continue
+                }
                 guard let data = try? await item.loadTransferable(type: Data.self),
                       let file = try? AttachmentNormalizer.normalizeImage(data: data, sequence: index + 1) else { continue }
                 add(file)
             }
         }
+    }
+
+    /// A picked video re-encoded at 720p so it fits the upload limit, falling back to medium quality if it's still too
+    /// big. Nil if it can't be read or exported.
+    nonisolated private static func compressedMovie(at url: URL) async -> Data? {
+        let asset = AVURLAsset(url: url)
+        for preset in [AVAssetExportPreset1280x720, AVAssetExportPresetMediumQuality] {
+            guard let session = AVAssetExportSession(asset: asset, presetName: preset) else { continue }
+            let output = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("mp4")
+            defer { try? FileManager.default.removeItem(at: output) }
+            do {
+                try await session.export(to: output, as: .mp4)
+            } catch {
+                continue
+            }
+            guard let data = try? Data(contentsOf: output) else { continue }
+            if data.count <= AttachmentNormalizer.maxFileBytes || preset == AVAssetExportPresetMediumQuality {
+                return data
+            }
+        }
+        return nil
     }
 
     private func handleFileImport(_ result: Result<[URL], any Error>) {
@@ -409,5 +440,22 @@ private struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { dismiss() }
+    }
+}
+
+/// A video from the photo library, copied somewhere the app can read it after the picker lets go.
+private struct PickedMovie: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.url)
+        } importing: { received in
+            let copy = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(received.file.pathExtension)
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return PickedMovie(url: copy)
+        }
     }
 }
