@@ -344,8 +344,8 @@ class FixtureFlowTestSupport: XCTestCase {
             if motionScenario == "B2" || motionScenario == "B3" {
                 app.launchArguments += ["-CCMotionAutoSwitch", "staff-account-exclusions"]
             }
-            if motionScenario == "B2" { app.launchArguments += ["-CCRegularWidth", "669"] }
-            if motionScenario == "S3" { app.launchArguments += ["-CCMotionAutoSend", "Short motion probe message"] }
+            if motionScenario == "B2" || motionScenario == "S4" { app.launchArguments += ["-CCRegularWidth", "669"] }
+            if motionScenario == "S3" || motionScenario == "S4" { app.launchArguments += ["-CCMotionAutoSend", "Short motion probe message"] }
         }
         if let sha = environment["CCMotionBuildSHA"], !sha.isEmpty {
             app.launchArguments += ["-CCMotionSHA", sha]

@@ -72,6 +72,14 @@ final class MotionFlowTests: FixtureFlowTestSupport {
         try await Task.sleep(for: .seconds(35))
     }
 
+    /// S3 at the width the open phone has in portrait.
+    func testS4SendUntouchedPortraitWidth() async throws {
+        let app = launchMotion(scenario: "S4")
+        defer { app.terminate() }
+        try await postFixture("/fixture/motion-stream")
+        try await Task.sleep(for: .seconds(35))
+    }
+
     func testS2SendMultiline() async throws {
         let app = launchMotion(scenario: "S2")
         defer { app.terminate() }
