@@ -506,20 +506,20 @@ struct BottomStackView: View {
         sendFeedbackCount += 1
     }
 
+    // No animation of its own: this runs in the same update as the keyboard starting to hide, and an
+    // animation here would also carry the keyboard's safe-area change, moving the composer off the keyboard's curve.
     private func clearComposerAfterSend(originalText: String, submittedText: String) {
-        withAnimation(.spring(duration: 0.3, bounce: 0)) {
-            if let nextText = composerTextAfterSuccessfulSend(
-                originalText: originalText,
-                submittedText: submittedText,
-                currentText: text
-            ) {
-                text = nextText
-                #if DEBUG
-                MotionTrace.shared.recordComposerCleared()
-                #endif
-                fieldResetRestoresFocus = false
-                fieldResetGeneration += 1
-            }
+        if let nextText = composerTextAfterSuccessfulSend(
+            originalText: originalText,
+            submittedText: submittedText,
+            currentText: text
+        ) {
+            text = nextText
+            #if DEBUG
+            MotionTrace.shared.recordComposerCleared()
+            #endif
+            fieldResetRestoresFocus = false
+            fieldResetGeneration += 1
         }
     }
 
