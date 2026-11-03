@@ -1250,17 +1250,28 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 self.checkMeasureMismatches(in: collectionView)
                 #endif
             }
-            if animated {
+            let applyAnimated = {
+                dataSource.apply(snapshot, animatingDifferences: true)
+                collectionView.layoutIfNeeded()
+            }
+            if animated, let keyboard = KeyboardPresence.shared.hideStartedJustNow() {
+                // A send hides the keyboard in the same commit. On the keyboard's curve the rows and the new bubble
+                // move with it, one way. On a curve of its own the bubble overshot and came back up.
+                UIView.animate(
+                    withDuration: keyboard.duration,
+                    delay: 0,
+                    options: [keyboard.options, .allowUserInteraction, .beginFromCurrentState],
+                    animations: applyAnimated,
+                    completion: { _ in markApplied() }
+                )
+            } else if animated {
                 UIView.animate(
                     springDuration: 0.38,
                     bounce: 0,
                     initialSpringVelocity: 0,
                     delay: 0,
                     options: [.allowUserInteraction, .beginFromCurrentState],
-                    animations: {
-                        dataSource.apply(snapshot, animatingDifferences: true)
-                        collectionView.layoutIfNeeded()
-                    },
+                    animations: applyAnimated,
                     completion: { _ in markApplied() }
                 )
             } else {
