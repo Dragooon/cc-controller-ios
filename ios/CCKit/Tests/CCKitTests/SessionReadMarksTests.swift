@@ -43,25 +43,27 @@ final class SessionReadMarksTests: XCTestCase {
         XCTAssertEqual(marks.status(for: session, key: "mac/one", isOpen: true), .read)
     }
 
-    func testSessionWaitingOnApprovalIsUnreadUntilOpened() {
-        let marks = SessionReadMarks(baseline: baseline)
-        let session = Session(id: "one", state: .needsYou)
-        XCTAssertEqual(marks.status(for: session, key: "mac/one", isOpen: false), .unread)
-        XCTAssertEqual(marks.status(for: session, key: "mac/one", isOpen: true), .read)
-    }
-
-    func testWaitingSessionStaysReadAfterOpeningUntilANewApprovalArrives() {
+    func testSessionWaitingOnYouNeedsYouUntilAnsweredEvenOnceOpened() {
         var marks = SessionReadMarks(baseline: baseline)
-        let firstApproval = Approval(receivedAt: baseline.addingTimeInterval(10))
-        let waiting = Session(id: "one", state: .needsYou, pending: [firstApproval])
-        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: false), .unread)
+        let waiting = Session(id: "one", state: .needsYou, pending: [Approval(receivedAt: baseline.addingTimeInterval(10))])
+        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: false), .needsYou)
+        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: true), .needsYou)
 
         marks.markRead(key: "mac/one", through: baseline.addingTimeInterval(20))
-        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: false), .read)
+        XCTAssertEqual(marks.status(for: waiting, key: "mac/one", isOpen: false), .needsYou)
+    }
 
-        let secondApproval = Approval(receivedAt: baseline.addingTimeInterval(30))
-        let waitingAgain = Session(id: "one", state: .needsYou, pending: [secondApproval])
-        XCTAssertEqual(marks.status(for: waitingAgain, key: "mac/one", isOpen: false), .unread)
+    func testAttentionTextSaysWhatTheSessionIsWaitingFor() {
+        XCTAssertEqual(sessionAttentionText(for: Approval(kind: .generic)), "Needs approval")
+        XCTAssertEqual(sessionAttentionText(for: Approval(kind: .question)), "Has a question")
+        XCTAssertEqual(sessionAttentionText(for: Approval(kind: .peerConversation)), "Peer request")
+        XCTAssertEqual(sessionAttentionText(for: nil), "Needs you")
+    }
+
+    func testPendingApprovalNeedsYouWhateverTheSessionState() {
+        let marks = SessionReadMarks(baseline: baseline)
+        let session = Session(id: "one", state: .working, pending: [Approval(receivedAt: baseline)])
+        XCTAssertEqual(marks.status(for: session, key: "mac/one", isOpen: false), .needsYou)
     }
 
     func testSleepingSessionPrefersItsLastReplyOverItsTranscriptTime() {

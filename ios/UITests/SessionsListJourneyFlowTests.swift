@@ -43,18 +43,18 @@ final class SessionsListJourneyFlowTests: JourneyTestCase {
         XCTAssertLessThanOrEqual(idle.frame.height, 60, "Idle row was too tall")
         XCTAssertGreaterThanOrEqual(idleTitle.frame.minX - idle.frame.minX, 34, "Title left no room for the status glyph")
 
-        // A working session reads as working, and one waiting on you as unread until you open it.
+        // A working session reads as working, and one waiting on you says so until it's answered.
         // Approvals live in the session, not here.
         XCTAssertEqual(working.value as? String, "working")
-        XCTAssertEqual(waiting.value as? String, "unread")
+        XCTAssertEqual(waiting.value as? String, "needsYou")
         XCTAssertFalse(app.staticTexts["Needs you"].exists, "The list still has a Needs you section")
         XCTAssertFalse(app.buttons["Allow"].exists, "An approval card is still in the list")
         let opened = app.buttons["session-staff-account-exclusions"]
         XCTAssertTrue(opened.waitToExist(timeout: 20), "Staff session was not listed")
-        XCTAssertEqual(opened.value as? String, "unread", "A session waiting on an approval was not unread")
+        XCTAssertEqual(opened.value as? String, "needsYou", "A session waiting on an approval didn't say it needs you")
         openSession("staff-account-exclusions", in: app)
         goBackToSessions(in: app)
-        XCTAssertTrue(pollUntil(timeout: 10) { opened.value as? String == "read" }, "A waiting session stayed unread after it was opened")
+        XCTAssertEqual(opened.value as? String, "needsYou", "Opening a waiting session cleared its needs-you mark")
 
         // Search opens inside the column.
         app.buttons["sessions-search"].tap()

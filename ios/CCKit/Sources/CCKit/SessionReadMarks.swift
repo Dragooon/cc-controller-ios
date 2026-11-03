@@ -2,9 +2,20 @@ import Foundation
 
 /// What a sidebar row shows for its session.
 public enum SessionReadStatus: String, Equatable, Sendable {
+    case needsYou
     case working
     case unread
     case read
+}
+
+/// What a sidebar row says a session is waiting on you for.
+public func sessionAttentionText(for approval: Approval?) -> String {
+    switch approval?.kind {
+    case .generic: "Needs approval"
+    case .question: "Has a question"
+    case .peerConversation: "Peer request"
+    case .unknown, nil: "Needs you"
+    }
 }
 
 /// Which sessions' replies this device has shown, kept as text in app storage.
@@ -50,11 +61,8 @@ public struct SessionReadMarks: Equatable, Sendable, Codable {
         case .working, .background:
             return .working
         case .needsYou:
-            if isOpen { return .read }
-            // Unread until it's opened after the agent started waiting, whatever the baseline.
-            guard let readDate = readThrough[key] else { return .unread }
-            guard let waitingDate = sessionWaitingDate(session) else { return .read }
-            return waitingDate > readDate ? .unread : .read
+            // Stays until it's answered, since opening the session doesn't stop it waiting.
+            return .needsYou
         case .idle:
             if isOpen { return .read }
             return hasUnreadReply(at: sessionLastReplyDate(session), key: key) ? .unread : .read

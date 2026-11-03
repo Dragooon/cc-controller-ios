@@ -75,11 +75,11 @@ final class ApprovalsAndQuestionsJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.buttons["approval-pull-up-agentic-uw-deny"].exists, "Pane approval lost Deny")
         goBackToSessions(in: app)
 
-        // A session waiting on a question counts as unread, and the question replaces the composer.
+        // A session waiting on a question needs you, and the question replaces the composer.
         try await postFixture("/fixture/question-flow")
         let questionRow = app.buttons["session-question-flow"]
         XCTAssertTrue(questionRow.waitToExist(timeout: 30), "Question session was not listed")
-        XCTAssertTrue(pollUntil(timeout: 20) { questionRow.value as? String == "unread" }, "A session waiting on a question was not unread")
+        XCTAssertTrue(pollUntil(timeout: 20) { questionRow.value as? String == "needsYou" }, "A session waiting on a question was not unread")
         openSession("question-flow", in: app)
         let questionText = app.element(identifier: "question-text")
         XCTAssertTrue(waitForLabel(questionText, "Choose one letter.", timeout: 20), "The first question did not show")

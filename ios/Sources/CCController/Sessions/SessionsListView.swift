@@ -583,7 +583,10 @@ struct SessionsListView: View {
         let sessionKey = session.id.map { sleepingSessionKey(controllerID: controller.id, sessionID: $0) } ?? ""
         return SessionRow(
             session: session,
-            readStatus: readMarks.status(for: session, key: sessionKey, isOpen: openSessionKey == sessionKey),
+            readStatus: hasPendingApproval
+                ? .needsYou
+                : readMarks.status(for: session, key: sessionKey, isOpen: openSessionKey == sessionKey),
+            attentionText: hasPendingApproval || needsYou ? sessionAttentionText(for: controller.approval(for: session)) : nil,
             frozen: controller.connection.isFrozen,
             dimmed: controller.connection.isFrozen,
             controllerName: showsControllerName ? controller.name : nil,
@@ -892,6 +895,7 @@ private struct SessionRow: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let session: Session
     let readStatus: SessionReadStatus
+    let attentionText: String?
     let frozen: Bool
     let dimmed: Bool
     let controllerName: String?
@@ -920,7 +924,7 @@ private struct SessionRow: View {
                     frozen: frozen,
                     dimmed: dimmed
                 )
-                SessionText(session: session, controllerName: controllerName)
+                SessionText(session: session, controllerName: controllerName, attentionText: attentionText)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -1098,6 +1102,12 @@ private struct SessionStatusIndicator: View {
     @ViewBuilder
     private var statusView: some View {
         switch status {
+        case .needsYou:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.ccAmber)
+                .accessibilityIdentifier(identifier)
+                .transition(statusTransition)
         case .working:
             SpinnerGlyph(active: true, frozen: frozen, dimmed: dimmed)
                 .font(.subheadline.weight(.medium))
@@ -1126,6 +1136,7 @@ private struct SessionStatusIndicator: View {
 private struct SessionText: View {
     let session: Session
     let controllerName: String?
+    var attentionText: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -1136,7 +1147,7 @@ private struct SessionText: View {
                 .truncationMode(.tail)
                 .accessibilityIdentifier("session-title-\(session.id ?? "")")
 
-            Text(subtitle)
+            subtitleText
                 .font(.footnote)
                 .foregroundStyle(.ccSecondary)
                 .lineLimit(1)
@@ -1144,6 +1155,12 @@ private struct SessionText: View {
                 .accessibilityIdentifier("session-agent-\(session.id ?? "")")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var subtitleText: Text {
+        guard let attentionText else { return Text(subtitle) }
+        let attention = Text(attentionText).fontWeight(.semibold).foregroundStyle(.ccAmber)
+        return Text("\(attention) · \(subtitle)")
     }
 
     private var subtitle: String {

@@ -21,12 +21,12 @@ final class TwoControllersAndStockadeJourneyFlowTests: JourneyTestCase {
         // Rows name their controller, and Stockade's rows name the agent too.
         let macWaiting = app.buttons["session-approval-flow-light-mode"]
         XCTAssertTrue(bringIntoView(macWaiting, in: sessions), "Mac's waiting session was not listed")
-        XCTAssertEqual(macWaiting.value as? String, "unread")
+        XCTAssertEqual(macWaiting.value as? String, "needsYou")
         XCTAssertTrue(macWaiting.label.contains("Mac"), "Mac's waiting row had no controller caption: \(macWaiting.label)")
         addScreenshot(named: "two-controllers-list")
         let mustafarWaiting = app.buttons["session-discord-triage"]
         XCTAssertTrue(bringIntoView(mustafarWaiting, in: sessions), "Mustafar's waiting session was not listed")
-        XCTAssertEqual(mustafarWaiting.value as? String, "unread")
+        XCTAssertEqual(mustafarWaiting.value as? String, "needsYou")
         XCTAssertTrue(mustafarWaiting.label.contains("Mustafar"), "Mustafar's waiting row had no controller caption: \(mustafarWaiting.label)")
         let relay = app.buttons["session-dune-relay"]
         XCTAssertTrue(bringIntoView(relay, in: sessions), "Mustafar's session was not listed")
