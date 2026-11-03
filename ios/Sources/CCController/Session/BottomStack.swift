@@ -101,6 +101,37 @@ final class KeyboardPresence {
     }
 }
 
+/// Holds the display at its top refresh rate for a moment. On a busy phone a send sometimes bounced the composer, and
+/// it never did while the motion trace ran, whose display link keeps the screen at its top rate.
+@MainActor
+final class FrameRateHold {
+    static let shared = FrameRateHold()
+
+    private final class Target: NSObject {
+        @objc func tick(_ link: CADisplayLink) {}
+    }
+
+    private let target = Target()
+    private var displayLink: CADisplayLink?
+    private var releaseTask: Task<Void, Never>?
+
+    func hold(for duration: Duration) {
+        if displayLink == nil {
+            let link = CADisplayLink(target: target, selector: #selector(Target.tick(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+        releaseTask?.cancel()
+        releaseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled, let self else { return }
+            self.displayLink?.invalidate()
+            self.displayLink = nil
+        }
+    }
+}
+
 struct SlashCommand: Identifiable {
     let command: String
     let description: String
@@ -436,6 +467,7 @@ struct BottomStackView: View {
         #endif
         MotionTrace.shared.recordEvent("sendTapped")
         if !isSlashCommand(submittedText) {
+            FrameRateHold.shared.hold(for: .seconds(1))
             configuration.sendRevealCoordinator?.begin()
             // Resigning here rather than on the next update commits any autocorrection into the text
             // before it's read, so everything can happen on the tap.
