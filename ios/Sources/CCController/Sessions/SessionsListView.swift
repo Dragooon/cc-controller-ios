@@ -572,7 +572,9 @@ struct SessionsListView: View {
             onArchive: { archive(controller.id, session.id, !isArchived, name: session.name ?? session.project) }
         )
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-        .modifier(SessionsListRowBackground())
+        .modifier(SessionsListRowBackground(
+            isSelected: openSessionKey == sleepingSessionKey(controllerID: controller.id, sessionID: session.id)
+        ))
         .listRowSeparator(.hidden)
     }
 
@@ -607,7 +609,7 @@ struct SessionsListView: View {
         )
         .opacity(isMultiController && controller.connection.isFrozen ? 0.6 : 1)
         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-        .modifier(SessionsListRowBackground())
+        .modifier(SessionsListRowBackground(isSelected: !sessionKey.isEmpty && openSessionKey == sessionKey))
         .listRowSeparator(.hidden)
     }
 
@@ -813,8 +815,22 @@ private struct PinSwipeAction: ViewModifier {
 }
 
 private struct SessionsListRowBackground: ViewModifier {
+    /// The session open in the detail beside the sidebar, which gets the sidebar's selection plate.
+    var isSelected = false
+
     func body(content: Content) -> some View {
-        content.listRowBackground(Color.ccBackground)
+        content
+            .listRowBackground(
+                Color.ccBackground.overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.ccLabel.opacity(0.08))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                    }
+                }
+            )
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
