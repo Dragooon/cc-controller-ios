@@ -372,6 +372,7 @@ struct SessionTranscriptView: View {
                         .frame(maxWidth: readableContentMaxWidth)
                         .frame(maxWidth: .infinity)
                         .background(MotionTraceProbe(id: "composer"))
+                        .background(BounceExperimentView(experiment: .composerView))
                 }
             }
             .alert(
@@ -483,6 +484,7 @@ struct SessionTranscriptView: View {
                     .frame(maxWidth: readableContentMaxWidth)
                     .frame(maxWidth: .infinity)
                     .background(MotionTraceProbe(id: "composer"))
+                    .background(BounceExperimentView(experiment: .composerView))
             }
         }
         .alert(

@@ -570,3 +570,77 @@ struct MotionTraceRootProbe: UIViewRepresentable {
         deinit { marker?.removeFromSuperview() }
     }
 }
+
+/// Temporary. Splits the motion trace into its parts, so the phone can show which one stops the composer bouncing on
+/// send: with the trace on, the bounce went away.
+enum BounceExperiment: String, CaseIterable {
+    case none
+    case frameTimer
+    case composerView
+    case rowViews
+
+    static let storageKey = "motion.bounceExperiment"
+
+    static var current: BounceExperiment {
+        BounceExperiment(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .none
+    }
+
+    var title: String {
+        switch self {
+        case .none: "Off"
+        case .frameTimer: "Frame timer"
+        case .composerView: "Composer UIView"
+        case .rowViews: "Row UIViews"
+        }
+    }
+}
+
+/// The trace's display link on its own: runs every frame at the default rate and does nothing.
+@MainActor
+final class BounceExperimentFrameTimer {
+    static let shared = BounceExperimentFrameTimer()
+
+    private final class Target: NSObject {
+        @objc func tick(_ link: CADisplayLink) {}
+    }
+
+    private let target = Target()
+    private var displayLink: CADisplayLink?
+
+    func applyCurrentExperiment() {
+        if BounceExperiment.current == .frameTimer {
+            guard displayLink == nil else { return }
+            let link = CADisplayLink(target: target, selector: #selector(Target.tick(_:)))
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        } else {
+            displayLink?.invalidate()
+            displayLink = nil
+        }
+    }
+}
+
+/// The trace's probe view on its own: an empty UIView behind the composer or each row.
+struct BounceExperimentView: View {
+    let experiment: BounceExperiment
+    @AppStorage(BounceExperiment.storageKey) private var current = BounceExperiment.none.rawValue
+
+    var body: some View {
+        if current == experiment.rawValue {
+            BounceExperimentEmptyView()
+        }
+    }
+}
+
+private struct BounceExperimentEmptyView: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.alpha = 0
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.accessibilityElementsHidden = true
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}

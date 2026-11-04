@@ -1481,6 +1481,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 )
                 .equatable()
                 .background(MotionTraceProbe(id: row.id))
+                .background(BounceExperimentView(experiment: .rowViews))
             case .note(let note, let sessionState):
                 PendingPromptView(
                     sessionID: sessionIDForView,

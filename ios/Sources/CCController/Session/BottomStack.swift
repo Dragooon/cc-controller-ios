@@ -385,7 +385,10 @@ struct BottomStackView: View {
         #if DEBUG
         .task { await runMotionAutoSendIfAsked() }
         #endif
-        .onAppear { KeyboardPresence.shared.start() }
+        .onAppear {
+            KeyboardPresence.shared.start()
+            BounceExperimentFrameTimer.shared.applyCurrentExperiment()
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bottom-stack")
         .sensoryFeedback(.impact(weight: .light), trigger: sendFeedbackCount)

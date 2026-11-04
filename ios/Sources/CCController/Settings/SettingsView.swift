@@ -470,10 +470,20 @@ struct SettingsView: View {
     }
 
     @State private var motionTraceRecording = false
+    @AppStorage(BounceExperiment.storageKey) private var bounceExperiment = BounceExperiment.none.rawValue
     @State private var motionTraceFileExists = false
 
     private var composerTestSection: some View {
         Section {
+            Picker("Bounce test", selection: $bounceExperiment) {
+                ForEach(BounceExperiment.allCases, id: \.self) { experiment in
+                    Text(experiment.title).tag(experiment.rawValue)
+                }
+            }
+            .accessibilityIdentifier("settings-bounce-experiment")
+            .onChange(of: bounceExperiment) { _, _ in
+                BounceExperimentFrameTimer.shared.applyCurrentExperiment()
+            }
             Toggle("Record motion trace", isOn: Binding(
                 get: { motionTraceRecording },
                 set: { recording in
