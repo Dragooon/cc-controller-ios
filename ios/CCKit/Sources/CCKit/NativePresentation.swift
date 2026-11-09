@@ -112,6 +112,14 @@ public func nativeToolRunIsCollapsed(_ run: ToolRun) -> Bool {
     run.entries.count >= 4
 }
 
+/// Whether a remote approval card shows its countdown to the terminal. A controller that holds approvals until
+/// they're answered reports a hold of days, and a countdown from that means nothing. No hold reported means an
+/// older controller with its ten-minute hold.
+public func approvalShowsCountdown(holdLimitMs: Int?) -> Bool {
+    guard let holdLimitMs else { return true }
+    return holdLimitMs <= 60 * 60 * 1000
+}
+
 /// Formats the fallback countdown shown on a remote approval card.
 public func approvalFallbackText(remaining: TimeInterval) -> String {
     let seconds = max(0, Int(ceil(remaining)))

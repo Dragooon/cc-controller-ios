@@ -354,7 +354,7 @@ struct ApprovalCard: View {
                 ApprovalAttachWaitingText()
             } else if isTerminal {
                 ApprovalWaitingText(approval: approval)
-            } else {
+            } else if approvalShowsCountdown(holdLimitMs: approval.holdLimitMs) {
                 VStack(alignment: .leading, spacing: 6) {
                     ApprovalCountdownTrack(approval: approval)
                     ApprovalFallbackText(approval: approval)

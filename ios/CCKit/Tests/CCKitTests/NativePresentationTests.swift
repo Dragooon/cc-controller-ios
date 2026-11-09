@@ -406,6 +406,9 @@ final class NativePresentationTests: XCTestCase {
     }
 
     func testApprovalFallbackTextClampsAndFormatsMinutes() {
+        XCTAssertTrue(approvalShowsCountdown(holdLimitMs: nil))
+        XCTAssertTrue(approvalShowsCountdown(holdLimitMs: 590_000))
+        XCTAssertFalse(approvalShowsCountdown(holdLimitMs: 7 * 24 * 60 * 60 * 1000))
         XCTAssertEqual(approvalFallbackText(remaining: 252), "falls back to the terminal in 4:12")
         XCTAssertEqual(approvalFallbackText(remaining: 5), "falls back to the terminal in 0:05")
         XCTAssertEqual(approvalFallbackText(remaining: -1), "falls back to the terminal in 0:00")
