@@ -769,19 +769,19 @@ private enum RecentSessionItem: Identifiable {
         }
     }
 
-    /// When you last wrote to the session, or the nearest thing the controller knows when it can't say.
+    /// When you or another session last wrote to the session, or the nearest thing the controller knows when it can't say.
     var lastUserMessageDate: Date {
         switch self {
         case .live(let item):
             // An inexact time is the session's last activity, which moves when a turn ends, so it isn't used
             // unless there's nothing else.
             if item.session.lastUserMessageAtExact == false, let startedAt = item.session.startedAt {
-                return startedAt
+                return max(startedAt, item.session.lastPeerMessageAt ?? .distantPast)
             }
-            return item.session.lastUserMessageAt
+            return item.session.lastMessageAt
                 ?? max(item.session.idleSince ?? .distantPast, item.session.startedAt ?? .distantPast)
         case .sleeping(let item):
-            return item.session.lastUserMessageAt ?? item.session.lastActiveAt
+            return item.session.lastMessageAt ?? item.session.lastActiveAt
         }
     }
 }

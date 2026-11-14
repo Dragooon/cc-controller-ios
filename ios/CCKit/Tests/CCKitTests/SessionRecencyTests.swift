@@ -13,6 +13,30 @@ final class SessionRecencyTests: XCTestCase {
         XCTAssertEqual(session.lastUserMessageAtExact, false)
     }
 
+    func testAPeerMessageMovesASessionUpTheRecents() throws {
+        let woken = try JSONDecoder.ccKit().decode(
+            Session.self,
+            from: Data("{\"id\":\"woken\",\"name\":\"Woken\",\"lastUserMessageAt\":\"2026-10-28T09:00:00Z\",\"lastPeerMessageAt\":\"2026-10-28T10:10:00Z\"}".utf8)
+        )
+        let sessions = [
+            session(id: "recent", name: "Recent", messageAt: "2026-10-28T10:05:00Z"),
+            woken,
+        ]
+
+        XCTAssertEqual(woken.lastPeerMessageAt, date("2026-10-28T10:10:00Z"))
+        XCTAssertEqual(sortSessionsForRecents(sessions).map(\.id), ["woken", "recent"])
+    }
+
+    func testAMissingPeerMessageTimeKeepsTheUserMessageOrder() throws {
+        let session = try JSONDecoder.ccKit().decode(
+            Session.self,
+            from: Data("{\"id\":\"old-controller\",\"lastUserMessageAt\":\"2026-10-28T09:00:00Z\"}".utf8)
+        )
+
+        XCTAssertNil(session.lastPeerMessageAt)
+        XCTAssertEqual(session.lastMessageAt, date("2026-10-28T09:00:00Z"))
+    }
+
     func testSortsRecentsNewestFirstAcrossHosts() {
         let sessions = [
             session(id: "mac-older", name: "Mac older", messageAt: "2026-10-28T10:00:00Z"),
