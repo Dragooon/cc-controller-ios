@@ -29,6 +29,8 @@ public final class AppStore {
     public private(set) var reconciledNoteAliases: [String: [String: String]] = [:]
     public private(set) var pendingTurnStarts: [String: Date] = [:]
     public private(set) var attachments: [String: [AttachmentItem]] = [:]
+    /// Each session's own slash commands as its Claude Code lists them. A session missing here uses the built-in list.
+    public private(set) var sessionCommands: [String: [SlashCommandDefinition]] = [:]
     public private(set) var attachmentNotices: [String: String] = [:]
     public private(set) var attachmentRevision = 0
     public private(set) var draftRevisions: [String: Int] = [:]
@@ -309,8 +311,44 @@ public final class AppStore {
         )
     }
 
-    public func createAgentSession(agentId: String, prompt: String) async throws -> CreatedSession {
-        try await client.createAgentSession(agentId: agentId, prompt: prompt)
+    public func createAgentSession(
+        agentId: String,
+        prompt: String,
+        model: String? = nil,
+        defaultModel: String = "default",
+        cwd: String? = nil
+    ) async throws -> CreatedSession {
+        try await client.createAgentSession(
+            agentId: agentId,
+            prompt: prompt,
+            model: model == defaultModel ? nil : model,
+            cwd: cwd
+        )
+    }
+
+    /// Stockade: switches one session's model. `applied` is false when it switches on the session's next run.
+    public func setSessionModel(sessionID: String, model: String) async -> Result<SessionModelResult, ActionError> {
+        do {
+            let result = try await client.setSessionModel(id: sessionID, model: model)
+            if var session = sessions[sessionID] {
+                session.model = result.model
+                sessions[sessionID] = session
+                updateOpenStores(for: session)
+            }
+            return .success(result)
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
+    /// Fetches the session's own slash commands. Any failure (an older controller without the route, or a session
+    /// that isn't running) keeps what's there, which is the built-in list until a fetch succeeds.
+    public func loadSessionCommands(sessionID: String) async {
+        guard supports(.commands) else { return }
+        guard let list = try? await client.sessionCommands(id: sessionID) else { return }
+        let definitions = slashCommandDefinitions(from: list.commands)
+        guard !definitions.isEmpty, sessionCommands[sessionID] != definitions else { return }
+        sessionCommands[sessionID] = definitions
     }
 
     public func waitForSession(_ id: String, timeout: Duration = .seconds(10)) async -> Bool {

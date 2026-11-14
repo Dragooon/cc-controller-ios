@@ -64,9 +64,20 @@ public actor APIClient {
         try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt, agent: agent))
     }
 
-    /// Stockade: starts a session with an agent instead of in a folder.
-    public func createAgentSession(agentId: String, prompt: String) async throws -> CreatedSession {
-        try await post("/api/sessions", body: CreateAgentSessionRequest(agentId: agentId, prompt: prompt))
+    /// Stockade: starts a session with an agent instead of in a folder. `cwd` only applies to an agent without a
+    /// fixed folder.
+    public func createAgentSession(agentId: String, prompt: String, model: String? = nil, cwd: String? = nil) async throws -> CreatedSession {
+        try await post("/api/sessions", body: CreateAgentSessionRequest(agentId: agentId, prompt: prompt, model: model, cwd: cwd))
+    }
+
+    /// Stockade: overrides one session's model. A resting session switches when it next runs.
+    public func setSessionModel(id: String, model: String) async throws -> SessionModelResult {
+        try await post("/api/sessions/\(pathComponent(id))/model", body: SessionModelRequest(model: model))
+    }
+
+    /// Stockade: the session's slash commands as Claude Code lists them. 409 when the session isn't running.
+    public func sessionCommands(id: String) async throws -> SessionCommandList {
+        try await get("/api/sessions/\(pathComponent(id))/commands")
     }
 
     public func wakeSession(id: String) async throws -> WokenSession {
@@ -381,7 +392,20 @@ private struct CreateSessionRequest: Encodable {
 private struct CreateAgentSessionRequest: Encodable {
     let agentId: String
     let prompt: String
+    let model: String?
+    let cwd: String?
+
+    enum CodingKeys: String, CodingKey { case agentId, prompt, model, cwd }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(agentId, forKey: .agentId)
+        try container.encode(prompt, forKey: .prompt)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(cwd, forKey: .cwd)
+    }
 }
+private struct SessionModelRequest: Encodable { let model: String }
 private struct MessageRequest: Encodable {
     let text: String
     let files: [String]

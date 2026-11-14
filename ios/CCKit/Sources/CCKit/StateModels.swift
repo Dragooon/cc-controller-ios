@@ -47,6 +47,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     case sudo
     /// Lists and revokes owner-approved cross-controller conversations.
     case peerConversations
+    /// Stockade: overrides one session's model with POST /api/sessions/:id/model.
+    case model
     case unknown(String)
 
     public init(rawValue: String) {
@@ -67,6 +69,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case "close": self = .close
         case "sudo": self = .sudo
         case "peer_conversations": self = .peerConversations
+        case "model": self = .model
         default: self = .unknown(rawValue)
         }
     }
@@ -98,6 +101,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case .close: "close"
         case .sudo: "sudo"
         case .peerConversations: "peer_conversations"
+        case .model: "model"
         case .unknown(let value): value
         }
     }
@@ -206,10 +210,44 @@ public struct ModelOption: Codable, Sendable, Equatable, Identifiable {
 public struct NewSessionAgent: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var name: String
+    /// Stockade: the agent always starts in its own folder, so the app offers no folder choice. Nil on older
+    /// controllers, where every agent was fixed.
+    public var fixedFolder: Bool?
 
-    public init(id: String, name: String) {
-        self.id = id; self.name = name
+    public init(id: String, name: String, fixedFolder: Bool? = nil) {
+        self.id = id; self.name = name; self.fixedFolder = fixedFolder
     }
+
+    /// Whether the new-session sheet offers a folder for this agent.
+    public var choosesFolder: Bool { fixedFolder == false }
+}
+
+public struct SessionModelResult: Codable, Sendable, Equatable {
+    public var model: String
+    /// False when the session is resting or asleep: it switches when it next runs.
+    public var applied: Bool
+
+    public init(model: String, applied: Bool) {
+        self.model = model; self.applied = applied
+    }
+}
+
+public struct SessionCommand: Codable, Sendable, Equatable {
+    public var name: String
+    public var description: String?
+    /// Where Claude Code got it: built-in, a skill, a plugin or an MCP server.
+    public var source: String?
+    public var plugin: String?
+
+    public init(name: String, description: String? = nil, source: String? = nil, plugin: String? = nil) {
+        self.name = name; self.description = description; self.source = source; self.plugin = plugin
+    }
+}
+
+public struct SessionCommandList: Codable, Sendable, Equatable {
+    public var commands: [SessionCommand]
+
+    public init(commands: [SessionCommand] = []) { self.commands = commands }
 }
 
 public struct ClaudeAgentOption: Codable, Sendable, Equatable, Identifiable {
@@ -438,6 +476,8 @@ public struct Session: Codable, Sendable, Equatable {
     /// When another session last messaged this one. Old controllers don't send it.
     public var lastPeerMessageAt: Date?
     public var lastAssistantMessageAt: Date?
+    /// Stockade: the model this session was switched to, when it differs from the default.
+    public var model: String?
     public var startedAt: Date?
     public var idleSince: Date?
     public var background: BackgroundSession?
@@ -455,7 +495,7 @@ public struct Session: Codable, Sendable, Equatable {
     public var agent: SessionAgent?
 
     private enum CodingKeys: String, CodingKey {
-        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastPeerMessageAt, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
+        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastPeerMessageAt, model, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
     }
 
     public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, archivedAt: Date? = nil, closable: Bool = false, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.archivedAt = archivedAt; self.closable = closable; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
@@ -501,6 +541,7 @@ public struct Session: Codable, Sendable, Equatable {
         )
         lastAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
         lastPeerMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastPeerMessageAt)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
     }
 
     /// The later of your last message and another session's, for sorting the list: a session another one wakes

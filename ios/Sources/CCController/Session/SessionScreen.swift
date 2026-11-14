@@ -185,6 +185,10 @@ struct SessionScreen: View {
             }
             .hidden()
         }
+        .task(id: commandsLoadKey) {
+            guard commandsLoadKey.isLive else { return }
+            await store.loadSessionCommands(sessionID: sessionID)
+        }
         .task(id: sessionLoadKey) {
             let key = sessionLoadKey
             guard key.hasSession,
@@ -351,8 +355,11 @@ struct SessionScreen: View {
                     CommandModelSheet(
                         session: session,
                         loadModels: { try await store.commandModelOptions() },
+                        footer: store.supports(.model)
+                            ? "Only this session. A resting session switches when it next runs."
+                            : "Also becomes your default for new sessions, as /model does in the terminal.",
                         onSelect: { id in
-                            await store.sendResult(text: "/model \(id)", attachments: [], to: sessionID)
+                            await selectModel(id)
                         }
                     )
                 }
@@ -400,7 +407,8 @@ struct SessionScreen: View {
         liveSession: Session? = nil,
         transcriptEntries: [TranscriptEntry] = []
     ) -> BottomStackConfiguration {
-        let commands = defaultSlashCommands.map { SlashCommand(command: $0.command, description: $0.description) }
+        let definitions = store.sessionCommands[sessionID] ?? defaultSlashCommands
+        let commands = definitions.map { SlashCommand(command: $0.command, description: $0.description) }
         let current = liveSession ?? session
         let transcriptModel = transcriptEntries.reversed().compactMap { entry -> String? in
             guard case .assistant(let assistant) = entry else { return nil }
@@ -553,6 +561,22 @@ struct SessionScreen: View {
     }
 
     @MainActor
+    /// Stockade switches just this session through its model route; other controllers take `/model` as a message.
+    private func selectModel(_ id: String) async -> Result<Void, ActionError> {
+        guard store.supports(.model) else {
+            return await store.sendResult(text: "/model \(id)", attachments: [], to: sessionID).map { _ in () }
+        }
+        switch await store.setSessionModel(sessionID: sessionID, model: id) {
+        case .success(let result):
+            if !result.applied {
+                showToast("Switches to \(result.model) when the session next runs")
+            }
+            return .success(())
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
     private func showToast(_ message: String) {
         commandToastTask?.cancel()
         commandToast = message
@@ -677,6 +701,11 @@ struct SessionScreen: View {
             get: { selectedCompaction != nil },
             set: { if !$0 { selectedCompaction = nil } }
         )
+    }
+
+    /// Refetches the session's commands when it starts running, since a session that isn't running can't list them.
+    private var commandsLoadKey: CommandsLoadKey {
+        CommandsLoadKey(sessionID: sessionID, isLive: store.openSession(sessionID)?.session.live == true)
     }
 
     private var sessionLoadKey: SessionLoadKey {
@@ -918,4 +947,9 @@ private struct ShowsActivityAction: ViewModifier {
             content
         }
     }
+}
+
+private struct CommandsLoadKey: Equatable {
+    let sessionID: String
+    let isLive: Bool
 }

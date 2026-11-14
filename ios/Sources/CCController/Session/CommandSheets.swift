@@ -39,7 +39,9 @@ struct CommandOutputSheet: View {
 struct CommandModelSheet: View {
     let session: Session
     let loadModels: @MainActor () async throws -> [ModelOption]
-    let onSelect: @MainActor (String) async -> Result<MessageResult, ActionError>
+    /// What the list's footer says picking a model does, which depends on the controller.
+    var footer = "Also becomes your default for new sessions, as /model does in the terminal."
+    let onSelect: @MainActor (String) async -> Result<Void, ActionError>
     @Environment(\.dismiss) private var dismiss
     @State private var models: [ModelOption] = []
     @State private var isLoading = true
@@ -48,7 +50,11 @@ struct CommandModelSheet: View {
     @State private var selectingID: String?
 
     private var currentModelID: String? {
-        matchingCommandModelID(options: models, usageModel: session.usage?.model)
+        // A model picked for this session wins, since the transcript shows the old one until the next turn.
+        if let picked = session.model, let option = models.first(where: { $0.id.caseInsensitiveCompare(picked) == .orderedSame }) {
+            return option.id
+        }
+        return matchingCommandModelID(options: models, usageModel: session.model ?? session.usage?.model)
     }
 
     var body: some View {
@@ -99,7 +105,7 @@ struct CommandModelSheet: View {
                                     .accessibilityIdentifier("model-selection-error")
                             }
                         } footer: {
-                            Text("Also becomes your default for new sessions, as /model does in the terminal.")
+                            Text(footer)
                         }
                     }
                     .listStyle(.insetGrouped)

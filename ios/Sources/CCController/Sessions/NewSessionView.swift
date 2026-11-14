@@ -25,6 +25,8 @@ struct NewSessionView: View {
     @State private var createError: String?
     @State private var selectedFolderPath: String?
     @State private var selectedAgentID: String?
+    /// Nil starts the session on the controller's default model.
+    @State private var selectedModelID: String?
     @State private var prompt = ""
     @State private var isCreating = false
     @State private var customFolderDraft = ""
@@ -35,6 +37,7 @@ struct NewSessionView: View {
     private static let ownerNameKey = "newSession.ownerName"
     private static let folderKeyPrefix = "newSession.folder."
     private static let agentKeyPrefix = "newSession.agent."
+    private static let modelKeyPrefix = "newSession.model."
 
     private var currentControllerID: ControllerID {
         selectedControllerID?.wrappedValue ?? .mac
@@ -58,6 +61,20 @@ struct NewSessionView: View {
 
     private var isStockade: Bool {
         options?.agents != nil
+    }
+
+    private var selectedStockadeAgent: NewSessionAgent? {
+        stockadeAgents?.first(where: { $0.id == selectedAgentID })
+    }
+
+    /// Folder sessions always pick a folder; a Stockade agent only when it has no folder of its own.
+    private var showsFolderChoice: Bool {
+        guard isStockade else { return true }
+        return selectedStockadeAgent?.choosesFolder == true && options?.folders.isEmpty == false
+    }
+
+    private var availableModels: [ModelOption] {
+        options?.models ?? []
     }
 
     private var newSessionTitle: some View {
@@ -199,7 +216,7 @@ struct NewSessionView: View {
                     }
                     if loading {
                         loadingChip
-                    } else if !isStockade {
+                    } else if showsFolderChoice {
                         folderMenu
                     }
                     if loading {
@@ -208,6 +225,9 @@ struct NewSessionView: View {
                         stockadeAgentMenu
                     } else if !isStockade, visibleClaudeAgents.isEmpty == false {
                         claudeAgentMenu
+                    }
+                    if !loading, !availableModels.isEmpty {
+                        modelMenu
                     }
                 }
                 .padding(.vertical, 2)
@@ -333,6 +353,39 @@ struct NewSessionView: View {
         .accessibilityIdentifier("new-session-agent")
     }
 
+    private var modelMenu: some View {
+        Menu {
+            Button {
+                selectedModelID = nil
+            } label: {
+                Text("Default (\(defaultModelLabel))")
+            }
+            .accessibilityIdentifier("new-session-model-default")
+            ForEach(availableModels) { model in
+                Button {
+                    selectedModelID = model.id
+                } label: {
+                    Text(model.label)
+                }
+                .accessibilityIdentifier("new-session-model-\(model.id)")
+            }
+        } label: {
+            chipLabel(systemImage: "cpu", text: selectedModelLabel)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("new-session-model")
+    }
+
+    private var defaultModelLabel: String {
+        let defaultID = options?.defaultModel ?? "default"
+        return availableModels.first(where: { $0.id == defaultID })?.label ?? defaultID
+    }
+
+    private var selectedModelLabel: String {
+        guard let selectedModelID else { return defaultModelLabel }
+        return availableModels.first(where: { $0.id == selectedModelID })?.label ?? selectedModelID
+    }
+
     private var selectedAgentName: String? {
         if let agent = stockadeAgents?.first(where: { $0.id == selectedAgentID }) { return agent.name }
         return visibleClaudeAgents.first(where: { $0.id == selectedAgentID })?.label
@@ -427,6 +480,7 @@ struct NewSessionView: View {
         createError = nil
         selectedFolderPath = nil
         selectedAgentID = nil
+        selectedModelID = nil
         Task { @MainActor in
             do {
                 let loaded = try await store.newSessionOptions()
@@ -455,6 +509,11 @@ struct NewSessionView: View {
     }
 
     private func restoreSelections(from options: NewSessionOptions, controllerID: ControllerID) {
+        let savedModel = UserDefaults.standard.string(forKey: Self.modelKeyPrefix + controllerID.rawValue)
+        selectedModelID = options.models.first(where: { $0.id == savedModel })?.id
+        let savedFolder = UserDefaults.standard.string(forKey: Self.folderKeyPrefix + controllerID.rawValue)
+        selectedFolderPath = options.folders.first(where: { $0.path == savedFolder })?.path ?? options.folders.first?.path
+
         if options.agents != nil {
             let available = options.agents ?? []
             let saved = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
@@ -462,8 +521,6 @@ struct NewSessionView: View {
             return
         }
 
-        let savedFolder = UserDefaults.standard.string(forKey: Self.folderKeyPrefix + controllerID.rawValue)
-        selectedFolderPath = options.folders.first(where: { $0.path == savedFolder })?.path ?? options.folders.first?.path
         let available = visibleClaudeAgents
         let savedAgent = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
         selectedAgentID = available.first(where: { $0.id == savedAgent })?.id
@@ -490,14 +547,20 @@ struct NewSessionView: View {
             let created: CreatedSession
             if isStockade {
                 guard let selectedAgentID else { return }
-                created = try await store.createAgentSession(agentId: selectedAgentID, prompt: trimmedPrompt)
+                created = try await store.createAgentSession(
+                    agentId: selectedAgentID,
+                    prompt: trimmedPrompt,
+                    model: selectedModelID,
+                    defaultModel: options.defaultModel,
+                    cwd: showsFolderChoice ? selectedFolderPath : nil
+                )
             } else {
                 guard let cwd = selectedFolderPath else { return }
                 let agent = selectedAgentID == "default" ? nil : selectedAgentID
                 created = try await store.createSession(
                     cwd: cwd,
                     name: nil,
-                    model: nil,
+                    model: selectedModelID,
                     defaultModel: options.defaultModel,
                     prompt: trimmedPrompt,
                     agent: agent
@@ -522,6 +585,8 @@ struct NewSessionView: View {
         if let selectedAgentID {
             UserDefaults.standard.set(selectedAgentID, forKey: Self.agentKeyPrefix + controllerID.rawValue)
         }
+        // A pick of the default is remembered as no pick, so a later change of default still applies.
+        UserDefaults.standard.set(selectedModelID, forKey: Self.modelKeyPrefix + controllerID.rawValue)
     }
 
     private func folderLastComponent(_ path: String) -> String {

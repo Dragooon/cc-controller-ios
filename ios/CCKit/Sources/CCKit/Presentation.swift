@@ -155,6 +155,22 @@ public let defaultSlashCommands: [SlashCommandDefinition] = [
     SlashCommandDefinition(command: "/init", description: "Initialize project")
 ]
 
+/// The session's own commands as slash suggestions: each name gets one leading slash, blanks and repeats are
+/// dropped, and the list keeps Claude Code's order.
+public func slashCommandDefinitions(from commands: [SessionCommand]) -> [SlashCommandDefinition] {
+    var seen: Set<String> = []
+    var definitions: [SlashCommandDefinition] = []
+    for command in commands {
+        let bare = command.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = bare.hasPrefix("/") ? String(bare.dropFirst()) : bare
+        guard !name.isEmpty, !seen.contains(name) else { continue }
+        seen.insert(name)
+        let description = command.description?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        definitions.append(SlashCommandDefinition(command: "/" + name, description: description))
+    }
+    return definitions
+}
+
 public func isSlashCommand(_ text: String) -> Bool {
     text.range(of: "^/[A-Za-z][\\w:-]*(?:\\s+[\\s\\S]*)?$", options: .regularExpression) != nil
 }
