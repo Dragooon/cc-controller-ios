@@ -45,3 +45,17 @@ final class TolerantStateDecodingTests: XCTestCase {
         XCTAssertEqual(event.sleeping.map(\.id), ["a", "b"])
     }
 }
+
+final class GatewayBootstrapSampleTests: XCTestCase {
+    /// A bootstrap from Stockade's gateway (a test gateway with one live session and six carried-over rows, one of
+    /// them with no folder, person or times).
+    func testDecodesTheGatewayBootstrapSample() throws {
+        let url = try XCTUnwrap(Bundle.module.url(forResource: "gateway-bootstrap", withExtension: "json"))
+        let bootstrap = try JSONDecoder.ccKit().decode(Bootstrap.self, from: Data(contentsOf: url))
+
+        XCTAssertEqual(bootstrap.controller?.kind, .unknown("hosts"))
+        XCTAssertTrue(bootstrap.controller?.capabilities.contains(.model) == true)
+        XCTAssertEqual(bootstrap.state?.sessions?.count, 1)
+        XCTAssertEqual(bootstrap.state?.sleeping?.count, 6)
+    }
+}

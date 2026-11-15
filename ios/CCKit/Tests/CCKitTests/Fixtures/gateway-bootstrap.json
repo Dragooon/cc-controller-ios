@@ -1,0 +1,251 @@
+{
+  "apiVersion": 2,
+  "daemon": {
+    "version": "0.1.0",
+    "commit": "281cb8d",
+    "startedAt": "2026-11-15T13:02:47.605Z"
+  },
+  "controller": {
+    "id": "mac",
+    "name": "Mustafar",
+    "kind": "hosts",
+    "capabilities": [
+      "archive",
+      "list",
+      "transcript",
+      "send",
+      "decide",
+      "questions",
+      "interrupt",
+      "commands",
+      "keys",
+      "mode",
+      "model",
+      "new_session",
+      "wake",
+      "close",
+      "files",
+      "sudo"
+    ]
+  },
+  "capabilities": {
+    "bearer": true,
+    "pagination": true,
+    "gzip": true,
+    "sendNow": true,
+    "logout": true,
+    "errorCodes": true,
+    "subagentUpsert": true
+  },
+  "limits": {
+    "uploadMaxBytes": 26214400,
+    "uploadStreamMaxBytes": 1073741824,
+    "jsonMaxBytes": 2097152,
+    "approvalHoldMs": 604790000,
+    "sessionTtlHours": 12
+  },
+  "state": {
+    "sessions": [
+      {
+        "id": "11046e0e-c72a-4e4d-b545-c0f7b129a74e",
+        "pid": 4144986,
+        "name": "[sender: shitiz | via: app] Reply with exactly: OK",
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/work",
+        "project": "work",
+        "tmuxPane": null,
+        "tmux": false,
+        "commandRoute": "mod",
+        "location": "Ghostty",
+        "live": true,
+        "background": {
+          "shortId": "11046e0e"
+        },
+        "closable": true,
+        "state": "working",
+        "action": "Working, 0 s in",
+        "lastTool": null,
+        "lastToolInput": null,
+        "toolRunning": false,
+        "lastText": null,
+        "pending": [],
+        "usage": {
+          "model": null,
+          "contextTokens": 0,
+          "contextWindow": 200000,
+          "contextPercent": 0,
+          "inputTokens": 0,
+          "totalInputTokens": 0,
+          "outputTokens": 0,
+          "turnOutputTokens": 0,
+          "turnStartedAt": "2026-11-15T13:02:52.153Z",
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "cacheHitRate": 0,
+          "messages": 0
+        },
+        "subagents": [],
+        "shells": [],
+        "mode": "auto",
+        "startedAt": "2026-11-15T13:02:52.153Z",
+        "idleSince": "2026-11-15T13:02:52.153Z",
+        "lastUserMessageAt": "2026-11-15T13:02:52.153Z",
+        "lastUserMessageAtExact": true,
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "archivedAt": null,
+        "host": "madge",
+        "writable": true,
+        "sudo": false,
+        "origin": "app",
+        "participants": [
+          {
+            "name": "shitiz",
+            "platform": "app"
+          }
+        ]
+      }
+    ],
+    "sleeping": [
+      {
+        "id": "00000001-1111-2222-3333-444444444444",
+        "shortId": "00000001",
+        "name": "Imported 1",
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/everyday",
+        "project": "everyday",
+        "lastActiveAt": "2026-11-10T01:02:03.000Z",
+        "lastUserMessageAt": "2026-11-10T01:02:03.000Z",
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "resting": true,
+        "host": "madge",
+        "writable": true,
+        "sudo": false,
+        "origin": "discord",
+        "participants": [
+          {
+            "name": "shitiz",
+            "platform": "discord"
+          }
+        ]
+      },
+      {
+        "id": "00000002-1111-2222-3333-444444444444",
+        "shortId": "00000002",
+        "name": null,
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/everyday",
+        "project": "everyday",
+        "lastActiveAt": "2026-11-10T01:02:03.000Z",
+        "lastUserMessageAt": "2026-11-10T01:02:03.000Z",
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "resting": true,
+        "host": "madge",
+        "writable": true,
+        "sudo": false,
+        "origin": "discord",
+        "participants": [
+          {
+            "name": "shitiz",
+            "platform": "discord"
+          }
+        ]
+      },
+      {
+        "id": "00000003-1111-2222-3333-444444444444",
+        "shortId": "00000003",
+        "name": "Imported 3",
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/sudo",
+        "project": "sudo",
+        "lastActiveAt": "2026-11-10T01:02:03.000Z",
+        "lastUserMessageAt": "2026-11-10T01:02:03.000Z",
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "resting": true,
+        "host": "madge-sudo",
+        "writable": true,
+        "sudo": true,
+        "origin": "discord",
+        "participants": [
+          {
+            "name": "shitiz",
+            "platform": "discord"
+          }
+        ]
+      },
+      {
+        "id": "00000004-1111-2222-3333-444444444444",
+        "shortId": "00000004",
+        "name": "Imported 4",
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/everyday",
+        "project": "everyday",
+        "lastActiveAt": "1970-01-01T00:00:00.000Z",
+        "lastUserMessageAt": null,
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "resting": true,
+        "host": "madge",
+        "writable": true,
+        "sudo": false,
+        "origin": "discord",
+        "participants": []
+      },
+      {
+        "id": "00000005-1111-2222-3333-444444444444",
+        "shortId": "00000005",
+        "name": "Imported 5",
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/everyday",
+        "project": "everyday",
+        "lastActiveAt": "2026-11-10T01:02:03.000Z",
+        "lastUserMessageAt": "2026-11-10T01:02:03.000Z",
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "resting": true,
+        "host": "madge",
+        "writable": true,
+        "sudo": false,
+        "origin": "peer",
+        "participants": [
+          {
+            "name": "shitiz",
+            "platform": "discord"
+          }
+        ]
+      },
+      {
+        "id": "00000006-1111-2222-3333-444444444444",
+        "shortId": "00000006",
+        "name": "Imported 6",
+        "cwd": "/var/tmp/stockade-peers-e2e-8u2mhT/everyday",
+        "project": "everyday",
+        "lastActiveAt": "2026-11-10T01:02:03.000Z",
+        "lastUserMessageAt": "2026-11-10T01:02:03.000Z",
+        "lastPeerMessageAt": null,
+        "lastAssistantMessageAt": null,
+        "resting": true,
+        "host": "madge",
+        "writable": true,
+        "sudo": false,
+        "origin": "app",
+        "participants": [
+          {
+            "name": "shitiz",
+            "platform": "discord"
+          }
+        ]
+      }
+    ],
+    "entries": {
+      "11046e0e-c72a-4e4d-b545-c0f7b129a74e": 1
+    },
+    "revs": {
+      "11046e0e-c72a-4e4d-b545-c0f7b129a74e": 1
+    },
+    "device": {
+      "name": "e2e",
+      "pairedAt": "2026-11-15T13:02:48.477Z",
+      "createdAt": "2026-11-15T13:02:48.477Z",
+      "lastSeenAt": "2026-11-15T13:02:54.356Z",
+      "hasPasskey": false
+    }
+  }
+}
