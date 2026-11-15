@@ -185,6 +185,38 @@ public struct StateSnapshot: Codable, Sendable, Equatable {
     public init(sessions: [Session]? = nil, entries: [String: Int]? = nil, revs: [String: Int]? = nil, device: Device? = nil, sleeping: [SleepingSession]? = nil) {
         self.sessions = sessions; self.entries = entries; self.revs = revs; self.device = device; self.sleeping = sleeping
     }
+
+    private enum CodingKeys: String, CodingKey { case sessions, entries, revs, device, sleeping }
+
+    /// One row the app can't read is skipped rather than failing the whole state, which would leave the
+    /// controller unusable until the server changed.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sessions = try container.decodeIfPresent(LossyArray<Session>.self, forKey: .sessions)?.elements
+        entries = try? container.decodeIfPresent([String: Int].self, forKey: .entries)
+        revs = try? container.decodeIfPresent([String: Int].self, forKey: .revs)
+        device = try? container.decodeIfPresent(Device.self, forKey: .device)
+        sleeping = try container.decodeIfPresent(LossyArray<SleepingSession>.self, forKey: .sleeping)?.elements
+    }
+}
+
+/// Decodes an array element by element, dropping the elements that fail.
+struct LossyArray<Element: Decodable>: Decodable {
+    let elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var elements: [Element] = []
+        while !container.isAtEnd {
+            if let element = try? container.decode(Element.self) {
+                elements.append(element)
+            } else if (try? container.decode(JSONValue.self)) == nil {
+                // A failed decode doesn't move past the element, so stop rather than loop on it.
+                break
+            }
+        }
+        self.elements = elements
+    }
 }
 
 public struct NewSessionFolder: Codable, Sendable, Equatable, Identifiable {
@@ -345,12 +377,40 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
     public init(id: String, shortId: String, name: String? = nil, cwd: String, project: String, lastActiveAt: Date, archivedAt: Date? = nil) {
         self.id = id; self.shortId = shortId; self.name = name; self.cwd = cwd; self.project = project; self.lastActiveAt = lastActiveAt; self.archivedAt = archivedAt
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, shortId, name, cwd, project, lastActiveAt, archivedAt, lastUserMessageAt, lastPeerMessageAt, lastAssistantMessageAt
+    }
+
+    /// Only the id is required. A carried-over conversation can come without a folder or an activity time.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        shortId = (try? container.decodeIfPresent(String.self, forKey: .shortId)) ?? String(id.prefix(8))
+        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        cwd = (try? container.decodeIfPresent(String.self, forKey: .cwd)) ?? ""
+        let folderName = cwd.split(separator: "/").last.map(String.init) ?? ""
+        project = (try? container.decodeIfPresent(String.self, forKey: .project)) ?? folderName
+        archivedAt = try? container.decodeIfPresent(Date.self, forKey: .archivedAt)
+        lastUserMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastUserMessageAt)
+        lastPeerMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastPeerMessageAt)
+        lastAssistantMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
+        lastActiveAt = (try? container.decodeIfPresent(Date.self, forKey: .lastActiveAt))
+            ?? lastUserMessageAt ?? lastPeerMessageAt ?? .distantPast
+    }
 }
 
 public struct SleepingEvent: Codable, Sendable, Equatable {
     public var sleeping: [SleepingSession]
 
     public init(sleeping: [SleepingSession] = []) { self.sleeping = sleeping }
+
+    private enum CodingKeys: String, CodingKey { case sleeping }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sleeping = try container.decodeIfPresent(LossyArray<SleepingSession>.self, forKey: .sleeping)?.elements ?? []
+    }
 }
 
 public struct BackgroundSession: Codable, Sendable, Equatable {
