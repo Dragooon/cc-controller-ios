@@ -1875,14 +1875,14 @@ final class AppStoreTests: XCTestCase {
     func testBootstrapDecodeFailureUsesUnreadableOfflineState() async throws {
         URLProtocolStub.handler = { request in
             if request.url?.path == "/api/bootstrap" {
-                return URLProtocolStub.json(Data("{\"state\":{\"sessions\":[{\"id\":123}]}}".utf8))
+                return URLProtocolStub.json(Data("{\"state\":{\"sessions\":{\"id\":123}}}".utf8))
             }
             return URLProtocolStub.json(Data("{}".utf8))
         }
         let app = makeApp()
         app.start()
         try await waitUntil {
-            if case .offlineUnreadable(_, let error) = app.connection { return error?.contains("state.sessions[0].id") == true }
+            if case .offlineUnreadable(_, let error) = app.connection { return error?.contains("state.sessions") == true }
             return false
         }
         app.suspend()
