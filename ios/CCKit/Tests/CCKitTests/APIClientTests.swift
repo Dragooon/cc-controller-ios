@@ -21,7 +21,8 @@ final class APIClientTests: XCTestCase {
 
     func testAPIErrorDecodingDetailContainsCodingPath() async throws {
         StubURLProtocol.handler = { _ in
-            StubURLProtocol.response(status: 200, body: Data("{\"sessions\":[{\"id\":123}]}".utf8))
+            // One unreadable row is skipped, so the failure has to be the list itself.
+            StubURLProtocol.response(status: 200, body: Data("{\"sessions\":{\"id\":123}}".utf8))
         }
 
         do {
@@ -29,7 +30,7 @@ final class APIClientTests: XCTestCase {
             XCTFail("Expected decoding failure")
         } catch let error as APIError {
             guard case .decoding(let detail) = error else { return XCTFail("Expected decoding error") }
-            XCTAssertTrue(detail.contains("sessions[0].id"), detail)
+            XCTAssertTrue(detail.contains("sessions"), detail)
         }
     }
 
