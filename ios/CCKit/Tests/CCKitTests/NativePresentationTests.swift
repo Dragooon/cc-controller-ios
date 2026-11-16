@@ -372,8 +372,9 @@ final class NativePresentationTests: XCTestCase {
 
     func testToolPhrasesCoverEveryDesignedTool() {
         let cases: [(String, JSONValue, String, String)] = [
-            ("Bash", .object(["description": .string("run tests"), "command": .string("npm test")]), "Running run tests…", "Ran run tests"),
-            ("Bash", .object(["command": .string("npm test")]), "Running npm test…", "Ran npm test"),
+            ("Bash", .object(["description": .string("run tests"), "command": .string("npm test")]), "run tests…", "run tests"),
+            ("Bash", .object(["command": .string("npm test")]), "npm test…", "npm test"),
+            ("Bash", .object([:]), "Command…", "Command"),
             ("Read", .object(["file_path": .string("/workspace/notes.md")]), "Reading notes.md…", "Read notes.md"),
             ("Edit", .object(["file_path": .string("/workspace/notes.md")]), "Editing notes.md…", "Edited notes.md"),
             ("MultiEdit", .object(["file_path": .string("/workspace/notes.md")]), "Editing notes.md…", "Edited notes.md"),
@@ -393,7 +394,7 @@ final class NativePresentationTests: XCTestCase {
         }
         XCTAssertEqual(
             toolPhraseAccessibilityLabel(ToolEntry(tool: "Bash", args: .object(["command": .string("false")]), state: .unknown("failed"))),
-            "Ran false, failed"
+            "false, failed"
         )
     }
 

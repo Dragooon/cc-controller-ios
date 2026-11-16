@@ -83,13 +83,13 @@ final class LiveTurnCaptureFlowTests: JourneyTestCase {
 
         try await waitUntil(turnStart, hasElapsed: 3.2)
         assertWhileShowing("First Bash did not show as running", until: 6, after: turnStart) {
-            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running List IMAX sessions'")).firstMatch.exists
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'List IMAX sessions…, running'")).firstMatch.exists
         }
         capture("d", moment: "first-bash-running", sentAt: sentAt, in: app, scheme: scheme)
 
         try await waitUntil(turnStart, hasElapsed: 6.2)
         assertWhileShowing("First Bash did not show as done", until: 10, after: turnStart) {
-            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Ran List IMAX sessions'")).firstMatch.exists
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'List IMAX sessions, done'")).firstMatch.exists
         }
         capture("e", moment: "first-bash-done", sentAt: sentAt, in: app, scheme: scheme)
 
@@ -105,7 +105,7 @@ final class LiveTurnCaptureFlowTests: JourneyTestCase {
             runningSummary.exists
         }
         assertWhileShowing("Collapsed run did not retain the running tool row", until: 11, after: turnStart) {
-            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Running Verify seat map…'")).firstMatch.exists
+            app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] 'Verify seat map…, running'")).firstMatch.exists
         }
         capture("g", moment: "four-tool-running-collapsed", sentAt: sentAt, in: app, scheme: scheme)
 

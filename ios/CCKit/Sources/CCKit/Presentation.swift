@@ -927,7 +927,9 @@ public func toolPhrase(_ entry: ToolEntry) -> String {
     let running = entry.state == .running
     let phrase: String
     switch tool {
-    case "Bash": phrase = "\(running ? "Running" : "Ran") \(argument)"
+    // A command's description is the agent's own sentence, in whatever tense it chose, so it takes no verb in
+    // front: "Ran Check the logs" read wrong. The trailing "…" and the spinner show it's still running.
+    case "Bash": phrase = argument.isEmpty ? "Command" : argument
     case "Read": phrase = "\(running ? "Reading" : "Read") \(argument)"
     case "Edit", "MultiEdit", "NotebookEdit": phrase = "\(running ? "Editing" : "Edited") \(argument)"
     case "Write": phrase = "\(running ? "Writing" : "Wrote") \(argument)"
