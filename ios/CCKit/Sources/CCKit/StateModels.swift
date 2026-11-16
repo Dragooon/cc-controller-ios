@@ -622,10 +622,11 @@ public struct Session: Codable, Sendable, Equatable {
 }
 
 /// A session named after its first prompt can carry the tags Stockade puts in front of that prompt
-/// ("[sender: shitiz | via: app] Fix the build"). The name is shown without them; a name that is only tags is no name.
+/// ("[sender: shitiz | via: app] Fix the build", or a [peer: …] or [platform: …] tag). The name is shown without them;
+/// a name that is only tags is no name.
 public func sessionNameWithoutPreamble(_ name: String?) -> String? {
     guard var remaining = name?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
-    while remaining.hasPrefix("[sender: ") || remaining.hasPrefix("[platform: ") {
+    while remaining.hasPrefix("[sender: ") || remaining.hasPrefix("[platform: ") || remaining.hasPrefix("[peer: ") {
         guard let close = remaining.firstIndex(of: "]") else { break }
         remaining = remaining[remaining.index(after: close)...].trimmingCharacters(in: .whitespacesAndNewlines)
     }

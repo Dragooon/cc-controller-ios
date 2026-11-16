@@ -67,6 +67,7 @@ final class SessionNamePreambleTests: XCTestCase {
     func testASessionNameDropsTheSenderAndPlatformTags() throws {
         XCTAssertEqual(sessionNameWithoutPreamble("[sender: shitiz | via: app] Databricks experimentation"), "Databricks experimentation")
         XCTAssertEqual(sessionNameWithoutPreamble("[platform: sudo mode off] [sender: shitiz | via: app] Fix it"), "Fix it")
+        XCTAssertEqual(sessionNameWithoutPreamble("[peer: from App Dev · on behalf of shitiz] Check the relay"), "Check the relay")
         XCTAssertEqual(sessionNameWithoutPreamble("App Dev"), "App Dev")
         XCTAssertEqual(sessionNameWithoutPreamble("[draft] notes"), "[draft] notes")
         XCTAssertNil(sessionNameWithoutPreamble("[sender: shitiz | via: app]"))
