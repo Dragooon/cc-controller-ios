@@ -568,8 +568,8 @@ struct SessionScreen: View {
         }
         switch await store.setSessionModel(sessionID: sessionID, model: id) {
         case .success(let result):
-            if !result.applied {
-                showToast("Switches to \(result.model) when the session next runs")
+            if let pending = modelSwitchPendingText(result) {
+                showToast(pending)
             }
             return .success(())
         case .failure(let error):

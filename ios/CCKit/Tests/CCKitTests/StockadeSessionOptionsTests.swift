@@ -48,3 +48,17 @@ final class StockadeSessionOptionsTests: XCTestCase {
         XCTAssertEqual(ControllerCapability(rawValue: "model"), .model)
     }
 }
+
+final class ModelSwitchPendingTextTests: XCTestCase {
+    func testWordsTheSwitchByWhenItApplies() {
+        XCTAssertNil(modelSwitchPendingText(SessionModelResult(model: "opus", applied: true)))
+        XCTAssertEqual(
+            modelSwitchPendingText(SessionModelResult(model: "claude-fable-5-2", applied: false, appliesOn: "next_message"), label: "Fable 5.2"),
+            "Switches to Fable 5.2 with your next message"
+        )
+        XCTAssertEqual(
+            modelSwitchPendingText(SessionModelResult(model: "opus", applied: false)),
+            "Switches to opus when the session next runs"
+        )
+    }
+}

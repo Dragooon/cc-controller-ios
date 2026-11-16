@@ -153,7 +153,10 @@ struct CommandModelSheet: View {
                 dismiss()
             case .failure(let error):
                 selectingID = nil
-                selectionError = error.userMessage
+                // The controller keeps a working session's model; the switch waits for the turn to end.
+                selectionError = error == .sessionBusy
+                    ? "Still working on this turn, so it keeps its model. Try again when it's done."
+                    : error.userMessage
             }
         }
     }

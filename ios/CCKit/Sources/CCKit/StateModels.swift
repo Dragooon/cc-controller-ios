@@ -256,12 +256,24 @@ public struct NewSessionAgent: Codable, Sendable, Equatable, Identifiable {
 
 public struct SessionModelResult: Codable, Sendable, Equatable {
     public var model: String
-    /// False when the session is resting or asleep: it switches when it next runs.
+    /// False when the session didn't switch yet.
     public var applied: Bool
+    /// When an unapplied switch happens: "next_message" for a live session that restarts on its next message,
+    /// nil for a resting one that switches when it next runs.
+    public var appliesOn: String?
 
-    public init(model: String, applied: Bool) {
-        self.model = model; self.applied = applied
+    public init(model: String, applied: Bool, appliesOn: String? = nil) {
+        self.model = model; self.applied = applied; self.appliesOn = appliesOn
     }
+}
+
+/// What the app tells the user after the controller accepted a model it hasn't applied yet.
+public func modelSwitchPendingText(_ result: SessionModelResult, label: String? = nil) -> String? {
+    guard !result.applied else { return nil }
+    let name = label ?? result.model
+    return result.appliesOn == "next_message"
+        ? "Switches to \(name) with your next message"
+        : "Switches to \(name) when the session next runs"
 }
 
 public struct SessionCommand: Codable, Sendable, Equatable {
