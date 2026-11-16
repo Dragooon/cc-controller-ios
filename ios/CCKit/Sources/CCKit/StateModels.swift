@@ -379,19 +379,22 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
     public var lastActiveAt: Date
     public var archivedAt: Date?
     public var lastUserMessageAt: Date?
-    /// When another session last messaged this one. Old controllers don't send it.
-    public var lastPeerMessageAt: Date?
+    /// Stockade: when the person using this app last wrote here. Several people and sessions can write in one
+    /// conversation, and only your own messages move it up your list.
+    public var lastOwnMessageAt: Date?
+    /// Whether the controller sent `lastOwnMessageAt` at all, even as null. One that doesn't has a single user.
+    public var reportsOwnMessageTime = false
     public var lastAssistantMessageAt: Date?
 
-    /// The later of your last message and another session's, for sorting the list.
-    public var lastMessageAt: Date? { laterDate(lastUserMessageAt, lastPeerMessageAt) }
+    /// When you last wrote here, for sorting the list. Nil when the controller says you never have.
+    public var ownMessageAt: Date? { reportsOwnMessageTime ? lastOwnMessageAt : lastUserMessageAt }
 
     public init(id: String, shortId: String, name: String? = nil, cwd: String, project: String, lastActiveAt: Date, archivedAt: Date? = nil) {
         self.id = id; self.shortId = shortId; self.name = name; self.cwd = cwd; self.project = project; self.lastActiveAt = lastActiveAt; self.archivedAt = archivedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, shortId, name, cwd, project, lastActiveAt, archivedAt, lastUserMessageAt, lastPeerMessageAt, lastAssistantMessageAt
+        case id, shortId, name, cwd, project, lastActiveAt, archivedAt, lastUserMessageAt, lastOwnMessageAt, lastAssistantMessageAt
     }
 
     /// Only the id is required. A carried-over conversation can come without a folder or an activity time.
@@ -405,10 +408,11 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
         project = (try? container.decodeIfPresent(String.self, forKey: .project)) ?? folderName
         archivedAt = try? container.decodeIfPresent(Date.self, forKey: .archivedAt)
         lastUserMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastUserMessageAt)
-        lastPeerMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastPeerMessageAt)
+        reportsOwnMessageTime = container.contains(.lastOwnMessageAt)
+        lastOwnMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastOwnMessageAt)
         lastAssistantMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
         lastActiveAt = (try? container.decodeIfPresent(Date.self, forKey: .lastActiveAt))
-            ?? lastUserMessageAt ?? lastPeerMessageAt ?? .distantPast
+            ?? lastUserMessageAt ?? .distantPast
     }
 }
 
@@ -545,8 +549,11 @@ public struct Session: Codable, Sendable, Equatable {
     public var commandRoute: String?
     public var lastUserMessageAt: Date?
     public var lastUserMessageAtExact: Bool?
-    /// When another session last messaged this one. Old controllers don't send it.
-    public var lastPeerMessageAt: Date?
+    /// Stockade: when the person using this app last wrote here. Several people and sessions can write in one
+    /// conversation, and only your own messages move it up your list.
+    public var lastOwnMessageAt: Date?
+    /// Whether the controller sent `lastOwnMessageAt` at all, even as null. One that doesn't has a single user.
+    public var reportsOwnMessageTime = false
     public var lastAssistantMessageAt: Date?
     /// Stockade: the model this session was switched to, when it differs from the default.
     public var model: String?
@@ -567,7 +574,7 @@ public struct Session: Codable, Sendable, Equatable {
     public var agent: SessionAgent?
 
     private enum CodingKeys: String, CodingKey {
-        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastPeerMessageAt, model, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
+        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastOwnMessageAt, model, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
     }
 
     public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, archivedAt: Date? = nil, closable: Bool = false, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.archivedAt = archivedAt; self.closable = closable; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
@@ -612,13 +619,14 @@ public struct Session: Codable, Sendable, Equatable {
             agent: try container.decodeIfPresent(SessionAgent.self, forKey: .agent)
         )
         lastAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
-        lastPeerMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastPeerMessageAt)
+        reportsOwnMessageTime = container.contains(.lastOwnMessageAt)
+        lastOwnMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastOwnMessageAt)
         model = try container.decodeIfPresent(String.self, forKey: .model)
     }
 
-    /// The later of your last message and another session's, for sorting the list: a session another one wakes
-    /// up comes to the top.
-    public var lastMessageAt: Date? { laterDate(lastUserMessageAt, lastPeerMessageAt) }
+    /// When you last wrote here, for sorting the list. Nil when the controller says you never have: someone else's
+    /// message, or another session's, doesn't count.
+    public var ownMessageAt: Date? { reportsOwnMessageTime ? lastOwnMessageAt : lastUserMessageAt }
 }
 
 /// A session named after its first prompt can carry the tags Stockade puts in front of that prompt
@@ -636,18 +644,9 @@ public func sessionNameWithoutPreamble(_ name: String?) -> String? {
     return remaining.isEmpty ? nil : remaining
 }
 
-func laterDate(_ first: Date?, _ second: Date?) -> Date? {
-    switch (first, second) {
-    case let (first?, second?): return max(first, second)
-    case let (first?, nil): return first
-    case let (nil, second?): return second
-    case (nil, nil): return nil
-    }
-}
-
 /// Whether `left` should appear before `right` in the Recents list.
 public func sessionRecencyPrecedes(_ left: Session, _ right: Session) -> Bool {
-    switch (left.lastMessageAt, right.lastMessageAt) {
+    switch (left.ownMessageAt, right.ownMessageAt) {
     case let (leftDate?, rightDate?):
         if leftDate != rightDate { return leftDate > rightDate }
     case (_?, nil): return true
@@ -655,7 +654,7 @@ public func sessionRecencyPrecedes(_ left: Session, _ right: Session) -> Bool {
     case (nil, nil): break
     }
 
-    if left.lastMessageAt == nil && right.lastMessageAt == nil {
+    if left.ownMessageAt == nil && right.ownMessageAt == nil {
         let leftActivity = max(left.idleSince ?? .distantPast, left.startedAt ?? .distantPast)
         let rightActivity = max(right.idleSince ?? .distantPast, right.startedAt ?? .distantPast)
         if leftActivity != rightActivity { return leftActivity > rightActivity }

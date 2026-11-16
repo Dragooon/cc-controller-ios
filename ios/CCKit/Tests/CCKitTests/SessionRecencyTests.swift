@@ -13,28 +13,40 @@ final class SessionRecencyTests: XCTestCase {
         XCTAssertEqual(session.lastUserMessageAtExact, false)
     }
 
-    func testAPeerMessageMovesASessionUpTheRecents() throws {
-        let woken = try JSONDecoder.ccKit().decode(
-            Session.self,
-            from: Data("{\"id\":\"woken\",\"name\":\"Woken\",\"lastUserMessageAt\":\"2026-10-28T09:00:00Z\",\"lastPeerMessageAt\":\"2026-10-28T10:10:00Z\"}".utf8)
-        )
-        let sessions = [
-            session(id: "recent", name: "Recent", messageAt: "2026-10-28T10:05:00Z"),
-            woken,
-        ]
+    func testOnlyYourOwnMessagesMoveASessionUpTheRecents() throws {
+        // Someone else wrote in "shared" after you wrote in "mine"; another session messaged "peered" later still.
+        let shared = try decode(#"{"id":"shared","lastUserMessageAt":"2026-10-28T10:10:00Z","lastOwnMessageAt":"2026-10-28T09:00:00Z"}"#)
+        let peered = try decode(#"{"id":"peered","lastUserMessageAt":"2026-10-28T08:00:00Z","lastPeerMessageAt":"2026-10-28T10:20:00Z","lastOwnMessageAt":"2026-10-28T08:00:00Z"}"#)
+        let mine = try decode(#"{"id":"mine","lastUserMessageAt":"2026-10-28T10:05:00Z","lastOwnMessageAt":"2026-10-28T10:05:00Z"}"#)
 
-        XCTAssertEqual(woken.lastPeerMessageAt, date("2026-10-28T10:10:00Z"))
-        XCTAssertEqual(sortSessionsForRecents(sessions).map(\.id), ["woken", "recent"])
+        XCTAssertEqual(shared.ownMessageAt, date("2026-10-28T09:00:00Z"))
+        XCTAssertEqual(sortSessionsForRecents([shared, peered, mine]).map(\.id), ["mine", "shared", "peered"])
     }
 
-    func testAMissingPeerMessageTimeKeepsTheUserMessageOrder() throws {
-        let session = try JSONDecoder.ccKit().decode(
-            Session.self,
-            from: Data("{\"id\":\"old-controller\",\"lastUserMessageAt\":\"2026-10-28T09:00:00Z\"}".utf8)
+    func testASessionYouNeverWroteInSortsBelowTheOnesYouDid() throws {
+        let theirs = try decode(#"{"id":"theirs","lastUserMessageAt":"2026-10-28T10:30:00Z","lastOwnMessageAt":null,"idleSince":"2026-10-28T10:31:00Z"}"#)
+        let mine = try decode(#"{"id":"mine","lastUserMessageAt":"2026-10-27T10:00:00Z","lastOwnMessageAt":"2026-10-27T10:00:00Z"}"#)
+        let resting = try JSONDecoder.ccKit().decode(
+            SleepingSession.self,
+            from: Data(#"{"id":"resting","lastUserMessageAt":"2026-10-28T10:30:00Z","lastOwnMessageAt":null}"#.utf8)
         )
 
-        XCTAssertNil(session.lastPeerMessageAt)
-        XCTAssertEqual(session.lastMessageAt, date("2026-10-28T09:00:00Z"))
+        XCTAssertTrue(theirs.reportsOwnMessageTime)
+        XCTAssertNil(theirs.ownMessageAt)
+        XCTAssertNil(resting.ownMessageAt)
+        XCTAssertEqual(sortSessionsForRecents([theirs, mine]).map(\.id), ["mine", "theirs"])
+    }
+
+    func testAControllerWithoutOwnMessageTimesOrdersByTheUserMessage() throws {
+        let session = try decode(#"{"id":"old-controller","lastUserMessageAt":"2026-10-28T09:00:00Z","lastPeerMessageAt":"2026-10-28T11:00:00Z"}"#)
+        let resting = try JSONDecoder.ccKit().decode(
+            SleepingSession.self,
+            from: Data(#"{"id":"resting","lastUserMessageAt":"2026-10-28T09:30:00Z"}"#.utf8)
+        )
+
+        XCTAssertFalse(session.reportsOwnMessageTime)
+        XCTAssertEqual(session.ownMessageAt, date("2026-10-28T09:00:00Z"))
+        XCTAssertEqual(resting.ownMessageAt, date("2026-10-28T09:30:00Z"))
     }
 
     func testSortsRecentsNewestFirstAcrossHosts() {
@@ -93,6 +105,10 @@ final class SessionRecencyTests: XCTestCase {
             startedAt: startedAt.map(date),
             idleSince: idleSince.map(date)
         )
+    }
+
+    private func decode(_ json: String) throws -> Session {
+        try JSONDecoder.ccKit().decode(Session.self, from: Data(json.utf8))
     }
 
     private func date(_ value: String) -> Date {
