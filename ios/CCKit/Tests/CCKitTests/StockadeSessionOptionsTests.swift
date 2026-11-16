@@ -62,3 +62,26 @@ final class ModelSwitchPendingTextTests: XCTestCase {
         )
     }
 }
+
+final class SessionNamePreambleTests: XCTestCase {
+    func testASessionNameDropsTheSenderAndPlatformTags() throws {
+        XCTAssertEqual(sessionNameWithoutPreamble("[sender: shitiz | via: app] Databricks experimentation"), "Databricks experimentation")
+        XCTAssertEqual(sessionNameWithoutPreamble("[platform: sudo mode off] [sender: shitiz | via: app] Fix it"), "Fix it")
+        XCTAssertEqual(sessionNameWithoutPreamble("App Dev"), "App Dev")
+        XCTAssertEqual(sessionNameWithoutPreamble("[draft] notes"), "[draft] notes")
+        XCTAssertNil(sessionNameWithoutPreamble("[sender: shitiz | via: app]"))
+        XCTAssertNil(sessionNameWithoutPreamble(nil))
+
+        let session = try JSONDecoder.ccKit().decode(
+            Session.self,
+            from: Data(#"{"id":"s","name":"[sender: shitiz | via: app] Databricks experimentation"}"#.utf8)
+        )
+        let sleeping = try JSONDecoder.ccKit().decode(
+            SleepingSession.self,
+            from: Data(#"{"id":"r","name":"[sender: shitiz | discord name: Dragooon | discord id: 1] Land search"}"#.utf8)
+        )
+
+        XCTAssertEqual(session.name, "Databricks experimentation")
+        XCTAssertEqual(sleeping.name, "Land search")
+    }
+}
