@@ -399,7 +399,7 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         shortId = (try? container.decodeIfPresent(String.self, forKey: .shortId)) ?? String(id.prefix(8))
-        name = try? container.decodeIfPresent(String.self, forKey: .name)
+        name = sessionNameWithoutPreamble(try? container.decodeIfPresent(String.self, forKey: .name))
         cwd = (try? container.decodeIfPresent(String.self, forKey: .cwd)) ?? ""
         let folderName = cwd.split(separator: "/").last.map(String.init) ?? ""
         project = (try? container.decodeIfPresent(String.self, forKey: .project)) ?? folderName
@@ -577,7 +577,7 @@ public struct Session: Codable, Sendable, Equatable {
         self.init(
             id: try container.decodeIfPresent(String.self, forKey: .id),
             pid: try container.decodeIfPresent(Int.self, forKey: .pid),
-            name: try container.decodeIfPresent(String.self, forKey: .name),
+            name: sessionNameWithoutPreamble(try container.decodeIfPresent(String.self, forKey: .name)),
             cwd: try container.decodeIfPresent(String.self, forKey: .cwd),
             project: try container.decodeIfPresent(String.self, forKey: .project),
             tmuxPane: try container.decodeIfPresent(String.self, forKey: .tmuxPane),
@@ -619,6 +619,21 @@ public struct Session: Codable, Sendable, Equatable {
     /// The later of your last message and another session's, for sorting the list: a session another one wakes
     /// up comes to the top.
     public var lastMessageAt: Date? { laterDate(lastUserMessageAt, lastPeerMessageAt) }
+}
+
+/// A session named after its first prompt can carry the tags Stockade puts in front of that prompt
+/// ("[sender: shitiz | via: app] Fix the build", or a [peer: …] or [platform: …] tag). The name is shown without them;
+/// a name that is only tags is no name.
+public func sessionNameWithoutPreamble(_ name: String?) -> String? {
+    guard var remaining = name?.trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+    while remaining.hasPrefix("[sender: ") || remaining.hasPrefix("[platform: ") || remaining.hasPrefix("[peer: ") {
+        guard let close = remaining.firstIndex(of: "]") else { break }
+        remaining = remaining[remaining.index(after: close)...].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if remaining.hasPrefix("[/platform]") {
+        remaining = String(remaining.dropFirst("[/platform]".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    return remaining.isEmpty ? nil : remaining
 }
 
 func laterDate(_ first: Date?, _ second: Date?) -> Date? {
