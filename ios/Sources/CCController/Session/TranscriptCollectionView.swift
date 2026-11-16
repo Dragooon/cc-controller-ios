@@ -1172,6 +1172,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         }
 
         private static let mostRowsToMeasureOnInsert = 20
+        /// A live turn adds a few rows at a time. More than this at once is a page of history arriving (a chat that
+        /// opened showing only its status line or a pending message, or a transcript refetched after a reconnect),
+        /// and animating that in scrolled the whole transcript past from the top.
+        private static let mostRowsToAnimateOnInsert = 8
         private static let fewestRowsToHoldForSidebar = 5
 
         private func apply(
@@ -1217,7 +1221,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             }
             let inserted = items.filter { !oldItemSet.contains($0) }
             let deleted = oldItems.filter { !itemSet.contains($0) }
-            let animated = hasAppliedSnapshot && !reduceMotion && isNewestEndUpdate(
+            let animated = hasAppliedSnapshot && !reduceMotion
+                && inserted.count <= Self.mostRowsToAnimateOnInsert
+                && deleted.count <= Self.mostRowsToAnimateOnInsert
+                && isNewestEndUpdate(
                 oldItems: oldItems,
                 newItems: items,
                 inserted: inserted,
