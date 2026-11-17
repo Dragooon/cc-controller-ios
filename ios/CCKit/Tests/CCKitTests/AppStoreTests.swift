@@ -1637,6 +1637,36 @@ final class AppStoreTests: XCTestCase {
         app.apply(.transcript(TranscriptEvent(sessionId: "session-1", entry: .assistant(AssistantEntry(id: "entry-1", rev: 1, text: "hello")))))
     }
 
+    func testAnApprovalForASessionNotListedAsRunningRefetchesState() async throws {
+        // A peer request raised on a resting session: the first state lists only session-1, and the state
+        // fetched after the event lists the resting one as running with its request.
+        var bootstrapCalls = 0
+        URLProtocolStub.handler = { request in
+            if request.url?.path == "/api/bootstrap" {
+                bootstrapCalls += 1
+                if bootstrapCalls == 1 { return URLProtocolStub.json(Self.bootstrapJSON()) }
+                let waiting = Session(id: "resting-1", live: true, state: .needsYou, pending: [Approval(requestId: "request-1", sessionId: "resting-1", kind: .peerConversation)])
+                let value = Bootstrap(apiVersion: 2, daemon: DaemonInfo(version: "fixture", startedAt: Date(timeIntervalSince1970: 1)), capabilities: Capabilities(pagination: true), state: StateSnapshot(sessions: [Self.session(state: .working), waiting], entries: ["session-1": 0]))
+                return URLProtocolStub.json(try! JSONEncoder.ccKit().encode(value))
+            }
+            if request.url?.path == "/api/events" {
+                let body = "event: state\ndata: {\"sessions\":[{\"id\":\"session-1\",\"live\":true,\"state\":\"working\"}],\"entries\":{\"session-1\":0}}\n\n"
+                return URLProtocolStub.json(Data(body.utf8), contentType: "text/event-stream")
+            }
+            return URLProtocolStub.json(Self.pageJSON(entries: [], total: 0, hasMore: false))
+        }
+        let app = makeApp()
+        app.start()
+        try await waitUntil { bootstrapCalls >= 1 && app.sessions["session-1"] != nil }
+        XCTAssertNil(app.sessions["resting-1"])
+
+        app.apply(.approval(ApprovalEvent(sessionId: "resting-1", requestId: "request-1", kind: .peerConversation)))
+
+        try await waitUntil { app.approvals(for: "resting-1").first?.requestId == "request-1" }
+        XCTAssertEqual(app.sessions["resting-1"]?.state, .needsYou)
+        app.suspend()
+    }
+
     func testStartedAtChangeDropsOpenTranscript() async throws {
         var bootstrapCalls = 0
         URLProtocolStub.handler = { request in

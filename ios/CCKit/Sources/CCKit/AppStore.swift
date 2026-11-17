@@ -1748,6 +1748,13 @@ public final class AppStore {
 
     private func applyApproval(_ event: ApprovalEvent) {
         guard let sessionID = event.sessionId, let requestID = event.requestId else { return }
+        guard sessions[sessionID] != nil else {
+            // The request is for a session this app doesn't list as running: a resting one, or one whose state
+            // hasn't arrived yet. Dropping the event left a request waiting with nothing on screen until the
+            // app was restarted, so ask for the state again; a controller lists such a session with its request.
+            refreshAfterRegistryEvent()
+            return
+        }
         var pending = sessions[sessionID]?.pending ?? []
         let existing = pending.first { $0.requestId == requestID }
         let approval = Approval(
