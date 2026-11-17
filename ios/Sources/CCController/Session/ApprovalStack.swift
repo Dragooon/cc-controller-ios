@@ -22,6 +22,7 @@ struct ApprovalBottomStackView: View {
     @Namespace private var fallbackGlassNamespace
     @ScaledMetric(relativeTo: .body) private var waitingRowHeight = 36
     @State private var isExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var fallbackQuestionState = QuestionCardState()
 
     init(
@@ -105,7 +106,7 @@ struct ApprovalBottomStackView: View {
 
             if let waiting = moreWaitingText(count: max(0, approvals.count - 1)) {
                 Button {
-                    withAnimation(.smooth) {
+                    withAnimation(CCMotion.spring(reduceMotion: reduceMotion)) {
                         isExpanded.toggle()
                     }
                 } label: {
@@ -131,7 +132,7 @@ struct ApprovalBottomStackView: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .animation(.smooth, value: approvalIDs)
+        .animation(CCMotion.spring(reduceMotion: reduceMotion), value: approvalIDs)
     }
 
     private var displayedApprovals: [Approval] {
