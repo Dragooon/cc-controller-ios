@@ -388,7 +388,9 @@ struct MainSplitView: View {
     private func sidebarDragChanged(translationX: CGFloat, sidebarWidth: CGFloat) {
         guard horizontalSizeClass == .regular else { return }
         if sidebarMotion.dragStartProgress == nil {
-            sidebarMotion.dragStartProgress = sidebarMotion.progress
+            // From where the sidebar is on screen, which mid-move is not where it was heading. Setting the
+            // progress below without an animation then stops the move under the finger.
+            sidebarMotion.dragStartProgress = sidebarMotion.presentedProgress
             SidebarMotionGate.shared.moveBegan()
             coverDetailForSidebarMotion()
             closeInspectorForOverlaySidebar()
@@ -400,13 +402,17 @@ struct MainSplitView: View {
     private func sidebarDragEnded(translationX: CGFloat, velocityX: CGFloat, sidebarWidth: CGFloat) {
         guard let startProgress = sidebarMotion.dragStartProgress else { return }
         sidebarMotion.dragStartProgress = nil
-        let isOpening = startProgress == 0
         let progress = min(1, max(0, startProgress + translationX / sidebarWidth))
         let targetProgress: CGFloat
-        if isOpening {
+        if startProgress <= 0.001 {
             targetProgress = progress > 0.4 || velocityX > 500 ? 1 : 0
-        } else {
+        } else if startProgress >= 0.999 {
             targetProgress = progress < 0.6 || velocityX < -500 ? 0 : 1
+        } else if abs(velocityX) > 500 {
+            // Caught mid-move: a flick decides, whichever way it was going before.
+            targetProgress = velocityX > 0 ? 1 : 0
+        } else {
+            targetProgress = progress > 0.5 ? 1 : 0
         }
         moveSidebar(to: targetProgress, initialVelocity: Double(velocityX / sidebarWidth))
     }
@@ -773,6 +779,9 @@ struct MainSplitView: View {
 @Observable
 private final class RegularSidebarMotion {
     var progress: CGFloat = 1
+    /// Where the sidebar is on screen right now. While it animates, `progress` already holds where it is going;
+    /// this follows the animation frame by frame, so a finger can take the sidebar from where it actually is.
+    @ObservationIgnored var presentedProgress: CGFloat = 1
     var isDetailCovered = false
     @ObservationIgnored var dragStartProgress: CGFloat?
     /// Tells a finished move apart from one a newer move has replaced.
@@ -827,13 +836,14 @@ private struct RegularSidebarReveal<Content: View>: View {
 
     var body: some View {
         content
-            .modifier(SidebarRevealModifier(progress: motion.progress, sidebarWidth: sidebarWidth))
+            .modifier(SidebarRevealModifier(progress: motion.progress, sidebarWidth: sidebarWidth, motion: motion))
     }
 }
 
 private struct SidebarRevealModifier: AnimatableModifier {
     var progress: CGFloat
     let sidebarWidth: CGFloat
+    let motion: RegularSidebarMotion
 
     nonisolated var animatableData: CGFloat {
         get { progress }
@@ -841,6 +851,8 @@ private struct SidebarRevealModifier: AnimatableModifier {
     }
 
     func body(content: Content) -> some View {
+        // This runs for every frame of a move with the value in flight, which is the only place it's known.
+        let _ = (motion.presentedProgress = progress)
         content
             .offset(x: -sidebarWidth * (1 - progress))
             .opacity(progress > 0.001 ? 1 : 0)
@@ -931,9 +943,13 @@ private struct SidebarPanCapture: UIViewRepresentable {
             let initialLocation = pan.initialLocation ?? pan.location(in: view)
             // Direction comes from the distance moved so far. The speed at this instant may not be
             // reliable for a swipe that starts at the screen edge.
-            let sidebarProgress = motion.progress
+            let sidebarProgress = motion.presentedProgress
             let translation = pan.translation(in: view)
             let movement = translation == .zero ? pan.velocity(in: view) : translation
+            if sidebarProgress > 0.001, sidebarProgress < 0.999 {
+                // Still moving: a sideways drag takes hold of it, in either direction.
+                return abs(movement.x) > abs(movement.y) * 1.5
+            }
             if sidebarProgress >= 0.999 {
                 // The open sidebar closes on a leftward swipe, starting on it or on the detail.
                 guard movement.x < 0, abs(movement.x) > abs(movement.y) * 1.5 else { return false }
