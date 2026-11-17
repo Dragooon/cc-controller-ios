@@ -42,7 +42,11 @@ struct CommandModelSheet: View {
     /// What the list's footer says picking a model does, which depends on the controller.
     var footer = "Also becomes your default for new sessions, as /model does in the terminal."
     let onSelect: @MainActor (String) async -> Result<Void, ActionError>
+    /// Nil when the controller has no effort levels; the Effort row is then left out.
+    var loadEfforts: (@MainActor () async throws -> [EffortOption])?
+    var onSelectEffort: @MainActor (String) async -> Result<Void, ActionError> = { _ in .success(()) }
     @Environment(\.dismiss) private var dismiss
+    @State private var efforts: [EffortOption] = []
     @State private var models: [ModelOption] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -55,6 +59,20 @@ struct CommandModelSheet: View {
             return option.id
         }
         return matchingCommandModelID(options: models, usageModel: session.model ?? session.usage?.model)
+    }
+
+    /// The session's own level, or "Default" with the level its model then runs at: "Default (Medium)".
+    private var currentEffortText: String {
+        if !isDefaultEffort(session.effort) {
+            return effortLabel(session.effort, options: efforts) ?? "Default"
+        }
+        let modelDefault = sessionEffortName(
+            effort: nil,
+            modelID: currentModelID ?? session.usage?.model,
+            models: models,
+            efforts: efforts
+        )
+        return modelDefault.map { "Default (\($0))" } ?? "Default"
     }
 
     var body: some View {
@@ -107,6 +125,21 @@ struct CommandModelSheet: View {
                         } footer: {
                             Text(footer)
                         }
+                        if !efforts.isEmpty {
+                            Section {
+                                NavigationLink {
+                                    CommandEffortList(
+                                        efforts: effortOptions(efforts, forModel: currentModelID, models: models),
+                                        currentID: isDefaultEffort(session.effort) ? defaultEffortID : session.effort,
+                                        onSelect: onSelectEffort,
+                                        onDone: { dismiss() }
+                                    )
+                                } label: {
+                                    LabeledContent("Effort", value: currentEffortText)
+                                }
+                                .accessibilityIdentifier("model-effort")
+                            }
+                        }
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
@@ -135,6 +168,8 @@ struct CommandModelSheet: View {
         Task {
             do {
                 models = try await loadModels()
+                // The model list stands without the effort levels; a failure there only leaves the row out.
+                efforts = (try? await loadEfforts?()) ?? []
                 isLoading = false
             } catch {
                 errorMessage = error.localizedDescription
@@ -156,6 +191,72 @@ struct CommandModelSheet: View {
                 // The controller keeps a working session's model; the switch waits for the turn to end.
                 selectionError = error == .sessionBusy
                     ? "Still working on this turn, so it keeps its model. Try again when it's done."
+                    : error.userMessage
+            }
+        }
+    }
+}
+
+/// The effort levels a session can run at, lowest first, with the current one ticked.
+private struct CommandEffortList: View {
+    let efforts: [EffortOption]
+    let currentID: String?
+    let onSelect: @MainActor (String) async -> Result<Void, ActionError>
+    let onDone: @MainActor () -> Void
+    @State private var selectingID: String?
+    @State private var selectionError: String?
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(efforts) { effort in
+                    Button {
+                        select(effort)
+                    } label: {
+                        HStack {
+                            Text(effort.label)
+                                .foregroundStyle(.ccLabel)
+                            Spacer()
+                            if effort.id.caseInsensitiveCompare(currentID ?? "") == .orderedSame {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.ccAccent)
+                                    .accessibilityLabel("Current effort")
+                                    .accessibilityIdentifier("current-effort-\(effort.id)")
+                            }
+                        }
+                    }
+                    .disabled(selectingID != nil)
+                    .accessibilityIdentifier("effort-option-\(effort.id)")
+                }
+                if let selectionError {
+                    Text(selectionError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("effort-selection-error")
+                }
+            } footer: {
+                Text("How hard this session thinks before it answers. Only this session. A running session rests and picks the new level up with your next message.")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(.ccBackground)
+        .navigationTitle("Effort")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @MainActor
+    private func select(_ effort: EffortOption) {
+        selectingID = effort.id
+        selectionError = nil
+        Task {
+            switch await onSelect(effort.id) {
+            case .success:
+                onDone()
+            case .failure(let error):
+                selectingID = nil
+                selectionError = error == .sessionBusy
+                    ? "Still working on this turn, so it keeps its effort. Try again when it's done."
                     : error.userMessage
             }
         }

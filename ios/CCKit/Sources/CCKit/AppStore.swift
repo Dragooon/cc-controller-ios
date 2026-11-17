@@ -291,7 +291,14 @@ public final class AppStore {
     }
 
     public func newSessionOptions() async throws -> NewSessionOptions {
-        try await client.newSessionOptions()
+        let options = try await client.newSessionOptions()
+        if let efforts = options.efforts, efforts != effortOptions {
+            effortOptions = efforts
+        }
+        if options.models != effortModels {
+            effortModels = options.models
+        }
+        return options
     }
 
     public func createSession(
@@ -339,6 +346,37 @@ public final class AppStore {
         } catch {
             return .failure(actionError(for: error))
         }
+    }
+
+    public func setSessionEffort(sessionID: String, effort: String) async -> Result<SessionEffortResult, ActionError> {
+        do {
+            let result = try await client.setSessionEffort(id: sessionID, effort: effort)
+            if var session = sessions[sessionID] {
+                session.effort = result.effort
+                sessions[sessionID] = session
+                updateOpenStores(for: session)
+            }
+            return .success(result)
+        } catch {
+            return .failure(actionError(for: error))
+        }
+    }
+
+    /// The effort levels last offered by this controller, kept so a session's level shows under the name the
+    /// controller gives it.
+    public private(set) var effortOptions: [EffortOption] = []
+    /// The models last offered, which say the level each runs at by default.
+    public private(set) var effortModels: [ModelOption] = []
+
+    /// Fetches the effort levels once, so an open session can name its level. A failure leaves the level unnamed.
+    public func loadEffortOptionsIfNeeded() async {
+        guard supports(.effort), effortOptions.isEmpty else { return }
+        _ = try? await newSessionOptions()
+    }
+
+    /// The effort levels this controller offers, lowest first. Empty when it offers none.
+    public func commandEffortOptions() async throws -> [EffortOption] {
+        try await newSessionOptions().efforts ?? []
     }
 
     /// Fetches the session's own slash commands. Any failure (an older controller without the route, or a session
