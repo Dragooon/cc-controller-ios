@@ -360,7 +360,10 @@ struct SessionScreen: View {
                 if let session = store.openSession(sessionID)?.session {
                     CommandModelSheet(
                         session: session,
-                        loadModels: { try await store.commandModelOptions() },
+                        loadModels: {
+                            let options = try await store.newSessionOptions()
+                            return pickerModels(options.models, defaultModelLabel: options.defaultModelLabel)
+                        },
                         footer: store.supports(.model)
                             ? "Only this session. A resting session switches when it next runs."
                             : "Also becomes your default for new sessions, as /model does in the terminal.",
@@ -424,7 +427,8 @@ struct SessionScreen: View {
             guard case .assistant(let assistant) = entry else { return nil }
             return assistant.model
         }.first
-        let modelName = current.usage?.model ?? transcriptModel
+        // The usage-limit notice is written under a name that isn't a model, and a picked model waits a turn.
+        let modelName = shownSessionModelID(picked: current.model, usage: current.usage?.model, transcript: transcriptModel)
         return BottomStackConfiguration(
             sessionID: sessionID,
             sendRevealCoordinator: sendRevealCoordinator,
@@ -560,6 +564,21 @@ struct SessionScreen: View {
             if let sudo = message.sudo {
                 showToast(sudoToastText(sudo))
             }
+            // "/effort high" and "/model x" are answered by the controller, which may rest the session for them.
+            if message.applied == false {
+                if let effort = message.effort {
+                    let result = SessionEffortResult(effort: effort, applied: false, appliesOn: message.appliesOn)
+                    if let pending = effortSwitchPendingText(result, label: effortLabel(effort, options: store.effortOptions)) {
+                        showToast(pending)
+                    }
+                } else if let pickedModel = message.model {
+                    let result = SessionModelResult(model: pickedModel, applied: false, appliesOn: message.appliesOn)
+                    if let pending = modelSwitchPendingText(result, label: composerModelName(pickedModel)) {
+                        showToast(pending)
+                    }
+                }
+                await keepSessionOpenAfterRest()
+            }
         case .failure(let error):
             if shouldPresentSendError(error) {
                 model.actionError = error
@@ -586,6 +605,7 @@ struct SessionScreen: View {
             if let pending = effortSwitchPendingText(result, label: effortLabel(result.effort, options: store.effortOptions)) {
                 showToast(pending)
             }
+            if !result.applied { await keepSessionOpenAfterRest() }
             return .success(())
         case .failure(let error):
             return .failure(error)
@@ -598,13 +618,21 @@ struct SessionScreen: View {
         }
         switch await store.setSessionModel(sessionID: sessionID, model: id) {
         case .success(let result):
-            if let pending = modelSwitchPendingText(result) {
+            if let pending = modelSwitchPendingText(result, label: composerModelName(result.model)) {
                 showToast(pending)
             }
+            if !result.applied { await keepSessionOpenAfterRest() }
             return .success(())
         case .failure(let error):
             return .failure(error)
         }
+    }
+
+    /// A changed effort or model can rest the session so its next message relaunches it. A resting session
+    /// can't be written to, and the app only wakes one when it is opened from the list, so the open one is
+    /// woken here: it stays listed as running and takes the next message.
+    private func keepSessionOpenAfterRest() async {
+        _ = try? await store.wakeSession(id: sessionID)
     }
 
     private func showToast(_ message: String) {

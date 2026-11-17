@@ -600,6 +600,7 @@ public func composerModelName(_ model: String?) -> String? {
     guard !value.isEmpty else { return nil }
     let lowered = value.lowercased()
     guard !lowered.contains("unknown"), lowered != "placeholder", lowered != "model" else { return nil }
+    guard isRealModelID(value) else { return nil }
     let formatted = formatModelName(value)
     return formatted.isEmpty ? nil : formatted
 }

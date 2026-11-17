@@ -54,11 +54,7 @@ struct CommandModelSheet: View {
     @State private var selectingID: String?
 
     private var currentModelID: String? {
-        // A model picked for this session wins, since the transcript shows the old one until the next turn.
-        if let picked = session.model, let option = models.first(where: { $0.id.caseInsensitiveCompare(picked) == .orderedSame }) {
-            return option.id
-        }
-        return matchingCommandModelID(options: models, usageModel: session.model ?? session.usage?.model)
+        pickerCurrentModelID(models: models, picked: session.model, running: session.usage?.model)
     }
 
     /// The session's own level, or "Default" with the level its model then runs at: "Default (Medium)".

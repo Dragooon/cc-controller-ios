@@ -76,8 +76,9 @@ struct NewSessionView: View {
         return selectedStockadeAgent?.choosesFolder == true && options?.folders.isEmpty == false
     }
 
+    /// One entry for each model. "Default" has its own entry above the list, which names what it launches.
     private var availableModels: [ModelOption] {
-        options?.models ?? []
+        pickerModels(options?.models ?? []).filter { $0.id.caseInsensitiveCompare("default") != .orderedSame }
     }
 
     /// The effort levels the chosen model takes. Empty on a controller without effort levels.
@@ -578,7 +579,10 @@ struct NewSessionView: View {
 
     private func restoreSelections(from options: NewSessionOptions, controllerID: ControllerID) {
         let savedModel = UserDefaults.standard.string(forKey: Self.modelKeyPrefix + controllerID.rawValue)
-        selectedModelID = options.models.first(where: { $0.id == savedModel })?.id
+        // A saved pick that is no longer listed under its own id (a short name, a "[1m]" variant) maps to the
+        // entry that stands for the same model.
+        let listedModels = pickerModels(options.models).filter { $0.id.caseInsensitiveCompare("default") != .orderedSame }
+        selectedModelID = pickerCurrentModelID(models: listedModels, picked: savedModel, running: nil)
         let savedFolder = UserDefaults.standard.string(forKey: Self.folderKeyPrefix + controllerID.rawValue)
         selectedFolderPath = options.folders.first(where: { $0.path == savedFolder })?.path ?? options.folders.first?.path
 

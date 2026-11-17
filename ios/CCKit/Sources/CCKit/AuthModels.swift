@@ -33,7 +33,41 @@ public enum PairPollState: Codable, Sendable, Equatable { case pending, expired,
 public struct PairPollResponse: Codable, Sendable, Equatable { public var state: PairPollState?; public var deviceToken: String?; public init(state: PairPollState? = nil, deviceToken: String? = nil) { self.state = state; self.deviceToken = deviceToken } }
 public struct NativeEnrollResponse: Codable, Sendable, Equatable { public var secret: String?; public init(secret: String? = nil) { self.secret = secret } }
 public struct NativeLoginResponse: Codable, Sendable, Equatable { public var authenticated: Bool?; public var token: String?; public var expiresAt: Date?; public init(authenticated: Bool? = nil, token: String? = nil, expiresAt: Date? = nil) { self.authenticated = authenticated; self.token = token; self.expiresAt = expiresAt } }
-public struct MessageResult: Codable, Sendable, Equatable { public var delivered: Bool?; public var queued: Bool?; public var route: String?; public var output: String?; public var sudo: Bool?; public init(delivered: Bool? = nil, queued: Bool? = nil, route: String? = nil, output: String? = nil, sudo: Bool? = nil) { self.delivered = delivered; self.queued = queued; self.route = route; self.output = output; self.sudo = sudo } }
+public struct MessageResult: Codable, Sendable, Equatable {
+    public var delivered: Bool?
+    public var queued: Bool?
+    public var route: String?
+    public var output: String?
+    public var sudo: Bool?
+    /// Stockade answers "/effort high" and "/model x" itself: the level or model it took, and whether the
+    /// session already runs with it. `appliesOn` is "next_message" for a session that restarts on its next message.
+    public var effort: String?
+    public var model: String?
+    public var applied: Bool?
+    public var appliesOn: String?
+
+    public init(
+        delivered: Bool? = nil,
+        queued: Bool? = nil,
+        route: String? = nil,
+        output: String? = nil,
+        sudo: Bool? = nil,
+        effort: String? = nil,
+        model: String? = nil,
+        applied: Bool? = nil,
+        appliesOn: String? = nil
+    ) {
+        self.delivered = delivered
+        self.queued = queued
+        self.route = route
+        self.output = output
+        self.sudo = sudo
+        self.effort = effort
+        self.model = model
+        self.applied = applied
+        self.appliesOn = appliesOn
+    }
+}
 public struct UploadedFile: Codable, Sendable, Equatable { public var name: String?; public var path: String?; public var size: Int?; public var mime: String?; public var url: String?; public init(name: String? = nil, path: String? = nil, size: Int? = nil, mime: String? = nil, url: String? = nil) { self.name = name; self.path = path; self.size = size; self.mime = mime; self.url = url } }
 public struct UploadResponse: Codable, Sendable, Equatable { public var files: [UploadedFile]?; public init(files: [UploadedFile]? = nil) { self.files = files } }
 public struct LogoutResponse: Codable, Sendable, Equatable { public var loggedOut: Bool?; public init(loggedOut: Bool? = nil) { self.loggedOut = loggedOut } }

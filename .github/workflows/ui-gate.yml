@@ -35,6 +35,9 @@ on:
       engine:
         description: Transcript engine for the flows that honour it (empty = collection, or "legacy")
         default: ""
+      scheme:
+        description: Appearance the journeys run in (empty = light, or "dark")
+        default: ""
 
 permissions:
   contents: read
@@ -50,6 +53,7 @@ jobs:
     env:
       TIER: ${{ github.event_name == 'schedule' && 'nightly' || inputs.tier || 'core' }}
       MOTION: ${{ inputs.motion }}
+      TEST_RUNNER_COLOR_SCHEME: ${{ inputs.scheme }}
       TEST_RUNNER_HINGE_ANGLE: ${{ inputs.hinge }}
       TESTS: ${{ inputs.tests }}
       DEVICE: ${{ inputs.device || 'iPhone Duo' }}

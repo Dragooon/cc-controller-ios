@@ -44,8 +44,8 @@ private struct MarkdownBlockView: View {
         switch block {
         case .paragraph(let text):
             InlineMarkdownText(text: text)
-        case .heading(_, let text):
-            InlineMarkdownText(text: text, heading: true)
+        case .heading(let level, let text):
+            InlineMarkdownText(text: text, headingLevel: max(1, level))
         case .list(let ordered, let items):
             MarkdownListView(ordered: ordered, items: items, depth: listDepth)
         case .code(_, let code):

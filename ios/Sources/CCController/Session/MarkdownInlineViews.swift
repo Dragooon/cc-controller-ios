@@ -3,24 +3,44 @@ import UIKit
 
 struct InlineMarkdownText: View {
     let text: AttributedString
-    var heading = false
+    /// Nil for running text. 1 is the largest heading; 3 and deeper share the smallest heading size.
+    var headingLevel: Int?
 
     var body: some View {
         Text(styledText)
-            .font(heading ? .body.weight(.semibold) : .body)
-            .lineSpacing(CCMetrics.readingLineSpacing)
+            .font(textFont)
+            .lineSpacing(headingLevel == nil ? CCMetrics.readingLineSpacing : CCMetrics.headingLineSpacing)
             .foregroundStyle(.ccLabel)
             .tint(.ccAccent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, headingLevel == nil ? 0 : CCMetrics.headingTopSpacing)
+    }
+
+    /// Headings step up in size so a long reply shows its structure: a heading the size of the text around it
+    /// reads as one more bold line.
+    private var textFont: Font {
+        switch headingLevel {
+        case nil: .body
+        case 1?: .title2.weight(.semibold)
+        case 2?: .title3.weight(.semibold)
+        default: .headline
+        }
+    }
+
+    /// Code inside a sentence. A fixed-width face looks larger than the text around it at the same size, so
+    /// in running text it is set one step smaller.
+    private var inlineCodeFont: Font {
+        headingLevel == nil ? .subheadline.monospaced() : textFont.monospaced()
     }
 
     private var styledText: AttributedString {
         var styled = text
         for run in styled.runs {
             guard run.inlinePresentationIntent?.contains(.code) == true else { continue }
-            styled[run.range].font = heading ? .body.monospaced().weight(.semibold) : .body.monospaced()
-            styled[run.range].backgroundColor = .ccCard
+            styled[run.range].font = inlineCodeFont
+            // A tint of the text colour shows on every surface: the page, a bubble, a card.
+            styled[run.range].backgroundColor = Color.ccLabel.opacity(0.10)
         }
         return styled
     }
