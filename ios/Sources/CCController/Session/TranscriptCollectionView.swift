@@ -965,6 +965,10 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             UIView.performWithoutAnimation {
                 collectionView.layoutIfNeeded()
             }
+            // The row grew or shrank under a top that stayed put, so the view may have left the newest end or
+            // come back to it. Without this the transcript kept the row as its anchor while still counting as
+            // pinned: new output stopped following and no jump button showed.
+            updatePinAfterUserScroll(collectionView)
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1500,7 +1504,6 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 )
                 .equatable()
                 .background(MotionTraceProbe(id: row.id))
-                .background(BounceExperimentView(experiment: .rowViews))
             case .note(let note, let sessionState):
                 PendingPromptView(
                     sessionID: sessionIDForView,

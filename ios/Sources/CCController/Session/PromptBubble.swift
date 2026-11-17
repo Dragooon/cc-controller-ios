@@ -38,7 +38,26 @@ struct PromptBubble: View {
     let showsChatSender: Bool
     /// A bubble still being sent offers its actions through the pending prompt instead of a text selection menu.
     let allowsTextSelection: Bool
-    @State private var isExpanded = false
+    /// The transcript row this bubble is, so the transcript measures the row again when it opens or closes.
+    let expansionKey: String?
+    @Environment(\.transcriptExpansion) private var transcriptExpansion
+    @State private var userExpanded = false
+
+    private var isExpanded: Bool {
+        if let transcriptExpansion, let expansionKey {
+            return transcriptExpansion.value(for: expansionKey) ?? false
+        }
+        return userExpanded
+    }
+
+    private func toggleExpanded() {
+        let expanded = !isExpanded
+        if let transcriptExpansion, let expansionKey {
+            transcriptExpansion.set(expanded, for: expansionKey)
+        } else {
+            userExpanded = expanded
+        }
+    }
 
     init(
         prompt: PromptEntry,
@@ -47,9 +66,11 @@ struct PromptBubble: View {
         attachmentThumbnails: [String: Data] = [:],
         bubbleAccessibilityIdentifier: String = "prompt-bubble",
         showsChatSender: Bool = false,
-        allowsTextSelection: Bool = true
+        allowsTextSelection: Bool = true,
+        expansionKey: String? = nil
     ) {
         self.allowsTextSelection = allowsTextSelection
+        self.expansionKey = expansionKey
         self.prompt = prompt
         self.sessionID = sessionID
         self.downloadFile = downloadFile
@@ -140,7 +161,7 @@ struct PromptBubble: View {
                         }
 
                         if collapse.collapsed {
-                            Button { isExpanded.toggle() } label: {
+                            Button { toggleExpanded() } label: {
                                 Text(isExpanded ? "Show less" : "Show more")
                                     .font(.footnote)
                                     .foregroundStyle(.ccAccent)

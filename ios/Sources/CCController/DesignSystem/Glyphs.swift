@@ -120,6 +120,7 @@ struct ApprovalCard: View {
     let attachCommand: String?
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsWholeCommand = false
     @State private var attachCommandCopied = false
     @ScaledMetric(relativeTo: .body) private var fullActionHeight = CCMetrics.actionHeight
     @ScaledMetric(relativeTo: .body) private var compactActionHeight = CCMetrics.compactActionHeight
@@ -330,15 +331,18 @@ struct ApprovalCard: View {
                     Text(copy.command)
                         .font(.callout.monospaced())
                         .foregroundStyle(.ccLabel)
-                        .lineLimit(commandLineLimit)
+                        .lineLimit(showsWholeCommand ? nil : commandLineLimit)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
 
                     if commandLineCount > commandLineLimit {
-                        Button("Show all") {}
+                        Button(showsWholeCommand ? "Show less" : "Show all") { showsWholeCommand.toggle() }
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.ccAccent)
                             .buttonStyle(.plain)
+                            .frame(minHeight: CCMetrics.minTap)
+                            .contentShape(Rectangle())
+                            .accessibilityIdentifier("approval-command-show-all")
                     }
                 }
             }

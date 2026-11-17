@@ -372,7 +372,6 @@ struct SessionTranscriptView: View {
                         .frame(maxWidth: readableContentMaxWidth)
                         .frame(maxWidth: .infinity)
                         .background(MotionTraceProbe(id: "composer"))
-                        .background(BounceExperimentView(experiment: .composerView))
                 }
             }
             .alert(
@@ -454,6 +453,12 @@ struct SessionTranscriptView: View {
             isPinnedToBottom: $isPinnedToBottom,
             jumpToLatestRequest: $jumpToLatestRequest
         )
+        // A message sent while reading older history goes to the newest end, where it appears.
+        .onChange(of: sendAcceptedRevision) { _, _ in
+            guard !isPinnedToBottom else { return }
+            isPinnedToBottom = true
+            jumpToLatestRequest += 1
+        }
         .overlay(alignment: .bottomTrailing) {
             if !isPinnedToBottom, turns.last != nil {
                 Button {
@@ -485,7 +490,6 @@ struct SessionTranscriptView: View {
                     .frame(maxWidth: readableContentMaxWidth)
                     .frame(maxWidth: .infinity)
                     .background(MotionTraceProbe(id: "composer"))
-                    .background(BounceExperimentView(experiment: .composerView))
             }
         }
         .alert(
@@ -1892,7 +1896,13 @@ struct TranscriptRowView: View, Equatable {
         Group {
             switch row.kind {
             case .prompt(let prompt):
-                PromptBubble(prompt: prompt, sessionID: sessionID, downloadFile: promptDownload, showsChatSender: liveSession?.writable == false)
+                PromptBubble(
+                    prompt: prompt,
+                    sessionID: sessionID,
+                    downloadFile: promptDownload,
+                    showsChatSender: liveSession?.writable == false,
+                    expansionKey: "\(sessionID):\(row.id)"
+                )
             case .item(let item):
                 TurnItemView(
                     item: item,

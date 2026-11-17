@@ -387,7 +387,6 @@ struct BottomStackView: View {
         #endif
         .onAppear {
             KeyboardPresence.shared.start()
-            BounceExperimentFrameTimer.shared.applyCurrentExperiment()
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bottom-stack")
@@ -536,9 +535,9 @@ struct BottomStackView: View {
         #endif
         composerFocused = false
         clearComposerAfterSend(originalText: originalText, submittedText: submittedText)
-        if !isSlashCommand(submittedText) {
-            await configuration.sendRevealCoordinator?.waitForReveal()
-        }
+        // The tap's haptic goes with the message leaving. Nothing in the collection transcript reports the
+        // bubble's reveal, so waiting for it only delayed every send by the wait's full timeout.
+        configuration.sendRevealCoordinator?.cancel()
         sendFeedbackCount += 1
     }
 

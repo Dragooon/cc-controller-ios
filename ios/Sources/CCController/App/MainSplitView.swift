@@ -506,8 +506,11 @@ struct MainSplitView: View {
             onSettings: { model.isSettingsPresented = true },
             onToggleSidebar: toggleSidebar,
             onRefresh: {
-                for connection in model.connections {
-                    connection.store.resume()
+                await withTaskGroup(of: Void.self) { group in
+                    for connection in model.connections {
+                        let store = connection.store
+                        group.addTask { await store.refresh() }
+                    }
                 }
             },
             onInterrupt: { controllerID, session in

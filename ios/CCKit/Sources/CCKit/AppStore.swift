@@ -270,6 +270,16 @@ public final class AppStore {
         }
     }
 
+    /// Reconnects and returns once the session list is current again, or after a few seconds if the controller
+    /// can't be reached, so a pull to refresh keeps its spinner for as long as the refresh takes.
+    public func refresh(timeout: Duration = .seconds(4)) async {
+        resume()
+        let deadline = ContinuousClock.now + timeout
+        while !isStateCurrent, ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     public func openSession(_ id: String) -> SessionStore? {
         openStore(sessionID: id, agentID: nil)
     }
