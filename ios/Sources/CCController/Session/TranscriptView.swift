@@ -425,6 +425,7 @@ struct SessionTranscriptView: View {
         TranscriptCollectionRepresentable(
             sessionID: sessionID,
             rows: displayRows,
+            newestEntryTime: turns.last?.newestEntryTime,
             queuedNotes: queuedNotes,
             transcriptExpansion: expansion,
             sessionState: sessionState,

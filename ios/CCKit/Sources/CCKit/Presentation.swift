@@ -329,6 +329,49 @@ public struct Turn: Identifiable, Sendable, Equatable {
     }
 }
 
+extension TurnItem {
+    /// When the newest entry behind this item was written, by the controller's clock. A tool counts as written when
+    /// it finished.
+    public var newestEntryTime: Date? {
+        switch self {
+        case .assistant(let entry): return entry.ts
+        case .tools(let run): return run.entries.compactMap(toolFinishTime).max()
+        case .subagent(let entry): return [entry.ts, entry.finishedAt].compactMap { $0 }.max()
+        case .subagentResult(let entry): return entry.ts
+        case .sendMessage(let entry): return toolFinishTime(entry)
+        case .decision(let entry): return entry.ts
+        case .interrupt(let entry): return entry.ts
+        case .compaction(let entry): return entry.ts
+        case .file(let entry): return entry.ts
+        case .other(let entry): return entry.ts
+        }
+    }
+}
+
+private func toolFinishTime(_ entry: ToolEntry) -> Date? {
+    guard let started = entry.ts else { return nil }
+    return started.addingTimeInterval(Double(entry.durationMs ?? 0) / 1000)
+}
+
+extension Turn {
+    /// When the newest entry in this turn was written, by the controller's clock.
+    public var newestEntryTime: Date? {
+        (prompts.map(\.ts) + items.map(\.newestEntryTime) + [end?.ts]).compactMap { $0 }.max()
+    }
+}
+
+/// How long after an entry was written its row still counts as happening now. It covers delivery and a clock that is
+/// a little off between the controller and this device.
+public let transcriptLiveWindow: TimeInterval = 60
+
+/// Whether transcript rows arriving now are history catching up, not something happening now. A controller can
+/// send a whole transcript again entry by entry (it does when a resting session wakes), and those rows must
+/// appear in place: animating each one in scrolled the chat for as long as the history took to arrive.
+public func transcriptRowsAreHistory(newestEntryTime: Date?, now: Date) -> Bool {
+    guard let newestEntryTime else { return false }
+    return now.timeIntervalSince(newestEntryTime) > transcriptLiveWindow
+}
+
 public enum TranscriptStatus: Sendable, Equatable {
     case activity(ActivityFooter)
     case worked(durationMs: Int)

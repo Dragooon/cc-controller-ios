@@ -700,6 +700,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
 struct TranscriptCollectionRepresentable: UIViewRepresentable {
     let sessionID: String
     let rows: [TranscriptRow]
+    /// When the newest entry in the transcript was written; rows that arrive long after it are history.
+    var newestEntryTime: Date?
     let queuedNotes: [QueuedNote]
     let transcriptExpansion: TranscriptExpansionStore
     let sessionState: SessionState?
@@ -824,6 +826,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
         private var liveSession: Session?
         private var sessionIDForView = ""
         private var reduceMotion = false
+        private var newestEntryTime: Date?
         fileprivate var readableContentMaxWidth: CGFloat = .infinity
 
         func attach(collectionView: TranscriptCollectionView) {
@@ -894,6 +897,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             liveSession = representable.liveSession
             sessionIDForView = representable.sessionID
             reduceMotion = representable.reduceMotion
+            newestEntryTime = representable.newestEntryTime
             rowSubagentIndex = SubagentIndex(representable.subagents)
             onTool = representable.onTool
             onSubagent = representable.onSubagent
@@ -1221,7 +1225,15 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
             }
             let inserted = items.filter { !oldItemSet.contains($0) }
             let deleted = oldItems.filter { !itemSet.contains($0) }
-            let animated = hasAppliedSnapshot && !reduceMotion
+            // A queued message or the status line is something happening now even in an old chat, so only
+            // transcript rows are checked against the time they were written.
+            let insertsTranscriptRows = inserted.contains { item in
+                if case .row(let id) = item { return id != "status" }
+                return false
+            }
+            let insertsHistory = insertsTranscriptRows
+                && transcriptRowsAreHistory(newestEntryTime: newestEntryTime, now: Date())
+            let animated = hasAppliedSnapshot && !reduceMotion && !insertsHistory
                 && inserted.count <= Self.mostRowsToAnimateOnInsert
                 && deleted.count <= Self.mostRowsToAnimateOnInsert
                 && isNewestEndUpdate(
