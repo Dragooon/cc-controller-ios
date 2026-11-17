@@ -19,7 +19,7 @@ final class SessionRecencyTests: XCTestCase {
         let peered = try decode(#"{"id":"peered","lastUserMessageAt":"2026-10-28T08:00:00Z","lastPeerMessageAt":"2026-10-28T10:20:00Z","lastOwnMessageAt":"2026-10-28T08:00:00Z"}"#)
         let mine = try decode(#"{"id":"mine","lastUserMessageAt":"2026-10-28T10:05:00Z","lastOwnMessageAt":"2026-10-28T10:05:00Z"}"#)
 
-        XCTAssertEqual(shared.ownMessageAt, date("2026-10-28T09:00:00Z"))
+        XCTAssertEqual(shared.ownActivityAt, date("2026-10-28T09:00:00Z"))
         XCTAssertEqual(sortSessionsForRecents([shared, peered, mine]).map(\.id), ["mine", "shared", "peered"])
     }
 
@@ -32,9 +32,36 @@ final class SessionRecencyTests: XCTestCase {
         )
 
         XCTAssertTrue(theirs.reportsOwnMessageTime)
-        XCTAssertNil(theirs.ownMessageAt)
-        XCTAssertNil(resting.ownMessageAt)
+        XCTAssertNil(theirs.ownActivityAt)
+        XCTAssertNil(resting.ownActivityAt)
         XCTAssertEqual(sortSessionsForRecents([theirs, mine]).map(\.id), ["mine", "theirs"])
+    }
+
+    func testYourLastActionCountsLikeYourLastMessage() throws {
+        // You answered an approval in "acted" after you wrote in "wrote".
+        let acted = try decode(#"{"id":"acted","lastOwnMessageAt":"2026-10-28T08:00:00Z","lastOwnActionAt":"2026-10-28T10:30:00Z"}"#)
+        let wrote = try decode(#"{"id":"wrote","lastOwnMessageAt":"2026-10-28T10:00:00Z","lastOwnActionAt":null}"#)
+        let resting = try JSONDecoder.ccKit().decode(
+            SleepingSession.self,
+            from: Data(#"{"id":"resting","lastOwnMessageAt":null,"lastOwnActionAt":"2026-10-28T09:00:00Z"}"#.utf8)
+        )
+
+        XCTAssertEqual(acted.ownActivityAt, date("2026-10-28T10:30:00Z"))
+        XCTAssertEqual(resting.ownActivityAt, date("2026-10-28T09:00:00Z"))
+        XCTAssertEqual(sortSessionsForRecents([wrote, acted]).map(\.id), ["acted", "wrote"])
+    }
+
+    func testASessionWaitingOnYouComesFirst() throws {
+        let recent = try decode(#"{"id":"recent","state":"idle","lastOwnMessageAt":"2026-10-28T10:30:00Z"}"#)
+        let asking = try decode(#"{"id":"asking","state":"needs_you","lastOwnMessageAt":"2026-10-20T10:00:00Z"}"#)
+        let askingNewer = try decode(#"{"id":"asking-newer","state":"needs_you","lastOwnMessageAt":"2026-10-27T10:00:00Z"}"#)
+        // Someone else's chat that needs an approval only you can give.
+        let theirs = try decode(#"{"id":"theirs","state":"needs_you","lastOwnMessageAt":null}"#)
+
+        XCTAssertEqual(
+            sortSessionsForRecents([recent, theirs, asking, askingNewer]).map(\.id),
+            ["asking-newer", "asking", "theirs", "recent"]
+        )
     }
 
     func testAControllerWithoutOwnMessageTimesOrdersByTheUserMessage() throws {
@@ -45,8 +72,8 @@ final class SessionRecencyTests: XCTestCase {
         )
 
         XCTAssertFalse(session.reportsOwnMessageTime)
-        XCTAssertEqual(session.ownMessageAt, date("2026-10-28T09:00:00Z"))
-        XCTAssertEqual(resting.ownMessageAt, date("2026-10-28T09:30:00Z"))
+        XCTAssertEqual(session.ownActivityAt, date("2026-10-28T09:00:00Z"))
+        XCTAssertEqual(resting.ownActivityAt, date("2026-10-28T09:30:00Z"))
     }
 
     func testSortsRecentsNewestFirstAcrossHosts() {

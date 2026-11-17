@@ -239,6 +239,8 @@ struct SessionsListView: View {
     }
 
     private func recentSessionPrecedes(_ left: RecentSessionItem, _ right: RecentSessionItem) -> Bool {
+        // A chat waiting on you comes first, whenever you last wrote in it.
+        if left.needsYou != right.needsYou { return left.needsYou }
         let leftDate = left.lastUserMessageDate
         let rightDate = right.lastUserMessageDate
         if leftDate != rightDate {
@@ -769,13 +771,23 @@ private enum RecentSessionItem: Identifiable {
         }
     }
 
-    /// When you last wrote to the session, or the nearest thing the controller knows when it can't say. A controller
+    /// Whether the session is waiting on you: it asked something, or an approval for it is pending.
+    var needsYou: Bool {
+        switch self {
+        case .live(let item):
+            sessionActivity(item.session) == .needsYou || item.controller.approval(for: item.session) != nil
+        case .sleeping:
+            false
+        }
+    }
+
+    /// When you last wrote or acted in the session, or the nearest thing the controller knows when it can't say. A controller
     /// with several people on it says when it was you, and a session you never wrote in sorts below the ones you did.
     var lastUserMessageDate: Date {
         switch self {
         case .live(let item):
             if item.session.reportsOwnMessageTime {
-                return item.session.lastOwnMessageAt ?? .distantPast
+                return item.session.ownActivityAt ?? .distantPast
             }
             // An inexact time is the session's last activity, which moves when a turn ends, so it isn't used
             // unless there's nothing else.
@@ -786,7 +798,7 @@ private enum RecentSessionItem: Identifiable {
                 ?? max(item.session.idleSince ?? .distantPast, item.session.startedAt ?? .distantPast)
         case .sleeping(let item):
             if item.session.reportsOwnMessageTime {
-                return item.session.lastOwnMessageAt ?? .distantPast
+                return item.session.ownActivityAt ?? .distantPast
             }
             return item.session.lastUserMessageAt ?? item.session.lastActiveAt
         }
