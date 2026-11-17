@@ -399,7 +399,7 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, shortId, name, cwd, project, lastActiveAt, archivedAt, lastUserMessageAt, lastOwnMessageAt, lastOwnActionAt, lastAssistantMessageAt
+        case id, shortId, name, cwd, project, lastActiveAt, archivedAt, lastUserMessageAt, lastOwnMessageAt, lastOwnActionAt, reportsOwnMessageTime, lastAssistantMessageAt
     }
 
     /// Only the id is required. A carried-over conversation can come without a folder or an activity time.
@@ -413,7 +413,9 @@ public struct SleepingSession: Codable, Sendable, Equatable, Identifiable {
         project = (try? container.decodeIfPresent(String.self, forKey: .project)) ?? folderName
         archivedAt = try? container.decodeIfPresent(Date.self, forKey: .archivedAt)
         lastUserMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastUserMessageAt)
+        // The controller sends the time's key, even as null. The app's own saved copy drops a null, so it says so.
         reportsOwnMessageTime = container.contains(.lastOwnMessageAt)
+            || ((try? container.decodeIfPresent(Bool.self, forKey: .reportsOwnMessageTime)) ?? false)
         lastOwnMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastOwnMessageAt)
         lastOwnActionAt = try? container.decodeIfPresent(Date.self, forKey: .lastOwnActionAt)
         lastAssistantMessageAt = try? container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
@@ -583,7 +585,7 @@ public struct Session: Codable, Sendable, Equatable {
     public var agent: SessionAgent?
 
     private enum CodingKeys: String, CodingKey {
-        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastOwnMessageAt, lastOwnActionAt, model, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
+        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastOwnMessageAt, lastOwnActionAt, reportsOwnMessageTime, model, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
     }
 
     public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, archivedAt: Date? = nil, closable: Bool = false, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.archivedAt = archivedAt; self.closable = closable; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
@@ -628,7 +630,9 @@ public struct Session: Codable, Sendable, Equatable {
             agent: try container.decodeIfPresent(SessionAgent.self, forKey: .agent)
         )
         lastAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastAssistantMessageAt)
+        // The controller sends the time's key, even as null. The app's own saved copy drops a null, so it says so.
         reportsOwnMessageTime = container.contains(.lastOwnMessageAt)
+            || ((try? container.decodeIfPresent(Bool.self, forKey: .reportsOwnMessageTime)) ?? false)
         lastOwnMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastOwnMessageAt)
         lastOwnActionAt = try container.decodeIfPresent(Date.self, forKey: .lastOwnActionAt)
         model = try container.decodeIfPresent(String.self, forKey: .model)

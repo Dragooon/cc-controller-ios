@@ -64,6 +64,23 @@ final class SessionRecencyTests: XCTestCase {
         )
     }
 
+    func testASavedCopyRemembersThatYouNeverWroteThere() throws {
+        // The app saves sessions to disk and loads them on a cold start; a null time isn't written out.
+        let theirs = try decode(#"{"id":"theirs","lastUserMessageAt":"2026-10-28T10:30:00Z","lastOwnMessageAt":null}"#)
+        let resting = try JSONDecoder.ccKit().decode(
+            SleepingSession.self,
+            from: Data(#"{"id":"resting","lastUserMessageAt":"2026-10-28T10:30:00Z","lastOwnMessageAt":null}"#.utf8)
+        )
+
+        let savedSession = try JSONDecoder.ccKit().decode(Session.self, from: JSONEncoder.ccKit().encode(theirs))
+        let savedResting = try JSONDecoder.ccKit().decode(SleepingSession.self, from: JSONEncoder.ccKit().encode(resting))
+
+        XCTAssertTrue(savedSession.reportsOwnMessageTime)
+        XCTAssertNil(savedSession.ownActivityAt)
+        XCTAssertTrue(savedResting.reportsOwnMessageTime)
+        XCTAssertNil(savedResting.ownActivityAt)
+    }
+
     func testAControllerWithoutOwnMessageTimesOrdersByTheUserMessage() throws {
         let session = try decode(#"{"id":"old-controller","lastUserMessageAt":"2026-10-28T09:00:00Z","lastPeerMessageAt":"2026-10-28T11:00:00Z"}"#)
         let resting = try JSONDecoder.ccKit().decode(
