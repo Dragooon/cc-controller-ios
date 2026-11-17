@@ -186,6 +186,7 @@ struct SessionScreen: View {
             .hidden()
         }
         .task(id: commandsLoadKey) {
+            await store.loadEffortOptionsIfNeeded()
             guard commandsLoadKey.isLive, store.sessions[sessionID]?.isWaitingToBeStarted != true else { return }
             await store.loadSessionCommands(sessionID: sessionID)
         }
@@ -362,6 +363,10 @@ struct SessionScreen: View {
                             : "Also becomes your default for new sessions, as /model does in the terminal.",
                         onSelect: { id in
                             await selectModel(id)
+                        },
+                        loadEfforts: store.supports(.effort) ? { try await store.commandEffortOptions() } : nil,
+                        onSelectEffort: { id in
+                            await selectEffort(id)
                         }
                     )
                 }
@@ -427,6 +432,14 @@ struct SessionScreen: View {
                     onChange: { text in store.setDraft(text, for: sessionID) }
                 ),
                 modelName: composerModelName(modelName),
+                effortName: store.supports(.effort)
+                    ? sessionEffortName(
+                        effort: current.effort,
+                        modelID: current.model ?? modelName,
+                        models: store.effortModels,
+                        efforts: store.effortOptions
+                    )
+                    : nil,
                 placeholder: current.state == .working ? "Queue for after this turn…" : "Message",
                 isWorking: current.state == .working,
                 canSend: current.live == true,
@@ -564,6 +577,18 @@ struct SessionScreen: View {
 
     @MainActor
     /// Stockade switches just this session through its model route; other controllers take `/model` as a message.
+    private func selectEffort(_ id: String) async -> Result<Void, ActionError> {
+        switch await store.setSessionEffort(sessionID: sessionID, effort: id) {
+        case .success(let result):
+            if let pending = effortSwitchPendingText(result, label: effortLabel(result.effort, options: store.effortOptions)) {
+                showToast(pending)
+            }
+            return .success(())
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
     private func selectModel(_ id: String) async -> Result<Void, ActionError> {
         guard store.supports(.model) else {
             return await store.sendResult(text: "/model \(id)", attachments: [], to: sessionID).map { _ in () }

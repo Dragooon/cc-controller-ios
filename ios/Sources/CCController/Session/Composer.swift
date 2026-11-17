@@ -26,6 +26,8 @@ struct ComposerConfiguration: Equatable {
     let initialText: String
     let draft: ComposerDraft?
     let modelName: String?
+    /// The session's effort level, shown after the model. Nil when the controller doesn't report one.
+    let effortName: String?
     let placeholder: String
     let isWorking: Bool
     let canSend: Bool
@@ -40,6 +42,7 @@ struct ComposerConfiguration: Equatable {
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.modelName == rhs.modelName
+            && lhs.effortName == rhs.effortName
             && lhs.placeholder == rhs.placeholder
             && lhs.isWorking == rhs.isWorking
             && lhs.canSend == rhs.canSend
@@ -54,6 +57,7 @@ struct ComposerConfiguration: Equatable {
         initialText: String = "",
         draft: ComposerDraft? = nil,
         modelName: String? = "Fable 5.1",
+        effortName: String? = nil,
         placeholder: String = "Message",
         isWorking: Bool = false,
         canSend: Bool = true,
@@ -67,6 +71,7 @@ struct ComposerConfiguration: Equatable {
         self.initialText = initialText
         self.draft = draft
         self.modelName = modelName
+        self.effortName = effortName
         self.placeholder = placeholder
         self.isWorking = isWorking
         self.canSend = canSend
@@ -275,9 +280,8 @@ struct ComposerView: View, Equatable {
     private var modelButton: some View {
         if let modelName = configuration.modelName {
             Button(action: onModel) {
-                Text(modelName)
+                modelChipText(modelName)
                     .font(.footnote)
-                    .foregroundStyle(.ccLabel)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .padding(.horizontal, 11)
@@ -288,8 +292,16 @@ struct ComposerView: View, Equatable {
             .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
             .layoutPriority(-1)
             .contentShape(Rectangle())
-            .accessibilityLabel("Model \(modelName)")
+            .accessibilityLabel(configuration.effortName.map { "Model \(modelName), effort \($0)" } ?? "Model \(modelName)")
+            .accessibilityIdentifier("composer-model")
         }
+    }
+
+    /// The model, then the effort level in the quieter colour: "Fable 5.2 Extra".
+    private func modelChipText(_ modelName: String) -> Text {
+        let model = Text(modelName).foregroundStyle(.ccLabel)
+        guard let effortName = configuration.effortName else { return model }
+        return model + Text(" \(effortName)").foregroundStyle(.ccSecondary)
     }
 
     private var stopButton: some View {

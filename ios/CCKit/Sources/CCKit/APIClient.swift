@@ -75,6 +75,11 @@ public actor APIClient {
         try await post("/api/sessions/\(pathComponent(id))/model", body: SessionModelRequest(model: model))
     }
 
+    /// Stockade: sets one session's effort level. A resting session changes when it next runs.
+    public func setSessionEffort(id: String, effort: String) async throws -> SessionEffortResult {
+        try await post("/api/sessions/\(pathComponent(id))/effort", body: SessionEffortRequest(effort: effort))
+    }
+
     /// Stockade: the session's slash commands as Claude Code lists them. 409 when the session isn't running.
     public func sessionCommands(id: String) async throws -> SessionCommandList {
         try await get("/api/sessions/\(pathComponent(id))/commands")
@@ -406,6 +411,7 @@ private struct CreateAgentSessionRequest: Encodable {
     }
 }
 private struct SessionModelRequest: Encodable { let model: String }
+private struct SessionEffortRequest: Encodable { let effort: String }
 private struct MessageRequest: Encodable {
     let text: String
     let files: [String]

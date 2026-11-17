@@ -49,6 +49,8 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
     case peerConversations
     /// Stockade: overrides one session's model with POST /api/sessions/:id/model.
     case model
+    /// Stockade: reports each session's effort and sets it with POST /api/sessions/:id/effort.
+    case effort
     case unknown(String)
 
     public init(rawValue: String) {
@@ -70,6 +72,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case "sudo": self = .sudo
         case "peer_conversations": self = .peerConversations
         case "model": self = .model
+        case "effort": self = .effort
         default: self = .unknown(rawValue)
         }
     }
@@ -102,6 +105,7 @@ public enum ControllerCapability: RawRepresentable, Hashable, Codable, Sendable 
         case .sudo: "sudo"
         case .peerConversations: "peer_conversations"
         case .model: "model"
+        case .effort: "effort"
         case .unknown(let value): value
         }
     }
@@ -233,9 +237,13 @@ public struct NewSessionFolder: Codable, Sendable, Equatable, Identifiable {
 public struct ModelOption: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var label: String
+    /// Stockade: the ids of the effort levels this model takes. Nil when the controller doesn't say.
+    public var efforts: [String]?
+    /// Stockade: the level this model runs at when a session has none of its own.
+    public var defaultEffort: String?
 
-    public init(id: String, label: String) {
-        self.id = id; self.label = label
+    public init(id: String, label: String, efforts: [String]? = nil, defaultEffort: String? = nil) {
+        self.id = id; self.label = label; self.efforts = efforts; self.defaultEffort = defaultEffort
     }
 }
 
@@ -268,6 +276,80 @@ public struct SessionModelResult: Codable, Sendable, Equatable {
 }
 
 /// What the app tells the user after the controller accepted a model it hasn't applied yet.
+public struct SessionEffortResult: Codable, Sendable, Equatable {
+    public var effort: String
+    /// False when the session didn't switch yet.
+    public var applied: Bool
+    /// As for a model: "next_message" for a live session, nil for a resting one that switches when it next runs.
+    public var appliesOn: String?
+
+    public init(effort: String, applied: Bool, appliesOn: String? = nil) {
+        self.effort = effort; self.applied = applied; self.appliesOn = appliesOn
+    }
+}
+
+/// How hard a session thinks before it answers: one of the levels the controller offers.
+public struct EffortOption: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var label: String
+
+    public init(id: String, label: String) {
+        self.id = id; self.label = label
+    }
+}
+
+/// The id a controller uses for "whatever the model does by default".
+public let defaultEffortID = "default"
+
+/// Whether a session has no effort level of its own. A controller says so with no level or with "default".
+public func isDefaultEffort(_ effort: String?) -> Bool {
+    let id = effort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return id.isEmpty || id.caseInsensitiveCompare(defaultEffortID) == .orderedSame
+}
+
+/// The levels a model takes, in the controller's order. "Default" always stays. Every level is offered when the
+/// model is unknown or the controller doesn't list levels by model.
+public func effortOptions(_ efforts: [EffortOption], forModel modelID: String?, models: [ModelOption]) -> [EffortOption] {
+    guard let modelID,
+          let model = models.first(where: { $0.id.caseInsensitiveCompare(modelID) == .orderedSame }),
+          let taken = model.efforts else { return efforts }
+    let ids = Set(taken.map { $0.lowercased() })
+    return efforts.filter { isDefaultEffort($0.id) || ids.contains($0.id.lowercased()) }
+}
+
+/// The effort level to show beside a session's model: its own level, else the level its model runs at by
+/// default. Nil when neither is known, and then nothing is shown.
+public func sessionEffortName(effort: String?, modelID: String?, models: [ModelOption], efforts: [EffortOption]) -> String? {
+    if !isDefaultEffort(effort) { return effortLabel(effort, options: efforts) }
+    guard let matched = matchingCommandModelID(options: models, usageModel: modelID),
+          let model = models.first(where: { $0.id == matched }),
+          !isDefaultEffort(model.defaultEffort) else { return nil }
+    return effortLabel(model.defaultEffort, options: efforts)
+}
+
+/// The name shown for an effort level: the controller's label when it offers the level, else the id written
+/// as a word. Nil for no level, so nothing is shown.
+public func effortLabel(_ effort: String?, options: [EffortOption] = []) -> String? {
+    let id = effort?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !id.isEmpty else { return nil }
+    if let option = options.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
+        return option.label
+    }
+    switch id.lowercased() {
+    case "xhigh": return "Extra"
+    default: return id.prefix(1).uppercased() + id.dropFirst().lowercased()
+    }
+}
+
+/// What the app tells the user after the controller accepted an effort level it hasn't applied yet.
+public func effortSwitchPendingText(_ result: SessionEffortResult, label: String? = nil) -> String? {
+    guard !result.applied else { return nil }
+    let name = label ?? effortLabel(result.effort) ?? result.effort
+    return result.appliesOn == "next_message"
+        ? "Effort changes to \(name) with your next message"
+        : "Effort changes to \(name) when the session next runs"
+}
+
 public func modelSwitchPendingText(_ result: SessionModelResult, label: String? = nil) -> String? {
     guard !result.applied else { return nil }
     let name = label ?? result.model
@@ -310,6 +392,10 @@ public struct NewSessionOptions: Codable, Sendable, Equatable {
     public var folders: [NewSessionFolder]
     public var models: [ModelOption]
     public var defaultModel: String
+    /// Stockade: the effort levels a session can be set to, lowest first. Nil when the controller has none.
+    public var efforts: [EffortOption]?
+    /// The level a session runs at when none was picked.
+    public var defaultEffort: String?
     /// Stockade: the agents a new session can start with. Nil on the Mac, which starts sessions in folders.
     public var agents: [NewSessionAgent]?
     /// Claude Code: the agents a new session can start with. Nil on Stockade.
@@ -323,7 +409,9 @@ public struct NewSessionOptions: Codable, Sendable, Equatable {
         defaultModel: String = "default",
         agents: [NewSessionAgent]? = nil,
         claudeAgents: [ClaudeAgentOption]? = nil,
-        ownerName: String? = nil
+        ownerName: String? = nil,
+        efforts: [EffortOption]? = nil,
+        defaultEffort: String? = nil
     ) {
         self.folders = folders
         self.models = models
@@ -331,6 +419,8 @@ public struct NewSessionOptions: Codable, Sendable, Equatable {
         self.agents = agents
         self.claudeAgents = claudeAgents
         self.ownerName = ownerName
+        self.efforts = efforts
+        self.defaultEffort = defaultEffort
     }
 }
 
@@ -568,6 +658,8 @@ public struct Session: Codable, Sendable, Equatable {
     public var lastAssistantMessageAt: Date?
     /// Stockade: the model this session was switched to, when it differs from the default.
     public var model: String?
+    /// Stockade: the effort level this session runs at. Nil when the controller can't say.
+    public var effort: String?
     public var startedAt: Date?
     public var idleSince: Date?
     public var background: BackgroundSession?
@@ -585,7 +677,7 @@ public struct Session: Codable, Sendable, Equatable {
     public var agent: SessionAgent?
 
     private enum CodingKeys: String, CodingKey {
-        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastOwnMessageAt, lastOwnActionAt, reportsOwnMessageTime, model, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
+        case id, pid, name, cwd, project, tmuxPane, tmux, location, live, state, action, lastTool, lastToolInput, toolRunning, lastText, pending, usage, subagents, shells, mode, commandRoute, lastAssistantMessageAt, lastUserMessageAt, lastUserMessageAtExact, lastOwnMessageAt, lastOwnActionAt, reportsOwnMessageTime, model, effort, startedAt, idleSince, background, archivedAt, closable, origin, startedBy, participants, writable, readOnlyReason, sudo, agent
     }
 
     public init(id: String? = nil, pid: Int? = nil, name: String? = nil, cwd: String? = nil, project: String? = nil, tmuxPane: String? = nil, tmux: Bool? = nil, location: String? = nil, live: Bool? = nil, state: SessionState? = nil, action: String? = nil, lastTool: String? = nil, lastToolInput: JSONValue? = nil, toolRunning: Bool? = nil, lastText: String? = nil, pending: [Approval]? = nil, usage: Usage? = nil, subagents: [Subagent]? = nil, shells: [Shell]? = nil, mode: ApprovalMode? = nil, commandRoute: String? = nil, lastUserMessageAt: Date? = nil, lastUserMessageAtExact: Bool? = nil, startedAt: Date? = nil, idleSince: Date? = nil, background: BackgroundSession? = nil, archivedAt: Date? = nil, closable: Bool = false, origin: String? = nil, startedBy: SessionStarter? = nil, participants: [SessionParticipant]? = nil, writable: Bool? = nil, readOnlyReason: String? = nil, sudo: Bool? = nil, agent: SessionAgent? = nil) { self.id = id; self.pid = pid; self.name = name; self.cwd = cwd; self.project = project; self.tmuxPane = tmuxPane; self.tmux = tmux; self.location = location; self.live = live; self.state = state; self.action = action; self.lastTool = lastTool; self.lastToolInput = lastToolInput; self.toolRunning = toolRunning; self.lastText = lastText; self.pending = pending; self.usage = usage; self.subagents = subagents; self.shells = shells; self.mode = mode; self.commandRoute = commandRoute; self.lastUserMessageAt = lastUserMessageAt; self.lastUserMessageAtExact = lastUserMessageAtExact; self.startedAt = startedAt; self.idleSince = idleSince; self.background = background; self.archivedAt = archivedAt; self.closable = closable; self.origin = origin; self.startedBy = startedBy; self.participants = participants; self.writable = writable; self.readOnlyReason = readOnlyReason; self.sudo = sudo; self.agent = agent }
@@ -636,6 +728,7 @@ public struct Session: Codable, Sendable, Equatable {
         lastOwnMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastOwnMessageAt)
         lastOwnActionAt = try container.decodeIfPresent(Date.self, forKey: .lastOwnActionAt)
         model = try container.decodeIfPresent(String.self, forKey: .model)
+        effort = try container.decodeIfPresent(String.self, forKey: .effort)
     }
 
     /// When you last wrote or acted here, for sorting the list. Nil when the controller says you never have:

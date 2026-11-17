@@ -414,6 +414,7 @@ struct BottomStackView: View {
         ComposerConfiguration(
             initialText: configuration.composer.initialText,
             modelName: configuration.composer.modelName,
+            effortName: configuration.composer.effortName,
             placeholder: configuration.composer.placeholder,
             isWorking: configuration.composer.isWorking,
             canSend: configuration.composer.canSend,
