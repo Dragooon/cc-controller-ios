@@ -122,15 +122,27 @@ public struct PeerConversationApproval: Sendable, Equatable {
     public let senderLabel: String
     public let targetLabel: String
     public let messagePreview: String?
+    /// Stockade: the sender is asking to start a new session on this host, with the preview as its first message.
+    /// Nothing exists here until you allow it.
+    public let startsSession: Bool
 
-    public init(senderHost: String, senderLabel: String, targetLabel: String, messagePreview: String? = nil) {
+    public init(senderHost: String, senderLabel: String, targetLabel: String, messagePreview: String? = nil, startsSession: Bool = false) {
         self.senderHost = senderHost
         self.senderLabel = senderLabel
         self.targetLabel = targetLabel
         self.messagePreview = messagePreview
+        self.startsSession = startsSession
     }
 
     public var sentence: String {
-        "\(senderHost) session ‘\(senderLabel)’ wants to message ‘\(targetLabel)’. Allow?"
+        if startsSession {
+            return "\(senderHost) session ‘\(senderLabel)’ wants to start a new session here. Allow?"
+        }
+        return "\(senderHost) session ‘\(senderLabel)’ wants to message ‘\(targetLabel)’. Allow?"
+    }
+
+    /// The caption over the message the sender wrote.
+    public var previewTitle: String {
+        startsSession ? "First message" : "Message preview"
     }
 }

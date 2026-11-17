@@ -250,7 +250,7 @@ struct ApprovalCard: View {
                     .accessibilityIdentifier("peer-conversation-request")
                 if let preview = peerConversation.messagePreview {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Message preview")
+                        Text(peerConversation.previewTitle)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.ccSecondary)
                         Text(preview)

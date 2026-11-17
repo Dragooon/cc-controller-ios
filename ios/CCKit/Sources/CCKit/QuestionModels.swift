@@ -78,8 +78,17 @@ public extension Approval {
             senderHost: senderHost,
             senderLabel: senderLabel,
             targetLabel: targetLabel,
-            messagePreview: preview?.isEmpty == false ? preview : nil
+            messagePreview: preview?.isEmpty == false ? preview : nil,
+            startsSession: object["start"]?.boolValue == true
         )
+    }
+}
+
+public extension Session {
+    /// Stockade lists a session another host asked to start as a row of its own while it waits for you. Until
+    /// you allow it there is no session behind the row: no transcript, no commands, nothing to send to.
+    var isWaitingToBeStarted: Bool {
+        (pending ?? []).contains { $0.peerConversation?.startsSession == true }
     }
 }
 

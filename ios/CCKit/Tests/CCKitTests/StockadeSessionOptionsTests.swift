@@ -86,3 +86,40 @@ final class SessionNamePreambleTests: XCTestCase {
         XCTAssertEqual(sleeping.name, "Land search")
     }
 }
+
+final class PeerStartRequestTests: XCTestCase {
+    func testAStartRequestReadsAsStartingASessionHere() throws {
+        let json = #"""
+        {"sessions":[{"id":"held-1","name":"Mustafar: Check the relay","live":true,"state":"needs_you","pending":[{
+          "requestId":"request-1","sessionId":"held-1","kind":"peer_conversation",
+          "tool_input":{"request":"…","host":"Mustafar","from":"App Dev","to":"a new session","message":"Check the relay","start":true}
+        }]}]}
+        """#
+        let state = try JSONDecoder.ccKit().decode(StateSnapshot.self, from: Data(json.utf8))
+        let session = try XCTUnwrap(state.sessions?.first)
+        let request = try XCTUnwrap(session.pending?.first?.peerConversation)
+
+        XCTAssertTrue(request.startsSession)
+        XCTAssertEqual(request.sentence, "Mustafar session ‘App Dev’ wants to start a new session here. Allow?")
+        XCTAssertEqual(request.previewTitle, "First message")
+        XCTAssertEqual(request.messagePreview, "Check the relay")
+        XCTAssertTrue(session.isWaitingToBeStarted)
+    }
+
+    func testAMessageRequestKeepsItsWording() throws {
+        let json = #"""
+        {"sessions":[{"id":"session-1","live":true,"state":"needs_you","pending":[{
+          "requestId":"request-1","sessionId":"session-1","kind":"peer_conversation",
+          "tool_input":{"host":"Mustafar","from":"App Dev","to":"Kepler","message":"Status?"}
+        }]}]}
+        """#
+        let state = try JSONDecoder.ccKit().decode(StateSnapshot.self, from: Data(json.utf8))
+        let session = try XCTUnwrap(state.sessions?.first)
+        let request = try XCTUnwrap(session.pending?.first?.peerConversation)
+
+        XCTAssertFalse(request.startsSession)
+        XCTAssertEqual(request.sentence, "Mustafar session ‘App Dev’ wants to message ‘Kepler’. Allow?")
+        XCTAssertEqual(request.previewTitle, "Message preview")
+        XCTAssertFalse(session.isWaitingToBeStarted)
+    }
+}

@@ -186,13 +186,15 @@ struct SessionScreen: View {
             .hidden()
         }
         .task(id: commandsLoadKey) {
-            guard commandsLoadKey.isLive else { return }
+            guard commandsLoadKey.isLive, store.sessions[sessionID]?.isWaitingToBeStarted != true else { return }
             await store.loadSessionCommands(sessionID: sessionID)
         }
         .task(id: sessionLoadKey) {
             let key = sessionLoadKey
             guard key.hasSession,
                   let sessionStore = store.openSession(key.sessionID) else { return }
+            // A session waiting for you to allow its start has no transcript yet; asking for one only fails.
+            guard store.sessions[key.sessionID]?.isWaitingToBeStarted != true else { return }
             guard !sessionStore.isLoaded else {
                 #if DEBUG || CC_PERF
                 store.addDebugAttachments(model.debugAttachmentPaths, to: key.sessionID)
