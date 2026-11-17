@@ -79,8 +79,9 @@ struct CompactionDivider: View {
             if hasSummary {
                 Button { onOpen(entry) } label: {
                     dividerContent
+                        .tapOutset(vertical: 12)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .contentShape(Rectangle())
                 .accessibilityIdentifier("compaction-divider")
                 .accessibilityLabel(captionText)
@@ -183,7 +184,7 @@ struct FileEntryView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .disabled(download == nil || isDownloading)
         .accessibilityLabel("Open \(fileName)")
         .alert(

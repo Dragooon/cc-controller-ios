@@ -36,9 +36,9 @@ struct CodeBlockView: View {
                     .font(.caption)
                     .foregroundStyle(.ccSecondary)
                     .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                    .tapOutset(horizontal: 8, vertical: 8)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ccPressable)
             .accessibilityLabel("Copy code")
 
             ScrollView(.horizontal, showsIndicators: false) {

@@ -155,7 +155,7 @@ struct PromptAttachmentItemView: View {
                 fileChip
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .disabled(downloadFile == nil || isDownloading)
         .frame(width: isImage ? 64 : nil, height: isImage ? 64 : nil, alignment: .top)
         .contentShape(Rectangle())

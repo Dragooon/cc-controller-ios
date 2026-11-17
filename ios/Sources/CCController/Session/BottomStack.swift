@@ -600,9 +600,12 @@ private struct WakeErrorBanner: View {
                 .font(.footnote)
                 .foregroundStyle(.ccRed)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Retry", action: onRetry)
+            Button(action: onRetry) {
+                Text("Retry")
+                    .tapOutset(horizontal: 10, vertical: 14)
+            }
                 .font(.footnote.weight(.semibold))
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .foregroundStyle(.ccAccent)
                 .accessibilityIdentifier("wake-retry")
         }

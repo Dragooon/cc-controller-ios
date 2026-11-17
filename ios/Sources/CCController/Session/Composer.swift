@@ -269,6 +269,7 @@ struct ComposerView: View, Equatable {
                 .font(.body.weight(.semibold))
                 .frame(width: visibleCircleSize, height: visibleCircleSize)
                 .glassEffect(.regular.interactive(), in: .circle)
+                .tapOutset(horizontal: 4, vertical: 4)
         }
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
@@ -287,6 +288,7 @@ struct ComposerView: View, Equatable {
                     .padding(.horizontal, 11)
                     .frame(height: visibleChipHeight)
                     .glassEffect(.regular.interactive(), in: .capsule)
+                    .tapOutset(vertical: 7)
             }
             .buttonStyle(.plain)
             .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
@@ -311,6 +313,7 @@ struct ComposerView: View, Equatable {
                 .frame(width: visibleCircleSize, height: visibleCircleSize)
                 .foregroundStyle(.ccLabel)
                 .glassEffect(.regular.interactive(), in: .circle)
+                .tapOutset(horizontal: 4, vertical: 4)
         }
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
@@ -335,6 +338,7 @@ struct ComposerView: View, Equatable {
             .frame(width: visibleCircleSize, height: visibleCircleSize)
             .foregroundStyle(.white)
             .glassEffect(.regular.tint(.ccAccent).interactive(), in: .circle)
+            .tapOutset(horizontal: 4, vertical: 4)
         }
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)

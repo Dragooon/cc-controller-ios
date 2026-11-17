@@ -248,7 +248,7 @@ struct InspectorView: View {
                         }
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.ccPressable)
                     .accessibilityIdentifier("inspector-subagent-\(subagent.agentId ?? "")")
                     .accessibilityLabel(subagentAccessibilityLabel(subagent))
                     .accessibilityElement(children: .combine)
@@ -385,7 +385,7 @@ struct InspectorView: View {
                             .foregroundStyle(.ccSecondary)
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .accessibilityIdentifier("inspector-open-on-mac")
                 .accessibilityLabel(attachCommandCopied ? "Attach command copied" : "Copy attach command")
             } header: {

@@ -339,7 +339,7 @@ struct ApprovalCard: View {
                         Button(showsWholeCommand ? "Show less" : "Show all") { showsWholeCommand.toggle() }
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.ccAccent)
-                            .buttonStyle(.plain)
+                            .buttonStyle(.ccPressable)
                             .frame(minHeight: CCMetrics.minTap)
                             .contentShape(Rectangle())
                             .accessibilityIdentifier("approval-command-show-all")
@@ -478,7 +478,7 @@ struct ApprovalCard: View {
                 }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.ccAccent)
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .frame(maxWidth: .infinity, minHeight: CCMetrics.minTap)
             }
         }

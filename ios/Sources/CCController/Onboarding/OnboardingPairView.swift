@@ -129,7 +129,7 @@ struct OnboardingPairView: View {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                         .frame(minWidth: CCMetrics.minTap, minHeight: CCMetrics.minTap)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .foregroundStyle(.ccAccent)
                 .accessibilityLabel(copied ? "Pairing command copied" : "Copy pairing command")
             }

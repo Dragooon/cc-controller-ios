@@ -281,8 +281,9 @@ struct AttachmentTrayView: View {
                 .frame(width: 22, height: 22)
                 .background(Color.white.opacity(0.96), in: Circle())
                 .overlay { Circle().stroke(Color.black.opacity(0.22), lineWidth: 0.5) }
+                .tapOutset(horizontal: 11, vertical: 11)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .frame(width: 44, height: 44)
         .contentShape(Rectangle())
         .offset(x: 6, y: -6)

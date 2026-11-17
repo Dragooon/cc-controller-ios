@@ -116,7 +116,7 @@ private struct ActivityAgentRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .disabled(!isTappable)
         .accessibilityIdentifier("activity-agent-\(agent.agentId ?? "unknown")")
         .accessibilityElement(children: .combine)

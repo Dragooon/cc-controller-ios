@@ -165,6 +165,7 @@ struct PromptBubble: View {
                                 Text(isExpanded ? "Show less" : "Show more")
                                     .font(.footnote)
                                     .foregroundStyle(.ccAccent)
+                                    .tapOutset(horizontal: 12, vertical: 13)
                             }
                         }
                     }

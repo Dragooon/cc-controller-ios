@@ -91,6 +91,7 @@ struct SessionsListView: View {
     @State private var isSearchPresented = false
     @State private var archiveToast: ArchiveToast?
     @State private var archiveToastTask: Task<Void, Never>?
+    @State private var archiveFeedbackCount = 0
     @AppStorage("sessions.archived.collapsed") private var archivedCollapsed = true
     @AppStorage("sessions.pinned") private var pinnedStored = ""
     @AppStorage(SessionReadMarks.storageKey) private var readMarksStored = ""
@@ -235,7 +236,7 @@ struct SessionsListView: View {
     private func setPinned(_ pinned: Bool, key: String) {
         var pins = self.pins
         pins.setPinned(pinned, key: key)
-        withAnimation(reduceMotion ? nil : .smooth) { pinnedStored = pins.stored }
+        withAnimation(CCMotion.spring(reduceMotion: reduceMotion)) { pinnedStored = pins.stored }
     }
 
     private func recentSessionPrecedes(_ left: RecentSessionItem, _ right: RecentSessionItem) -> Bool {
@@ -292,7 +293,7 @@ struct SessionsListView: View {
             Button(action: onNewSession) {
                 newSessionButtonLabel
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ccPressable)
             .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
             .contentShape(.rect)
             .accessibilityLabel("New session")
@@ -421,8 +422,9 @@ struct SessionsListView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.ccSecondary)
+                        .tapOutset(horizontal: 12, vertical: 12)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .accessibilityLabel("Clear search")
             }
         }
@@ -504,7 +506,7 @@ struct SessionsListView: View {
                     }
                 } header: {
                     ArchivedSectionHeader(count: archivedCount, isCollapsed: archivedCollapsed) {
-                        withAnimation(reduceMotion ? nil : .smooth) { archivedCollapsed.toggle() }
+                        withAnimation(CCMotion.spring(reduceMotion: reduceMotion)) { archivedCollapsed.toggle() }
                     }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.ccSecondary)
@@ -525,7 +527,10 @@ struct SessionsListView: View {
         .scrollContentBackground(.hidden)
         .background(.ccBackground)
         .listRowSeparator(.hidden)
-        .animation(.smooth, value: listAnimationKey)
+        .animation(CCMotion.spring(reduceMotion: reduceMotion), value: listAnimationKey)
+        // A tick for pinning or unpinning, a light tap for archiving: each is a deliberate change to the list.
+        .sensoryFeedback(.selection, trigger: pinnedStored)
+        .sensoryFeedback(.impact(weight: .light), trigger: archiveFeedbackCount)
     }
 
     // MARK: Merged list layout
@@ -625,8 +630,9 @@ struct SessionsListView: View {
         Task { @MainActor in
             switch await onArchive(controllerID, sessionID, archived) {
             case .success:
+                archiveFeedbackCount += 1
                 if archived { showArchiveToast(name: name, controllerID: controllerID, sessionID: sessionID) }
-                else { archiveToast = nil }
+                else { withAnimation(CCMotion.quick(reduceMotion: reduceMotion)) { archiveToast = nil } }
             case .failure(let error): onActionError(error)
             }
         }
@@ -641,11 +647,15 @@ struct SessionsListView: View {
 
     private func showArchiveToast(name: String, controllerID: ControllerID, sessionID: String) {
         archiveToastTask?.cancel()
-        archiveToast = ArchiveToast(name: name, controllerID: controllerID, sessionID: sessionID)
+        // The toast rises from the bottom edge and leaves the same way; without an animation here its
+        // transition never ran and it popped.
+        withAnimation(CCMotion.quick(reduceMotion: reduceMotion)) {
+            archiveToast = ArchiveToast(name: name, controllerID: controllerID, sessionID: sessionID)
+        }
         archiveToastTask = Task { @MainActor in
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
             guard !Task.isCancelled else { return }
-            archiveToast = nil
+            withAnimation(CCMotion.quick(reduceMotion: reduceMotion)) { archiveToast = nil }
         }
     }
 
@@ -729,9 +739,9 @@ private struct ArchivedSectionHeader: View {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                     .font(.caption.weight(.semibold))
             }
-            .contentShape(Rectangle())
+            .tapOutset(vertical: 12)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .accessibilityLabel("Archived · \(count)")
         .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
         .accessibilityIdentifier("archived-section-header")
@@ -872,10 +882,13 @@ private struct ControllerSectionHeader: View {
                 .lineLimit(1)
             Spacer(minLength: 4)
             if controller.signInNeeded {
-                Button("Sign in needed", action: onSignIn)
+                Button(action: onSignIn) {
+                    Text("Sign in needed")
+                        .tapOutset(horizontal: 8, vertical: 14)
+                }
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.ccRed)
-                    .buttonStyle(.plain)
+                    .buttonStyle(.ccPressable)
                     .textCase(nil)
                     .accessibilityIdentifier("controller-sign-in-\(controller.id.rawValue)")
             } else if let statusText {
@@ -884,9 +897,12 @@ private struct ControllerSectionHeader: View {
                     .foregroundStyle(.ccSecondary)
                     .textCase(nil)
                     .lineLimit(1)
-                Button("Retry", action: onRetry)
+                Button(action: onRetry) {
+                    Text("Retry")
+                        .tapOutset(horizontal: 10, vertical: 14)
+                }
                     .font(.caption.weight(.semibold))
-                    .buttonStyle(.plain)
+                    .buttonStyle(.ccPressable)
                     .textCase(nil)
                     .accessibilityIdentifier("controller-retry-\(controller.id.rawValue)")
             }
@@ -964,7 +980,7 @@ private struct SessionRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccRow)
         .accessibilityIdentifier(session.id.map { "session-\($0)" } ?? "session-")
         .accessibilityValue(readStatus.rawValue)
         .padding(.vertical, 10)
@@ -1079,7 +1095,7 @@ private struct SleepingSessionRow: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccRow)
         .disabled(!canWake)
         .accessibilityIdentifier("sleeping-session-\(session.id)")
         .accessibilityValue(isWaking ? "Waking" : readStatus.rawValue)

@@ -56,11 +56,11 @@ struct ToolRunCard: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.ccTertiary)
                             .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                            .animation(.snappy, value: isExpanded)
+                            .animation(CCMotion.quick, value: isExpanded)
                     }
-                    .contentShape(Rectangle())
+                    .tapOutset(vertical: 12)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .accessibilityLabel(nativeToolRunLabel(run))
                 .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             }
@@ -105,9 +105,9 @@ private struct ToolRow: View {
                 ToolRowStatus(entry: entry)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .tapOutset(vertical: 12)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(toolPhraseAccessibilityLabel(entry))
     }
@@ -136,9 +136,9 @@ private struct QuestionRow: View {
                 ToolRowStatus(entry: entry)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .tapOutset(vertical: 12)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("question-row")
         .accessibilityLabel("Question")

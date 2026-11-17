@@ -81,6 +81,8 @@ struct QuestionCard: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var actionHeight = CCMetrics.actionHeight
     @FocusState private var otherFieldFocused: Bool
+    @State private var optionFeedbackCount = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var draft: QuestionAnswerDraft { state.draft(for: approval, questions: questions) }
     private var visibleIndex: Int { min(state.visibleIndex(for: approval), questions.count - 1) }
@@ -126,6 +128,7 @@ struct QuestionCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Question: \(question.header)")
         .accessibilityIdentifier("question-card")
+        .sensoryFeedback(.selection, trigger: optionFeedbackCount)
     }
 
     private var cardBody: some View {
@@ -193,7 +196,7 @@ struct QuestionCard: View {
                         .background(index == visibleIndex ? Color.ccAccent : Color.ccSecondary.opacity(0.12), in: Capsule())
                         .contentShape(Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.ccPressable)
                     .frame(minHeight: CCMetrics.minTap)
                     .accessibilityIdentifier("question-chip-\(index)")
                     .accessibilityLabel(item.header)
@@ -209,6 +212,7 @@ struct QuestionCard: View {
         let selected = draft.selections[visibleIndex]?.selectedLabels.contains(option.label) == true
         return VStack(alignment: .leading, spacing: 4) {
             Button {
+                optionFeedbackCount += 1
                 choose(option)
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -236,7 +240,7 @@ struct QuestionCard: View {
                 .background(selected ? Color.ccAccent.opacity(0.12) : Color.ccSecondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ccPressable)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(option.description.isEmpty ? option.label : "\(option.label), \(option.description)")
             .accessibilityValue(selected ? "Selected" : "Not selected")
@@ -298,7 +302,7 @@ struct QuestionCard: View {
                 .background(Color.ccSecondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.ccPressable)
             .accessibilityLabel("Other")
             .accessibilityValue(otherText ?? "")
             .accessibilityIdentifier("question-other")
@@ -343,7 +347,7 @@ struct QuestionCard: View {
                 }
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.ccSecondary)
-                .buttonStyle(.plain)
+                .buttonStyle(.ccPressable)
                 .accessibilityIdentifier("question-skip")
             }
         }
@@ -373,7 +377,7 @@ struct QuestionCard: View {
         state.setDraft(updated, for: approval)
         state.setEditingOther(false, at: visibleIndex, for: approval)
         if let next {
-            withAnimation(.snappy) {
+            withAnimation(CCMotion.spring(reduceMotion: reduceMotion)) {
                 state.setVisibleIndex(next, for: approval)
             }
         }

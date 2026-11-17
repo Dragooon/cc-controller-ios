@@ -61,7 +61,7 @@ struct SubagentCard: View {
             .background(.ccCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .accessibilityIdentifier("subagent-card-\(entry.agentId ?? "")")
         .accessibilityLabel("\(entry.agent ?? "agent"), \(stateLabel)")
         .accessibilityElement(children: .ignore)
@@ -152,7 +152,7 @@ struct SubagentResultView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.ccPressable)
         .accessibilityIdentifier("subagent-result-row-\(entry.agentId ?? entry.toolUseId ?? "unknown")")
         .accessibilityLabel("\(agent) \(stateVerb) after \(durationText). \(summary.isEmpty ? "No result" : summary).")
         .accessibilityHint("Shows the result")
