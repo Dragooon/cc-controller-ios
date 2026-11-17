@@ -307,14 +307,16 @@ public final class AppStore {
         model: String? = nil,
         defaultModel: String = "default",
         prompt: String? = nil,
-        agent: String? = nil
+        agent: String? = nil,
+        effort: String? = nil
     ) async throws -> CreatedSession {
         try await client.createSession(
             cwd: cwd,
             name: name,
             model: model == defaultModel ? nil : model,
             prompt: prompt,
-            agent: agent
+            agent: agent,
+            effort: isDefaultEffort(effort) ? nil : effort
         )
     }
 
@@ -323,13 +325,15 @@ public final class AppStore {
         prompt: String,
         model: String? = nil,
         defaultModel: String = "default",
-        cwd: String? = nil
+        cwd: String? = nil,
+        effort: String? = nil
     ) async throws -> CreatedSession {
         try await client.createAgentSession(
             agentId: agentId,
             prompt: prompt,
             model: model == defaultModel ? nil : model,
-            cwd: cwd
+            cwd: cwd,
+            effort: isDefaultEffort(effort) ? nil : effort
         )
     }
 

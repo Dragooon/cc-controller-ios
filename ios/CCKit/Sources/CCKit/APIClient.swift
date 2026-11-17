@@ -60,14 +60,14 @@ public actor APIClient {
         try await get("/api/sessions/new-options")
     }
 
-    public func createSession(cwd: String, name: String? = nil, model: String? = nil, prompt: String? = nil, agent: String? = nil) async throws -> CreatedSession {
-        try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt, agent: agent))
+    public func createSession(cwd: String, name: String? = nil, model: String? = nil, prompt: String? = nil, agent: String? = nil, effort: String? = nil) async throws -> CreatedSession {
+        try await post("/api/sessions", body: CreateSessionRequest(cwd: cwd, name: name, model: model, prompt: prompt, agent: agent, effort: effort))
     }
 
     /// Stockade: starts a session with an agent instead of in a folder. `cwd` only applies to an agent without a
     /// fixed folder.
-    public func createAgentSession(agentId: String, prompt: String, model: String? = nil, cwd: String? = nil) async throws -> CreatedSession {
-        try await post("/api/sessions", body: CreateAgentSessionRequest(agentId: agentId, prompt: prompt, model: model, cwd: cwd))
+    public func createAgentSession(agentId: String, prompt: String, model: String? = nil, cwd: String? = nil, effort: String? = nil) async throws -> CreatedSession {
+        try await post("/api/sessions", body: CreateAgentSessionRequest(agentId: agentId, prompt: prompt, model: model, cwd: cwd, effort: effort))
     }
 
     /// Stockade: overrides one session's model. A resting session switches when it next runs.
@@ -382,8 +382,9 @@ private struct CreateSessionRequest: Encodable {
     let model: String?
     let prompt: String?
     let agent: String?
+    let effort: String?
 
-    enum CodingKeys: String, CodingKey { case cwd, name, model, prompt, agent }
+    enum CodingKeys: String, CodingKey { case cwd, name, model, prompt, agent, effort }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -392,6 +393,7 @@ private struct CreateSessionRequest: Encodable {
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(prompt, forKey: .prompt)
         try container.encodeIfPresent(agent, forKey: .agent)
+        try container.encodeIfPresent(effort, forKey: .effort)
     }
 }
 private struct CreateAgentSessionRequest: Encodable {
@@ -399,8 +401,9 @@ private struct CreateAgentSessionRequest: Encodable {
     let prompt: String
     let model: String?
     let cwd: String?
+    let effort: String?
 
-    enum CodingKeys: String, CodingKey { case agentId, prompt, model, cwd }
+    enum CodingKeys: String, CodingKey { case agentId, prompt, model, cwd, effort }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -408,6 +411,7 @@ private struct CreateAgentSessionRequest: Encodable {
         try container.encode(prompt, forKey: .prompt)
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(cwd, forKey: .cwd)
+        try container.encodeIfPresent(effort, forKey: .effort)
     }
 }
 private struct SessionModelRequest: Encodable { let model: String }
