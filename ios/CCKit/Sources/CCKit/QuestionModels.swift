@@ -74,12 +74,14 @@ public extension Approval {
               !senderLabel.isEmpty,
               !targetLabel.isEmpty else { return nil }
         let preview = object["message"]?.stringValue
+        let startsSession: Bool
+        if case .bool(true)? = object["start"] { startsSession = true } else { startsSession = false }
         return PeerConversationApproval(
             senderHost: senderHost,
             senderLabel: senderLabel,
             targetLabel: targetLabel,
             messagePreview: preview?.isEmpty == false ? preview : nil,
-            startsSession: object["start"]?.boolValue == true
+            startsSession: startsSession
         )
     }
 }
