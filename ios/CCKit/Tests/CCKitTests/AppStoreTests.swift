@@ -117,18 +117,33 @@ final class AppStoreTests: XCTestCase {
         )
         app.start()
         try await waitUntil { bootstrapCalls == 1 && clock.sleepDurations.contains(.milliseconds(500)) }
-        for delay in [0.5, 1.0, 2.0, 4.0] {
-            clock.advance(by: delay)
-            try await waitUntil { bootstrapCalls >= 1 + [0.5, 1.0, 2.0, 4.0].prefix(while: { $0 <= delay }).count }
+        let retries: [(seconds: TimeInterval, sleep: Duration)] = [
+            (0.5, .milliseconds(500)), (1, .seconds(1)), (2, .seconds(2)), (4, .seconds(4)),
+        ]
+        for (index, retry) in retries.enumerated() {
+            // The retry has to be asleep on the clock before time moves. A call is counted when its request
+            // starts, which is before the store has slept for the next retry; advancing then woke nobody and
+            // the retry never fired.
+            try await waitUntil("the retry to sleep \(retry.seconds)s") {
+                clock.pendingSleepDurations.contains(retry.sleep)
+            }
+            clock.advance(by: retry.seconds)
+            try await waitUntil("bootstrap call \(index + 2)") { bootstrapCalls >= index + 2 }
+        }
+        // Half a second short of the notice: the next retry and the notice's last wait are both asleep.
+        try await waitUntil("the 8s retry and the offline notice to be asleep") {
+            let pending = clock.pendingSleepDurations
+            return pending.contains(.seconds(8)) && pending.contains { $0 <= .milliseconds(500) }
         }
         clock.advance(by: 0.5)
-        try await waitUntil {
+        try await waitUntil("the offline state") {
             if case .offline = app.connection { return true }
             return false
         }
         let callsWhenOffline = bootstrapCalls
+        try await waitUntil("a retry to be asleep") { clock.pendingSleepDurations.contains { $0 >= .seconds(7) } }
         clock.advance(by: 8)
-        try await waitUntil { bootstrapCalls > callsWhenOffline }
+        try await waitUntil("a retry after going offline") { bootstrapCalls > callsWhenOffline }
         app.suspend()
     }
 
@@ -320,7 +335,8 @@ final class AppStoreTests: XCTestCase {
             return URLProtocolStub.json(Data("{}".utf8))
         }
         let app = makeApp()
-        let appeared = await app.waitForSession("session-2", timeout: .milliseconds(1_200))
+        // The second fetch comes a second after the first. A 1.2 s limit left a busy build machine 200 ms.
+        let appeared = await app.waitForSession("session-2", timeout: .seconds(5))
         XCTAssertTrue(appeared)
         XCTAssertNotNil(app.sessions["session-2"])
     }
@@ -1711,8 +1727,10 @@ final class AppStoreTests: XCTestCase {
             }
             return URLProtocolStub.json(Data("{}".utf8))
         }
+        // The sign-in is slow on purpose, so the saved copy has to show first. At 150 ms a busy build machine
+        // sometimes finished the live bootstrap before the saved copy was read, and the offline state never showed.
         let app = AppStore(serverURL: URL(string: "http://localhost:47832")!, bearerProvider: {
-            try await Task.sleep(for: .milliseconds(150))
+            try await Task.sleep(for: .seconds(2))
             return "test-token"
         }, session: URLProtocolStub.session, cacheDirectory: directory)
         app.start()
@@ -2106,8 +2124,15 @@ private final class ManualClock: CCKitClock, @unchecked Sendable {
 private final class BootstrapClock: CCKitClock, @unchecked Sendable {
     private let lock = NSLock()
     private var current = Date(timeIntervalSince1970: 1_800_000_000)
-    private var waiters: [CheckedContinuation<Void, Error>] = []
+    private var waiters: [(duration: Duration, continuation: CheckedContinuation<Void, Error>)] = []
     private var durations: [Duration] = []
+
+    /// What is asleep on the clock right now, as opposed to everything that ever slept.
+    var pendingSleepDurations: [Duration] {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.map(\.duration)
+    }
 
     var now: Date {
         lock.lock()
@@ -2125,7 +2150,7 @@ private final class BootstrapClock: CCKitClock, @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             lock.lock()
             durations.append(duration)
-            waiters.append(continuation)
+            waiters.append((duration, continuation))
             lock.unlock()
         }
     }
@@ -2136,7 +2161,7 @@ private final class BootstrapClock: CCKitClock, @unchecked Sendable {
         let currentWaiters = waiters
         waiters.removeAll()
         lock.unlock()
-        currentWaiters.forEach { $0.resume() }
+        currentWaiters.forEach { $0.continuation.resume() }
     }
 }
 

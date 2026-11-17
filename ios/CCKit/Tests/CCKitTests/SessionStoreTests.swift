@@ -342,6 +342,9 @@ final class SessionStoreTests: XCTestCase {
         let first = Task { try await store.refetchTail(limit: 20) }
         let second = Task { try await store.refetchTail(limit: 300) }
         let third = Task { try await store.refetchTail(limit: 100, reset: true) }
+        // All three have to be waiting on the store before the first load finishes. Finishing it straight away
+        // sometimes beat one of them there, and the follow-up went out with a smaller limit.
+        try await Task.sleep(for: .milliseconds(200))
         SessionStoreURLProtocol.completeNext(.succeed(initialPage))
         await waitForRequest(count: 3)
 
