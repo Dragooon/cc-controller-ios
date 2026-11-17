@@ -123,3 +123,11 @@ final class PeerStartRequestTests: XCTestCase {
         XCTAssertFalse(session.isWaitingToBeStarted)
     }
 }
+
+final class AppAppearanceTests: XCTestCase {
+    func testTheAppStartsDarkAndOffersThePhonesAppearance() {
+        XCTAssertEqual(AppAppearance.initial, .dark)
+        XCTAssertEqual(AppAppearance.allCases.map(\.label), ["Match the phone", "Light", "Dark"])
+        XCTAssertEqual(AppAppearance(rawValue: "system"), .system)
+    }
+}

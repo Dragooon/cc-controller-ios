@@ -278,3 +278,24 @@ private func nonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
     return trimmed
 }
+
+/// Whether the app follows the phone's light or dark appearance or keeps its own. It starts dark: the owner
+/// asked for the darker background whatever the phone is set to.
+public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
+    case system
+    case light
+    case dark
+
+    public static let storageKey = "appearance"
+    public static let initial = AppAppearance.dark
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .system: "Match the phone"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+}

@@ -22,7 +22,7 @@ struct MarkdownView: View {
         #if CC_PERF
         let _ = PerfCounters.shared.hit(.markdownView)
         #endif
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: CCMetrics.readingBlockSpacing) {
             ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
                 MarkdownBlockView(block: block)
             }
@@ -77,14 +77,14 @@ private struct MarkdownListView: View {
     let depth: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: CCMetrics.readingListItemSpacing) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(marker(for: item, index: index))
                         .font(.body)
                         .foregroundStyle(.ccAccent)
                         .frame(minWidth: 18, alignment: .trailing)
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: CCMetrics.readingListItemSpacing) {
                         if !item.text.characters.isEmpty {
                             InlineMarkdownText(text: item.text)
                         }

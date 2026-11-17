@@ -120,6 +120,7 @@ struct SettingsView: View {
             Form {
                 connectionSection
                 securitySection
+                appearanceSection
                 deviceSection
                 pairedDevicesSection
                 if !controllers.isEmpty {
@@ -319,6 +320,18 @@ struct SettingsView: View {
         }
     }
 
+    private var appearanceSection: some View {
+        Section("Appearance") {
+            Picker("Theme", selection: $appearance) {
+                ForEach(AppAppearance.allCases) { appearance in
+                    Text(appearance.label).tag(appearance)
+                }
+            }
+            .accessibilityIdentifier("settings-appearance")
+            .accessibilityValue(appearance.label)
+        }
+    }
+
     private var deviceSection: some View {
         let text = SettingsThisDeviceText(thisDevice, now: .now)
         return Section("This device") {
@@ -471,6 +484,7 @@ struct SettingsView: View {
 
     @State private var motionTraceRecording = false
     @AppStorage(BounceExperiment.storageKey) private var bounceExperiment = BounceExperiment.none.rawValue
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.initial
     @State private var motionTraceFileExists = false
 
     private var composerTestSection: some View {

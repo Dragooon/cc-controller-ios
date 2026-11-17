@@ -8,6 +8,7 @@ struct InlineMarkdownText: View {
     var body: some View {
         Text(styledText)
             .font(heading ? .body.weight(.semibold) : .body)
+            .lineSpacing(CCMetrics.readingLineSpacing)
             .foregroundStyle(.ccLabel)
             .tint(.ccAccent)
             .frame(maxWidth: .infinity, alignment: .leading)

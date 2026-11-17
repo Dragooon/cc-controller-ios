@@ -130,6 +130,7 @@ struct PromptBubble: View {
                     VStack(alignment: .leading, spacing: 6) {
                         let promptLabel = Text(isExpanded ? promptText : collapse.visibleText)
                             .font(.body)
+                            .lineSpacing(CCMetrics.readingLineSpacing)
                             .foregroundStyle(.ccLabel)
                             .multilineTextAlignment(.leading)
                         if allowsTextSelection {
