@@ -460,6 +460,7 @@ struct SessionTranscriptView: View {
             jumpToLatestRequest += 1
         }
         .overlay(alignment: .bottomTrailing) {
+            Group {
             if !isPinnedToBottom, turns.last != nil {
                 Button {
                     isPinnedToBottom = true
@@ -480,8 +481,12 @@ struct SessionTranscriptView: View {
                 .accessibilityLabel("Jump to latest")
                 .padding(.trailing, 16)
                 .padding(.bottom, 12)
-                .transition(.scale.combined(with: .opacity))
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.6).combined(with: .opacity))
             }
+            }
+            // The button grows in when you leave the newest end and shrinks away when you return. Its
+            // transition was declared before, but nothing animated the change, so it popped.
+            .animation(CCMotion.quick(reduceMotion: reduceMotion), value: isPinnedToBottom)
         }
         .safeAreaBar(edge: .bottom, spacing: 0) {
             if showsComposer {

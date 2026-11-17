@@ -279,6 +279,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
 
 struct BottomStackView: View {
     let configuration: BottomStackConfiguration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var text: String
     @State private var isSending = false
     @State private var fieldResetGeneration = 0
@@ -352,7 +353,7 @@ struct BottomStackView: View {
 
                 if configuration.approvals.isEmpty, configuration.waking {
                     WakeStatusLine()
-                        .transition(.opacity)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
 
                 if configuration.approvals.isEmpty, let wakeError = configuration.wakeError {
@@ -381,6 +382,11 @@ struct BottomStackView: View {
             .padding(.horizontal, 12)
             .padding(.top, 0)
             .padding(.bottom, 4)
+            // The composer and the approval card share one piece of glass. Animating the swap lets the glass
+            // grow into the card and shrink back, where it used to cut from one to the other. Only these two
+            // values start an animation here, so typing and sending stay as they were.
+            .animation(CCMotion.spring(reduceMotion: reduceMotion), value: configuration.approvals.isEmpty)
+            .animation(CCMotion.quick(reduceMotion: reduceMotion), value: configuration.waking)
         }
         #if DEBUG
         .task { await runMotionAutoSendIfAsked() }

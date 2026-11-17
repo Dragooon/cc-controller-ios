@@ -82,6 +82,7 @@ struct SessionScreen: View {
     @State private var questionState = QuestionCardState()
     @State private var knownApprovalIDs: Set<String> = []
     @State private var modelSheetPresented = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var commandOutput: CommandOutput?
     @State private var commandToast: String?
     @State private var commandToastTask: Task<Void, Never>?
@@ -162,6 +163,8 @@ struct SessionScreen: View {
             if let commandToast {
                 CommandToastView(message: commandToast)
                     .padding(.top, 8)
+                    // It drops in from the top edge it sits under, and leaves the same way.
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
         .onDisappear {
@@ -606,11 +609,11 @@ struct SessionScreen: View {
 
     private func showToast(_ message: String) {
         commandToastTask?.cancel()
-        commandToast = message
+        withAnimation(CCMotion.quick) { commandToast = message }
         commandToastTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
-            commandToast = nil
+            withAnimation(CCMotion.quick) { commandToast = nil }
         }
     }
 

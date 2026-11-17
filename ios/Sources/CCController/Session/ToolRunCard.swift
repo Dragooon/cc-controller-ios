@@ -156,16 +156,21 @@ private struct ToolRowStatus: View {
                 ProgressView()
                     .controlSize(.mini)
                     .tint(.ccSecondary)
+                    .transition(.opacity)
             } else if isFailed {
                 Image(systemName: "exclamationmark")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.ccRed)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
             } else {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.ccTertiary)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
         }
+        // The spinner settles into its result inside the same small box; nothing around it moves.
+        .animation(CCMotion.quick, value: entry.state)
         .frame(width: 20, height: 20, alignment: .trailing)
         .accessibilityHidden(true)
     }
