@@ -322,6 +322,21 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(object["model"])
     }
 
+    func testAnAgentSessionAlwaysSendsAModelPickedByHand() async throws {
+        var requestBodies: [Data] = []
+        URLProtocolStub.handler = { request in
+            requestBodies.append(Self.bodyData(for: request))
+            return URLProtocolStub.json(Data("{\"id\":\"new\",\"shortId\":\"new-short\",\"name\":\"New\"}".utf8))
+        }
+        let app = makeApp()
+        _ = try await app.createAgentSession(agentId: "scout", prompt: "Hello", model: "claude-opus-5-5")
+        _ = try await app.createAgentSession(agentId: "scout", prompt: "Hello", model: nil)
+        let picked = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBodies[0]) as? [String: Any])
+        XCTAssertEqual(picked["model"] as? String, "claude-opus-5-5")
+        let left = try XCTUnwrap(JSONSerialization.jsonObject(with: requestBodies[1]) as? [String: Any])
+        XCTAssertNil(left["model"])
+    }
+
     func testWaitForSessionObservesStateUntilTheIDAppears() async throws {
         var stateRequests = 0
         URLProtocolStub.handler = { request in

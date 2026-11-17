@@ -46,6 +46,47 @@ final class EffortTests: XCTestCase {
         XCTAssertEqual(effortLabel("max"), "Max")
     }
 
+    func testDefaultNamesWhatTheChosenAgentLaunches() throws {
+        let json = #"""
+        {"folders":[],"defaultModel":"claude-opus-5-5","defaultModelLabel":"Opus 5.5",
+         "models":[{"id":"opus","label":"Opus","defaultEffort":"medium"},
+                   {"id":"claude-opus-5-5","label":"Opus 5.5","defaultEffort":"medium"},
+                   {"id":"claude-fable-5-2","label":"Fable 5.2","defaultEffort":"xhigh"}],
+         "agents":[{"id":"main","name":"Madge","fixedFolder":true,"defaultModel":"claude-opus-5-5","defaultModelLabel":"Opus 5.5","defaultEffort":"high","effort":"high"},
+                   {"id":"scout","name":"Scout","fixedFolder":false,"defaultModel":"claude-fable-5-2","defaultModelLabel":"Fable 5.2","defaultEffort":"xhigh"},
+                   {"id":"old","name":"Old"}]}
+        """#
+        let options = try JSONDecoder.ccKit().decode(NewSessionOptions.self, from: Data(json.utf8))
+        let main = try XCTUnwrap(options.agents?.first)
+        let scout = try XCTUnwrap(options.agents?.dropFirst().first)
+        let old = try XCTUnwrap(options.agents?.last)
+
+        XCTAssertEqual(newSessionDefaultModelID(options: options, agent: main), "claude-opus-5-5")
+        XCTAssertEqual(newSessionDefaultModelLabel(options: options, agent: main), "Opus 5.5")
+        XCTAssertEqual(newSessionDefaultModelID(options: options, agent: scout), "claude-fable-5-2")
+        XCTAssertEqual(newSessionDefaultModelLabel(options: options, agent: scout), "Fable 5.2")
+        // An agent the controller says nothing about, and no agent at all, take the controller's default.
+        XCTAssertEqual(newSessionDefaultModelLabel(options: options, agent: old), "Opus 5.5")
+        XCTAssertEqual(newSessionDefaultModelID(options: options, agent: nil), "claude-opus-5-5")
+
+        // The agent's own level applies whichever model is picked.
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: main, pickedModelID: nil), "high")
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: main, pickedModelID: "claude-fable-5-2"), "high")
+        // Without one: the agent's default on the default model, the picked model's default otherwise.
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: scout, pickedModelID: nil), "xhigh")
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: scout, pickedModelID: "claude-opus-5-5"), "medium")
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: scout, pickedModelID: "opus"), "medium")
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: old, pickedModelID: nil), "medium")
+        XCTAssertNil(newSessionDefaultEffortID(options: options, agent: old, pickedModelID: "unlisted"))
+    }
+
+    func testAnOlderControllerNamesItsDefaultFromTheModelList() {
+        let options = NewSessionOptions(models: models, defaultModel: "claude-sonnet-4-6")
+        XCTAssertEqual(newSessionDefaultModelLabel(options: options, agent: nil), "Sonnet 4.6")
+        XCTAssertEqual(newSessionDefaultModelLabel(options: NewSessionOptions(defaultModel: "default"), agent: nil), "default")
+        XCTAssertEqual(newSessionDefaultEffortID(options: options, agent: nil, pickedModelID: nil), "high")
+    }
+
     func testOnlyTheLevelsAModelTakesAreOffered() {
         XCTAssertEqual(
             effortOptions(efforts, forModel: "claude-sonnet-4-6", models: models).map(\.id),

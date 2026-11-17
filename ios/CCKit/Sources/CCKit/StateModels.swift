@@ -253,9 +253,30 @@ public struct NewSessionAgent: Codable, Sendable, Equatable, Identifiable {
     /// Stockade: the agent always starts in its own folder, so the app offers no folder choice. Nil on older
     /// controllers, where every agent was fixed.
     public var fixedFolder: Bool?
+    /// The model "Default" launches with this agent, and its name. Nil on controllers that don't say.
+    public var defaultModel: String?
+    public var defaultModelLabel: String?
+    /// The level a new session with this agent runs at when none is picked and the model is left on Default.
+    public var defaultEffort: String?
+    /// The level the agent itself is set to. It applies whichever model is picked. Nil when the agent has none.
+    public var effort: String?
 
-    public init(id: String, name: String, fixedFolder: Bool? = nil) {
-        self.id = id; self.name = name; self.fixedFolder = fixedFolder
+    public init(
+        id: String,
+        name: String,
+        fixedFolder: Bool? = nil,
+        defaultModel: String? = nil,
+        defaultModelLabel: String? = nil,
+        defaultEffort: String? = nil,
+        effort: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.fixedFolder = fixedFolder
+        self.defaultModel = defaultModel
+        self.defaultModelLabel = defaultModelLabel
+        self.defaultEffort = defaultEffort
+        self.effort = effort
     }
 
     /// Whether the new-session sheet offers a folder for this agent.
@@ -327,6 +348,41 @@ public func sessionEffortName(effort: String?, modelID: String?, models: [ModelO
     return effortLabel(model.defaultEffort, options: efforts)
 }
 
+/// The model "Default" launches for a new session: the chosen agent's when the controller says, else the
+/// controller's own default.
+public func newSessionDefaultModelID(options: NewSessionOptions, agent: NewSessionAgent?) -> String {
+    if let agentModel = agent?.defaultModel, !agentModel.isEmpty { return agentModel }
+    return options.defaultModel
+}
+
+/// The name of the model "Default" launches, for the "Default (…)" entry.
+public func newSessionDefaultModelLabel(options: NewSessionOptions, agent: NewSessionAgent?) -> String {
+    let listedLabel: (String) -> String? = { modelID in
+        options.models.first(where: { $0.id.caseInsensitiveCompare(modelID) == .orderedSame })?.label
+    }
+    if let agentModel = agent?.defaultModel, !agentModel.isEmpty {
+        return agent?.defaultModelLabel ?? listedLabel(agentModel) ?? agentModel
+    }
+    return options.defaultModelLabel ?? listedLabel(options.defaultModel) ?? options.defaultModel
+}
+
+/// The level a new session runs at when none is picked. The agent's own level applies whichever model is
+/// picked. Without one, a session left on the default model takes the agent's default, and a picked model
+/// takes that model's default. Nil when the controller gives none.
+public func newSessionDefaultEffortID(options: NewSessionOptions, agent: NewSessionAgent?, pickedModelID: String?) -> String? {
+    if let agentLevel = agent?.effort, !isDefaultEffort(agentLevel) { return agentLevel }
+    if pickedModelID == nil, let agentDefault = agent?.defaultEffort, !isDefaultEffort(agentDefault) { return agentDefault }
+    let modelID = pickedModelID ?? newSessionDefaultModelID(options: options, agent: agent)
+    // A short name such as "opus" is listed under exactly that id; a full id may be listed under a variant.
+    let exactModel = options.models.first(where: { $0.id.caseInsensitiveCompare(modelID) == .orderedSame })
+    let matchedID = matchingCommandModelID(options: options.models, usageModel: modelID)
+    let model = exactModel ?? options.models.first(where: { $0.id == matchedID })
+    if let model, !isDefaultEffort(model.defaultEffort) {
+        return model.defaultEffort
+    }
+    return nil
+}
+
 /// The name shown for an effort level: the controller's label when it offers the level, else the id written
 /// as a word. Nil for no level, so nothing is shown.
 public func effortLabel(_ effort: String?, options: [EffortOption] = []) -> String? {
@@ -392,6 +448,8 @@ public struct NewSessionOptions: Codable, Sendable, Equatable {
     public var folders: [NewSessionFolder]
     public var models: [ModelOption]
     public var defaultModel: String
+    /// The name of the model "Default" launches. Nil on controllers that don't say.
+    public var defaultModelLabel: String?
     /// Stockade: the effort levels a session can be set to, lowest first. Nil when the controller has none.
     public var efforts: [EffortOption]?
     /// The level a session runs at when none was picked.
@@ -411,11 +469,13 @@ public struct NewSessionOptions: Codable, Sendable, Equatable {
         claudeAgents: [ClaudeAgentOption]? = nil,
         ownerName: String? = nil,
         efforts: [EffortOption]? = nil,
-        defaultEffort: String? = nil
+        defaultEffort: String? = nil,
+        defaultModelLabel: String? = nil
     ) {
         self.folders = folders
         self.models = models
         self.defaultModel = defaultModel
+        self.defaultModelLabel = defaultModelLabel
         self.agents = agents
         self.claudeAgents = claudeAgents
         self.ownerName = ownerName

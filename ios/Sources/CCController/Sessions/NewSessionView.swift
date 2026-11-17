@@ -83,18 +83,20 @@ struct NewSessionView: View {
     /// The effort levels the chosen model takes. Empty on a controller without effort levels.
     private var availableEfforts: [EffortOption] {
         guard store.supports(.effort), let options else { return [] }
-        return effortOptions(options.efforts ?? [], forModel: selectedModelID ?? options.defaultModel, models: options.models)
+        return effortOptions(options.efforts ?? [], forModel: selectedModelID ?? defaultModelID(in: options), models: options.models)
             .filter { !isDefaultEffort($0.id) }
     }
 
+    /// The model "Default" launches with the chosen agent.
+    private func defaultModelID(in options: NewSessionOptions) -> String {
+        newSessionDefaultModelID(options: options, agent: selectedStockadeAgent)
+    }
+
     private var defaultEffortText: String {
-        let modelDefault = sessionEffortName(
-            effort: nil,
-            modelID: selectedModelID ?? options?.defaultModel,
-            models: availableModels,
-            efforts: options?.efforts ?? []
-        )
-        return modelDefault.map { "Default (\($0))" } ?? "Default"
+        guard let options else { return "Default" }
+        let level = newSessionDefaultEffortID(options: options, agent: selectedStockadeAgent, pickedModelID: selectedModelID)
+        let name = effortLabel(level, options: options.efforts ?? [])
+        return name.map { "Default (\($0))" } ?? "Default"
     }
 
     private var selectedEffortText: String {
@@ -427,15 +429,23 @@ struct NewSessionView: View {
         .accessibilityIdentifier("new-session-effort")
         // A level the newly chosen model doesn't take goes back to that model's default.
         .onChange(of: selectedModelID) { _, _ in
-            if let selectedEffortID, !availableEfforts.contains(where: { $0.id == selectedEffortID }) {
-                self.selectedEffortID = nil
-            }
+            dropEffortTheModelDoesNotTake()
+        }
+        // Another agent can mean another default model, with other levels.
+        .onChange(of: selectedAgentID) { _, _ in
+            dropEffortTheModelDoesNotTake()
+        }
+    }
+
+    private func dropEffortTheModelDoesNotTake() {
+        if let selectedEffortID, !availableEfforts.contains(where: { $0.id == selectedEffortID }) {
+            self.selectedEffortID = nil
         }
     }
 
     private var defaultModelLabel: String {
-        let defaultID = options?.defaultModel ?? "default"
-        return availableModels.first(where: { $0.id == defaultID })?.label ?? defaultID
+        guard let options else { return "default" }
+        return newSessionDefaultModelLabel(options: options, agent: selectedStockadeAgent)
     }
 
     private var selectedModelLabel: String {
@@ -569,24 +579,26 @@ struct NewSessionView: View {
     private func restoreSelections(from options: NewSessionOptions, controllerID: ControllerID) {
         let savedModel = UserDefaults.standard.string(forKey: Self.modelKeyPrefix + controllerID.rawValue)
         selectedModelID = options.models.first(where: { $0.id == savedModel })?.id
-        let savedEffort = UserDefaults.standard.string(forKey: Self.effortKeyPrefix + controllerID.rawValue)
-        selectedEffortID = effortOptions(options.efforts ?? [], forModel: selectedModelID ?? options.defaultModel, models: options.models)
-            .first(where: { $0.id == savedEffort && !isDefaultEffort($0.id) })?.id
         let savedFolder = UserDefaults.standard.string(forKey: Self.folderKeyPrefix + controllerID.rawValue)
         selectedFolderPath = options.folders.first(where: { $0.path == savedFolder })?.path ?? options.folders.first?.path
 
-        if options.agents != nil {
-            let available = options.agents ?? []
-            let saved = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
-            selectedAgentID = available.first(where: { $0.id == saved })?.id ?? available.first?.id
-            return
+        // The agent comes before the effort level: it decides which model "Default" is, and so which levels fit.
+        let savedAgent = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
+        var stockadeAgent: NewSessionAgent?
+        if let stockadeAgents = options.agents {
+            stockadeAgent = stockadeAgents.first(where: { $0.id == savedAgent }) ?? stockadeAgents.first
+            selectedAgentID = stockadeAgent?.id
+        } else {
+            let available = visibleClaudeAgents
+            selectedAgentID = available.first(where: { $0.id == savedAgent })?.id
+                ?? available.first(where: { $0.id == "default" })?.id
+                ?? available.first?.id
         }
 
-        let available = visibleClaudeAgents
-        let savedAgent = UserDefaults.standard.string(forKey: Self.agentKeyPrefix + controllerID.rawValue)
-        selectedAgentID = available.first(where: { $0.id == savedAgent })?.id
-            ?? available.first(where: { $0.id == "default" })?.id
-            ?? available.first?.id
+        let savedEffort = UserDefaults.standard.string(forKey: Self.effortKeyPrefix + controllerID.rawValue)
+        let modelForEffort = selectedModelID ?? newSessionDefaultModelID(options: options, agent: stockadeAgent)
+        selectedEffortID = effortOptions(options.efforts ?? [], forModel: modelForEffort, models: options.models)
+            .first(where: { $0.id == savedEffort && !isDefaultEffort($0.id) })?.id
     }
 
     private func focusPrompt() {
@@ -612,7 +624,6 @@ struct NewSessionView: View {
                     agentId: selectedAgentID,
                     prompt: trimmedPrompt,
                     model: selectedModelID,
-                    defaultModel: options.defaultModel,
                     cwd: showsFolderChoice ? selectedFolderPath : nil,
                     effort: createEffort
                 )

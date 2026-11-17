@@ -330,18 +330,19 @@ public final class AppStore {
         )
     }
 
+    /// A model picked by hand is always sent. "Default" (nil) leaves the choice to the agent, whose own model
+    /// can differ from the controller's default, so a picked id is never dropped for matching that default.
     public func createAgentSession(
         agentId: String,
         prompt: String,
         model: String? = nil,
-        defaultModel: String = "default",
         cwd: String? = nil,
         effort: String? = nil
     ) async throws -> CreatedSession {
         try await client.createAgentSession(
             agentId: agentId,
             prompt: prompt,
-            model: model == defaultModel ? nil : model,
+            model: model == "default" ? nil : model,
             cwd: cwd,
             effort: isDefaultEffort(effort) ? nil : effort
         )
