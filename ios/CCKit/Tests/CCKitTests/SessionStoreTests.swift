@@ -529,6 +529,32 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(store.syncedRev)
     }
 
+    func testARevisionCountThatStartedAgainReplacesTheSyncedRevision() async throws {
+        // The runner restarted behind a gateway that kept running: same epoch, and the count is low again.
+        let client = makeClient()
+        SessionStoreURLProtocol.completions = [
+            .succeed(try! JSONEncoder.ccKit().encode(Bootstrap(capabilities: Capabilities(pagination: true)))),
+            .succeed(pageData(entries: entries(from: 1, through: 2), total: 2, hasMore: false, rev: 2017)),
+        ]
+        _ = try await client.bootstrap()
+        let store = SessionStore(
+            session: Session(id: "session-1", live: true),
+            client: client,
+            entries: entries(from: 1, through: 1),
+            cachedRev: 119_828,
+            cachedEpoch: "epoch-a",
+            daemonEpoch: "epoch-a",
+            serverRev: 2017,
+            isStateCurrent: true,
+            builtFromCache: true
+        )
+
+        _ = try await store.loadInitial()
+
+        XCTAssertEqual(store.syncedRev, 2017)
+        XCTAssertEqual(store.syncedEpoch, "epoch-a")
+    }
+
     func testOlderInitialPageRevisionDoesNotMovePastLiveRevision() async throws {
         let client = makeClient()
         SessionStoreURLProtocol.completions = [

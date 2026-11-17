@@ -244,12 +244,23 @@ public final class SessionStore {
     }
 
     private func setSyncedRevision(_ rev: Int) {
-        if let epoch = readinessDaemonEpoch, syncedEpoch == epoch {
+        if let epoch = readinessDaemonEpoch, syncedEpoch == epoch, !revisionCountRestarted {
+            // A page that was requested before a live entry arrived carries an older revision; it doesn't move
+            // the synced one back.
             syncedRev = max(syncedRev ?? rev, rev)
         } else {
             syncedRev = rev
         }
         syncedEpoch = readinessDaemonEpoch
+    }
+
+    /// Stockade counts a session's revisions in its runner, and a runner can restart behind a gateway that keeps
+    /// running, so the count starts low again under the same epoch. A synced revision ahead of the server's own
+    /// says that happened. Keeping the old, higher one meant it never matched again, and every later open
+    /// waited for a page instead of trusting the saved transcript.
+    private var revisionCountRestarted: Bool {
+        guard let syncedRev, let serverRev = readinessServerRev else { return false }
+        return syncedRev > serverRev
     }
 
     @discardableResult
