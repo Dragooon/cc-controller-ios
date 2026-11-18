@@ -334,7 +334,9 @@ struct BottomStackView: View {
                     ApprovalBottomStackView(
                         approvals: configuration.approvals,
                         deciding: configuration.deciding,
-                        maxHeight: max(160, configuration.availableHeight * 0.35),
+                        // Room for the header, a few lines of the command and all three actions before the card
+                        // starts to scroll. A third of a folded Duo cut the command off after one line.
+                        maxHeight: max(260, configuration.availableHeight * 0.5),
                         onAllow: configuration.onAllow,
                         onAllowSession: configuration.onAllowSession,
                         onDeny: configuration.onDeny,
