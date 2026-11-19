@@ -587,20 +587,7 @@ final class AppModel {
                 participants.append(connection)
             }
         }
-        var errors: [ControllerID: AuthError] = [:]
-        await withTaskGroup(of: (ControllerID, AuthError?).self) { group in
-            for connection in participants {
-                group.addTask { @MainActor in
-                    switch await connection.auth.unlock(session: session) {
-                    case .success: return (connection.config.id, nil)
-                    case .failure(let error): return (connection.config.id, error)
-                    }
-                }
-            }
-            for await (controllerID, error) in group {
-                if let error { errors[controllerID] = error }
-            }
-        }
+        let errors = await signInConcurrently(participants, session: session)
         return participants.map { connection in
             ControllerUnlockResult(
                 controllerID: connection.config.id,
@@ -609,6 +596,24 @@ final class AppModel {
                 error: errors[connection.config.id]
             )
         }
+    }
+
+    /// Starts every controller's sign-in together and waits for all of them. Each sign-in suspends on its network
+    /// request, so a slow or unreachable controller doesn't delay the others. Returns the ones that failed.
+    private func signInConcurrently(
+        _ participants: [ControllerConnection],
+        session: BiometricUnlockSession?
+    ) async -> [ControllerID: AuthError] {
+        let tasks = participants.map { connection in
+            Task { @MainActor in await connection.auth.unlock(session: session) }
+        }
+        var errors: [ControllerID: AuthError] = [:]
+        for (connection, task) in zip(participants, tasks) {
+            if case .failure(let error) = await task.value {
+                errors[connection.config.id] = error
+            }
+        }
+        return errors
     }
 
     /// After onboarding signs in to the primary: signs in to every other paired controller at once. One that
@@ -623,20 +628,7 @@ final class AppModel {
                 others.append(connection)
             }
         }
-        var errors: [ControllerID: AuthError] = [:]
-        await withTaskGroup(of: (ControllerID, AuthError?).self) { group in
-            for connection in others {
-                group.addTask { @MainActor in
-                    switch await connection.auth.unlock(session: session) {
-                    case .success: return (connection.config.id, nil)
-                    case .failure(let error): return (connection.config.id, error)
-                    }
-                }
-            }
-            for await (controllerID, error) in group {
-                if let error { errors[controllerID] = error }
-            }
-        }
+        let errors = await signInConcurrently(others, session: session)
         guard phase == .unlocked else { return }
         for connection in others {
             if let error = errors[connection.config.id] {
