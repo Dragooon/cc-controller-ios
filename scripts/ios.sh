@@ -61,6 +61,7 @@ NIGHTLY_JOURNEYS=(
   TwoControllersAndStockadeJourneyFlowTests
   ConnectionEdgesJourneyFlowTests
   AddControllerFlowTests
+  UnreachableMacUnlockFlowTests
   LiveTurnCaptureFlowTests
   PhoneWidthPanesJourneyFlowTests
   InspectorPaneJourneyFlowTests

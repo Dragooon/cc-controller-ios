@@ -16,18 +16,22 @@ public func unlockRoute(for error: AuthError) -> UnlockRoute {
     }
 }
 
-public func faceIDFailureMessage(for error: AuthError) -> String {
+/// The sentence for a failed unlock or sign-in. `controllerName` names the controller that failed, such as
+/// "Mac" or "Mustafar"; without it the sentence says "the controller".
+public func faceIDFailureMessage(for error: AuthError, controllerName: String? = nil) -> String {
+    let name = controllerName ?? "the controller"
+    let subject = controllerName ?? "The controller"
     switch error {
     case .biometric(let message):
         return message
     case .network:
-        return "Can't reach your Mac. Check that Termius is forwarding localhost:47832 and the Mac is awake."
+        return unreachableMessage(names: [name])
     case .rateLimited:
         return "Too many unlock attempts. Wait a minute, then try again."
     case .server(let status, _):
-        return "Your Mac could not sign this iPhone in (HTTP \(status)). Try again."
+        return "\(subject) could not sign this iPhone in (HTTP \(status)). Try again."
     case .decoding:
-        return "Your Mac sent an unexpected reply. Try again."
+        return "\(subject) sent an unexpected reply. Try again."
     default:
         return "Unlock did not finish. Try again."
     }

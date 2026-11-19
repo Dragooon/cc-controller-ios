@@ -116,25 +116,71 @@ final class AppModel {
         return controllerName(for: connection.config.id)
     }
 
-    /// Starts one controller's sign-in from its "Sign in needed" header. The primary goes through the app unlock;
-    /// another controller signs in with its own native secret, or opens Settings when it has none.
+    /// Why a controller is signed out while the app is unlocked, or nil when it is signed in.
+    func controllerSignOut(for controllerID: ControllerID) -> ControllerSignOutReason? {
+        signedOutControllers[controllerID]
+    }
+
+    /// Starts one controller's sign-in from its "Sign in needed" or "Can't reach" header, the primary included.
+    /// It signs in with its own native secret; one with no secret opens Settings, and the primary asking to
+    /// pair again goes back to pairing.
     func signIn(controllerID: ControllerID) {
         guard let connection = connection(for: controllerID) else { return }
-        if controllerID == primaryConnection.config.id {
+        guard phase == .unlocked else {
             Task { @MainActor [weak self] in await self?.unlock() }
             return
         }
+        guard !signInInFlight.contains(controllerID) else { return }
+        signInInFlight.insert(controllerID)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.signInInFlight.remove(controllerID) }
+            let isPrimary = controllerID == self.primaryConnection.config.id
             guard (try? await connection.credentials.hasNativeSecret()) == true else {
-                self.isSettingsPresented = true
+                if isPrimary {
+                    await self.beginRepair(message: "Pair this iPhone again to continue.")
+                } else {
+                    self.isSettingsPresented = true
+                }
                 return
             }
-            switch await connection.auth.unlock(session: self.biometricSession) {
+            let session = self.biometricSession ?? BiometricUnlockSession()
+            self.biometricSession = session
+            switch await connection.auth.unlock(session: session) {
             case .success:
+                self.signedOutControllers[controllerID] = nil
                 connection.store.resume()
-            case .failure:
-                self.isSettingsPresented = true
+            case .failure(let error):
+                guard self.phase == .unlocked else { return }
+                if isPrimary, case .rePair(let message) = unlockRoute(for: error) {
+                    await self.beginRepair(message: message)
+                    return
+                }
+                let reason = CCKit.signOutReason(for: error)
+                self.signedOutControllers[controllerID] = reason
+                if reason == .signInNeeded, !isPrimary {
+                    self.isSettingsPresented = true
+                }
+            }
+        }
+    }
+
+    /// A controller header's Retry: signs a signed-out controller in, or reconnects a signed-in one.
+    func retry(controllerID: ControllerID) {
+        if signedOutControllers[controllerID] != nil {
+            signIn(controllerID: controllerID)
+        } else {
+            connection(for: controllerID)?.store.resume()
+        }
+    }
+
+    /// Tries again, without a Face ID prompt, to sign in to the controllers the unlock couldn't reach. Runs on
+    /// coming back to the app and on pull to refresh; each controller waits 30 seconds between tries.
+    func retryUnreachableControllers() {
+        guard phase == .unlocked, biometricSession != nil else { return }
+        for connection in connections where signedOutControllers[connection.config.id] == .unreachable {
+            Task { @MainActor [weak self] in
+                _ = await self?.attemptSilentRelogin(for: connection)
             }
         }
     }
@@ -147,10 +193,18 @@ final class AppModel {
                 id: config.id,
                 name: config.displayName,
                 kind: controllerKindText(connection.store.controllerInfo.kind),
-                status: SettingsControllerStatus(connection.store.connection),
+                status: settingsStatus(for: connection),
                 address: controllerAddressText(address),
                 isPrimary: config.id == primaryConnection.config.id
             )
+        }
+    }
+
+    private func settingsStatus(for connection: ControllerConnection) -> SettingsControllerStatus {
+        switch signedOutControllers[connection.config.id] {
+        case .signInNeeded: .signInNeeded
+        case .unreachable: .offline
+        case nil: SettingsControllerStatus(connection.store.connection)
         }
     }
 
@@ -174,6 +228,9 @@ final class AppModel {
     private var biometricSession: BiometricUnlockSession?
     private var lastSilentReloginAt: [ControllerID: Date] = [:]
     private var silentReloginInFlight: Set<ControllerID> = []
+    private var signInInFlight: Set<ControllerID> = []
+    /// Controllers signed out while the app is unlocked, and why. The list shows "Can't reach" or "Sign in needed".
+    private(set) var signedOutControllers: [ControllerID: ControllerSignOutReason] = [:]
     private(set) var currentScenePhase: ScenePhase = .background
     private var connectionTask: Task<Void, Never>?
     @ObservationIgnored private var connectionPathTask: Task<Void, Never>?
@@ -487,64 +544,145 @@ final class AppModel {
 
         let session = biometricSession ?? BiometricUnlockSession()
         biometricSession = session
-        let result = await auth.unlock(session: session)
-        let errorCode = auth.lastUnlockFailureCode ?? "none"
-        switch result {
-        case .success:
-            authLogger.notice("unlock result=success errorCode=\(errorCode, privacy: .public)")
-        case .failure:
-            authLogger.error("unlock result=failure errorCode=\(errorCode, privacy: .public)")
+        let results = await signInToEveryController(session: session)
+        for result in results {
+            let outcome = result.error == nil ? "success" : "failure"
+            authLogger.notice("unlock controller=\(result.controllerID.rawValue, privacy: .public) result=\(outcome, privacy: .public)")
         }
-        switch result {
-        case .success:
+        let errorCode = auth.lastUnlockFailureCode ?? "none"
+        authLogger.notice("unlock primary errorCode=\(errorCode, privacy: .public)")
+        switch appUnlockOutcome(results) {
+        case .unlocked(let signedOut):
             faceIDMessage = nil
+            signedOutControllers = signedOut
             phase = .unlocked
             await recordSuccessfulUnlock()
-            await unlockOtherControllers(session: session)
-        case .failure(let error):
+            startAuthenticatedStores()
+        case .locked(let message):
             invalidateBiometricSession()
-            await handleUnlockFailure(error)
+            faceIDMessage = message
+            connections.forEach { $0.auth.lock() }
+            if phase == .locked {
+                stores.forEach { $0.suspend() }
+            }
+        case .rePair(let message):
+            for connection in connections.dropFirst() { connection.auth.lock() }
+            await beginRepair(message: message)
         }
     }
 
-    /// Signs in to every paired controller after the primary. The shared biometric session authorizes each
-    /// native-secret read during app unlock; one controller that fails stays at "Sign in needed".
+    /// Signs in to every paired controller at once, so one that can't be reached doesn't hold the others back.
+    /// The shared biometric session asks for Face ID once and authorizes each controller's native-secret read.
+    /// The primary always takes part; another controller only once it has a native secret.
+    private func signInToEveryController(session: BiometricUnlockSession) async -> [ControllerUnlockResult] {
+        let primaryID = primaryConnection.config.id
+        var participants: [ControllerConnection] = []
+        for connection in connections {
+            if connection.config.id == primaryID {
+                participants.append(connection)
+                continue
+            }
+            let hasSecret = (try? await connection.credentials.hasNativeSecret()) == true
+            if hasSecret {
+                participants.append(connection)
+            }
+        }
+        var errors: [ControllerID: AuthError] = [:]
+        await withTaskGroup(of: (ControllerID, AuthError?).self) { group in
+            for connection in participants {
+                group.addTask { @MainActor in
+                    switch await connection.auth.unlock(session: session) {
+                    case .success: return (connection.config.id, nil)
+                    case .failure(let error): return (connection.config.id, error)
+                    }
+                }
+            }
+            for await (controllerID, error) in group {
+                if let error { errors[controllerID] = error }
+            }
+        }
+        return participants.map { connection in
+            ControllerUnlockResult(
+                controllerID: connection.config.id,
+                name: config(for: connection.config.id)?.displayName ?? connection.config.displayName,
+                isPrimary: connection.config.id == primaryID,
+                error: errors[connection.config.id]
+            )
+        }
+    }
+
+    /// After onboarding signs in to the primary: signs in to every other paired controller at once. One that
+    /// fails shows "Can't reach" or "Sign in needed" in the list.
     private func unlockOtherControllers(session: BiometricUnlockSession? = nil) async {
         guard !fixtureMode else { return }
         let session = session ?? biometricSession
+        var others: [ControllerConnection] = []
         for connection in connections.dropFirst() {
-            guard phase == .unlocked else { return }
-            guard (try? await connection.credentials.hasNativeSecret()) == true else { continue }
-            if case .success = await connection.auth.unlock(session: session) {
+            let hasSecret = (try? await connection.credentials.hasNativeSecret()) == true
+            if hasSecret {
+                others.append(connection)
+            }
+        }
+        var errors: [ControllerID: AuthError] = [:]
+        await withTaskGroup(of: (ControllerID, AuthError?).self) { group in
+            for connection in others {
+                group.addTask { @MainActor in
+                    switch await connection.auth.unlock(session: session) {
+                    case .success: return (connection.config.id, nil)
+                    case .failure(let error): return (connection.config.id, error)
+                    }
+                }
+            }
+            for await (controllerID, error) in group {
+                if let error { errors[controllerID] = error }
+            }
+        }
+        guard phase == .unlocked else { return }
+        for connection in others {
+            if let error = errors[connection.config.id] {
+                signedOutControllers[connection.config.id] = CCKit.signOutReason(for: error)
+            } else {
+                signedOutControllers[connection.config.id] = nil
                 connection.store.resume()
             }
         }
     }
 
+    /// Restores each controller's saved sign-in on a cold launch. The app opens when any of them restores;
+    /// one without a saved sign-in shows "Sign in needed" instead of locking the others out.
     private func restoreStoredBearers() async -> Bool {
-        var primaryRestored = false
+        var restored: [ControllerID] = []
+        var missing: [ControllerID] = []
         for connection in connections {
             let stored = try? await connection.credentials.getSessionBearer()
             guard let stored,
                   connection.auth.restore(token: stored.token, expiresAt: stored.expiresAt) else {
                 try? await connection.credentials.deleteSessionBearer()
-                if connection.config.id == primaryConnection.config.id { return false }
+                missing.append(connection.config.id)
                 continue
             }
-            if connection.config.id == primaryConnection.config.id {
-                primaryRestored = true
-            }
+            restored.append(connection.config.id)
         }
-        return primaryRestored
+        guard !restored.isEmpty else { return false }
+        for controllerID in missing {
+            signedOutControllers[controllerID] = .signInNeeded
+        }
+        return true
     }
 
+    /// A controller turned down its sign-in (401). Tries once more without asking; if that fails, only that
+    /// controller signs out, and the app locks only when nothing else is still signed in.
     private func handleAuthenticationFailure(controllerID: ControllerID) async {
         guard let connection = connection(for: controllerID) else { return }
         try? await connection.credentials.deleteSessionBearer()
         connection.auth.lock()
         guard await attemptSilentRelogin(for: connection) else {
             connection.store.suspend()
-            if controllerID == primaryConnection.config.id {
+            if signedOutControllers[controllerID] == nil {
+                signedOutControllers[controllerID] = .signInNeeded
+            }
+            let stillSignedIn = connections.filter { isAuthenticated($0) }.count
+            if phase == .unlocked, signOutLocksApp(stillSignedIn: stillSignedIn) {
                 transitionToLocked()
             }
             return
@@ -563,10 +701,18 @@ final class AppModel {
         lastSilentReloginAt[controllerID] = now
         silentReloginInFlight.insert(controllerID)
         defer { silentReloginInFlight.remove(controllerID) }
-        guard case .success = await connection.auth.unlock(session: session) else { return false }
-        connection.store.resume()
-        TranscriptLifecycleLog.shared.record(name: "silent-relogin", detail: controllerID.rawValue)
-        return true
+        switch await connection.auth.unlock(session: session) {
+        case .success:
+            signedOutControllers[controllerID] = nil
+            connection.store.resume()
+            TranscriptLifecycleLog.shared.record(name: "silent-relogin", detail: controllerID.rawValue)
+            return true
+        case .failure(let error):
+            if phase == .unlocked {
+                signedOutControllers[controllerID] = CCKit.signOutReason(for: error)
+            }
+            return false
+        }
     }
 
     private func isAuthenticated(_ connection: ControllerConnection) -> Bool {
@@ -991,6 +1137,7 @@ final class AppModel {
         connectionTask?.cancel()
         pairingTask?.cancel()
         await auth.prepareForRepair()
+        signedOutControllers.removeAll()
         onboarding = OnboardingFlowState()
         onboarding.continueFromWelcome()
         connectionMessage = message
@@ -1023,6 +1170,7 @@ final class AppModel {
         unlockExpiryTask = nil
         connections.forEach { $0.auth.lock() }
         stores.forEach { $0.suspend() }
+        signedOutControllers.removeAll()
         hasAutoPromptedLockScreen = suppressAutoPrompt
         phase = .locked
         updateSettingsProbing()
@@ -1147,6 +1295,7 @@ final class AppModel {
         await registry.remove(controllerID)
         connections.removeAll { $0.config.id == controllerID }
         controllerSettings.removeValue(forKey: controllerID)
+        signedOutControllers.removeValue(forKey: controllerID)
         observedSessions.removeValue(forKey: controllerID)
         pendingSessionReplacement.removeValue(forKey: controllerID)
         if selectedSession?.controllerID == controllerID {
@@ -1285,6 +1434,7 @@ final class AppModel {
             } else {
                 clearBackgroundTimestamp()
                 resumeAuthenticatedStores()
+                retryUnreachableControllers()
                 stores.forEach { $0.resyncOpenTranscripts() }
                 watchForIdentityChange()
                 scheduleUnlockExpiryIfNeeded()

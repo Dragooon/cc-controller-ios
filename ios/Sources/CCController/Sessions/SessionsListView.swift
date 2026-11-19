@@ -8,6 +8,8 @@ struct SessionsListController: Identifiable {
     let kind: ControllerKind
     let connection: SessionsListView.Connection
     let signInNeeded: Bool
+    /// Signed out because its sign-in couldn't reach it; the header says "Can't reach" and Retry signs in.
+    let unreachable: Bool
     let sessions: [Session]
     let sleeping: [SleepingSession]
     let approvals: [Approval]
@@ -19,6 +21,7 @@ struct SessionsListController: Identifiable {
         kind: ControllerKind = .claudeCode,
         connection: SessionsListView.Connection = .live,
         signInNeeded: Bool = false,
+        unreachable: Bool = false,
         sessions: [Session],
         sleeping: [SleepingSession] = [],
         approvals: [Approval] = [],
@@ -29,6 +32,7 @@ struct SessionsListController: Identifiable {
         self.kind = kind
         self.connection = connection
         self.signInNeeded = signInNeeded
+        self.unreachable = unreachable
         self.sessions = sessions
         self.sleeping = sleeping
         self.approvals = approvals
@@ -690,7 +694,7 @@ struct SessionsListView: View {
         }
         keys.append("archived-collapsed:\(archivedCollapsed)")
         for controller in controllers {
-            keys.append("controller:\(controller.id.rawValue):\(controller.signInNeeded):\(controller.connection)")
+            keys.append("controller:\(controller.id.rawValue):\(controller.signInNeeded):\(controller.unreachable):\(controller.connection)")
         }
         return keys
     }
@@ -923,6 +927,7 @@ private struct ControllerSectionHeader: View {
     }
 
     private var statusText: String? {
+        if controller.unreachable { return "Can't reach" }
         switch controller.connection {
         case .live: return nil
         case .reconnecting: return "Reconnecting…"
@@ -934,6 +939,7 @@ private struct ControllerSectionHeader: View {
 
     private var statusValue: String {
         if controller.signInNeeded { return "signInNeeded" }
+        if controller.unreachable { return "unreachable" }
         switch controller.connection {
         case .live: return "live"
         case .reconnecting: return "reconnecting"

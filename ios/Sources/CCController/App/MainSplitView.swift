@@ -507,13 +507,14 @@ struct MainSplitView: View {
             onOpen: { controllerID, session in
                 openSession(controllerID, session.id)
             },
-            onRetry: { controllerID in model.connection(for: controllerID)?.store.resume() },
+            onRetry: { controllerID in model.retry(controllerID: controllerID) },
             onSignIn: { controllerID in model.signIn(controllerID: controllerID) },
             onSettings: { model.isSettingsPresented = true },
             onToggleSidebar: toggleSidebar,
             onRefresh: {
+                model.retryUnreachableControllers()
                 await withTaskGroup(of: Void.self) { group in
-                    for connection in model.connections {
+                    for connection in model.connections where model.controllerSignOut(for: connection.config.id) == nil {
                         let store = connection.store
                         group.addTask { await store.refresh() }
                     }
@@ -658,7 +659,8 @@ struct MainSplitView: View {
                 name: connection.config.displayName,
                 kind: store.controllerInfo.kind,
                 connection: listConnection(for: store),
-                signInNeeded: store.connection == .unauthorized,
+                signInNeeded: store.connection == .unauthorized || model.controllerSignOut(for: connection.config.id) == .signInNeeded,
+                unreachable: model.controllerSignOut(for: connection.config.id) == .unreachable,
                 sessions: store.sortedSessions,
                 sleeping: store.sleeping,
                 approvals: store.approvals,
