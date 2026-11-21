@@ -1340,6 +1340,8 @@ public final class AppStore {
                 if code == "answer_too_long" { return .answerTooLong }
                 if code == "answer_in_terminal" { return .answerInTerminal }
                 if code == "no_command_route" { return .commandsUnavailable(message) }
+                // A terminal session takes model and effort changes in its terminal; the controller says how.
+                if code == "console_session" { return .commandsUnavailable(message) }
                 if code == "read_only" { return .readOnly(message) }
                 if code == "terminal_no_pane" { return .waitingInTerminal }
                 if code == "no_pane" { return .noPane }

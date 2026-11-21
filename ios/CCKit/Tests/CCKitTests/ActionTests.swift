@@ -204,6 +204,16 @@ final class ActionTests: XCTestCase {
         )
     }
 
+    func testAConsoleSessionsRefusalShowsTheControllersSentenceAsIs() {
+        let app = makeApp()
+        let message = "This session runs in a terminal; switch its model there with /model opus"
+        XCTAssertEqual(
+            app.actionError(for: APIError.http(status: 409, message: message, code: "console_session")),
+            .commandsUnavailable(message)
+        )
+        XCTAssertEqual(ActionError.commandsUnavailable(message).errorDescription, message)
+    }
+
     func testComposerSendIncludesFilesAndUsesSeeAttached() async throws {
         var requestBody = ""
         ActionURLProtocol.handler = { request in
