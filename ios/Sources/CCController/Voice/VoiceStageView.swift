@@ -252,65 +252,87 @@ struct StageImageView: View {
     }
 }
 
-/// Draws a mermaid diagram offline with the bundled mermaid.js, in the app's colours.
+/// Draws a mermaid diagram offline with the bundled mermaid.js, in the app's colours. The stage shows one diagram
+/// at a time, so every MermaidView borrows the one shared, already-loaded web view.
 struct MermaidView: UIViewRepresentable {
     let source: String
     @Environment(\.colorScheme) private var colorScheme
 
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        if let script = MermaidScript.source {
-            configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        }
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        view.accessibilityIdentifier = "voice-stage-mermaid"
-        view.isOpaque = false
-        view.backgroundColor = .clear
-        view.scrollView.backgroundColor = .clear
-        return view
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+        return container
     }
 
-    func updateUIView(_ view: WKWebView, context: Context) {
+    func updateUIView(_ container: UIView, context: Context) {
+        let renderer = MermaidRenderer.shared
+        renderer.attach(to: container)
         let key = "\(colorScheme == .dark)|\(source)"
-        guard context.coordinator.loadedKey != key else { return }
-        context.coordinator.loadedKey = key
-        view.loadHTMLString(MermaidScript.page(source: source, dark: colorScheme == .dark), baseURL: nil)
+        guard context.coordinator.renderedKey != key else { return }
+        context.coordinator.renderedKey = key
+        renderer.render(source, dark: colorScheme == .dark)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
-        var loadedKey: String?
+        var renderedKey: String?
     }
 }
 
-enum MermaidScript {
-    /// mermaid.js 12.3.0 (MIT), bundled in Resources/Mermaid.
-    @MainActor static let source: String? = {
-        guard let url = Bundle.main.url(forResource: "mermaid.min", withExtension: "js") else { return nil }
-        return try? String(contentsOf: url, encoding: .utf8)
-    }()
+/// One web view with mermaid.js (12.3.0, MIT, Resources/Mermaid) loaded from the app bundle. Voice mode warms it up
+/// when it starts, so a diagram is one JavaScript call instead of a fresh page parsing 5.5 MB of script.
+@MainActor
+final class MermaidRenderer: NSObject, WKNavigationDelegate {
+    static let shared = MermaidRenderer()
 
-    static func page(source: String, dark: Bool) -> String {
-        let encoded = (try? String(data: JSONEncoder().encode(source), encoding: .utf8)) ?? "\"\""
-        let background = dark ? "#0A0A09" : "#FFFFFF"
-        let text = dark ? "#F6F3ED" : "#1D1C1A"
-        return """
-        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=4">
-        <style>html,body{margin:0;padding:0;background:\(background);color:\(text);font:20px -apple-system,system-ui}
-        #d{display:flex;justify-content:center;align-items:flex-start;padding:8px}#d svg{max-width:100%;height:auto}
-        #e{white-space:pre-wrap;font:15px ui-monospace,monospace;color:\(text);padding:8px}</style></head>
-        <body><div id="d"></div><div id="e"></div><script>
-        (async () => {
-          try {
-            mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: '\(dark ? "dark" : "default")', fontSize: 18 });
-            const { svg } = await mermaid.render('stage', \(encoded));
-            document.getElementById('d').innerHTML = svg;
-          } catch (error) {
-            document.getElementById('e').textContent = \(encoded);
-          }
-        })();
-        </script></body></html>
-        """
+    let webView: WKWebView
+    private var isLoaded = false
+    private var pending: (source: String, dark: Bool)?
+
+    override init() {
+        webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        super.init()
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        webView.accessibilityIdentifier = "voice-stage-mermaid"
+        webView.navigationDelegate = self
+        if let page = Bundle.main.url(forResource: "mermaid", withExtension: "html") {
+            webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+        }
+    }
+
+    /// Creating the shared renderer starts the web view and loads mermaid.js.
+    func warmUp() {}
+
+    func attach(to container: UIView) {
+        guard webView.superview !== container else { return }
+        webView.removeFromSuperview()
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.addSubview(webView)
+    }
+
+    func render(_ source: String, dark: Bool) {
+        pending = (source, dark)
+        if isLoaded { drawPending() }
+    }
+
+    private func drawPending() {
+        guard let pending else { return }
+        self.pending = nil
+        webView.callAsyncJavaScript(
+            "return await renderDiagram(source, dark)",
+            arguments: ["source": pending.source, "dark": pending.dark],
+            in: nil,
+            in: .page,
+            completionHandler: nil
+        )
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        isLoaded = true
+        drawPending()
     }
 }

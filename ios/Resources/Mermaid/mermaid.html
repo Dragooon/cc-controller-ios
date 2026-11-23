@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=4">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font: 20px -apple-system, system-ui; }
+  #diagram { display: flex; justify-content: center; align-items: flex-start; padding: 8px; }
+  #diagram svg { max-width: 100%; height: auto; }
+  #source { white-space: pre-wrap; font: 15px ui-monospace, monospace; padding: 8px; }
+</style>
+<script src="mermaid.min.js"></script>
+</head>
+<body>
+<div id="diagram"></div>
+<div id="source"></div>
+<script>
+  // The app's voice stage: one page, loaded once, that draws whatever diagram the agent shows next.
+  let renderCount = 0;
+  async function renderDiagram(source, dark) {
+    const diagram = document.getElementById('diagram');
+    const fallback = document.getElementById('source');
+    document.body.style.color = dark ? '#F6F3ED' : '#1D1C1A';
+    diagram.innerHTML = '';
+    fallback.textContent = '';
+    try {
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', fontSize: 18 });
+      renderCount += 1;
+      const { svg } = await mermaid.render('stage' + renderCount, source);
+      diagram.innerHTML = svg;
+      return 'drawn';
+    } catch (error) {
+      fallback.textContent = source;
+      return 'source';
+    }
+  }
+</script>
+</body>
+</html>
