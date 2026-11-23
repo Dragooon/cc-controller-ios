@@ -38,7 +38,7 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(pollUntil(timeout: 60) { status.label == "Speaking" }, "The reply was not spoken: \(status.label)")
         let spokeAloud = try await fixtureRequestCount("POST /api/voice/speech")
         XCTAssertGreaterThan(spokeAloud, 0, "No reply text reached the host's speech route")
-        XCTAssertTrue(app.element(identifier: "voice-caption").waitToExist(timeout: 10), "The spoken sentence had no caption")
+        XCTAssertTrue(app.element(identifier: "voice-conversation-line").waitToExist(timeout: 10), "The spoken sentence wasn't shown")
         addScreenshot(named: "voice-speaking")
 
         // Play/pause pauses the reply and mutes the mic, and resumes both.

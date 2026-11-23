@@ -133,7 +133,9 @@ struct VoiceStripView: View {
         .accessibilityIdentifier("voice-strip")
     }
 
+    /// The expanded stage already shows the conversation in large type when nothing is on it.
     private var caption: String? {
+        if expanded, controller.stage == nil { return nil }
         if !controller.heardText.isEmpty { return "You: \(controller.heardText)" }
         if !controller.speakingText.isEmpty { return controller.speakingText }
         return nil
