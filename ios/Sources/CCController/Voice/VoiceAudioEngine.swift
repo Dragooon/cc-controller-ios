@@ -3,6 +3,11 @@ import CCKit
 import Foundation
 import os
 
+enum VoiceAudioError: LocalizedError {
+    case noMicrophone
+    var errorDescription: String? { "No microphone is available." }
+}
+
 /// What the mic side of voice mode reports to the controller.
 enum VoiceAudioEvent: Sendable {
     /// The phone started hearing speech.
@@ -19,9 +24,9 @@ struct VoiceAudioClip: Sendable {
     let id: String
     let url: URL
     let durationMs: Int
-    let mimeType = "audio/mp4"
     /// Started while a reply was playing.
     let overlappedReply: Bool
+    var mimeType = "audio/mp4"
 }
 
 /// The cues voice mode plays: short generated tones, VoiceMode's approach, each with a moment of silence in front so
@@ -62,6 +67,7 @@ final class VoiceAudioEngine {
     private var cueBuffers: [VoiceCue: AVAudioPCMBuffer] = [:]
     private var listens = false
     private(set) var isRunning = false
+    private var startedAt = Date.distantPast
     /// Reply sentences scheduled and not yet played, by token.
     private var pendingReplyFinishes: [Int: @MainActor @Sendable (Bool) -> Void] = [:]
     private var nextReplyToken = 0
@@ -98,12 +104,13 @@ final class VoiceAudioEngine {
         engine.attach(cuePlayer)
         engine.connect(replyPlayer, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(cuePlayer, to: engine.mainMixerNode, format: cueFormat)
-        if listen { installTap() }
+        if listen { try installTap() }
         engine.prepare()
         try engine.start()
         replyPlayer.play()
         cuePlayer.play()
         isRunning = true
+        startedAt = Date()
         observeSession()
     }
 
@@ -129,9 +136,10 @@ final class VoiceAudioEngine {
     /// While muted the mic is still open (so the engine keeps its echo canceller warm) but nothing is heard.
     func setMuted(_ muted: Bool) { processor.setMuted(muted) }
 
-    private func installTap() {
+    private func installTap() throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        guard format.channelCount > 0, format.sampleRate > 0 else { throw VoiceAudioError.noMicrophone }
         processor.configure(sampleRate: format.sampleRate)
         input.installTap(onBus: 0, bufferSize: 1_024, format: format, block: VoiceTapProcessor.tapBlock(for: processor))
     }
@@ -252,9 +260,10 @@ final class VoiceAudioEngine {
         if type == .ended { restartAfterChange() }
     }
 
-    /// A route change (AirPods in or out) or an interruption rebuilds the engine's graph; start it again.
+    /// A route change (AirPods in or out) or an interruption rebuilds the engine's graph; start it again. Turning
+    /// voice processing on raises a change of its own right after start, which is ignored.
     private func restartAfterChange() {
-        guard isRunning else { return }
+        guard isRunning, Date().timeIntervalSince(startedAt) > 1.5 else { return }
         let listen = listens
         stop()
         do {

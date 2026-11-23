@@ -27,6 +27,23 @@ Controllers, relay addresses and paired devices are app settings, stored on the 
 
 The fixture daemon the UI tests use lives in the controller repository. From a standalone checkout of this app, `scripts/ios.sh` looks for it in `CC_CONTROLLER_ROOT`, or in a `cc-controller` checkout next to this one, with `npm ci` already run there. `install` builds Release, installs on the one paired physical iPhone (or the exact `--device` match), and does not launch it unless `--launch` is passed.
 
+## Voice mode
+
+A session's waveform button starts a hands-free conversation when its host reports voice (`GET /api/voice`). The
+host transcribes (`POST /api/voice/transcribe`) and speaks (`POST /api/voice/speech`, 24 kHz 16-bit mono PCM); the
+phone only records, decides when a turn has ended, plays and keeps the recordings.
+
+- `CCKit/VoiceTurn.swift`: when a turn ends (trailing words hold it 3 s), echo versus barge-in, which transcript
+  entries are spoken. `CCKit/SpeakableText.swift`: markdown to spoken sentences; fenced code is read as "Code on
+  screen.", a `(skip)` reply isn't spoken. `CCKit/VoiceRecordingArchive.swift`: every utterance, kept on the phone.
+- `Sources/CCController/Voice/`: the audio engine (voice processing on, speech-band VAD, AAC utterances, reply
+  player, generated cues), the conversation controller, the stage (markdown, mermaid via the bundled
+  `Resources/Mermaid/mermaid.min.js` 12.3.0, images) and the recordings sheet.
+- Nothing said is handled as a command; play/pause (AirPods, lock screen, strip) pauses the reply and mutes the mic.
+- UI journey: `VoiceModeJourneyFlowTests`, run with `-CCVoiceTestAudio` (no mic on the simulator) against a fixture
+  daemon with voice routes (`controller_ref=stockade-next` until the controller's main has them).
+- Design: `~/workspace/projects/voice-mode/DESIGN.md` on Mustafar.
+
 ## TestFlight archive and upload
 
 The one-time owner setup is:

@@ -106,6 +106,11 @@ struct VoiceStripView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("voice-caption")
             }
+            if VoiceModeController.usesTestAudio {
+                Button("Say test utterance") { controller.injectTestUtterance() }
+                    .font(.footnote.weight(.semibold))
+                    .accessibilityIdentifier("voice-test-utterance")
+            }
             if let notice = controller.notice {
                 Text(notice)
                     .font(.footnote)

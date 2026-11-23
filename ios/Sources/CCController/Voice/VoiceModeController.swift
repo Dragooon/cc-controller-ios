@@ -91,17 +91,23 @@ final class VoiceModeController {
 
     // MARK: Start and stop
 
+    /// UI tests run without a microphone: the engine only plays, and the strip offers a button that feeds a silent
+    /// clip through the same path a real utterance takes.
+    static var usesTestAudio: Bool { ProcessInfo.processInfo.arguments.contains("-CCVoiceTestAudio") }
+
     func start() async {
-        guard await AVAudioApplication.requestRecordPermission() else {
-            phase = .failed("Code needs the microphone for voice mode. Turn it on in Settings, then try again.")
-            return
+        if !Self.usesTestAudio {
+            guard await AVAudioApplication.requestRecordPermission() else {
+                phase = .failed("Code needs the microphone for voice mode. Turn it on in Settings, then try again.")
+                return
+            }
         }
         let entries = store.openSession(sessionID)?.entries ?? []
         tracker = VoiceReplyTracker(baseline: entries)
         stage = entries.reversed().lazy.compactMap(\.stage).first(where: \.isDone)
         knownApprovalIDs = Set((store.sessions[sessionID]?.pending ?? []).compactMap(\.requestId))
         do {
-            try engine.start(listen: true)
+            try engine.start(listen: !Self.usesTestAudio)
         } catch {
             phase = .failed("The microphone couldn't start: \(error.localizedDescription)")
             return
@@ -186,6 +192,24 @@ final class VoiceModeController {
         startSpeaking()
     }
 
+    /// UI tests: a second of silence, as if you'd just spoken; the fixture decides what the host "heard".
+    func injectTestUtterance() {
+        let id = UUID().uuidString.lowercased()
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("utterance-\(id).wav")
+        let rate = 16_000
+        var data = Data()
+        func append32(_ value: UInt32) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        func append16(_ value: UInt16) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        let samples = rate
+        data.append(contentsOf: Array("RIFF".utf8)); append32(UInt32(36 + samples * 2))
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); append32(16); append16(1); append16(1)
+        append32(UInt32(rate)); append32(UInt32(rate * 2)); append16(2); append16(16)
+        data.append(contentsOf: Array("data".utf8)); append32(UInt32(samples * 2))
+        data.append(Data(count: samples * 2))
+        guard (try? data.write(to: url)) != nil else { return }
+        receive(VoiceAudioClip(id: id, url: url, durationMs: 1_000, overlappedReply: engine.isReplyPlaying, mimeType: "audio/wav"))
+    }
+
     /// Brings an earlier stage item back.
     func show(_ entry: StageEntry) { stage = entry }
 
@@ -232,7 +256,7 @@ final class VoiceModeController {
             sessionID: sessionID,
             createdAt: Date(),
             durationMs: clip.durationMs,
-            fileName: "\(clip.id).m4a",
+            fileName: "\(clip.id).\(clip.url.pathExtension)",
             mimeType: clip.mimeType
         )
         let stored = try? archive.add(recording, movingFileAt: clip.url)
@@ -247,7 +271,7 @@ final class VoiceModeController {
             let audio = (try? Data(contentsOf: fileURL)) ?? Data()
             let result: VoiceTranscription
             do {
-                result = try await self.store.transcribeVoice(audio: audio, filename: "\(clip.id).m4a", mimeType: clip.mimeType)
+                result = try await self.store.transcribeVoice(audio: audio, filename: fileURL.lastPathComponent, mimeType: clip.mimeType)
             } catch {
                 self.transcribing -= 1
                 self.notice = "Couldn't transcribe that: \(error.localizedDescription)"
