@@ -1383,10 +1383,7 @@ final class AppModel {
             connectionPathTask?.cancel()
             connectionPathTask = nil
             pairingTask?.cancel()
-            // A voice conversation keeps its controller's events flowing in the background, so replies are still
-            // spoken with the phone locked. The lock screen still asks for Face ID on return.
-            let voiceStore = VoiceCenter.shared.active?.store
-            stores.filter { $0 !== voiceStore }.forEach { $0.suspend() }
+            stores.forEach { $0.suspend() }
         case .active:
             if phase == .onboarding {
                 switch onboardingStep {

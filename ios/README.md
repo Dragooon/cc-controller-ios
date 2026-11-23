@@ -44,6 +44,9 @@ phone only records, decides when a turn has ended, plays and keeps the recording
 - UI journey: `VoiceModeJourneyFlowTests`, run with `-CCVoiceTestAudio` (no mic on the simulator) against a fixture
   daemon with voice routes (`controller_ref=stockade-next` until the controller's main has them).
 - Design: `~/workspace/projects/voice-mode/DESIGN.md` on Mustafar.
+- Screen-on only for now (23 Nov): voice mode keeps the screen awake; with the phone locked it stops. The
+  background-audio mode (and keeping the voice store's events flowing in the background) made LongSession's paging
+  lose its place on first launch in 6 of 8 runs; without it, 2 of 2 passed. Find why before adding it back.
 - Open (23 Nov): on the CI simulator a strip tap that lands just as the agent's turn ends was sometimes lost
   (no pressed state, no action). The journey now waits for the turn to end; watch for it on the Duo.
 
