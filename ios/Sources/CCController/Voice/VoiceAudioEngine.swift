@@ -67,6 +67,7 @@ final class VoiceAudioEngine {
     private var cueBuffers: [VoiceCue: AVAudioPCMBuffer] = [:]
     private var listens = false
     private(set) var isRunning = false
+    private var isStarting = false
     private var startedAt = Date.distantPast
     /// Reply sentences scheduled and not yet played, by token.
     private var pendingReplyFinishes: [Int: @MainActor @Sendable (Bool) -> Void] = [:]
@@ -83,30 +84,57 @@ final class VoiceAudioEngine {
 
     // MARK: Lifecycle
 
+    /// AVAudioSession activation and engine start wait on the audio server (iOS 27 warns that they can freeze the UI
+    /// on the main thread), so they run on this queue while the main actor awaits. Serial, so a stop's deactivation
+    /// always lands before the next start's activation.
+    private static let audioQueue = DispatchQueue(label: "voice-audio", qos: .userInitiated)
+
+    private struct Unchecked<Value>: @unchecked Sendable { let value: Value }
+
+    private static func onAudioQueue(_ work: @escaping @Sendable () throws -> Void) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            audioQueue.async {
+                do {
+                    try work()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     /// Starts the engine. `listen` opens the mic with echo cancellation (voice mode); without it the engine only
     /// plays (Read aloud).
-    func start(listen: Bool) throws {
+    func start(listen: Bool) async throws {
+        if isStarting { return }
         if isRunning, listens == listen { return }
         if isRunning { stop() }
+        isStarting = true
+        defer { isStarting = false }
         listens = listen
-        let session = AVAudioSession.sharedInstance()
-        if listen {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
-        } else {
-            try session.setCategory(.playback, mode: .spokenAudio, options: [])
-        }
-        try session.setActive(true)
-
-        if listen {
-            try engine.inputNode.setVoiceProcessingEnabled(true)
+        let engineBox = Unchecked(value: engine)
+        try await Self.onAudioQueue {
+            let session = AVAudioSession.sharedInstance()
+            if listen {
+                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+            } else {
+                try session.setCategory(.playback, mode: .spokenAudio, options: [])
+            }
+            try session.setActive(true)
+            if listen {
+                try engineBox.value.inputNode.setVoiceProcessingEnabled(true)
+            }
         }
         engine.attach(replyPlayer)
         engine.attach(cuePlayer)
         engine.connect(replyPlayer, to: engine.mainMixerNode, format: replyFormat)
         engine.connect(cuePlayer, to: engine.mainMixerNode, format: cueFormat)
         if listen { try installTap() }
-        engine.prepare()
-        try engine.start()
+        try await Self.onAudioQueue {
+            engineBox.value.prepare()
+            try engineBox.value.start()
+        }
         replyPlayer.play()
         cuePlayer.play()
         isRunning = true
@@ -128,7 +156,9 @@ final class VoiceAudioEngine {
         pendingReplyFinishes = [:]
         isRunning = false
         for finish in cut.values { finish(false) }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Self.audioQueue.async {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     // MARK: Mic
@@ -266,11 +296,13 @@ final class VoiceAudioEngine {
         guard isRunning, Date().timeIntervalSince(startedAt) > 1.5 else { return }
         let listen = listens
         stop()
-        do {
-            try start(listen: listen)
-        } catch {
-            Self.logger.error("voice engine restart failed: \(error.localizedDescription, privacy: .public)")
-            continuation.yield(.failed("The audio stopped: \(error.localizedDescription)"))
+        Task { [weak self] in
+            do {
+                try await self?.start(listen: listen)
+            } catch {
+                Self.logger.error("voice engine restart failed: \(error.localizedDescription, privacy: .public)")
+                self?.continuation.yield(.failed("The audio stopped: \(error.localizedDescription)"))
+            }
         }
     }
 }

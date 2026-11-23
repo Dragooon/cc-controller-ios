@@ -110,7 +110,7 @@ final class VoiceModeController {
         stage = entries.reversed().lazy.compactMap(\.stage).first(where: \.isDone)
         knownApprovalIDs = Set((store.sessions[sessionID]?.pending ?? []).compactMap(\.requestId))
         do {
-            try engine.start(listen: !Self.usesTestAudio)
+            try await engine.start(listen: !Self.usesTestAudio)
         } catch {
             phase = .failed("The microphone couldn't start: \(error.localizedDescription)")
             return
@@ -597,12 +597,17 @@ final class VoiceCenter {
         let sentences = SpeakableText.sentences(SpeakableText.speakable(markdown))
         guard !sentences.isEmpty else { return }
         let engine = VoiceAudioEngine()
-        do { try engine.start(listen: false) } catch { return }
         reader = engine
         readingID = id
         let voice = VoiceSettings.voice
         let speed = VoiceSettings.speed
         readingTask = Task { [weak self] in
+            do {
+                try await engine.start(listen: false)
+            } catch {
+                self?.stopReading()
+                return
+            }
             var next: Task<Data?, Never>? = Task { try? await store.synthesizeVoice(text: sentences[0], voice: voice, speed: speed) }
             for index in sentences.indices {
                 guard let current = next, !Task.isCancelled else { break }
