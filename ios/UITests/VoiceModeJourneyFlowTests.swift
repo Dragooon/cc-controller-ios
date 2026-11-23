@@ -63,8 +63,10 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.element(identifier: "voice-stage-markdown").waitToExist(timeout: 5), "The stage did not show the markdown")
         addScreenshot(named: "voice-stage-markdown")
         try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Getting there", "image": true])
-        XCTAssertTrue(app.element(identifier: "voice-stage-image-loaded").waitToExist(timeout: 20), "The stage did not show the host's image")
-        XCTAssertFalse(app.element(identifier: "voice-stage-image-failed").exists, "The image failed to load")
+        let loadedImage = app.element(identifier: "voice-stage-image-loaded")
+        let failedImage = app.element(identifier: "voice-stage-image-failed")
+        XCTAssertTrue(pollUntil(timeout: 20) { loadedImage.exists || failedImage.exists }, "The stage did not show the host's image")
+        XCTAssertFalse(failedImage.exists, "The image failed to load: \(failedImage.label)")
         XCTAssertTrue(app.element(identifier: "voice-stage-history").waitToExist(timeout: 5), "Earlier stage items were not kept")
         addScreenshot(named: "voice-stage-image")
 

@@ -219,7 +219,7 @@ struct StageImageView: View {
     let stage: StageEntry
     let store: AppStore
     @State private var image: UIImage?
-    @State private var failed = false
+    @State private var failure: String?
 
     var body: some View {
         Group {
@@ -230,22 +230,34 @@ struct StageImageView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(stage.title.isEmpty ? "Image" : stage.title)
                     .accessibilityIdentifier("voice-stage-image-loaded")
-            } else if failed {
-                Text("The image couldn't be loaded.")
-                    .foregroundStyle(.ccSecondary)
-                    .accessibilityIdentifier("voice-stage-image-failed")
+            } else if let failure {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("The image couldn't be loaded.")
+                        .foregroundStyle(.ccSecondary)
+                    Text(failure)
+                        .font(.footnote)
+                        .foregroundStyle(.ccTertiary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("voice-stage-image-failed")
             } else {
                 ProgressView()
             }
         }
         .task(id: stage.id) {
-            guard let file = stage.imageFile else { failed = true; return }
+            guard let file = stage.imageFile else {
+                failure = "No image address."
+                return
+            }
             do {
                 let downloaded = try await store.downloadFile(sessionID: file.sessionID, name: file.name)
-                image = UIImage(data: downloaded.data)
-                failed = image == nil
+                if let decoded = UIImage(data: downloaded.data) {
+                    image = decoded
+                } else {
+                    failure = "Not an image (\(downloaded.data.count) bytes, \(downloaded.mime ?? "no type"))."
+                }
             } catch {
-                failed = true
+                failure = error.localizedDescription
             }
         }
     }
