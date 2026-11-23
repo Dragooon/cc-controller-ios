@@ -66,6 +66,8 @@ struct SessionScreen: View {
         self.onRegularInspectorChange = onRegularInspectorChange
     }
     @State private var selectedTool: ToolEntry?
+    @State private var voiceStageExpanded = true
+    @State private var voiceRecordingsTurn: String?
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
     @State private var inspectorPresented = false
@@ -844,6 +846,34 @@ struct SessionScreen: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
+            .environment(\.readAloud, readAloudAction)
+            .environment(\.voiceRecordings, voiceRecordingsAccess)
+            .overlay(alignment: .bottom) {
+                if let voice = activeVoice {
+                    VoiceStageView(
+                        controller: voice,
+                        store: store,
+                        expanded: $voiceStageExpanded,
+                        onExit: { VoiceCenter.shared.stop() }
+                    )
+                }
+            }
+            .task(id: sessionID) {
+                if store.voiceCapabilities == nil { await store.refreshVoiceCapabilities() }
+            }
+            .sheet(isPresented: voiceRecordingsPresented) {
+                if let turn = voiceRecordingsTurn, let controllerID {
+                    VoiceRecordingsSheet(
+                        title: "Spoken message",
+                        recordings: VoiceCenter.shared.archive.recordings(controllerID: controllerID.rawValue, sessionID: sessionID, turnText: turn),
+                        archive: VoiceCenter.shared.archive,
+                        store: store,
+                        close: { voiceRecordingsTurn = nil }
+                    )
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+                }
+            }
             .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { contentWidth = $0 }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -869,6 +899,11 @@ struct SessionScreen: View {
                         .frame(maxWidth: .infinity)
                         // The bar keeps a title at the width it first measured, so it needs a new one when the width changes.
                         .id(contentWidth)
+                }
+                if voiceAvailable(for: session) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        voiceButton(name: name)
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     sessionInfoButton
@@ -902,6 +937,68 @@ struct SessionScreen: View {
                     if hasActivity { activityPresented = true }
                 }
         }
+    }
+
+    // MARK: Voice mode
+
+    private var controllerID: ControllerID? {
+        model.connections.first(where: { $0.store === store })?.config.id
+    }
+
+    /// This session's voice conversation, when it's the one on.
+    private var activeVoice: VoiceModeController? {
+        guard let controllerID, VoiceCenter.shared.isActive(controllerID: controllerID, sessionID: sessionID) else { return nil }
+        return VoiceCenter.shared.active
+    }
+
+    private func voiceAvailable(for session: Session) -> Bool {
+        store.voiceCapabilities?.isAvailable == true && session.writable != false && controllerID != nil
+    }
+
+    private func voiceButton(name: String) -> some View {
+        let isOn = activeVoice != nil
+        return Button {
+            guard let controllerID else { return }
+            if isOn {
+                VoiceCenter.shared.stop()
+            } else {
+                voiceStageExpanded = true
+                VoiceCenter.shared.start(store: store, controllerID: controllerID, sessionID: sessionID, sessionName: name)
+            }
+        } label: {
+            Image(systemName: isOn ? "waveform.circle.fill" : "waveform")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isOn ? Color.ccAccent : Color.ccLabel)
+                .frame(width: 30, height: 30)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("voice-mode-button")
+        .accessibilityLabel(isOn ? "End voice mode" : "Start voice mode")
+    }
+
+    private var readAloudAction: ReadAloudAction? {
+        guard store.voiceCapabilities?.tts.available == true, let controllerID else { return nil }
+        let store = store
+        let sessionID = sessionID
+        return ReadAloudAction { markdown, id in
+            VoiceCenter.shared.readAloud(markdown, id: id, store: store, controllerID: controllerID, sessionID: sessionID)
+        }
+    }
+
+    private var voiceRecordingsAccess: VoiceRecordingsAccess? {
+        guard let controllerID else { return nil }
+        let sessionID = sessionID
+        let selection = $voiceRecordingsTurn
+        return VoiceRecordingsAccess(
+            count: { turnText in
+                VoiceCenter.shared.archive.recordings(controllerID: controllerID.rawValue, sessionID: sessionID, turnText: turnText).count
+            },
+            open: { turnText in selection.wrappedValue = turnText }
+        )
+    }
+
+    private var voiceRecordingsPresented: Binding<Bool> {
+        Binding(get: { voiceRecordingsTurn != nil }, set: { if !$0 { voiceRecordingsTurn = nil } })
     }
 
     private var sessionInfoButton: some View {

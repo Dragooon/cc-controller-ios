@@ -63,6 +63,9 @@ targets:
         CCRelayEndpoints: "$(CC_RELAY_ENDPOINTS)"
         NSFaceIDUsageDescription: Unlock Code
         NSCameraUsageDescription: Take a photo to send to a session.
+        NSMicrophoneUsageDescription: Voice mode listens so you can talk to a session hands-free.
+        UIBackgroundModes:
+          - audio
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

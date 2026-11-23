@@ -1973,6 +1973,7 @@ struct TurnItemView: View {
         switch item {
         case .assistant(let entry):
             AssistantReplyView(text: entry.text ?? "")
+                .modifier(ReadAloudMenu(text: entry.text ?? "", id: entry.id ?? ""))
         case .tools(let run):
             ToolRunCard(
                 run: run,

@@ -145,8 +145,14 @@ public struct VoiceReplyTracker: Sendable {
                 seen.insert(key)
                 events.append(.turnEnded(entryID: key))
             default:
-                seen.insert(key)
-                if let stage = entry.stage { events.append(.stage(stage)) }
+                if let stage = entry.stage {
+                    // A stage entry is replaced in place when its tool call finishes; wait for that.
+                    guard stage.state != "running" else { continue }
+                    seen.insert(key)
+                    if stage.isDone { events.append(.stage(stage)) }
+                } else {
+                    seen.insert(key)
+                }
             }
         }
         return events

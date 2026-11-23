@@ -121,6 +121,7 @@ struct SettingsView: View {
                 connectionSection
                 securitySection
                 appearanceSection
+                VoiceSettingsSection()
                 deviceSection
                 pairedDevicesSection
                 if !controllers.isEmpty {

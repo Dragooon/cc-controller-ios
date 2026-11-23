@@ -101,20 +101,31 @@ public struct StageEntry: Codable, Sendable, Equatable, Identifiable {
     public var ts: Date?
     public var title: String
     public var content: Content
+    /// `running` until the tool call's result arrives, then `done` or `error`. Only a done entry is shown; an image
+    /// gets its URL with the result. Absent means done.
+    public var state: String?
+    public var error: String?
 
-    public init(id: String, ts: Date? = nil, title: String, content: Content) {
+    public init(id: String, ts: Date? = nil, title: String, content: Content, state: String? = nil, error: String? = nil) {
         self.id = id
         self.ts = ts
         self.title = title
         self.content = content
+        self.state = state
+        self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case id, ts, title, markdown, mermaid, imageUrl }
+    /// Whether the entry is ready to show.
+    public var isDone: Bool { state == nil || state == "done" }
+
+    private enum CodingKeys: String, CodingKey { case id, ts, title, text, markdown, mermaid, imageUrl, state, error }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         ts = try container.decodeIfPresent(Date.self, forKey: .ts)
-        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        state = try container.decodeIfPresent(String.self, forKey: .state)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
         if let mermaid = try container.decodeIfPresent(String.self, forKey: .mermaid), !mermaid.isEmpty {
             content = .mermaid(mermaid)
         } else if let imageURL = try container.decodeIfPresent(String.self, forKey: .imageUrl), !imageURL.isEmpty {
@@ -136,6 +147,8 @@ public struct StageEntry: Codable, Sendable, Equatable, Identifiable {
         case .mermaid(let source): try container.encode(source, forKey: .mermaid)
         case .image(let url): try container.encode(url, forKey: .imageUrl)
         }
+        try container.encodeIfPresent(state, forKey: .state)
+        try container.encodeIfPresent(error, forKey: .error)
     }
 
     /// The served file's session and name, for an image the controller stored under `/api/files/<session>/<name>`.
