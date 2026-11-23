@@ -1063,14 +1063,17 @@ public final class AppStore {
     /// routes leaves it unavailable.
     public private(set) var voiceCapabilities: VoiceCapabilities?
 
+    /// Asked on every session open; the stored value changes (and redraws the session screen) only when the host's
+    /// answer does, so a check during a transcript load or scroll costs nothing on screen.
     public func refreshVoiceCapabilities() async {
+        let latest: VoiceCapabilities
         do {
-            voiceCapabilities = try await client.voiceCapabilities()
+            latest = try await client.voiceCapabilities()
         } catch {
-            if voiceCapabilities == nil {
-                voiceCapabilities = VoiceCapabilities(stt: .init(available: false), tts: .init(available: false))
-            }
+            guard voiceCapabilities == nil else { return }
+            latest = VoiceCapabilities(stt: .init(available: false), tts: .init(available: false))
         }
+        if latest != voiceCapabilities { voiceCapabilities = latest }
     }
 
     public func transcribeVoice(audio: Data, filename: String, mimeType: String) async throws -> VoiceTranscription {
