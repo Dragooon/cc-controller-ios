@@ -978,7 +978,7 @@ struct SessionScreen: View {
         guard store.voiceCapabilities?.tts.available == true, let controllerID else { return nil }
         let store = store
         let sessionID = sessionID
-        return ReadAloudAction { markdown, id in
+        return ReadAloudAction(key: "\(controllerID.rawValue)/\(sessionID)") { markdown, id in
             VoiceCenter.shared.readAloud(markdown, id: id, store: store, controllerID: controllerID, sessionID: sessionID)
         }
     }
@@ -988,6 +988,7 @@ struct SessionScreen: View {
         let sessionID = sessionID
         let selection = $voiceRecordingsTurn
         return VoiceRecordingsAccess(
+            key: "\(controllerID.rawValue)/\(sessionID)",
             count: { turnText in
                 VoiceCenter.shared.archive.recordings(controllerID: controllerID.rawValue, sessionID: sessionID, turnText: turnText).count
             },

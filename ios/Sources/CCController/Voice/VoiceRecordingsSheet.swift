@@ -2,15 +2,22 @@ import AVFoundation
 import CCKit
 import SwiftUI
 
-/// Reads a message aloud: the message's markdown and an id to track which one is playing.
-struct ReadAloudAction: Sendable {
+/// Reads a message aloud: the message's markdown and an id to track which one is playing. Equal by `key` (host and
+/// session), so rebuilding it on every screen update doesn't count as an environment change for every transcript row.
+struct ReadAloudAction: Sendable, Equatable {
+    let key: String
     let read: @MainActor @Sendable (_ markdown: String, _ id: String) -> Void
+
+    static func == (left: ReadAloudAction, right: ReadAloudAction) -> Bool { left.key == right.key }
 }
 
-/// Lets a sent message find the voice clips it was made from.
-struct VoiceRecordingsAccess: Sendable {
+/// Lets a sent message find the voice clips it was made from. Equal by `key`, like ReadAloudAction.
+struct VoiceRecordingsAccess: Sendable, Equatable {
+    let key: String
     let count: @MainActor @Sendable (_ turnText: String) -> Int
     let open: @MainActor @Sendable (_ turnText: String) -> Void
+
+    static func == (left: VoiceRecordingsAccess, right: VoiceRecordingsAccess) -> Bool { left.key == right.key }
 }
 
 extension EnvironmentValues {
