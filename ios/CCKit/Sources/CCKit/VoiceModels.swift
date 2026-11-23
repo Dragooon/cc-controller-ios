@@ -93,7 +93,6 @@ public enum VoiceSpeechFormat {
 public struct StageEntry: Codable, Sendable, Equatable, Identifiable {
     public enum Content: Sendable, Equatable {
         case markdown(String)
-        case mermaid(String)
         case image(url: String)
     }
 
@@ -118,7 +117,7 @@ public struct StageEntry: Codable, Sendable, Equatable, Identifiable {
     /// Whether the entry is ready to show.
     public var isDone: Bool { state == nil || state == "done" }
 
-    private enum CodingKeys: String, CodingKey { case id, ts, title, text, markdown, mermaid, imageUrl, state, error }
+    private enum CodingKeys: String, CodingKey { case id, ts, title, text, markdown, imageUrl, state, error }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -126,9 +125,7 @@ public struct StageEntry: Codable, Sendable, Equatable, Identifiable {
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? container.decodeIfPresent(String.self, forKey: .text) ?? ""
         state = try container.decodeIfPresent(String.self, forKey: .state)
         error = try container.decodeIfPresent(String.self, forKey: .error)
-        if let mermaid = try container.decodeIfPresent(String.self, forKey: .mermaid), !mermaid.isEmpty {
-            content = .mermaid(mermaid)
-        } else if let imageURL = try container.decodeIfPresent(String.self, forKey: .imageUrl), !imageURL.isEmpty {
+        if let imageURL = try container.decodeIfPresent(String.self, forKey: .imageUrl), !imageURL.isEmpty {
             content = .image(url: imageURL)
         } else {
             content = .markdown(try container.decodeIfPresent(String.self, forKey: .markdown) ?? "")
@@ -144,7 +141,6 @@ public struct StageEntry: Codable, Sendable, Equatable, Identifiable {
         try container.encode(title, forKey: .title)
         switch content {
         case .markdown(let text): try container.encode(text, forKey: .markdown)
-        case .mermaid(let source): try container.encode(source, forKey: .mermaid)
         case .image(let url): try container.encode(url, forKey: .imageUrl)
         }
         try container.encodeIfPresent(state, forKey: .state)

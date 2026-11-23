@@ -56,17 +56,17 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         }
 
         // Once the agent's turn is over and voice mode is listening again, what the agent shows fills the stage:
-        // markdown, then a diagram that replaces it.
+        // markdown, then an image the host serves, which replaces it.
         XCTAssertTrue(pollUntil(timeout: 90) { status.label == "Listening" }, "Voice mode did not go back to listening: \(status.label)")
         try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Tonight's screenings", "markdown": "1. 7:00 PM\n2. 8:00 PM\n3. 9:30 PM"])
         XCTAssertTrue(app.staticText(containing: "Tonight's screenings").waitToExist(timeout: 15), "The stage did not show the agent's title")
         XCTAssertTrue(app.element(identifier: "voice-stage-markdown").waitToExist(timeout: 5), "The stage did not show the markdown")
         addScreenshot(named: "voice-stage-markdown")
-        try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Getting there", "mermaid": "graph TD\n  Kitchen --> Platform9 --> Screen"])
-        XCTAssertTrue(app.element(identifier: "voice-stage-mermaid").waitToExist(timeout: 15), "The stage did not show the diagram")
-        XCTAssertTrue(app.staticText(containing: "Platform9").waitToExist(timeout: 20), "The diagram did not draw")
+        try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Getting there", "image": true])
+        XCTAssertTrue(app.element(identifier: "voice-stage-image-loaded").waitToExist(timeout: 20), "The stage did not show the host's image")
+        XCTAssertFalse(app.element(identifier: "voice-stage-image-failed").exists, "The image failed to load")
         XCTAssertTrue(app.element(identifier: "voice-stage-history").waitToExist(timeout: 5), "Earlier stage items were not kept")
-        addScreenshot(named: "voice-stage-mermaid")
+        addScreenshot(named: "voice-stage-image")
 
         // The chat is one tap away, and ending voice mode turns the note off.
         app.element(identifier: "voice-stage-toggle").tap()

@@ -1,7 +1,6 @@
 import CCKit
 import SwiftUI
 import UIKit
-import WebKit
 
 /// Voice mode's screen. Expanded, the stage fills most of it with whatever the agent last showed, and a slim strip
 /// carries the status, live captions and controls. Collapsed, only the strip shows, under the chat.
@@ -168,7 +167,7 @@ struct VoiceStripView: View {
     }
 }
 
-/// One stage item: markdown, a mermaid diagram or an image the host serves.
+/// One stage item: markdown, or an image the host serves.
 struct StageContentView: View {
     let stage: StageEntry
     let store: AppStore
@@ -181,9 +180,6 @@ struct StageContentView: View {
                     .font(.title3)
                     .accessibilityIdentifier("voice-stage-markdown")
             }
-        case .mermaid(let source):
-            MermaidView(source: source)
-                .accessibilityIdentifier("voice-stage-mermaid")
         case .image:
             StageImageView(stage: stage, store: store)
                 .accessibilityIdentifier("voice-stage-image")
@@ -232,9 +228,12 @@ struct StageImageView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel(stage.title.isEmpty ? "Image" : stage.title)
+                    .accessibilityIdentifier("voice-stage-image-loaded")
             } else if failed {
                 Text("The image couldn't be loaded.")
                     .foregroundStyle(.ccSecondary)
+                    .accessibilityIdentifier("voice-stage-image-failed")
             } else {
                 ProgressView()
             }
@@ -249,90 +248,5 @@ struct StageImageView: View {
                 failed = true
             }
         }
-    }
-}
-
-/// Draws a mermaid diagram offline with the bundled mermaid.js, in the app's colours. The stage shows one diagram
-/// at a time, so every MermaidView borrows the one shared, already-loaded web view.
-struct MermaidView: UIViewRepresentable {
-    let source: String
-    @Environment(\.colorScheme) private var colorScheme
-
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
-        container.backgroundColor = .clear
-        return container
-    }
-
-    func updateUIView(_ container: UIView, context: Context) {
-        let renderer = MermaidRenderer.shared
-        renderer.attach(to: container)
-        let key = "\(colorScheme == .dark)|\(source)"
-        guard context.coordinator.renderedKey != key else { return }
-        context.coordinator.renderedKey = key
-        renderer.render(source, dark: colorScheme == .dark)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator {
-        var renderedKey: String?
-    }
-}
-
-/// One web view with mermaid.js (12.3.0, MIT, Resources/Mermaid) loaded from the app bundle. Voice mode warms it up
-/// when it starts, so a diagram is one JavaScript call instead of a fresh page parsing 5.5 MB of script.
-@MainActor
-final class MermaidRenderer: NSObject, WKNavigationDelegate {
-    static let shared = MermaidRenderer()
-
-    let webView: WKWebView
-    private var isLoaded = false
-    private var pending: (source: String, dark: Bool)?
-
-    override init() {
-        webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        super.init()
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.accessibilityIdentifier = "voice-stage-mermaid"
-        webView.navigationDelegate = self
-        if let page = Bundle.main.url(forResource: "mermaid", withExtension: "html") {
-            webView.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
-        }
-    }
-
-    /// Creating the shared renderer starts the web view and loads mermaid.js.
-    func warmUp() {}
-
-    func attach(to container: UIView) {
-        guard webView.superview !== container else { return }
-        webView.removeFromSuperview()
-        webView.frame = container.bounds
-        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        container.addSubview(webView)
-    }
-
-    func render(_ source: String, dark: Bool) {
-        pending = (source, dark)
-        if isLoaded { drawPending() }
-    }
-
-    private func drawPending() {
-        guard let pending else { return }
-        self.pending = nil
-        webView.callAsyncJavaScript(
-            "return await renderDiagram(source, dark)",
-            arguments: ["source": pending.source, "dark": pending.dark],
-            in: nil,
-            in: .page,
-            completionHandler: nil
-        )
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        isLoaded = true
-        drawPending()
     }
 }

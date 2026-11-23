@@ -124,7 +124,7 @@ final class VoiceEchoTests: XCTestCase {
 
 final class VoiceReplyTrackerTests: XCTestCase {
     private func stageEntry() throws -> TranscriptEntry {
-        try JSONDecoder.ccKit().decode(TranscriptEntry.self, from: Data(#"{"kind":"stage","id":"s1","title":"Timing","mermaid":"graph TD; A-->B"}"#.utf8))
+        try JSONDecoder.ccKit().decode(TranscriptEntry.self, from: Data(#"{"kind":"stage","id":"s1","title":"Timing","markdown":"1. Boil"}"#.utf8))
     }
 
     func testOnlyNewEntriesAreSpokenOnce() throws {
@@ -145,7 +145,7 @@ final class VoiceReplyTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.events(in: entries), [
             .speak(entryID: "assistant:a2", text: "Hello there"),
             .skip(entryID: "assistant:a3"),
-            .stage(StageEntry(id: "s1", title: "Timing", content: .mermaid("graph TD; A-->B"))),
+            .stage(StageEntry(id: "s1", title: "Timing", content: .markdown("1. Boil"))),
             .turnEnded(entryID: "turn_end:e1"),
         ])
         XCTAssertEqual(tracker.events(in: entries), [])
@@ -166,7 +166,7 @@ final class VoiceReplyTrackerTests: XCTestCase {
     }
 
     func testStageEntriesDecodeEachKind() throws {
-        XCTAssertEqual(try stageEntry().stage?.content, .mermaid("graph TD; A-->B"))
+        XCTAssertEqual(try stageEntry().stage?.content, .markdown("1. Boil"))
         let markdown = try JSONDecoder.ccKit().decode(TranscriptEntry.self, from: Data(#"{"kind":"stage","id":"s2","title":"Steps","markdown":"1. Boil"}"#.utf8))
         XCTAssertEqual(markdown.stage?.content, .markdown("1. Boil"))
         let image = try JSONDecoder.ccKit().decode(TranscriptEntry.self, from: Data(#"{"kind":"stage","id":"s3","title":"Photo","imageUrl":"/api/files/sess-1/diagram%20one.png"}"#.utf8))

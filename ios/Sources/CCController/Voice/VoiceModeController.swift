@@ -572,7 +572,6 @@ final class VoiceCenter {
     }
 
     func start(store: AppStore, controllerID: ControllerID, sessionID: String, sessionName: String) {
-        MermaidRenderer.shared.warmUp()
         stopReading()
         active?.stop()
         let controller = VoiceModeController(store: store, controllerID: controllerID, sessionID: sessionID, sessionName: sessionName, archive: archive)

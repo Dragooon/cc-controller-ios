@@ -37,8 +37,9 @@ phone only records, decides when a turn has ended, plays and keeps the recording
   entries are spoken. `CCKit/SpeakableText.swift`: markdown to spoken sentences; fenced code is read as "Code on
   screen.", a `(skip)` reply isn't spoken. `CCKit/VoiceRecordingArchive.swift`: every utterance, kept on the phone.
 - `Sources/CCController/Voice/`: the audio engine (voice processing on, speech-band VAD, AAC utterances, reply
-  player, generated cues), the conversation controller, the stage (markdown, mermaid via the bundled
-  `Resources/Mermaid/mermaid.min.js` 12.3.0, images) and the recordings sheet.
+  player, generated cues), the conversation controller, the stage (markdown text, or an image the host serves) and
+  the recordings sheet. The app draws nothing itself: a diagram reaches the stage as an image the agent rendered on
+  the host (Shitiz, 23 Nov).
 - Nothing said is handled as a command; play/pause (AirPods, lock screen, strip) pauses the reply and mutes the mic.
 - UI journey: `VoiceModeJourneyFlowTests`, run with `-CCVoiceTestAudio` (no mic on the simulator) against a fixture
   daemon with voice routes (`controller_ref=stockade-next` until the controller's main has them).
