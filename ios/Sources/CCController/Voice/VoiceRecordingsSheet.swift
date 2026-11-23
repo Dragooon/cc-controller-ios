@@ -14,6 +14,8 @@ struct ReadAloudAction: Sendable, Equatable {
 /// Lets a sent message find the voice clips it was made from. Equal by `key`, like ReadAloudAction.
 struct VoiceRecordingsAccess: Sendable, Equatable {
     let key: String
+    /// Whether this session has any clips at all; checked before a bubble works out its text.
+    let hasAny: @MainActor @Sendable () -> Bool
     let count: @MainActor @Sendable (_ turnText: String) -> Int
     let open: @MainActor @Sendable (_ turnText: String) -> Void
 
@@ -53,13 +55,15 @@ struct ReadAloudMenu: ViewModifier {
     }
 }
 
-/// The mic mark under a message you spoke, opening its clips.
+/// The mic mark under a message you spoke, opening its clips. It parses the message only when the session has clips,
+/// so long transcripts without voice pay nothing per row.
 struct VoiceRecordingsMark: View {
-    let turnText: String
+    let prompt: PromptEntry
     @Environment(\.voiceRecordings) private var voiceRecordings
 
     var body: some View {
-        if let voiceRecordings {
+        if let voiceRecordings, voiceRecordings.hasAny() {
+            let turnText = CCKit.normalisePromptText(prompt.text ?? prompt.command).text
             let count = voiceRecordings.count(turnText)
             if count > 0 {
                 Button { voiceRecordings.open(turnText) } label: {

@@ -107,9 +107,7 @@ struct PromptBubble: View {
                     .accessibilityIdentifier("prompt-sender")
             }
             bubble
-            if peer == nil {
-                VoiceRecordingsMark(turnText: promptText)
-            }
+            VoiceRecordingsMark(prompt: prompt)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

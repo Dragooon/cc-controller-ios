@@ -989,6 +989,9 @@ struct SessionScreen: View {
         let selection = $voiceRecordingsTurn
         return VoiceRecordingsAccess(
             key: "\(controllerID.rawValue)/\(sessionID)",
+            hasAny: {
+                VoiceCenter.shared.archive.recordings.contains { $0.controllerID == controllerID.rawValue && $0.sessionID == sessionID }
+            },
             count: { turnText in
                 VoiceCenter.shared.archive.recordings(controllerID: controllerID.rawValue, sessionID: sessionID, turnText: turnText).count
             },
