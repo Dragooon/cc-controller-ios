@@ -182,7 +182,6 @@ struct StageContentView: View {
             }
         case .image:
             StageImageView(stage: stage, store: store)
-                .accessibilityIdentifier("voice-stage-image")
         }
     }
 }
@@ -228,6 +227,10 @@ struct StageImageView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Exposed as a labelled element, not an image, so accessibility doesn't analyse the picture's
+                    // contents on every query (a screenshot full of text made each one take seconds).
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityRemoveTraits(.isImage)
                     .accessibilityLabel(stage.title.isEmpty ? "Image" : stage.title)
                     .accessibilityIdentifier("voice-stage-image-loaded")
             } else if let failure {
@@ -242,6 +245,7 @@ struct StageImageView: View {
                 .accessibilityIdentifier("voice-stage-image-failed")
             } else {
                 ProgressView()
+                    .accessibilityIdentifier("voice-stage-image-loading")
             }
         }
         .task(id: stage.id) {
