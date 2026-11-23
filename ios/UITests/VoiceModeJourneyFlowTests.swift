@@ -60,8 +60,9 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.staticText(containing: "Tonight's screenings").waitToExist(timeout: 15), "The stage did not show the agent's title")
         XCTAssertTrue(app.element(identifier: "voice-stage-markdown").waitToExist(timeout: 5), "The stage did not show the markdown")
         addScreenshot(named: "voice-stage-markdown")
-        try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Getting there", "mermaid": "graph TD\n  Home --> Train --> IMAX"])
+        try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Getting there", "mermaid": "graph TD\n  Kitchen --> Platform9 --> Screen"])
         XCTAssertTrue(app.element(identifier: "voice-stage-mermaid").waitToExist(timeout: 15), "The stage did not show the diagram")
+        XCTAssertTrue(app.staticText(containing: "Platform9").waitToExist(timeout: 20), "The diagram did not draw")
         XCTAssertTrue(app.element(identifier: "voice-stage-history").waitToExist(timeout: 5), "Earlier stage items were not kept")
         addScreenshot(named: "voice-stage-mermaid")
 
