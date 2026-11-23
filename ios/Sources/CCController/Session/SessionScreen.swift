@@ -859,7 +859,8 @@ struct SessionScreen: View {
                 }
             }
             .task(id: sessionID) {
-                if store.voiceCapabilities == nil { await store.refreshVoiceCapabilities() }
+                // Cheap, and picks up a host that gained (or lost) voice since the app started.
+                await store.refreshVoiceCapabilities()
             }
             .sheet(isPresented: voiceRecordingsPresented) {
                 if let turn = voiceRecordingsTurn, let controllerID {
