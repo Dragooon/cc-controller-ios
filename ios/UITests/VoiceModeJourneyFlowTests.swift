@@ -55,7 +55,9 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
             XCTAssertTrue(pollUntil(timeout: 5) { status.label != "Speaking" }, "Tapping the stage did not cut the reply")
         }
 
-        // What the agent shows fills the stage: markdown, then a diagram that replaces it.
+        // Once the agent's turn is over and voice mode is listening again, what the agent shows fills the stage:
+        // markdown, then a diagram that replaces it.
+        XCTAssertTrue(pollUntil(timeout: 90) { status.label == "Listening" }, "Voice mode did not go back to listening: \(status.label)")
         try await postFixtureJSON("/fixture/stage", body: ["sessionId": session, "title": "Tonight's screenings", "markdown": "1. 7:00 PM\n2. 8:00 PM\n3. 9:30 PM"])
         XCTAssertTrue(app.staticText(containing: "Tonight's screenings").waitToExist(timeout: 15), "The stage did not show the agent's title")
         XCTAssertTrue(app.element(identifier: "voice-stage-markdown").waitToExist(timeout: 5), "The stage did not show the markdown")

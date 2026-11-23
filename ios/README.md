@@ -43,6 +43,8 @@ phone only records, decides when a turn has ended, plays and keeps the recording
 - UI journey: `VoiceModeJourneyFlowTests`, run with `-CCVoiceTestAudio` (no mic on the simulator) against a fixture
   daemon with voice routes (`controller_ref=stockade-next` until the controller's main has them).
 - Design: `~/workspace/projects/voice-mode/DESIGN.md` on Mustafar.
+- Open (23 Nov): on the CI simulator a strip tap that lands just as the agent's turn ends was sometimes lost
+  (no pressed state, no action). The journey now waits for the turn to end; watch for it on the Duo.
 
 ## TestFlight archive and upload
 
