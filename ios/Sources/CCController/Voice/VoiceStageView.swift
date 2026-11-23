@@ -8,8 +8,9 @@ import WebKit
 struct VoiceStageView: View {
     @Bindable var controller: VoiceModeController
     let store: AppStore
-    @Binding var expanded: Bool
     let onExit: () -> Void
+
+    private var expanded: Bool { controller.stageExpanded }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,12 +20,12 @@ struct VoiceStageView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { controller.tap() }
                     .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-                        if value.translation.height > 80 { expanded = false }
+                        if value.translation.height > 80 { controller.stageExpanded = false }
                     })
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("voice-stage")
             }
-            VoiceStripView(controller: controller, expanded: $expanded, onExit: onExit)
+            VoiceStripView(controller: controller, onExit: onExit)
         }
         .background(expanded ? Color.ccBackground : Color.clear)
     }
@@ -75,8 +76,9 @@ struct VoiceStageView: View {
 /// The slim strip: status, captions, play/pause, replay, stage toggle and exit. Big enough to hit from a step away.
 struct VoiceStripView: View {
     @Bindable var controller: VoiceModeController
-    @Binding var expanded: Bool
     let onExit: () -> Void
+
+    private var expanded: Bool { controller.stageExpanded }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -98,7 +100,7 @@ struct VoiceStripView: View {
                 stripButton("arrow.counterclockwise", label: "Replay", id: "voice-replay") { controller.replay() }
                     .disabled(!controller.canReplay)
                 stripButton(expanded ? "text.bubble" : "rectangle.inset.filled", label: expanded ? "Show chat" : "Show stage", id: "voice-stage-toggle") {
-                    expanded.toggle()
+                    controller.stageExpanded.toggle()
                 }
                 stripButton("xmark", label: "End voice mode", id: "voice-exit", action: onExit)
             }

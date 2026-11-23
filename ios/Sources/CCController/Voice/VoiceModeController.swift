@@ -50,6 +50,9 @@ final class VoiceModeController {
     private(set) var stageHistory: [StageEntry] = []
     private(set) var isPaused = false
     private(set) var canReplay = false
+    /// The stage fills the screen, or folds to the strip over the chat. Kept here so it survives the session
+    /// screen being rebuilt (a turn ending, the sidebar, coming back to the session).
+    var stageExpanded = true
 
     @ObservationIgnored private let engine = VoiceAudioEngine()
     @ObservationIgnored private let archive: VoiceRecordingArchive

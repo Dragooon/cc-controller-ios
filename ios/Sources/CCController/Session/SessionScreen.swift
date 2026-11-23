@@ -66,7 +66,6 @@ struct SessionScreen: View {
         self.onRegularInspectorChange = onRegularInspectorChange
     }
     @State private var selectedTool: ToolEntry?
-    @State private var voiceStageExpanded = true
     @State private var voiceRecordingsTurn: String?
     @State private var selectedCompaction: CompactionEntry?
     @State private var selectedSubagentResult: SubagentResultSelection?
@@ -853,7 +852,6 @@ struct SessionScreen: View {
                     VoiceStageView(
                         controller: voice,
                         store: store,
-                        expanded: $voiceStageExpanded,
                         onExit: { VoiceCenter.shared.stop() }
                     )
                 }
@@ -963,7 +961,6 @@ struct SessionScreen: View {
             if isOn {
                 VoiceCenter.shared.stop()
             } else {
-                voiceStageExpanded = true
                 VoiceCenter.shared.start(store: store, controllerID: controllerID, sessionID: sessionID, sessionName: name)
             }
         } label: {
