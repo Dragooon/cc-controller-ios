@@ -130,14 +130,16 @@ public actor APIClient {
         )
     }
 
+    /// `voice` marks a turn spoken in voice mode: the controller adds the voice mark to the sender line.
     public func message(
         sessionID: String,
         text: String,
         files: [String] = [],
         now: Bool = false,
-        clientMessageId: String? = nil
+        clientMessageId: String? = nil,
+        voice: Bool = false
     ) async throws -> MessageResult {
-        let body = MessageRequest(text: text, files: files, now: now, clientMessageId: clientMessageId)
+        let body = MessageRequest(text: text, files: files, now: now, clientMessageId: clientMessageId, voice: voice)
         return try await post(
             "/api/sessions/\(pathComponent(sessionID))/message",
             body: body,
@@ -188,6 +190,50 @@ public actor APIClient {
     public func downloadFile(sessionID: String, name: String) async throws -> (data: Data, mime: String?) {
         let (data, response) = try await requestData("/api/files/\(pathComponent(sessionID))/\(pathComponent(name))")
         return (data, response.value(forHTTPHeaderField: "Content-Type"))
+    }
+
+    // MARK: Voice
+
+    /// The host's speech engines. A controller without voice routes answers 404, which callers treat as "no voice".
+    public func voiceCapabilities() async throws -> VoiceCapabilities { try await get("/api/voice") }
+
+    /// Transcribes one clip on the host. Delivers nothing: the phone sends the finished turn as a message.
+    public func transcribe(audio: Data, filename: String, mimeType: String, language: String = "en") async throws -> VoiceTranscription {
+        let boundary = "CCKit-\(UUID().uuidString)"
+        var body = Data()
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"language\"\r\n\r\n\(language)\r\n".utf8))
+        body.append(Data("--\(boundary)\r\n".utf8))
+        body.append(Data("Content-Disposition: form-data; name=\"audio\"; filename=\"\(filename.replacingOccurrences(of: "\"", with: "_"))\"\r\n".utf8))
+        body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
+        body.append(audio)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        return try await request(
+            "/api/voice/transcribe",
+            method: "POST",
+            body: body,
+            contentType: "multipart/form-data; boundary=\(boundary)",
+            timeoutInterval: 60
+        )
+    }
+
+    /// Speaks `text` on the host and returns the whole clip as 24 kHz mono 16-bit PCM (`VoiceSpeechFormat`).
+    public func speech(text: String, voice: String? = nil, speed: Double? = nil) async throws -> Data {
+        let body: Data
+        do { body = try JSONEncoder.ccKit().encode(SpeechRequest(text: text, voice: voice, speed: speed)) } catch { throw APIError.decoding(error.localizedDescription) }
+        let (audio, _) = try await requestData(
+            "/api/voice/speech",
+            method: "POST",
+            body: body,
+            contentType: "application/json",
+            timeoutInterval: 30
+        )
+        return audio
+    }
+
+    /// Turns the session's voice note on or off.
+    public func setSessionVoice(id: String, on: Bool) async throws -> SessionVoiceResult {
+        try await post("/api/sessions/\(pathComponent(id))/voice", body: SessionVoiceRequest(on: on))
     }
 
     public func devices() async throws -> DeviceList { try await get("/api/devices") }
@@ -421,8 +467,9 @@ private struct MessageRequest: Encodable {
     let files: [String]
     let now: Bool
     let clientMessageId: String?
+    var voice = false
 
-    enum CodingKeys: String, CodingKey { case text, files, now, clientMessageId }
+    enum CodingKeys: String, CodingKey { case text, files, now, clientMessageId, voice }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -430,6 +477,22 @@ private struct MessageRequest: Encodable {
         try container.encode(files, forKey: .files)
         try container.encode(now, forKey: .now)
         try container.encodeIfPresent(clientMessageId, forKey: .clientMessageId)
+        if voice { try container.encode(true, forKey: .voice) }
+    }
+}
+private struct SessionVoiceRequest: Encodable { let on: Bool }
+private struct SpeechRequest: Encodable {
+    let text: String
+    let voice: String?
+    let speed: Double?
+
+    enum CodingKeys: String, CodingKey { case text, voice, speed }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(text, forKey: .text)
+        try container.encodeIfPresent(voice, forKey: .voice)
+        try container.encodeIfPresent(speed, forKey: .speed)
     }
 }
 private struct KeyRequest: Encodable { let key: String; let text: String? }

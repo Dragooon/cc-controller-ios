@@ -567,12 +567,14 @@ public final class AppStore {
         }
     }
 
+    /// `voice` sends a turn spoken in voice mode: the controller marks it as spoken in the sender line.
     public func sendResult(
         text: String,
         attachments: [String] = [],
         attachmentThumbnails: [String: Data] = [:],
         to sessionID: String,
-        now: Bool = false
+        now: Bool = false,
+        voice: Bool = false
     ) async -> Result<MessageResult, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !attachments.isEmpty else { return .failure(.invalid("Message text is required.")) }
@@ -600,7 +602,7 @@ public final class AppStore {
             optimisticNote = note
         }
         do {
-            let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now)
+            let result = try await client.message(sessionID: sessionID, text: trimmed, files: attachments, now: now, voice: voice)
             if let optimisticNote {
                 markDeliverySucceeded(noteID: optimisticNote.id, sessionID: sessionID, queued: result.queued == true)
             }
@@ -1053,6 +1055,37 @@ public final class AppStore {
             }
             return .failure(actionError(for: error))
         }
+    }
+
+    // MARK: Voice
+
+    /// The host's speech engines, once asked. Nil until `refreshVoiceCapabilities` hears back; a host without voice
+    /// routes leaves it unavailable.
+    public private(set) var voiceCapabilities: VoiceCapabilities?
+
+    public func refreshVoiceCapabilities() async {
+        do {
+            voiceCapabilities = try await client.voiceCapabilities()
+        } catch {
+            if voiceCapabilities == nil {
+                voiceCapabilities = VoiceCapabilities(stt: .init(available: false), tts: .init(available: false))
+            }
+        }
+    }
+
+    public func transcribeVoice(audio: Data, filename: String, mimeType: String) async throws -> VoiceTranscription {
+        try await client.transcribe(audio: audio, filename: filename, mimeType: mimeType)
+    }
+
+    public func synthesizeVoice(text: String, voice: String? = nil, speed: Double? = nil) async throws -> Data {
+        try await client.speech(text: text, voice: voice, speed: speed)
+    }
+
+    /// Turns the session's voice note on or off. Failure is reported, not fatal: voice mode still works, the agent
+    /// just isn't told.
+    @discardableResult
+    public func setSessionVoice(sessionID: String, on: Bool) async -> Bool {
+        (try? await client.setSessionVoice(id: sessionID, on: on))?.voice ?? false
     }
 
     public func downloadFile(sessionID: String, name: String) async throws -> (data: Data, mime: String?) {
