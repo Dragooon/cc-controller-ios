@@ -21,6 +21,7 @@ struct VoiceStageView: View {
                     .gesture(DragGesture(minimumDistance: 30).onEnded { value in
                         if value.translation.height > 80 { expanded = false }
                     })
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("voice-stage")
             }
             VoiceStripView(controller: controller, expanded: $expanded, onExit: onExit)
@@ -79,13 +80,16 @@ struct VoiceStripView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(statusColor)
                     .frame(width: 12, height: 12)
                 Text(controller.phase.label)
                     .font(.headline)
                     .foregroundStyle(.ccLabel)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
                     .accessibilityIdentifier("voice-status")
                 Spacer()
                 stripButton(controller.isPaused ? "play.fill" : "pause.fill", label: controller.isPaused ? "Resume" : "Pause", id: "voice-play-pause") {
@@ -206,6 +210,7 @@ struct StageHistoryStrip: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("voice-stage-history")
     }
 }
@@ -254,6 +259,7 @@ struct MermaidView: UIViewRepresentable {
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
         let view = WKWebView(frame: .zero, configuration: configuration)
+        view.accessibilityIdentifier = "voice-stage-mermaid"
         view.isOpaque = false
         view.backgroundColor = .clear
         view.scrollView.backgroundColor = .clear
