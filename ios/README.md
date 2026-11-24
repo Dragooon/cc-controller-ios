@@ -27,6 +27,10 @@ Controllers, relay addresses and paired devices are app settings, stored on the 
 
 The fixture daemon the UI tests use lives in the controller repository. From a standalone checkout of this app, `scripts/ios.sh` looks for it in `CC_CONTROLLER_ROOT`, or in a `cc-controller` checkout next to this one, with `npm ci` already run there. `install` builds Release, installs on the one paired physical iPhone (or the exact `--device` match), and does not launch it unless `--launch` is passed.
 
+## Composer
+
+An empty composer that isn't focused is one row: attach, the field and send (plus stop while a turn runs). Focusing it, a draft or an attachment brings back the full composer with the model chip on its own row. The field stays in the same place in the view tree in both layouts, so the switch that focusing triggers doesn't rebuild it and drop the keyboard.
+
 ## Voice mode
 
 A session's waveform button starts a hands-free conversation when its host reports voice (`GET /api/voice`). The
