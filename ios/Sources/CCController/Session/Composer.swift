@@ -118,6 +118,9 @@ struct ComposerView: View, Equatable {
     let glassNamespace: Namespace.ID?
     let resetGeneration: Int
     let restoresFocusOnReset: Bool
+    /// Focused or holding a draft. The owner passes it in, because this view is equatable and focus changes alone
+    /// don't redraw it.
+    let isInUse: Bool
 
     @State private var fieldGeneration = 0
     @State private var photosPresented = false
@@ -134,6 +137,7 @@ struct ComposerView: View, Equatable {
         lhs.configuration == rhs.configuration
             && lhs.resetGeneration == rhs.resetGeneration
             && lhs.restoresFocusOnReset == rhs.restoresFocusOnReset
+            && lhs.isInUse == rhs.isInUse
     }
 
     init(
@@ -147,7 +151,8 @@ struct ComposerView: View, Equatable {
         onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
         glassNamespace: Namespace.ID? = nil,
         resetGeneration: Int = 0,
-        restoresFocusOnReset: Bool = true
+        restoresFocusOnReset: Bool = true,
+        isInUse: Bool = true
     ) {
         _text = text
         _isFocused = isFocused
@@ -160,6 +165,7 @@ struct ComposerView: View, Equatable {
         self.glassNamespace = glassNamespace
         self.resetGeneration = resetGeneration
         self.restoresFocusOnReset = restoresFocusOnReset
+        self.isInUse = isInUse
     }
 
     var body: some View {
@@ -198,7 +204,7 @@ struct ComposerView: View, Equatable {
     /// Empty and not in use: one row, like the system and Claude apps, so the transcript gets the space back. Tapping
     /// in, a draft or an attachment brings back the full composer with the model chip.
     private var isCompact: Bool {
-        !isFocused && text.isEmpty && !configuration.hasAttachments
+        !isInUse && !configuration.hasAttachments
     }
 
     private var composerLayout: some View {

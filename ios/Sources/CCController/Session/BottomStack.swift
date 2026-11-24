@@ -376,7 +376,8 @@ struct BottomStackView: View {
                         onAddAttachment: configuration.onAddAttachment,
                         glassNamespace: glassNamespace,
                         resetGeneration: fieldResetGeneration,
-                        restoresFocusOnReset: fieldResetRestoresFocus
+                        restoresFocusOnReset: fieldResetRestoresFocus,
+                        isInUse: composerFocused || !text.isEmpty
                     )
                     .equatable()
                 }

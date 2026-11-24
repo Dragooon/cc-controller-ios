@@ -15,7 +15,8 @@ final class CommandsJourneyFlowTests: JourneyTestCase {
         let modelChip = app.buttons["composer-model"]
         XCTAssertFalse(modelChip.exists, "The idle composer showed the model chip")
         XCTAssertTrue(app.buttons["Add attachment"].exists, "The idle composer lost the attachment button")
-        XCTAssertTrue(app.buttons["composer-send"].exists, "The idle composer lost the send button")
+        // This session is working, so the send button queues.
+        XCTAssertTrue(app.buttons["composer-queue"].exists, "The idle composer lost the send button")
         addScreenshot(named: "composer-idle-one-row")
         field.tap()
         XCTAssertTrue(modelChip.waitToExist(timeout: 5), "Tapping in did not bring back the model chip")
