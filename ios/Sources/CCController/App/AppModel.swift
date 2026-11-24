@@ -561,9 +561,10 @@ final class AppModel {
         case .locked(let message):
             invalidateBiometricSession()
             faceIDMessage = message
-            connections.forEach { $0.auth.lock() }
+            let kept = voiceConnection
+            connections.filter { $0 !== kept }.forEach { $0.auth.lock() }
             if phase == .locked {
-                stores.forEach { $0.suspend() }
+                stores.filter { $0 !== kept?.store }.forEach { $0.suspend() }
             }
         case .rePair(let message):
             for connection in connections.dropFirst() { connection.auth.lock() }
@@ -669,6 +670,7 @@ final class AppModel {
         try? await connection.credentials.deleteSessionBearer()
         connection.auth.lock()
         guard await attemptSilentRelogin(for: connection) else {
+            if connection === voiceConnection { VoiceCenter.shared.stop() }
             connection.store.suspend()
             if signedOutControllers[controllerID] == nil {
                 signedOutControllers[controllerID] = .signInNeeded
@@ -773,7 +775,7 @@ final class AppModel {
             }
             guard let self, phase == .unlocked, currentScenePhase == .active,
                   lockPolicy.shouldLockOnForeground(lastUnlockAt: lastUnlockAt, after: nil, now: Date()) else { return }
-            transitionToLocked()
+            transitionToLocked(keepsVoiceConversation: true)
             await updateBadgeCount(0)
         }
     }
@@ -1156,12 +1158,24 @@ final class AppModel {
         silentReloginInFlight.removeAll()
     }
 
-    private func transitionToLocked(suppressAutoPrompt: Bool = false) {
+    /// The controller connection an active voice conversation runs on.
+    private var voiceConnection: ControllerConnection? {
+        guard let voiceStore = VoiceCenter.shared.active?.store else { return nil }
+        return connections.first { $0.store === voiceStore }
+    }
+
+    /// Locks the app. An automatic lock keeps an active voice conversation going: the screen still asks for Face ID,
+    /// but that one controller stays signed in so the conversation carries on hands-free. Anything else ends it.
+    private func transitionToLocked(suppressAutoPrompt: Bool = false, keepsVoiceConversation: Bool = false) {
         invalidateBiometricSession()
         unlockExpiryTask?.cancel()
         unlockExpiryTask = nil
-        connections.forEach { $0.auth.lock() }
-        stores.forEach { $0.suspend() }
+        let kept = keepsVoiceConversation ? voiceConnection : nil
+        if kept == nil, VoiceCenter.shared.active != nil {
+            VoiceCenter.shared.stop()
+        }
+        connections.filter { $0 !== kept }.forEach { $0.auth.lock() }
+        stores.filter { $0 !== kept?.store }.forEach { $0.suspend() }
         signedOutControllers.removeAll()
         hasAutoPromptedLockScreen = suppressAutoPrompt
         phase = .locked
@@ -1383,7 +1397,10 @@ final class AppModel {
             connectionPathTask?.cancel()
             connectionPathTask = nil
             pairingTask?.cancel()
-            stores.forEach { $0.suspend() }
+            // A voice conversation keeps its controller's events flowing in the background, so replies are still
+            // spoken with the screen off.
+            let voiceStore = voiceConnection?.store
+            stores.filter { $0 !== voiceStore }.forEach { $0.suspend() }
         case .active:
             if phase == .onboarding {
                 switch onboardingStep {
@@ -1410,7 +1427,7 @@ final class AppModel {
                 hasPendingApprovals: stores.contains { !$0.approvals.isEmpty },
                 isOnNewChat: isNewSessionPresented,
                 isPaired: phase == .unlocked
-            ) {
+            ), VoiceCenter.shared.active == nil {
                 shouldResumeNewSession = true
             }
             let shouldLock = (!fixtureMode || lastUnlockAt != nil) && lockPolicy.shouldLockOnForeground(
@@ -1419,7 +1436,7 @@ final class AppModel {
                 now: now
             )
             if shouldLock {
-                transitionToLocked()
+                transitionToLocked(keepsVoiceConversation: true)
                 Task { @MainActor in
                     await updateBadgeCount(0)
                 }

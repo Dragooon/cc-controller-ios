@@ -81,6 +81,7 @@ final class VoiceModeController {
     @ObservationIgnored private var transcriptSignature = ""
     @ObservationIgnored private var knownApprovalIDs: Set<String> = []
     @ObservationIgnored private var remoteTargets: [(MPRemoteCommand, Any)] = []
+    @ObservationIgnored private var muteGestureObserver: NSObjectProtocol?
 
     init(store: AppStore, controllerID: ControllerID, sessionID: String, sessionName: String, archive: VoiceRecordingArchive) {
         self.store = store
@@ -145,6 +146,9 @@ final class VoiceModeController {
         fetches = [:]
         engine.stop()
         tearDownRemoteCommands()
+        if AVAudioApplication.shared.isInputMuted {
+            try? AVAudioApplication.shared.setInputMuted(false)
+        }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         UIApplication.shared.isIdleTimerDisabled = false
         let store = store
@@ -161,6 +165,10 @@ final class VoiceModeController {
         guard paused != isPaused, phase != .starting else { return }
         isPaused = paused
         engine.setMuted(paused)
+        // Keeps the system's mic mute (what an AirPods press toggles) in step with pausing from the app.
+        if AVAudioApplication.shared.isInputMuted != paused {
+            try? AVAudioApplication.shared.setInputMuted(paused)
+        }
         if paused {
             holdTask?.cancel()
             engine.pauseReplies()
@@ -517,11 +525,26 @@ final class VoiceModeController {
         center.playCommand.isEnabled = true
         center.pauseCommand.isEnabled = true
         remoteTargets = [(center.togglePlayPauseCommand, toggle), (center.playCommand, play), (center.pauseCommand, pause)]
+
+        // While the mic is open in a voice-chat session, iOS treats an AirPods press as a call control, so the
+        // play/pause commands above only arrive from the lock screen and Control Center. The press reaches the app
+        // as iOS 17's press-to-mute gesture instead; observing it opts in, iOS mutes the mic itself, and voice mode
+        // pauses with it.
+        muteGestureObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioApplication.inputMuteStateChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let muted = (notification.userInfo?[AVAudioApplication.muteStateKey] as? NSNumber)?.boolValue ?? false
+            MainActor.assumeIsolated { self?.setPaused(muted) }
+        }
     }
 
     private func tearDownRemoteCommands() {
         for (command, target) in remoteTargets { command.removeTarget(target) }
         remoteTargets = []
+        if let muteGestureObserver { NotificationCenter.default.removeObserver(muteGestureObserver) }
+        muteGestureObserver = nil
     }
 
     private func updateNowPlaying() {

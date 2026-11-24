@@ -70,6 +70,24 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         XCTAssertTrue(app.element(identifier: "voice-stage-history").waitToExist(timeout: 5), "Earlier stage items were not kept")
         addScreenshot(named: "voice-stage-image")
 
+        // Screen off: in the background voice mode keeps the app running, and a reply that arrives then is spoken.
+        let spokenBeforeBackground = try await fixtureRequestCount("POST /api/voice/speech")
+        sendToBackground(app)
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertEqual(app.state, .runningBackground, "Voice mode let the app be suspended in the background")
+        try await postFixtureJSON("/fixture/live-turn", body: ["prompt": "Is there parking near the cinema", "timeScale": 2])
+        var spokenInBackground = spokenBeforeBackground
+        let backgroundDeadline = Date().addingTimeInterval(60 * flowTimeScale())
+        while spokenInBackground <= spokenBeforeBackground, Date() < backgroundDeadline {
+            try await Task.sleep(for: .milliseconds(500))
+            spokenInBackground = try await fixtureRequestCount("POST /api/voice/speech")
+        }
+        XCTAssertGreaterThan(spokenInBackground, spokenBeforeBackground, "A reply that arrived in the background was not spoken")
+        XCTAssertEqual(app.state, .runningBackground, "The app was suspended while speaking in the background")
+        app.activate()
+        XCTAssertTrue(status.waitToExist(timeout: 10), "Voice mode was gone after coming back from the background")
+        XCTAssertTrue(pollUntil(timeout: 90) { status.label == "Listening" }, "Voice mode did not carry on after the background: \(status.label)")
+
         // The chat is one tap away, and ending voice mode turns the note off.
         app.element(identifier: "voice-stage-toggle").tap()
         XCTAssertTrue(pollUntil(timeout: 5) { !app.element(identifier: "voice-stage").exists }, "Show chat did not collapse the stage")

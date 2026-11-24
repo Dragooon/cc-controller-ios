@@ -44,9 +44,17 @@ phone only records, decides when a turn has ended, plays and keeps the recording
 - UI journey: `VoiceModeJourneyFlowTests`, run with `-CCVoiceTestAudio` (no mic on the simulator) against a fixture
   daemon with voice routes (`controller_ref=stockade-next` until the controller's main has them).
 - Design: `~/workspace/projects/voice-mode/DESIGN.md` on Mustafar.
-- Screen-on only for now (23 Nov): voice mode keeps the screen awake; with the phone locked it stops. The
-  background-audio mode (and keeping the voice store's events flowing in the background) made LongSession's paging
-  lose its place on first launch in 6 of 8 runs; without it, 2 of 2 passed. Find why before adding it back.
+- Screen off (24 Nov): voice mode keeps running in the background (UIBackgroundModes audio; the open mic keeps
+  the app alive, and pausing mutes rather than stops it). Its controller's store isn't suspended in the background,
+  automatic locks (returning after the lock interval, unlock expiry on screen, a failed Face ID) keep that one
+  controller signed in so the conversation carries on behind the lock screen, and the resume-new-chat rule skips it.
+  "Lock now" and that controller signing out end voice mode.
+- AirPods: in a voice-chat session iOS treats a press as a call control, so MPRemoteCommandCenter play/pause only
+  comes from the lock screen and Control Center. The press arrives as iOS 17's press-to-mute gesture
+  (AVAudioApplication.inputMuteStateChangeNotification); observing it opts in, iOS mutes the mic itself, and voice
+  mode pauses with it. App-side pausing calls setInputMuted to stay in step. Not yet tried on the Duo.
+- The LongSession paging failures that first blocked background mode were a transcript bug, not the audio mode: the
+  scroll anchor could be the paging row, so an earlier page landing at the top dropped the reader at the top of it.
 - Open (23 Nov): on the CI simulator a strip tap that lands just as the agent's turn ends was sometimes lost
   (no pressed state, no action). The journey now waits for the turn to end; watch for it on the Duo.
 
