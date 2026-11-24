@@ -1503,11 +1503,7 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 switch content {
             case .paging(let isLoading):
                 HStack {
-                    if isLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                            .accessibilityIdentifier("transcript-paging-spinner")
-                    }
+                    if isLoading { ProgressView().controlSize(.small) }
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 24)

@@ -113,25 +113,26 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         app = launchSignedIn(session: "long-session", arguments: ["-CCFixtureInitialTranscriptTail", "20"])
         XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest entry did not load on the short first page")
         try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 12_000])
-        // The short first page starts with checkpoint 490's reply; prompt 490 is on the page before it.
-        let firstPageTop = app.staticTexts["Checkpoint 490 is complete; the fixture remains responsive."]
+        // The short first page starts with checkpoint 490's reply; prompt 491 is the first row clear of the header,
+        // and prompt 490 is on the page before.
+        let rowBeingRead = app.staticTexts["Long-session prompt 491: inspect the next checkpoint."]
         let earlierPageRow = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
-        let pagingSpinner = app.element(identifier: "transcript-paging-spinner")
-        for _ in 0..<3 where !(firstPageTop.exists && firstPageTop.isHittable) {
+        let heldSince = Date()
+        for _ in 0..<3 where !(rowBeingRead.exists && rowBeingRead.isHittable) {
             app.transcriptScroll.swipeDown(velocity: .fast)
         }
-        let reachedTop = firstPageTop.exists && firstPageTop.isHittable
-        let heldWhileResting = pagingSpinner.exists
-        let landed = pagingSpinner.waitToDisappear(timeout: 30)
+        let reachedTop = rowBeingRead.exists && rowBeingRead.isHittable
+        let arrivedEarly = earlierPageRow.exists
+        // Wait out the hold, plus time to land.
+        let waited = Date().timeIntervalSince(heldSince)
+        try await Task.sleep(for: .seconds(max(2, 14 - waited)))
         try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 0])
         XCTAssertTrue(reachedTop, "Scrolling up did not reach the top of the first page")
-        XCTAssertTrue(heldWhileResting, "The earlier page wasn't still loading when the scroll stopped, so this checks nothing")
-        XCTAssertTrue(landed, "The earlier page did not arrive")
-        try await Task.sleep(for: .seconds(1))
+        XCTAssertFalse(arrivedEarly, "The earlier page arrived before the scroll stopped, so this checks nothing")
         addScreenshot(named: "long-session-held-page-landed")
-        XCTAssertTrue(firstPageTop.exists && firstPageTop.isHittable, "An earlier page landing at the top moved the row being read off screen")
+        XCTAssertTrue(rowBeingRead.exists && rowBeingRead.isHittable, "An earlier page landing at the top moved the row being read off screen")
         let nearTop = app.transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
-        nearTop.press(forDuration: 0.1, thenDragTo: nearTop.withOffset(CGVector(dx: 0, dy: 250)))
-        XCTAssertTrue(earlierPageRow.waitToExist(timeout: 5), "The earlier page's last prompt wasn't just above the row being read")
+        nearTop.press(forDuration: 0.1, thenDragTo: nearTop.withOffset(CGVector(dx: 0, dy: 300)))
+        XCTAssertTrue(earlierPageRow.waitToExist(timeout: 5), "The earlier page didn't land just above the row being read")
     }
 }

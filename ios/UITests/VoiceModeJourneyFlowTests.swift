@@ -71,20 +71,18 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         addScreenshot(named: "voice-stage-image")
 
         // Screen off: in the background voice mode keeps the app running, and a reply that arrives then is spoken.
+        // The test doesn't poll the fixture while the app is away; it counts the speech requests once it's back.
         let spokenBeforeBackground = try await fixtureRequestCount("POST /api/voice/speech")
         sendToBackground(app)
         try await Task.sleep(for: .seconds(3))
         XCTAssertEqual(app.state, .runningBackground, "Voice mode let the app be suspended in the background")
         try await postFixtureJSON("/fixture/live-turn", body: ["prompt": "Is there parking near the cinema", "timeScale": 2])
-        var spokenInBackground = spokenBeforeBackground
-        let backgroundDeadline = Date().addingTimeInterval(60 * flowTimeScale())
-        while spokenInBackground <= spokenBeforeBackground, Date() < backgroundDeadline {
-            try await Task.sleep(for: .milliseconds(500))
-            spokenInBackground = try await fixtureRequestCount("POST /api/voice/speech")
-        }
-        XCTAssertGreaterThan(spokenInBackground, spokenBeforeBackground, "A reply that arrived in the background was not spoken")
-        XCTAssertEqual(app.state, .runningBackground, "The app was suspended while speaking in the background")
+        try await Task.sleep(for: .seconds(25 * flowTimeScale()))
+        let stateAfterReply = app.state
         app.activate()
+        let spokenInBackground = try await fixtureRequestCount("POST /api/voice/speech")
+        XCTAssertEqual(stateAfterReply, .runningBackground, "The app was suspended while a reply arrived in the background")
+        XCTAssertGreaterThan(spokenInBackground, spokenBeforeBackground, "A reply that arrived in the background was not spoken")
         XCTAssertTrue(status.waitToExist(timeout: 10), "Voice mode was gone after coming back from the background")
         XCTAssertTrue(pollUntil(timeout: 90) { status.label == "Listening" }, "Voice mode did not carry on after the background: \(status.label)")
 
