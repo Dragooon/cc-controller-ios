@@ -513,12 +513,16 @@ struct SessionScreen: View {
         )
     }
 
-    /// The controller's commands, plus `/sudo` on a writable Stockade session that advertises it.
+    /// The controller's commands, plus the sudo switch on a writable Stockade session that advertises it. The
+    /// gateway only reports on a bare `/sudo`, so the menu offers the explicit `/sudo on` or `/sudo off` for the
+    /// session's current state.
     private func slashCommands(_ commands: [SlashCommand], for session: Session) -> [SlashCommand] {
         var available = composerCapabilities.canRunCommands ? commands : []
-        if acceptsSudo(session, capabilities: store.controllerInfo.capabilities),
-           !available.contains(where: { $0.command == "/sudo" }) {
-            available.append(SlashCommand(command: "/sudo", description: "Toggle sudo mode"))
+        available.removeAll { $0.command == "/sudo" }
+        if acceptsSudo(session, capabilities: store.controllerInfo.capabilities) {
+            available.append(session.sudo == true
+                ? SlashCommand(command: "/sudo off", description: "Turn sudo mode off")
+                : SlashCommand(command: "/sudo on", description: "Turn sudo mode on"))
         }
         return available
     }
