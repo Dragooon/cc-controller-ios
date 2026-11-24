@@ -4219,37 +4219,66 @@ EOF
   printf 'ota-package %s: build %s (%s)\n' "$output" "$build_number" "${source_sha:0:7}"
 }
 
-# Signs the app with the provisioning profile's own certificate type and the entitlements it grants, narrowed to
-# this bundle ID. The app keeps the keychain access group of any other build from the same team and bundle ID.
-ota_sign_app() {
-  local app=$1 profile=$2 bundle_id=$3 work team pattern identity
+# Signs one bundle (the app or an extension) with the provisioning profile's own certificate type and the
+# entitlements it grants, narrowed to the bundle's ID. The app keeps the keychain access group of any other build from
+# the same team and bundle ID.
+ota_sign_bundle() {
+  local bundle=$1 profile=$2 bundle_id=$3 work team pattern identity
   work=$(mktemp -d)
   security cms -D -i "$profile" > "$work/profile.plist"
   team=$(plutil -extract TeamIdentifier.0 raw "$work/profile.plist")
   pattern=$(plutil -extract Entitlements.application-identifier raw "$work/profile.plist")
   if [[ "$pattern" != "$team.*" && "$pattern" != "$team.$bundle_id" ]]; then
-    printf 'the provisioning profile does not cover this app (bundle ID %s)\n' "$bundle_id" >&2
+    printf 'the provisioning profile does not cover %s (bundle ID %s)\n' "${bundle##*/}" "$bundle_id" >&2
     rm -rf -- "$work"
     return 1
   fi
-  if plutil -extract Entitlements.get-task-allow raw "$work/profile.plist" | grep -q true; then
-    identity='Apple Development'
-  else
-    identity='Apple Distribution'
-  fi
+  identity=$(ota_profile_identity "$work/profile.plist")
   plutil -extract Entitlements xml1 -o "$work/entitlements.plist" "$work/profile.plist"
   plutil -replace application-identifier -string "$team.$bundle_id" "$work/entitlements.plist"
-  cp "$profile" "$app/embedded.mobileprovision"
-  local nested
+  cp "$profile" "$bundle/embedded.mobileprovision"
+  codesign --force --sign "$identity" --timestamp=none --entitlements "$work/entitlements.plist" "$bundle"
+  codesign --verify --strict "$bundle"
+  printf 'ota-package signed %s with %s (%s)\n' "${bundle##*/}" "$identity" "$(plutil -extract Name raw "$work/profile.plist")"
+  rm -rf -- "$work"
+}
+
+# A development profile (get-task-allow) signs with Apple Development, anything else with Apple Distribution.
+ota_profile_identity() {
+  if plutil -extract Entitlements.get-task-allow raw "$1" | grep -q true; then
+    printf '%s\n' 'Apple Development'
+  else
+    printf '%s\n' 'Apple Distribution'
+  fi
+}
+
+# Signs the app: its frameworks, its extensions (the Live Activity widget, with CC_OTA_WIDGET_PROFILE_PATH), then the
+# app itself. Without a widget profile the extension is left out, so the install still works, minus the Live Activity.
+ota_sign_app() {
+  local app=$1 profile=$2 bundle_id=$3 widget_profile=${CC_OTA_WIDGET_PROFILE_PATH:-} work identity nested appex appex_id
+  work=$(mktemp -d)
+  security cms -D -i "$profile" > "$work/profile.plist"
+  identity=$(ota_profile_identity "$work/profile.plist")
+  rm -rf -- "$work"
   if [[ -d "$app/Frameworks" ]]; then
     while IFS= read -r nested; do
       codesign --force --sign "$identity" --timestamp=none "$nested"
     done < <(find "$app/Frameworks" -maxdepth 1 \( -name '*.framework' -o -name '*.dylib' \))
   fi
-  codesign --force --sign "$identity" --timestamp=none --entitlements "$work/entitlements.plist" "$app"
-  codesign --verify --strict "$app"
-  printf 'ota-package signed with %s (%s)\n' "$identity" "$(plutil -extract Name raw "$work/profile.plist")"
-  rm -rf -- "$work"
+  if [[ -d "$app/PlugIns" ]]; then
+    for appex in "$app/PlugIns"/*.appex; do
+      [[ -d "$appex" ]] || continue
+      if [[ -n "$widget_profile" && -f "$widget_profile" ]]; then
+        appex_id=$(plutil -extract CFBundleIdentifier raw "$appex/Info.plist")
+        ota_sign_bundle "$appex" "$widget_profile" "$appex_id" || return 1
+      else
+        printf 'ota-package: no widget profile (CC_OTA_WIDGET_PROFILE_PATH), leaving %s out: no Live Activity\n' "${appex##*/}" >&2
+        rm -rf -- "$appex"
+      fi
+    done
+    rmdir "$app/PlugIns" 2>/dev/null || true
+  fi
+  ota_sign_bundle "$app" "$profile" "$bundle_id"
 }
 
 harness_run_command() {

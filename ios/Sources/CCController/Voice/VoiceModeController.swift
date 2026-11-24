@@ -1,9 +1,13 @@
+import ActivityKit
 import AVFoundation
 import CCKit
 import Foundation
 import MediaPlayer
 import Observation
 import UIKit
+import os
+
+private let voiceLiveActivityLogger = Logger(subsystem: "cc-controller", category: "voice-live-activity")
 
 /// One hands-free conversation with one session. The phone listens all the time; each pause ends an utterance, the
 /// host transcribes it, and a finished thought is sent as your message with the voice mark. Every text block the
@@ -30,6 +34,18 @@ final class VoiceModeController {
             case .speaking: "Speaking"
             case .paused: "Paused"
             case .failed: "Voice stopped"
+            }
+        }
+
+        /// SF Symbol for the Live Activity.
+        var symbol: String {
+            switch self {
+            case .starting, .listening: "waveform"
+            case .hearing: "mic.fill"
+            case .sending, .working: "ellipsis"
+            case .speaking: "speaker.wave.2.fill"
+            case .paused: "pause.fill"
+            case .failed: "exclamationmark.triangle.fill"
             }
         }
     }
@@ -82,6 +98,8 @@ final class VoiceModeController {
     @ObservationIgnored private var knownApprovalIDs: Set<String> = []
     @ObservationIgnored private var remoteTargets: [(MPRemoteCommand, Any)] = []
     @ObservationIgnored private var muteGestureObserver: NSObjectProtocol?
+    @ObservationIgnored private var liveActivity: Activity<VoiceActivityAttributes>?
+    @ObservationIgnored private var liveActivityState: VoiceActivityAttributes.ContentState?
 
     init(store: AppStore, controllerID: ControllerID, sessionID: String, sessionName: String, archive: VoiceRecordingArchive) {
         self.store = store
@@ -118,6 +136,7 @@ final class VoiceModeController {
         }
         UIApplication.shared.isIdleTimerDisabled = true
         setUpRemoteCommands()
+        startLiveActivity()
         phase = .listening
         updateNowPlaying()
         let events = engine.events
@@ -146,6 +165,7 @@ final class VoiceModeController {
         fetches = [:]
         engine.stop()
         tearDownRemoteCommands()
+        endLiveActivity()
         if AVAudioApplication.shared.isInputMuted {
             try? AVAudioApplication.shared.setInputMuted(false)
         }
@@ -383,6 +403,56 @@ final class VoiceModeController {
             engine.play(.working)
             lastSoundAt = Date()
         }
+        updateLiveActivity()
+    }
+
+    // MARK: Live Activity
+
+    private var currentLiveActivityState: VoiceActivityAttributes.ContentState {
+        let line: String
+        switch phase {
+        case .speaking: line = speakingText
+        case .hearing, .sending: line = heardText
+        case .failed(let message): line = message
+        default: line = ""
+        }
+        return VoiceActivityAttributes.ContentState(phase: phase.label, symbol: phase.symbol, line: line, isPaused: isPaused)
+    }
+
+    /// Voice mode on the lock screen and in the Dynamic Island while it runs.
+    private func startLiveActivity() {
+        guard liveActivity == nil, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let state = currentLiveActivityState
+        do {
+            liveActivity = try Activity.request(
+                attributes: VoiceActivityAttributes(sessionName: sessionName),
+                content: ActivityContent(state: state, staleDate: nil),
+                pushType: nil
+            )
+            liveActivityState = state
+        } catch {
+            voiceLiveActivityLogger.error("Live Activity did not start: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Checked on every tick; only a changed state is sent.
+    private func updateLiveActivity() {
+        guard let activity = liveActivity else { return }
+        let state = currentLiveActivityState
+        guard state != liveActivityState else { return }
+        liveActivityState = state
+        Task { @MainActor in
+            await activity.update(ActivityContent(state: state, staleDate: nil))
+        }
+    }
+
+    private func endLiveActivity() {
+        guard let activity = liveActivity else { return }
+        liveActivity = nil
+        liveActivityState = nil
+        Task { @MainActor in
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
     }
 
     private func apply(_ event: VoiceReplyEvent) {
@@ -589,6 +659,19 @@ final class VoiceCenter {
 
     @ObservationIgnored private var reader: VoiceAudioEngine?
     @ObservationIgnored private var readingTask: Task<Void, Never>?
+
+    init() {
+        VoiceActivityActions.togglePause = { [weak self] in self?.active?.togglePause() }
+        VoiceActivityActions.end = { [weak self] in self?.stop() }
+        // A Live Activity left by a run that ended without stopping voice mode (a crash, a force quit). Taken now,
+        // so a conversation started right after launch keeps its own.
+        let leftOver = Activity<VoiceActivityAttributes>.activities
+        Task { @MainActor in
+            for activity in leftOver {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
+        }
+    }
 
     func isActive(controllerID: ControllerID, sessionID: String) -> Bool {
         active?.controllerID == controllerID && active?.sessionID == sessionID

@@ -30,6 +30,7 @@ targets:
       - Resources/PrivacyInfo.xcprivacy
     dependencies:
       - package: CCKit
+      - target: CCControllerWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: "$(CC_BUNDLE_ID)"
@@ -64,6 +65,7 @@ targets:
         NSFaceIDUsageDescription: Unlock Code
         NSCameraUsageDescription: Take a photo to send to a session.
         NSMicrophoneUsageDescription: Voice mode listens so you can talk to a session hands-free.
+        NSSupportsLiveActivities: true
         UIBackgroundModes:
           - audio
         UILaunchScreen: {}
@@ -92,6 +94,36 @@ targets:
         TEST_RUNNER_WARM_THEME: "$(TEST_RUNNER_WARM_THEME)"
         CCMotionBuildSHA: "$(CCMotionBuildSHA)"
         CCMotionDevice: "$(CCMotionDevice)"
+  CCControllerWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widgets
+      - Sources/CCController/Voice/VoiceActivityShared.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(CC_BUNDLE_ID).Widgets"
+        PRODUCT_NAME: CCControllerWidgets
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGN_IDENTITY: "-"
+          CODE_SIGN_STYLE: Manual
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""
+    info:
+      path: Widgets/Info.plist
+      properties:
+        CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)"
+        CFBundleExecutable: "$(EXECUTABLE_NAME)"
+        CFBundleDisplayName: Code
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
   CCControllerUITests:
     type: bundle.ui-testing
     platform: iOS

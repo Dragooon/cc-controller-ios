@@ -53,6 +53,11 @@ phone only records, decides when a turn has ended, plays and keeps the recording
   comes from the lock screen and Control Center. The press arrives as iOS 17's press-to-mute gesture
   (AVAudioApplication.inputMuteStateChangeNotification); observing it opts in, iOS mutes the mic itself, and voice
   mode pauses with it. App-side pausing calls setInputMuted to stay in step. Not yet tried on the Duo.
+- Live Activity (24 Nov): while voice mode runs, the lock screen and Dynamic Island show its status, the sentence
+  in play, and pause/end buttons. The widget extension (`Widgets/`, bundle ID `<app>.Widgets`) shares
+  `Voice/VoiceActivityShared.swift` with the app; the buttons are LiveActivityIntents, which the system performs in the
+  app's process, where VoiceCenter registers the handlers (in the extension they stay empty). The signed build signs
+  the extension with secret `CC_WIDGET_PROFILE_BASE64`; without it the install leaves the extension out.
 - The LongSession paging failures that first blocked background mode were a transcript bug, not the audio mode: the
   scroll anchor could be the paging row, so an earlier page landing at the top dropped the reader at the top of it.
 - Open (23 Nov): on the CI simulator a strip tap that lands just as the agent's turn ends was sometimes lost

@@ -7,6 +7,8 @@ name: Signed install
 # The "signing" environment only deploys from main and holds:
 #   CC_SIGNING_P12_BASE64, CC_SIGNING_P12_PASSWORD  signing certificate and private key
 #   CC_PROFILE_BASE64                               provisioning profile covering the owner's devices
+#   CC_WIDGET_PROFILE_BASE64                        profile for the Live Activity extension (<bundle ID>.Widgets);
+#                                                   without it the install leaves the extension out
 #   CC_APP_LOCAL_XCCONFIG                           contents of ios/Config/App.local.xcconfig
 # dry_run packages an unsigned build with none of them, to test everything but the signing.
 
@@ -39,6 +41,7 @@ jobs:
           CC_SIGNING_P12_BASE64: ${{ secrets.CC_SIGNING_P12_BASE64 }}
           CC_SIGNING_P12_PASSWORD: ${{ secrets.CC_SIGNING_P12_PASSWORD }}
           CC_PROFILE_BASE64: ${{ secrets.CC_PROFILE_BASE64 }}
+          CC_WIDGET_PROFILE_BASE64: ${{ secrets.CC_WIDGET_PROFILE_BASE64 }}
           CC_APP_LOCAL_XCCONFIG: ${{ secrets.CC_APP_LOCAL_XCCONFIG }}
         run: |
           printf '%s\n' "$CC_APP_LOCAL_XCCONFIG" > ios/Config/App.local.xcconfig
@@ -55,11 +58,15 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
 
           printf '%s' "$CC_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/cc-controller.mobileprovision"
+          if [[ -n "$CC_WIDGET_PROFILE_BASE64" ]]; then
+            printf '%s' "$CC_WIDGET_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/cc-controller-widgets.mobileprovision"
+          fi
 
       - name: Build the package
         env:
           CC_OTA_PUBLIC_KEY: ${{ vars.CC_OTA_PUBLIC_KEY }}
           CC_OTA_PROFILE_PATH: ${{ runner.temp }}/cc-controller.mobileprovision
+          CC_OTA_WIDGET_PROFILE_PATH: ${{ runner.temp }}/cc-controller-widgets.mobileprovision
         run: bash scripts/ios.sh ota-package --sha "$GITHUB_SHA" --output "$RUNNER_TEMP/install-package" ${{ inputs.dry_run && '--dry-run' || '' }}
 
       - name: Upload the sealed package
