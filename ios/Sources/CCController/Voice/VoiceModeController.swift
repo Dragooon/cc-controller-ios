@@ -9,6 +9,20 @@ import os
 
 private let voiceLiveActivityLogger = Logger(subsystem: "cc-controller", category: "voice-live-activity")
 
+/// ActivityKit's update and end run off the main actor, and Activity isn't Sendable, so the calls go through this box
+/// from a detached task. Each activity is only touched by one call at a time from voice mode.
+private struct LiveActivityHandle: @unchecked Sendable {
+    let activity: Activity<VoiceActivityAttributes>
+
+    func update(_ state: VoiceActivityAttributes.ContentState) {
+        Task.detached { await activity.update(ActivityContent(state: state, staleDate: nil)) }
+    }
+
+    func end() {
+        Task.detached { await activity.end(nil, dismissalPolicy: .immediate) }
+    }
+}
+
 /// One hands-free conversation with one session. The phone listens all the time; each pause ends an utterance, the
 /// host transcribes it, and a finished thought is sent as your message with the voice mark. Every text block the
 /// agent writes is spoken back; tool calls never are. Nothing you say is treated as a command.
@@ -441,18 +455,14 @@ final class VoiceModeController {
         let state = currentLiveActivityState
         guard state != liveActivityState else { return }
         liveActivityState = state
-        Task { @MainActor in
-            await activity.update(ActivityContent(state: state, staleDate: nil))
-        }
+        LiveActivityHandle(activity: activity).update(state)
     }
 
     private func endLiveActivity() {
         guard let activity = liveActivity else { return }
         liveActivity = nil
         liveActivityState = nil
-        Task { @MainActor in
-            await activity.end(nil, dismissalPolicy: .immediate)
-        }
+        LiveActivityHandle(activity: activity).end()
     }
 
     private func apply(_ event: VoiceReplyEvent) {
@@ -665,11 +675,8 @@ final class VoiceCenter {
         VoiceActivityActions.end = { [weak self] in self?.stop() }
         // A Live Activity left by a run that ended without stopping voice mode (a crash, a force quit). Taken now,
         // so a conversation started right after launch keeps its own.
-        let leftOver = Activity<VoiceActivityAttributes>.activities
-        Task { @MainActor in
-            for activity in leftOver {
-                await activity.end(nil, dismissalPolicy: .immediate)
-            }
+        for activity in Activity<VoiceActivityAttributes>.activities {
+            LiveActivityHandle(activity: activity).end()
         }
     }
 
