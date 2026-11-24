@@ -109,22 +109,29 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         app.terminate()
 
         // An earlier page that arrives while the reader rests at the top keeps their place. The host holds the page
-        // back so it always lands after the scroll has stopped, instead of racing the swipe.
+        // back (under the app's 20 s request timeout) so it lands after the scroll has stopped, instead of racing it.
         app = launchSignedIn(session: "long-session", arguments: ["-CCFixtureInitialTranscriptTail", "20"])
         XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest entry did not load on the short first page")
-        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": Int(12_000 * flowTimeScale())])
-        let firstPageTop = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
-        let earlierPageRow = app.staticTexts["Long-session prompt 489: inspect the next checkpoint."]
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 12_000])
+        // The short first page starts with checkpoint 490's reply; prompt 490 is on the page before it.
+        let firstPageTop = app.staticTexts["Checkpoint 490 is complete; the fixture remains responsive."]
+        let earlierPageRow = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
+        let pagingSpinner = app.element(identifier: "transcript-paging-spinner")
         for _ in 0..<3 where !(firstPageTop.exists && firstPageTop.isHittable) {
             app.transcriptScroll.swipeDown(velocity: .fast)
         }
-        XCTAssertTrue(firstPageTop.exists && firstPageTop.isHittable, "Scrolling up did not reach the top of the first page")
-        XCTAssertFalse(earlierPageRow.exists, "The earlier page arrived before the scroll stopped, so this checks nothing")
-        let landed = pollUntil(timeout: 30 * flowTimeScale()) { earlierPageRow.exists }
+        let reachedTop = firstPageTop.exists && firstPageTop.isHittable
+        let heldWhileResting = pagingSpinner.exists
+        let landed = pagingSpinner.waitToDisappear(timeout: 30)
         try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 0])
+        XCTAssertTrue(reachedTop, "Scrolling up did not reach the top of the first page")
+        XCTAssertTrue(heldWhileResting, "The earlier page wasn't still loading when the scroll stopped, so this checks nothing")
         XCTAssertTrue(landed, "The earlier page did not arrive")
         try await Task.sleep(for: .seconds(1))
         addScreenshot(named: "long-session-held-page-landed")
         XCTAssertTrue(firstPageTop.exists && firstPageTop.isHittable, "An earlier page landing at the top moved the row being read off screen")
+        let nearTop = app.transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        nearTop.press(forDuration: 0.1, thenDragTo: nearTop.withOffset(CGVector(dx: 0, dy: 250)))
+        XCTAssertTrue(earlierPageRow.waitToExist(timeout: 5), "The earlier page's last prompt wasn't just above the row being read")
     }
 }
