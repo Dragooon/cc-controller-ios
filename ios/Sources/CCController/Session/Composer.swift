@@ -195,62 +195,86 @@ struct ComposerView: View, Equatable {
         }
     }
 
+    /// Empty and not in use: one row, like the system and Claude apps, so the transcript gets the space back. Tapping
+    /// in, a draft or an attachment brings back the full composer with the model chip.
+    private var isCompact: Bool {
+        !isFocused && text.isEmpty && !configuration.hasAttachments
+    }
+
     private var composerLayout: some View {
         ComposerCard {
-            TextField(configuration.placeholder, text: $text, axis: .vertical)
-                .font(.body)
-                .foregroundStyle(.ccLabel)
-                .lineLimit(1...6)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-                .transition(.identity)
-                .id(fieldGeneration)
-                .task(id: fieldGeneration) {
-                    guard restoreFocus else { return }
-                    isFocused = true
-                    var consecutiveFocusedChecks = 0
-                    for _ in 0..<10 {
-                        do {
-                            try await Task.sleep(for: .milliseconds(50))
-                        } catch {
-                            return
-                        }
-                        guard !Task.isCancelled else { return }
-                        if isFocused {
-                            consecutiveFocusedChecks += 1
-                        } else {
-                            consecutiveFocusedChecks = 0
-                            isFocused = true
-                        }
-                        if consecutiveFocusedChecks == 2 {
-                            restoreFocus = false
-                            return
-                        }
-                    }
-                    restoreFocus = false
-                    focusLogger.error("composer focus restoration did not stick")
-                }
-                .accessibilityIdentifier("composer-text")
-
-            HStack(spacing: 8) {
-                if configuration.canAttach {
+            // The field keeps one place in the tree in both layouts, so focusing it (which switches the layout) never
+            // rebuilds it and drops the keyboard.
+            HStack(alignment: .center, spacing: 8) {
+                if isCompact, configuration.canAttach {
                     attachmentMenu
                 }
-                if configuration.modelName != nil, configuration.canRunCommands {
-                    modelButton
+                messageField
+                if isCompact {
+                    if configuration.isWorking, configuration.canInterrupt {
+                        stopButton
+                    }
+                    sendButton
                 }
-                Spacer(minLength: 0)
-                if configuration.isWorking, configuration.canInterrupt {
-                    stopButton
-                }
-                sendButton
             }
-            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            if !isCompact {
+                HStack(spacing: 8) {
+                    if configuration.canAttach {
+                        attachmentMenu
+                    }
+                    if configuration.modelName != nil, configuration.canRunCommands {
+                        modelButton
+                    }
+                    Spacer(minLength: 0)
+                    if configuration.isWorking, configuration.canInterrupt {
+                        stopButton
+                    }
+                    sendButton
+                }
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            }
         }
         .onChange(of: resetGeneration) { _, generation in
             restoreFocus = restoresFocusOnReset && isFocused
             fieldGeneration = generation
         }
+    }
+
+    private var messageField: some View {
+        TextField(configuration.placeholder, text: $text, axis: .vertical)
+            .font(.body)
+            .foregroundStyle(.ccLabel)
+            .lineLimit(1...6)
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .transition(.identity)
+            .id(fieldGeneration)
+            .task(id: fieldGeneration) {
+                guard restoreFocus else { return }
+                isFocused = true
+                var consecutiveFocusedChecks = 0
+                for _ in 0..<10 {
+                    do {
+                        try await Task.sleep(for: .milliseconds(50))
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    if isFocused {
+                        consecutiveFocusedChecks += 1
+                    } else {
+                        consecutiveFocusedChecks = 0
+                        isFocused = true
+                    }
+                    if consecutiveFocusedChecks == 2 {
+                        restoreFocus = false
+                        return
+                    }
+                }
+                restoreFocus = false
+                focusLogger.error("composer focus restoration did not stick")
+            }
+            .accessibilityIdentifier("composer-text")
     }
 
     // Camera availability is fixed for the device, and the lookup goes through MobileGestalt,

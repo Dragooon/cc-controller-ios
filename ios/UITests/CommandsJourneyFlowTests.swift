@@ -11,8 +11,17 @@ final class CommandsJourneyFlowTests: JourneyTestCase {
         let field = app.composer
         XCTAssertTrue(field.waitToExist(timeout: 20), "Composer did not load")
 
-        // Suggestions match what's typed and fill the composer.
+        // Empty and not in use, the composer is one row with no model chip; tapping in brings the chip back.
+        let modelChip = app.buttons["composer-model"]
+        XCTAssertFalse(modelChip.exists, "The idle composer showed the model chip")
+        XCTAssertTrue(app.buttons["Add attachment"].exists, "The idle composer lost the attachment button")
+        XCTAssertTrue(app.buttons["composer-send"].exists, "The idle composer lost the send button")
+        addScreenshot(named: "composer-idle-one-row")
         field.tap()
+        XCTAssertTrue(modelChip.waitToExist(timeout: 5), "Tapping in did not bring back the model chip")
+        addScreenshot(named: "composer-focused-full")
+
+        // Suggestions match what's typed and fill the composer.
         field.typeText("/co")
         let compact = suggestion("/compact", in: app)
         XCTAssertTrue(compact.waitToExist(timeout: 10), "/compact suggestion did not load")
