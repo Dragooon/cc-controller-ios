@@ -106,5 +106,25 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         _ = await blip.value
         try await Task.sleep(for: .seconds(2))
         XCTAssertTrue(older.isHittable, "The row on screen didn't stay after the registry reconcile")
+        app.terminate()
+
+        // An earlier page that arrives while the reader rests at the top keeps their place. The host holds the page
+        // back so it always lands after the scroll has stopped, instead of racing the swipe.
+        app = launchSignedIn(session: "long-session", arguments: ["-CCFixtureInitialTranscriptTail", "20"])
+        XCTAssertTrue(newest.waitToExist(timeout: 30), "Newest entry did not load on the short first page")
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": Int(12_000 * flowTimeScale())])
+        let firstPageTop = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
+        let earlierPageRow = app.staticTexts["Long-session prompt 489: inspect the next checkpoint."]
+        for _ in 0..<3 where !(firstPageTop.exists && firstPageTop.isHittable) {
+            app.transcriptScroll.swipeDown(velocity: .fast)
+        }
+        XCTAssertTrue(firstPageTop.exists && firstPageTop.isHittable, "Scrolling up did not reach the top of the first page")
+        XCTAssertFalse(earlierPageRow.exists, "The earlier page arrived before the scroll stopped, so this checks nothing")
+        let landed = pollUntil(timeout: 30 * flowTimeScale()) { earlierPageRow.exists }
+        try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 0])
+        XCTAssertTrue(landed, "The earlier page did not arrive")
+        try await Task.sleep(for: .seconds(1))
+        addScreenshot(named: "long-session-held-page-landed")
+        XCTAssertTrue(firstPageTop.exists && firstPageTop.isHittable, "An earlier page landing at the top moved the row being read off screen")
     }
 }

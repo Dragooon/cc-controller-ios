@@ -242,6 +242,8 @@ private final class TranscriptListLayout: UICollectionViewLayout {
     private(set) var isApplyingCollectionUpdate = false
     private var didApplyUpdateTarget = false
     private var didFinalizeAnimatedUpdate = false
+    /// The update being applied inserts rows above the anchored row: an earlier page arriving.
+    private var isInsertingAboveAnchor = false
 
     var anchor: Anchor = .bottom
     var readableContentMaxWidth: CGFloat = .infinity
@@ -456,6 +458,12 @@ private final class TranscriptListLayout: UICollectionViewLayout {
             guard updateItem.updateAction == .insert else { return nil }
             return updateItem.indexPathAfterUpdate
         })
+        isInsertingAboveAnchor = false
+        if case .item(let anchoredItem, _) = anchor, let anchoredIndexPath = indexPath(for: anchoredItem) {
+            isInsertingAboveAnchor = insertedIndexPaths.contains { insertedIndexPath in
+                insertedIndexPath.item < anchoredIndexPath.item
+            }
+        }
     }
 
     override func targetContentOffset(forProposedContentOffset proposedContentOffset: CGPoint) -> CGPoint {
@@ -529,6 +537,7 @@ private final class TranscriptListLayout: UICollectionViewLayout {
         }
         recordUpdatePhase("finalizeUpdates.afterFallback")
         didApplyUpdateTarget = false
+        isInsertingAboveAnchor = false
         insertedIndexPaths.removeAll()
     }
 
@@ -542,6 +551,9 @@ private final class TranscriptListLayout: UICollectionViewLayout {
                 && (collectionView as? TranscriptCollectionView)?.isAnimatingJump != true
         }
         guard isUserScrolling else { return true }
+        // An earlier page landing while the view still bounces at the top has to keep the anchored row in place;
+        // leaving the offset to UIKit there dropped the reader at the top of the new page instead.
+        if isInsertingAboveAnchor { return true }
         let bounds = contentOffsetBounds(for: collectionView)
         guard collectionView.contentOffset.y < bounds.minimumY - 0.5
             || collectionView.contentOffset.y > bounds.maximumY + 0.5 else { return true }
@@ -1064,17 +1076,25 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
                 layout.anchor = .bottom
                 return
             }
-            guard let dataSource,
-                  let indexPath = collectionView.indexPathsForVisibleItems.min(by: {
-                      collectionView.layoutAttributesForItem(at: $0)?.frame.minY ?? .greatestFiniteMagnitude
-                          < collectionView.layoutAttributesForItem(at: $1)?.frame.minY ?? .greatestFiniteMagnitude
-                  }),
-                  let item = dataSource.itemIdentifier(for: indexPath),
-                  let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+            guard let dataSource else { return }
+            // The topmost visible row, skipping the paging row: it stays at the top of the content while earlier
+            // pages are inserted under it, so anchoring to it dropped the reader at the top of each new page.
+            var topmostItem: TranscriptCollectionItem?
+            var topmostFrame = CGRect.null
+            for indexPath in collectionView.indexPathsForVisibleItems {
+                guard let item = dataSource.itemIdentifier(for: indexPath),
+                      item != .paging,
+                      let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { continue }
+                if topmostItem == nil || attributes.frame.minY < topmostFrame.minY {
+                    topmostItem = item
+                    topmostFrame = attributes.frame
+                }
+            }
+            guard let topmostItem else { return }
             let viewportTop = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
             layout.anchor = .item(
-                item,
-                distanceFromViewportTop: attributes.frame.minY - viewportTop
+                topmostItem,
+                distanceFromViewportTop: topmostFrame.minY - viewportTop
             )
         }
 
