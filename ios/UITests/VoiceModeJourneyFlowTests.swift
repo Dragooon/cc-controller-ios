@@ -2,8 +2,8 @@ import XCTest
 
 /// Voice mode against the fixture's voice routes: start it on a session, speak a turn (a silent test clip the
 /// fixture "hears" as queued text), hear the agent's live turn spoken back, pause and resume, interrupt, see what the
-/// agent puts on the stage, and end it. Needs a fixture daemon with voice routes (controller stockade-next, ad905bf
-/// or later); the simulator has no mic, so the app runs with -CCVoiceTestAudio.
+/// agent puts on the stage, and end it. Needs a fixture daemon with voice routes and live-turn replies (controller
+/// stockade-next, 689fd8b or later); the simulator has no mic, so the app runs with -CCVoiceTestAudio.
 final class VoiceModeJourneyFlowTests: JourneyTestCase {
     private let session = "dune-part-three-imax-tickets"
 
@@ -76,7 +76,12 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         sendToBackground(app)
         try await Task.sleep(for: .seconds(3))
         XCTAssertEqual(app.state, .runningBackground, "Voice mode let the app be suspended in the background")
-        try await postFixtureJSON("/fixture/live-turn", body: ["prompt": "Is there parking near the cinema", "timeScale": 2])
+        // Its own words: speech is cached per sentence, so the canned reply again would need no speech request.
+        try await postFixtureJSON("/fixture/live-turn", body: [
+            "prompt": "Is there parking near the cinema",
+            "reply": "There is a car park under the cinema. It stays open until midnight.",
+            "timeScale": 2,
+        ])
         try await Task.sleep(for: .seconds(25 * flowTimeScale()))
         let stateAfterReply = app.state
         app.activate()

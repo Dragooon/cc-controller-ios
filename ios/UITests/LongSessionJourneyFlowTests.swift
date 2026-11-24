@@ -117,18 +117,24 @@ final class LongSessionJourneyFlowTests: JourneyTestCase {
         // and prompt 490 is on the page before.
         let rowBeingRead = app.staticTexts["Long-session prompt 491: inspect the next checkpoint."]
         let earlierPageRow = app.staticTexts["Long-session prompt 490: inspect the next checkpoint."]
-        let heldSince = Date()
+        let pagesBefore = try await fixtureRequestPaths().filter { $0.contains("before=") }.count
         for _ in 0..<3 where !(rowBeingRead.exists && rowBeingRead.isHittable) {
             app.transcriptScroll.swipeDown(velocity: .fast)
         }
         let reachedTop = rowBeingRead.exists && rowBeingRead.isHittable
-        let arrivedEarly = earlierPageRow.exists
-        // Wait out the hold, plus time to land.
-        let waited = Date().timeIntervalSince(heldSince)
-        try await Task.sleep(for: .seconds(max(2, 14 - waited)))
+        let answeredWhileScrolling = try await fixtureRequestPaths().filter { $0.contains("before=") }.count
+        // The host counts a request when it has answered it: wait for the held page, then let the app apply it.
+        var pagesAnswered = answeredWhileScrolling
+        let pageDeadline = Date().addingTimeInterval(30)
+        while pagesAnswered <= pagesBefore, Date() < pageDeadline {
+            try await Task.sleep(for: .milliseconds(500))
+            pagesAnswered = try await fixtureRequestPaths().filter { $0.contains("before=") }.count
+        }
+        try await Task.sleep(for: .seconds(2))
         try await postFixtureJSON("/fixture/transcript-delay", body: ["ms": 0])
         XCTAssertTrue(reachedTop, "Scrolling up did not reach the top of the first page")
-        XCTAssertFalse(arrivedEarly, "The earlier page arrived before the scroll stopped, so this checks nothing")
+        XCTAssertEqual(answeredWhileScrolling, pagesBefore, "The earlier page arrived before the scroll stopped, so this checks nothing")
+        XCTAssertGreaterThan(pagesAnswered, pagesBefore, "The earlier page did not arrive")
         addScreenshot(named: "long-session-held-page-landed")
         XCTAssertTrue(rowBeingRead.exists && rowBeingRead.isHittable, "An earlier page landing at the top moved the row being read off screen")
         let nearTop = app.transcriptScroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
