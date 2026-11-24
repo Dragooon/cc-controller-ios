@@ -118,7 +118,8 @@ final class TwoControllersAndStockadeJourneyFlowTests: JourneyTestCase {
         goBackToSessions(in: app)
 
         // A peer's prompt renders as a peer message with the right header.
-        // /sudo is suggested on a writable session, toggles with a toast, and is not sent as text.
+        // /sudo on is suggested on a writable session (stockade-next only reports on a bare /sudo), switches with a
+        // toast, and is not sent as text.
         XCTAssertTrue(bringIntoView(relay, in: sessions), "Mustafar's session was not listed after going back")
         relay.tap()
         let peer = app.element(identifier: "peer-message")
@@ -128,8 +129,8 @@ final class TwoControllersAndStockadeJourneyFlowTests: JourneyTestCase {
         addScreenshot(named: "two-controllers-peer-message")
         XCTAssertTrue(composer.waitToExist(timeout: 30), "Composer did not load on the writable Stockade session")
         typeInComposer("/su", in: app)
-        XCTAssertTrue(app.buttons["/sudo, Toggle sudo mode"].waitToExist(timeout: 10), "Composer did not suggest /sudo")
-        composer.typeText("do")
+        XCTAssertTrue(app.buttons["/sudo on, Turn sudo mode on"].waitToExist(timeout: 10), "Composer did not suggest /sudo on")
+        composer.typeText("do on")
         let sendButton = app.buttons["composer-send"]
         if sendButton.exists { sendButton.tap() } else { app.buttons["composer-queue"].tap() }
         let toast = app.element(identifier: "command-toast")
