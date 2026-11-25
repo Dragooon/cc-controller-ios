@@ -13,7 +13,8 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         defer { app.terminate() }
         openSession(session, in: app)
 
-        // The host has voice, so the session offers voice mode; starting it turns the agent's voice note on.
+        // The host has voice, so the empty composer offers voice mode where send sits; starting it turns the agent's
+        // voice note on.
         let voiceButton = app.element(identifier: "voice-mode-button")
         XCTAssertTrue(voiceButton.waitToExist(timeout: 20), "The session had no voice mode button")
         voiceButton.tap()
@@ -48,6 +49,17 @@ final class VoiceModeJourneyFlowTests: JourneyTestCase {
         addScreenshot(named: "voice-paused")
         playPause.tap()
         XCTAssertTrue(pollUntil(timeout: 5) { status.label != "Paused" }, "Play did not resume")
+
+        // Mute turns only the mic off: the reply isn't paused. Attach and speaking speed sit on the strip too.
+        let mic = app.element(identifier: "voice-mic")
+        mic.tap()
+        XCTAssertTrue(pollUntil(timeout: 5) { mic.label == "Unmute the mic" }, "Mute did not turn the mic off")
+        XCTAssertNotEqual(status.label, "Paused", "Mute paused the reply")
+        XCTAssertTrue(app.element(identifier: "voice-attach").exists, "Voice mode had no Attach")
+        XCTAssertTrue(app.element(identifier: "voice-speed").exists, "Voice mode had no speaking speed")
+        addScreenshot(named: "voice-mic-muted")
+        mic.tap()
+        XCTAssertTrue(pollUntil(timeout: 5) { mic.label == "Mute the mic" }, "Unmute did not turn the mic back on")
 
         // Tapping the stage while it speaks cuts the reply.
         if status.label == "Speaking" {

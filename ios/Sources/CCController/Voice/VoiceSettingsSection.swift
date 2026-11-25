@@ -4,6 +4,7 @@ import SwiftUI
 /// Settings → Voice: the reply voice and the recordings archive.
 struct VoiceSettingsSection: View {
     @AppStorage("voiceModeVoice") private var voice = ""
+    @AppStorage(VoiceSettings.speedKey) private var speed = 0.0
     @State private var confirmingDelete = false
     @State private var bytes: Int64 = 0
 
@@ -24,6 +25,12 @@ struct VoiceSettingsSection: View {
                 }
             }
             .accessibilityIdentifier("settings-voice")
+            Picker("Speaking speed", selection: $speed) {
+                ForEach(VoiceSettings.speedChoices, id: \.self) { choice in
+                    Text(VoiceSettings.speedLabel(choice)).tag(choice)
+                }
+            }
+            .accessibilityIdentifier("settings-voice-speed")
             LabeledContent("Recordings", value: "\(archive.recordings.count) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))")
                 .accessibilityIdentifier("settings-voice-recordings")
             if !archive.recordings.isEmpty {

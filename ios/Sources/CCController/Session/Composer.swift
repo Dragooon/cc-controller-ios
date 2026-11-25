@@ -39,6 +39,8 @@ struct ComposerConfiguration: Equatable {
     let focusesOnAppear: Bool
     var isSending: Bool
     var hasAttachments: Bool
+    /// The host speaks, so an empty composer offers voice mode where send sits.
+    let offersVoice: Bool
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.modelName == rhs.modelName
@@ -51,6 +53,7 @@ struct ComposerConfiguration: Equatable {
             && lhs.canRunCommands == rhs.canRunCommands
             && lhs.isSending == rhs.isSending
             && lhs.hasAttachments == rhs.hasAttachments
+            && lhs.offersVoice == rhs.offersVoice
     }
 
     init(
@@ -66,7 +69,8 @@ struct ComposerConfiguration: Equatable {
         canRunCommands: Bool = true,
         focusesOnAppear: Bool = false,
         isSending: Bool = false,
-        hasAttachments: Bool = false
+        hasAttachments: Bool = false,
+        offersVoice: Bool = false
     ) {
         self.initialText = initialText
         self.draft = draft
@@ -81,6 +85,7 @@ struct ComposerConfiguration: Equatable {
         self.focusesOnAppear = focusesOnAppear
         self.isSending = isSending
         self.hasAttachments = hasAttachments
+        self.offersVoice = offersVoice
     }
 }
 
@@ -114,6 +119,7 @@ struct ComposerView: View, Equatable {
     let onStop: () -> Void
     let onSend: () -> Void
     let onSendNow: () -> Void
+    let onVoice: () -> Void
     let onAddAttachment: @MainActor @Sendable (UploadFile) -> Void
     let glassNamespace: Namespace.ID?
     let resetGeneration: Int
@@ -123,14 +129,11 @@ struct ComposerView: View, Equatable {
     let isInUse: Bool
 
     @State private var fieldGeneration = 0
-    @State private var photosPresented = false
-    @State private var filesPresented = false
-    @State private var cameraPresented = false
-    @State private var selectedPhotos: [PhotosPickerItem] = []
-    @State private var pickedFeedbackCount = 0
+    @State private var attachmentRequest: AttachmentSource?
     @State private var restoreFocus = false
     private let focusLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "cc-controller", category: "composer")
     @ScaledMetric(relativeTo: .body) private var circleSize = CCMetrics.controlCircle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .body) private var chipHeight = CCMetrics.chipHeight
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -148,6 +151,7 @@ struct ComposerView: View, Equatable {
         onStop: @escaping () -> Void = {},
         onSend: @escaping () -> Void = {},
         onSendNow: @escaping () -> Void = {},
+        onVoice: @escaping () -> Void = {},
         onAddAttachment: @escaping @MainActor @Sendable (UploadFile) -> Void = { _ in },
         glassNamespace: Namespace.ID? = nil,
         resetGeneration: Int = 0,
@@ -161,6 +165,7 @@ struct ComposerView: View, Equatable {
         self.onStop = onStop
         self.onSend = onSend
         self.onSendNow = onSendNow
+        self.onVoice = onVoice
         self.onAddAttachment = onAddAttachment
         self.glassNamespace = glassNamespace
         self.resetGeneration = resetGeneration
@@ -173,23 +178,9 @@ struct ComposerView: View, Equatable {
         let _ = PerfCounters.shared.hit(.composerBody)
         #endif
         bodyContent
-            .photosPicker(isPresented: $photosPresented, selection: $selectedPhotos, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
-            .fileImporter(isPresented: $filesPresented, allowedContentTypes: [.item], allowsMultipleSelection: true, onCompletion: handleFileImport)
-            .fullScreenCover(isPresented: $cameraPresented) {
-                CameraPicker { image in
-                    cameraPresented = false
-                    guard let data = image.jpegData(compressionQuality: 0.85),
-                          let file = try? AttachmentNormalizer.normalizeImage(data: data, sequence: 1) else { return }
-                    add(file)
-                }
-                .ignoresSafeArea()
-            }
-            .onChange(of: selectedPhotos) { _, items in
-                loadPhotos(items)
-            }
+            .modifier(AttachmentPickers(request: $attachmentRequest, onAdd: onAddAttachment))
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Message composer")
-            .sensoryFeedback(.impact(weight: .light), trigger: pickedFeedbackCount)
     }
 
     @ViewBuilder
@@ -222,7 +213,8 @@ struct ComposerView: View, Equatable {
             if !isCompact, configuration.modelName != nil, configuration.canRunCommands {
                 modelButton
                     .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                    .transition(.opacity)
+                    // Grows out from beside the attach button as the field moves up; no fade.
+                    .transition(.scale(scale: 0.01, anchor: .leading))
                     .layoutValue(key: ComposerSlotKey.self, value: .leading)
             }
             if configuration.isWorking, configuration.canInterrupt {
@@ -279,17 +271,9 @@ struct ComposerView: View, Equatable {
             .accessibilityIdentifier("composer-text")
     }
 
-    // Camera availability is fixed for the device, and the lookup goes through MobileGestalt,
-    // so read it once instead of on every composer body evaluation.
-    @MainActor private static let cameraAvailable = UIImagePickerController.isSourceTypeAvailable(.camera)
-
     private var attachmentMenu: some View {
         Menu {
-            Button("Photos", systemImage: "photo") { photosPresented = true }
-            if Self.cameraAvailable {
-                Button("Camera", systemImage: "camera") { cameraPresented = true }
-            }
-            Button("Files", systemImage: "folder") { filesPresented = true }
+            AttachmentSourceButtons { attachmentRequest = $0 }
         } label: {
             Image(systemName: "plus")
                 .font(.body.weight(.semibold))
@@ -348,17 +332,26 @@ struct ComposerView: View, Equatable {
         .accessibilityIdentifier("composer-stop")
     }
 
-    @ViewBuilder
+    /// Empty, with nothing attached and a host that speaks: the button where send sits starts voice mode, as in the
+    /// Claude app. Typing or attaching turns it into send (queue while a turn runs), the symbol changing in place.
+    private var offersVoiceNow: Bool {
+        configuration.offersVoice && configuration.canSend && !configuration.isSending && !configuration.hasAttachments
+            && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var sendButton: some View {
-        let button = Button(action: onSend) {
+        let voice = offersVoiceNow
+        return Button(action: voice ? onVoice : onSend) {
             Group {
                 if configuration.isSending {
                     ProgressView()
                         .tint(.white)
                         .controlSize(.small)
                 } else {
-                    Image(systemName: "arrow.up")
+                    Image(systemName: voice ? "waveform" : "arrow.up")
                         .font(.body.weight(.semibold))
+                        .contentTransition(.symbolEffect(.replace))
+                        .animation(CCMotion.quick(reduceMotion: reduceMotion), value: voice)
                 }
             }
             .frame(width: visibleCircleSize, height: visibleCircleSize)
@@ -369,16 +362,15 @@ struct ComposerView: View, Equatable {
         .buttonStyle(.plain)
         .frame(width: CCMetrics.minTap, height: CCMetrics.minTap)
         .contentShape(Rectangle())
-        .disabled(!configuration.canSend || configuration.isSending || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !configuration.hasAttachments))
-        .accessibilityLabel(configuration.isWorking ? "Queue message" : "Send message")
-        .accessibilityIdentifier(configuration.isWorking ? "composer-queue" : "composer-send")
-
-        if configuration.isWorking, configuration.canInterrupt {
-            button.contextMenu {
+        .disabled(!voice && (!configuration.canSend || configuration.isSending || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !configuration.hasAttachments)))
+        .accessibilityLabel(voice ? "Start voice mode" : configuration.isWorking ? "Queue message" : "Send message")
+        .accessibilityIdentifier(voice ? "voice-mode-button" : configuration.isWorking ? "composer-queue" : "composer-send")
+        // One button whatever it shows, so the symbol can change in place; the menu is empty (and never opens)
+        // unless a typed message could go now instead of queueing.
+        .contextMenu {
+            if !voice, configuration.isWorking, configuration.canInterrupt {
                 Button("Send now", systemImage: "paperplane.fill", action: onSendNow)
             }
-        } else {
-            button
         }
     }
 
@@ -388,116 +380,5 @@ struct ComposerView: View, Equatable {
 
     private var visibleChipHeight: CGFloat {
         chipHeight
-    }
-
-    private func add(_ file: UploadFile) {
-        onAddAttachment(file)
-        pickedFeedbackCount += 1
-    }
-
-    private func loadPhotos(_ items: [PhotosPickerItem]) {
-        guard !items.isEmpty else { return }
-        selectedPhotos = []
-        Task { @MainActor in
-            for (index, item) in items.enumerated() {
-                if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                    guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else { continue }
-                    defer { try? FileManager.default.removeItem(at: movie.url) }
-                    guard let data = await Self.compressedMovie(at: movie.url) else { continue }
-                    add(AttachmentNormalizer.prepareFile(data: data, name: "video-\(index + 1).mp4", mimeType: "video/mp4"))
-                    continue
-                }
-                guard let data = try? await item.loadTransferable(type: Data.self),
-                      let file = try? AttachmentNormalizer.normalizeImage(data: data, sequence: index + 1) else { continue }
-                add(file)
-            }
-        }
-    }
-
-    /// A picked video re-encoded at 720p so it fits the upload limit, falling back to medium quality if it's still too
-    /// big. Nil if it can't be read or exported.
-    nonisolated private static func compressedMovie(at url: URL) async -> Data? {
-        let asset = AVURLAsset(url: url)
-        for preset in [AVAssetExportPreset1280x720, AVAssetExportPresetMediumQuality] {
-            guard let session = AVAssetExportSession(asset: asset, presetName: preset) else { continue }
-            let output = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension("mp4")
-            defer { try? FileManager.default.removeItem(at: output) }
-            do {
-                try await session.export(to: output, as: .mp4)
-            } catch {
-                continue
-            }
-            guard let data = try? Data(contentsOf: output) else { continue }
-            if data.count <= AttachmentNormalizer.maxFileBytes || preset == AVAssetExportPresetMediumQuality {
-                return data
-            }
-        }
-        return nil
-    }
-
-    private func handleFileImport(_ result: Result<[URL], any Error>) {
-        guard case .success(let urls) = result else { return }
-        for url in urls {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessed { url.stopAccessingSecurityScopedResource() }
-            }
-            guard let data = try? Data(contentsOf: url) else { continue }
-            let mimeType = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.preferredMIMEType
-            add(AttachmentNormalizer.prepareFile(data: data, name: url.lastPathComponent, mimeType: mimeType))
-        }
-    }
-}
-
-private struct CameraPicker: UIViewControllerRepresentable {
-    let onImage: (UIImage) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    func makeCoordinator() -> Coordinator { Coordinator(onImage: onImage, dismiss: dismiss) }
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.delegate = context.coordinator
-        picker.allowsEditing = false
-        return picker
-    }
-
-    func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
-
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let onImage: (UIImage) -> Void
-        let dismiss: DismissAction
-
-        init(onImage: @escaping (UIImage) -> Void, dismiss: DismissAction) {
-            self.onImage = onImage
-            self.dismiss = dismiss
-        }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let image = info[.originalImage] as? UIImage { onImage(image) }
-            dismiss()
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { dismiss() }
-    }
-}
-
-/// A video from the photo library, copied somewhere the app can read it after the picker lets go.
-private struct PickedMovie: Transferable {
-    let url: URL
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .movie) { movie in
-            SentTransferredFile(movie.url)
-        } importing: { received in
-            let copy = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension(received.file.pathExtension)
-            try FileManager.default.copyItem(at: received.file, to: copy)
-            return PickedMovie(url: copy)
-        }
     }
 }

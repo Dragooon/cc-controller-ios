@@ -33,7 +33,8 @@ An empty composer that isn't focused is one row: attach, the field and send (plu
 
 ## Voice mode
 
-A session's waveform button starts a hands-free conversation when its host reports voice (`GET /api/voice`). The
+The composer's waveform button (where send sits while the field is empty, as in the Claude app; typing morphs it into
+send) starts a hands-free conversation when its host reports voice (`GET /api/voice`). The
 host transcribes (`POST /api/voice/transcribe`) and speaks (`POST /api/voice/speech`, 24 kHz 16-bit mono PCM); the
 phone only records, decides when a turn has ended, plays and keeps the recordings.
 
@@ -44,7 +45,21 @@ phone only records, decides when a turn has ended, plays and keeps the recording
   player, generated cues), the conversation controller, the stage (markdown text, or an image the host serves) and
   the recordings sheet. The app draws nothing itself: a diagram reaches the stage as an image the agent rendered on
   the host (Shitiz, 23 Nov).
-- Nothing said is handled as a command; play/pause (AirPods, lock screen, strip) pauses the reply and mutes the mic.
+- Nothing said is handled as a command. Pause (strip, lock screen, Live Activity) holds the reply where it is and
+  turns the mic off; resume picks up from there and then speaks whatever arrived meanwhile. A sentence cut by an
+  audio engine restart (muting or an AirPods route change can rebuild the graph) is queued again, never dropped.
+- Mute (strip, Live Activity, an AirPods press) turns only the mic off; the reply plays on. The app keeps the system's
+  mic mute in step with pause and mute and ignores the notifications its own changes raise.
+- Listening starts by measuring the room for 0.6 s (median level becomes the noise floor), and the floor then follows
+  the room: down within a quarter second, up over a few seconds (much slower mid-utterance). A transcript of only
+  hesitation sounds ("Hmm.", "Uh.", `VoiceFiller`) is dropped as noise. The old floor only adapted below the speech
+  threshold, so an air conditioner louder than it counted as speech forever (Shitiz, 25 Nov).
+- The strip's second row: Attach (the composer's pickers via `AttachmentPickers`; a spoken turn goes through
+  `sendComposer(voice: true)`, so what's attached goes with it), speaking speed (sent to the host's speech route;
+  also in Settings), and Replay.
+- The Live Activity has mic, pause and end buttons, and a Smart Stack layout on Apple Watch
+  (`supplementalActivityFamilies([.small])`, mic and pause only). Developers reported in 2024 that intent buttons did
+  nothing in the watchOS 11 Smart Stack; check on the Watch.
 - UI journey: `VoiceModeJourneyFlowTests`, run with `-CCVoiceTestAudio` (no mic on the simulator) against a fixture
   daemon with voice routes (`controller_ref=stockade-next` until the controller's main has them).
 - Design: `~/workspace/projects/voice-mode/DESIGN.md` on Mustafar.

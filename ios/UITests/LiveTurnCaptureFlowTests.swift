@@ -62,7 +62,8 @@ final class LiveTurnCaptureFlowTests: JourneyTestCase {
         print(activityLine)
         capture("a", moment: "right-after-send", sentAt: sentAt, in: app, scheme: scheme)
         let turnStart = try await postLiveTurn(prompt: prompt)
-        let workingButton = app.buttons["composer-queue"]
+        // With the field empty the send slot offers voice mode, so the working state shows as the Stop button.
+        let workingButton = app.buttons["composer-stop"]
         XCTAssertTrue(workingButton.waitToExist(timeout: 3 * timeScale), "Working composer state did not arrive")
         let workingElapsed = Date().timeIntervalSince(sentAt)
         let workingLine = "WORKING_STATE_FLIP elapsed=\(String(format: "%.3f", workingElapsed)) daemon_turn_start_delta=\(String(format: "%.3f", turnStart.timeIntervalSince(sentAt)))"

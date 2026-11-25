@@ -684,7 +684,8 @@ public final class AppStore {
         startAttachmentUpload(item, sessionID: sessionID)
     }
 
-    public func sendComposer(text: String, to sessionID: String, now: Bool = false) async -> Result<MessageResult, ActionError> {
+    /// `voice` sends a turn spoken in voice mode, with whatever was attached meanwhile.
+    public func sendComposer(text: String, to sessionID: String, now: Bool = false, voice: Bool = false) async -> Result<MessageResult, ActionError> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let pending = attachments(for: sessionID)
         guard !trimmed.isEmpty || !pending.isEmpty else { return .failure(.invalid("Message text is required.")) }
@@ -723,7 +724,8 @@ public final class AppStore {
             attachments: names,
             attachmentThumbnails: thumbnails,
             to: sessionID,
-            now: now
+            now: now,
+            voice: voice
         )
         if case .success = result {
             attachments[sessionID]?.removeAll { sentIDs.contains($0.id) }

@@ -36,6 +36,7 @@ final class VoiceModeController {
         case working
         case speaking
         case paused
+        case muted
         case failed(String)
 
         var label: String {
@@ -47,6 +48,7 @@ final class VoiceModeController {
             case .working: "Working"
             case .speaking: "Speaking"
             case .paused: "Paused"
+            case .muted: "Mic off"
             case .failed: "Voice stopped"
             }
         }
@@ -59,6 +61,7 @@ final class VoiceModeController {
             case .sending, .working: "ellipsis"
             case .speaking: "speaker.wave.2.fill"
             case .paused: "pause.fill"
+            case .muted: "mic.slash.fill"
             case .failed: "exclamationmark.triangle.fill"
             }
         }
@@ -79,6 +82,8 @@ final class VoiceModeController {
     private(set) var stage: StageEntry?
     private(set) var stageHistory: [StageEntry] = []
     private(set) var isPaused = false
+    /// The mic is off but replies keep playing (an AirPods press, or the strip's Mute).
+    private(set) var isMicMuted = false
     private(set) var canReplay = false
     /// The stage fills the screen, or folds to the strip over the chat. Kept here so it survives the session
     /// screen being rebuilt (a turn ending, the sidebar, coming back to the session).
@@ -198,11 +203,7 @@ final class VoiceModeController {
     func setPaused(_ paused: Bool) {
         guard paused != isPaused, phase != .starting else { return }
         isPaused = paused
-        engine.setMuted(paused)
-        // Keeps the system's mic mute (what an AirPods press toggles) in step with pausing from the app.
-        if AVAudioApplication.shared.isInputMuted != paused {
-            try? AVAudioApplication.shared.setInputMuted(paused)
-        }
+        syncMicMute()
         if paused {
             holdTask?.cancel()
             engine.pauseReplies()
@@ -215,6 +216,29 @@ final class VoiceModeController {
             evaluateTurn()
         }
         updateNowPlaying()
+    }
+
+    func toggleMicMute() { setMicMuted(!isMicMuted) }
+
+    /// Mute: the mic stops listening and the reply carries on. Pause stops both.
+    func setMicMuted(_ muted: Bool) {
+        guard muted != isMicMuted, phase != .starting else { return }
+        isMicMuted = muted
+        syncMicMute()
+        if muted { holdTask?.cancel() }
+        engine.play(muted ? .muted : .listening)
+        refreshPhase()
+        if !muted { evaluateTurn() }
+    }
+
+    /// The tap ignores the mic while paused or muted, and the system's mic mute (what an AirPods press toggles and
+    /// the green/orange indicator shows) matches.
+    private func syncMicMute() {
+        let off = isPaused || isMicMuted
+        engine.setMuted(off)
+        if AVAudioApplication.shared.isInputMuted != off {
+            try? AVAudioApplication.shared.setInputMuted(off)
+        }
     }
 
     /// The big target: cuts a reply that's playing, or sends the turn you've started straight away.
@@ -336,7 +360,8 @@ final class VoiceModeController {
     }
 
     private func accept(_ text: String, utteranceID: String, overlapped: Bool, echoContext: String) {
-        if text.isEmpty {
+        if text.isEmpty || VoiceFiller.isFillerOnly(text) {
+            // Nothing, or only "hmm"/"uh": room noise the level gate let through, not a turn.
             engine.duckReplies(false)
         } else if overlapped && VoiceEcho.isEcho(heard: text, spoken: echoContext) {
             // The reply leaking back into the mic, not you.
@@ -389,7 +414,8 @@ final class VoiceModeController {
         phase = .sending
         Task { [weak self] in
             guard let self else { return }
-            switch await self.store.sendResult(text: text, to: self.sessionID, voice: true) {
+            // Through the composer's send, so anything attached from the strip goes with the spoken turn.
+            switch await self.store.sendComposer(text: text, to: self.sessionID, voice: true) {
             case .success:
                 self.engine.play(.gotIt)
                 self.awaitingReply = true
@@ -430,7 +456,7 @@ final class VoiceModeController {
         case .failed(let message): line = message
         default: line = ""
         }
-        return VoiceActivityAttributes.ContentState(phase: phase.label, symbol: phase.symbol, line: line, isPaused: isPaused)
+        return VoiceActivityAttributes.ContentState(phase: phase.label, symbol: phase.symbol, line: line, isPaused: isPaused, isMicMuted: isMicMuted)
     }
 
     /// Voice mode on the lock screen and in the Dynamic Island while it runs.
@@ -505,6 +531,7 @@ final class VoiceModeController {
     }
 
     private func speakQueue() async {
+        var cuts = 0
         while !Task.isCancelled, !sentenceQueue.isEmpty {
             while isPaused {
                 try? await Task.sleep(for: .milliseconds(200))
@@ -520,9 +547,21 @@ final class VoiceModeController {
             let finished = await withCheckedContinuation { continuation in
                 engine.playReply(pcm: pcm) { finished in continuation.resume(returning: finished) }
             }
-            previousSentence = sentence
             lastSoundAt = Date()
-            if !finished { return }
+            if !finished {
+                // An interrupt cancels this task first. Anything else that cuts a sentence is the engine restarting
+                // (muting the mic for pause or an AirPods route change can rebuild its graph): the sentence goes back
+                // on the queue and plays again, then the rest, once the engine is back and you've resumed. This
+                // loop used to return here and leave speakingTask set, so nothing was ever spoken again.
+                if Task.isCancelled { return }
+                cuts += 1
+                guard cuts <= 5 else { break }
+                sentenceQueue.insert(sentence, at: 0)
+                try? await Task.sleep(for: .milliseconds(400))
+                continue
+            }
+            cuts = 0
+            previousSentence = sentence
         }
         guard !Task.isCancelled else { return }
         speakingTask = nil
@@ -578,6 +617,7 @@ final class VoiceModeController {
         if case .failed = phase { return }
         if isPaused { phase = .paused }
         else if engine.isReplyPlaying || !speakingText.isEmpty { phase = .speaking }
+        else if isMicMuted { phase = .muted }
         else if userSpeaking { phase = .hearing }
         else if transcribing > 0 || !turnUtterances.isEmpty { phase = .hearing }
         else if awaitingReply { phase = .working }
@@ -616,7 +656,19 @@ final class VoiceModeController {
             queue: .main
         ) { [weak self] notification in
             let muted = (notification.userInfo?[AVAudioApplication.muteStateKey] as? NSNumber)?.boolValue ?? false
-            MainActor.assumeIsolated { self?.setPaused(muted) }
+            MainActor.assumeIsolated { self?.systemMicMuteChanged(muted) }
+        }
+    }
+
+    /// An AirPods press (or Control Centre) toggled the system's mic mute. Changes the app made itself are ignored. A
+    /// press mutes the mic and lets the reply play on; pressing again while paused resumes everything.
+    private func systemMicMuteChanged(_ muted: Bool) {
+        guard muted != (isPaused || isMicMuted) else { return }
+        if !muted, isPaused {
+            isMicMuted = false
+            setPaused(false)
+        } else {
+            setMicMuted(muted)
         }
     }
 
@@ -641,7 +693,14 @@ final class VoiceModeController {
 /// The voice and speed replies are spoken in. Nil voice means the host's default.
 enum VoiceSettings {
     private static let voiceKey = "voiceModeVoice"
-    private static let speedKey = "voiceModeSpeed"
+    static let speedKey = "voiceModeSpeed"
+    /// 0 is the host's normal speed.
+    static let speedChoices: [Double] = [0.8, 0, 1.2, 1.4, 1.6, 1.8, 2.0]
+
+    static func speedLabel(_ value: Double) -> String {
+        let shown = value > 0 ? value : 1
+        return shown == shown.rounded() ? "\(Int(shown))×" : String(format: "%.1f×", shown)
+    }
 
     static var voice: String? {
         get { UserDefaults.standard.string(forKey: voiceKey).flatMap { $0.isEmpty ? nil : $0 } }
@@ -672,6 +731,7 @@ final class VoiceCenter {
 
     init() {
         VoiceActivityActions.togglePause = { [weak self] in self?.active?.togglePause() }
+        VoiceActivityActions.toggleMic = { [weak self] in self?.active?.toggleMicMute() }
         VoiceActivityActions.end = { [weak self] in self?.stop() }
         // A Live Activity left by a run that ended without stopping voice mode (a crash, a force quit). Taken now,
         // so a conversation started right after launch keeps its own.

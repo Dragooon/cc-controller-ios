@@ -10,7 +10,8 @@ struct CCControllerWidgets: WidgetBundle {
     }
 }
 
-/// Voice mode on the lock screen and in the Dynamic Island: what it's doing, the sentence in play, pause and end.
+/// Voice mode on the lock screen, in the Dynamic Island and in the Apple Watch Smart Stack: what it's doing, the
+/// sentence in play, pause, mute and end.
 struct VoiceLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: VoiceActivityAttributes.self) { context in
@@ -51,6 +52,9 @@ struct VoiceLiveActivity: Widget {
             }
             .keylineTint(VoiceActivityStyle.accent)
         }
+        // A layout of its own in the Watch's Smart Stack (the lock screen view checks the family), instead of the
+        // phone's shrunk to fit.
+        .supplementalActivityFamilies([.small])
     }
 }
 
@@ -71,19 +75,28 @@ struct VoicePhaseMark: View {
 
 struct VoiceActivityButtons: View {
     let state: VoiceActivityAttributes.ContentState
+    var showsEnd = true
+    var size: CGFloat = 36
 
     var body: some View {
         HStack(spacing: 10) {
+            Button(intent: ToggleVoiceMicIntent()) {
+                Image(systemName: state.isMicMuted ? "mic.slash.fill" : "mic.fill")
+                    .frame(width: size, height: size)
+            }
+            .accessibilityLabel(state.isMicMuted ? "Unmute the mic" : "Mute the mic")
             Button(intent: ToggleVoicePauseIntent()) {
                 Image(systemName: state.isPaused ? "play.fill" : "pause.fill")
-                    .frame(width: 36, height: 36)
+                    .frame(width: size, height: size)
             }
             .accessibilityLabel(state.isPaused ? "Resume voice mode" : "Pause voice mode")
-            Button(intent: EndVoiceIntent()) {
-                Image(systemName: "xmark")
-                    .frame(width: 36, height: 36)
+            if showsEnd {
+                Button(intent: EndVoiceIntent()) {
+                    Image(systemName: "xmark")
+                        .frame(width: size, height: size)
+                }
+                .accessibilityLabel("End voice mode")
             }
-            .accessibilityLabel("End voice mode")
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
@@ -94,8 +107,31 @@ struct VoiceActivityButtons: View {
 struct VoiceActivityLockScreenView: View {
     let sessionName: String
     let state: VoiceActivityAttributes.ContentState
+    @Environment(\.activityFamily) private var family
 
     var body: some View {
+        if family == .small {
+            watchBody
+        } else {
+            phoneBody
+        }
+    }
+
+    /// The Watch's Smart Stack: the phase on top, mute and pause big enough for a wrist. End stays on the phone.
+    private var watchBody: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                VoicePhaseMark(state: state)
+                Text(state.phase)
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+            VoiceActivityButtons(state: state, showsEnd: false, size: 32)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var phoneBody: some View {
         HStack(spacing: 12) {
             VoicePhaseMark(state: state)
                 .font(.title2)

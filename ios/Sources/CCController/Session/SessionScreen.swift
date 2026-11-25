@@ -488,6 +488,12 @@ struct SessionScreen: View {
                 dismissKeyboard()
                 modelSheetPresented = true
             },
+            onVoice: voiceAvailable(for: current) && activeVoice == nil
+                ? { [current] in
+                    dismissKeyboard()
+                    startVoice(name: current.name ?? "Session")
+                }
+                : nil,
             onAllow: { approval in
                 performApprovalDecision(approval, scope: .once)
             },
@@ -856,6 +862,10 @@ struct SessionScreen: View {
                     VoiceStageView(
                         controller: voice,
                         store: store,
+                        attachedCount: store.attachments[sessionID]?.count ?? 0,
+                        onAddAttachment: composerCapabilities.canAttach
+                            ? { [store, sessionID] file in store.addAttachment(file, to: sessionID) }
+                            : nil,
                         onExit: { VoiceCenter.shared.stop() }
                     )
                 }
@@ -902,11 +912,6 @@ struct SessionScreen: View {
                         .frame(maxWidth: .infinity)
                         // The bar keeps a title at the width it first measured, so it needs a new one when the width changes.
                         .id(contentWidth)
-                }
-                if voiceAvailable(for: session) {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        voiceButton(name: name)
-                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     sessionInfoButton
@@ -958,24 +963,10 @@ struct SessionScreen: View {
         store.voiceCapabilities?.isAvailable == true && session.writable != false && controllerID != nil
     }
 
-    private func voiceButton(name: String) -> some View {
-        let isOn = activeVoice != nil
-        return Button {
-            guard let controllerID else { return }
-            if isOn {
-                VoiceCenter.shared.stop()
-            } else {
-                VoiceCenter.shared.start(store: store, controllerID: controllerID, sessionID: sessionID, sessionName: name)
-            }
-        } label: {
-            Image(systemName: isOn ? "waveform.circle.fill" : "waveform")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(isOn ? Color.ccAccent : Color.ccLabel)
-                .frame(width: 30, height: 30)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("voice-mode-button")
-        .accessibilityLabel(isOn ? "End voice mode" : "Start voice mode")
+    /// Voice mode starts from the composer's button, where send sits while the field is empty.
+    private func startVoice(name: String) {
+        guard let controllerID else { return }
+        VoiceCenter.shared.start(store: store, controllerID: controllerID, sessionID: sessionID, sessionName: name)
     }
 
     private var readAloudAction: ReadAloudAction? {

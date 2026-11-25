@@ -66,6 +66,19 @@ public struct VoiceTurnPolicy: Sendable, Equatable {
     }
 }
 
+/// Recognises a clip that holds only a hesitation sound. Steady room noise (an air conditioner, a fan) that gets past
+/// the level gate comes back from the recogniser as "Hmm." or "Uh.", and a turn of nothing but those is noise.
+public enum VoiceFiller {
+    public static let sounds: Set<String> = [
+        "ah", "ahh", "eh", "er", "erm", "hm", "hmm", "hmmm", "huh", "mm", "mmm", "mhm", "oh", "uh", "uhh", "uhm", "um", "umm",
+    ]
+
+    /// True when every word heard is a hesitation sound (or nothing was heard).
+    public static func isFillerOnly(_ text: String) -> Bool {
+        VoiceWords.normalized(text).allSatisfy { sounds.contains($0) }
+    }
+}
+
 /// Recognises the phone hearing its own voice. Echo cancellation leaves some of the reply in the mic, so speech
 /// heard while a reply plays only interrupts once it holds words the reply doesn't (walkie-talkie and Session Kit
 /// do the same).

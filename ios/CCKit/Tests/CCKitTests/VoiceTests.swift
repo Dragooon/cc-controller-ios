@@ -101,6 +101,21 @@ final class VoiceTurnTests: XCTestCase {
     }
 }
 
+final class VoiceFillerTests: XCTestCase {
+    func testHesitationSoundsAloneAreNoise() {
+        XCTAssertTrue(VoiceFiller.isFillerOnly("Hmm."))
+        XCTAssertTrue(VoiceFiller.isFillerOnly("Uh."))
+        XCTAssertTrue(VoiceFiller.isFillerOnly("Um, uh..."))
+        XCTAssertTrue(VoiceFiller.isFillerOnly("   "))
+    }
+
+    func testAnyRealWordKeepsTheTurn() {
+        XCTAssertFalse(VoiceFiller.isFillerOnly("Okay."))
+        XCTAssertFalse(VoiceFiller.isFillerOnly("Hmm, go on"))
+        XCTAssertFalse(VoiceFiller.isFillerOnly("No"))
+    }
+}
+
 final class VoiceEchoTests: XCTestCase {
     private let spoken = "I restarted the gateway on Mustafar and it is running now."
 

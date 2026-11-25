@@ -159,6 +159,8 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let onRetryAttachment: @MainActor @Sendable (String) -> Void
     let onStop: @MainActor @Sendable () async -> Result<Void, ActionError>
     let onModel: @MainActor @Sendable () -> Void
+    /// Starts voice mode; nil when the host doesn't speak or the session can't take it.
+    let onVoice: (@MainActor @Sendable () -> Void)?
     let onAllow: (Approval) -> Void
     let onAllowSession: (Approval) -> Void
     let onDeny: (Approval) -> Void
@@ -194,6 +196,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         onRetryAttachment: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         onStop: @escaping @MainActor @Sendable () async -> Result<Void, ActionError> = { .success(()) },
         onModel: @escaping @MainActor @Sendable () -> Void = {},
+        onVoice: (@MainActor @Sendable () -> Void)? = nil,
         onAllow: @escaping (Approval) -> Void = { _ in },
         onAllowSession: @escaping (Approval) -> Void = { _ in },
         onDeny: @escaping (Approval) -> Void = { _ in },
@@ -226,6 +229,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.onRetryAttachment = onRetryAttachment
         self.onStop = onStop
         self.onModel = onModel
+        self.onVoice = onVoice
         self.onAllow = onAllow
         self.onAllowSession = onAllowSession
         self.onDeny = onDeny
@@ -261,6 +265,7 @@ struct BottomStackConfiguration: @unchecked Sendable {
             onRetryAttachment: onRetryAttachment,
             onStop: onStop,
             onModel: onModel,
+            onVoice: onVoice,
             onAllow: onAllow,
             onAllowSession: onAllowSession,
             onDeny: onDeny,
@@ -373,6 +378,7 @@ struct BottomStackView: View {
                         onStop: stop,
                         onSend: send,
                         onSendNow: sendNow,
+                        onVoice: { configuration.onVoice?() },
                         onAddAttachment: configuration.onAddAttachment,
                         glassNamespace: glassNamespace,
                         resetGeneration: fieldResetGeneration,
@@ -433,7 +439,8 @@ struct BottomStackView: View {
             canRunCommands: configuration.composer.canRunCommands,
             focusesOnAppear: configuration.composer.focusesOnAppear,
             isSending: isSending,
-            hasAttachments: !configuration.attachments.isEmpty
+            hasAttachments: !configuration.attachments.isEmpty,
+            offersVoice: configuration.onVoice != nil
         )
     }
 

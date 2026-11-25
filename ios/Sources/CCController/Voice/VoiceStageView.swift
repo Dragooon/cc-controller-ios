@@ -7,6 +7,8 @@ import UIKit
 struct VoiceStageView: View {
     @Bindable var controller: VoiceModeController
     let store: AppStore
+    var attachedCount = 0
+    var onAddAttachment: (@MainActor @Sendable (UploadFile) -> Void)?
     let onExit: () -> Void
 
     private var expanded: Bool { controller.stageExpanded }
@@ -24,7 +26,7 @@ struct VoiceStageView: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("voice-stage")
             }
-            VoiceStripView(controller: controller, onExit: onExit)
+            VoiceStripView(controller: controller, attachedCount: attachedCount, onAddAttachment: onAddAttachment, onExit: onExit)
         }
         .background(expanded ? Color.ccBackground : Color.clear)
     }
@@ -72,10 +74,15 @@ struct VoiceStageView: View {
     }
 }
 
-/// The slim strip: status, captions, play/pause, replay, stage toggle and exit. Big enough to hit from a step away.
+/// The slim strip: status, captions, play/pause, replay, stage toggle and exit, then attach and speaking speed. Big
+/// enough to hit from a step away.
 struct VoiceStripView: View {
     @Bindable var controller: VoiceModeController
+    var attachedCount = 0
+    var onAddAttachment: (@MainActor @Sendable (UploadFile) -> Void)?
     let onExit: () -> Void
+    @AppStorage(VoiceSettings.speedKey) private var speed = 0.0
+    @State private var attachmentRequest: AttachmentSource?
 
     private var expanded: Bool { controller.stageExpanded }
 
@@ -93,15 +100,48 @@ struct VoiceStripView: View {
                     .layoutPriority(1)
                     .accessibilityIdentifier("voice-status")
                 Spacer()
+                stripButton(controller.isMicMuted ? "mic.slash.fill" : "mic.fill", label: controller.isMicMuted ? "Unmute the mic" : "Mute the mic", id: "voice-mic") {
+                    controller.toggleMicMute()
+                }
                 stripButton(controller.isPaused ? "play.fill" : "pause.fill", label: controller.isPaused ? "Resume" : "Pause", id: "voice-play-pause") {
                     controller.togglePause()
                 }
-                stripButton("arrow.counterclockwise", label: "Replay", id: "voice-replay") { controller.replay() }
-                    .disabled(!controller.canReplay)
                 stripButton(expanded ? "text.bubble" : "rectangle.inset.filled", label: expanded ? "Show chat" : "Show stage", id: "voice-stage-toggle") {
                     controller.stageExpanded.toggle()
                 }
                 stripButton("xmark", label: "End voice mode", id: "voice-exit", action: onExit)
+            }
+            HStack(spacing: 10) {
+                if onAddAttachment != nil {
+                    Menu {
+                        AttachmentSourceButtons { attachmentRequest = $0 }
+                    } label: {
+                        stripChip(attachedCount > 0 ? "\(attachedCount) attached" : "Attach", symbol: "plus")
+                    }
+                    .buttonStyle(.ccPressable)
+                    .accessibilityLabel(attachedCount > 0 ? "Attach more; \(attachedCount) go with what you say next" : "Attach")
+                    .accessibilityIdentifier("voice-attach")
+                }
+                Menu {
+                    Picker("Speaking speed", selection: $speed) {
+                        ForEach(VoiceSettings.speedChoices, id: \.self) { choice in
+                            Text(VoiceSettings.speedLabel(choice)).tag(choice)
+                        }
+                    }
+                } label: {
+                    stripChip(VoiceSettings.speedLabel(speed), symbol: "gauge.with.dots.needle.67percent")
+                }
+                .buttonStyle(.ccPressable)
+                .accessibilityLabel("Speaking speed \(VoiceSettings.speedLabel(speed))")
+                .accessibilityIdentifier("voice-speed")
+                Button { controller.replay() } label: {
+                    stripChip("Replay", symbol: "arrow.counterclockwise")
+                }
+                .buttonStyle(.ccPressable)
+                .disabled(!controller.canReplay)
+                .accessibilityLabel("Replay")
+                .accessibilityIdentifier("voice-replay")
+                Spacer(minLength: 0)
             }
             if let caption, !caption.isEmpty {
                 Text(caption)
@@ -132,6 +172,7 @@ struct VoiceStripView: View {
         .padding(.bottom, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("voice-strip")
+        .modifier(AttachmentPickers(request: $attachmentRequest, onAdd: onAddAttachment ?? { _ in }))
     }
 
     /// The expanded stage already shows the conversation in large type when nothing is on it.
@@ -148,9 +189,21 @@ struct VoiceStripView: View {
         case .hearing, .sending: .ccBlue
         case .working: .ccAmber
         case .speaking: .ccAccent
-        case .paused, .starting: .ccTertiary
+        case .paused, .muted, .starting: .ccTertiary
         case .failed: .ccRed
         }
+    }
+
+    /// A smaller labelled control for the second row, still 44 pt tall to hit.
+    private func stripChip(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.ccLabel)
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(Color.ccBackground.opacity(0.6), in: .capsule)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
     }
 
     private func stripButton(_ symbol: String, label: String, id: String, action: @escaping () -> Void) -> some View {

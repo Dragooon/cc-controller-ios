@@ -323,6 +323,9 @@ final class VoiceTapProcessor: @unchecked Sendable {
     private var highPass = Biquad()
     private var lowPass = Biquad()
     private var noiseFloor: Float = -60
+    /// Listening starts by measuring the room for this long, so a steady hum becomes the floor instead of a turn.
+    private var calibrationLeft: Double = 0.6
+    private var calibrationLevels: [Float] = []
     private var speechFrames = 0
     private var silenceSeconds: Double = 0
     private var speaking = false
@@ -343,6 +346,7 @@ final class VoiceTapProcessor: @unchecked Sendable {
     /// The longest utterance; the host refuses clips over two minutes.
     private let maximumUtteranceSeconds = 110.0
     private let preRollLimitSeconds = 0.4
+    private let calibrationSeconds = 0.6
 
     init(events: AsyncStream<VoiceAudioEvent>.Continuation) {
         self.events = events
@@ -377,6 +381,8 @@ final class VoiceTapProcessor: @unchecked Sendable {
         preRoll = []
         preRollSeconds = 0
         noiseFloor = -60
+        calibrationLeft = calibrationSeconds
+        calibrationLevels = []
     }
 
     private func process(_ buffer: AVAudioPCMBuffer) {
@@ -390,13 +396,21 @@ final class VoiceTapProcessor: @unchecked Sendable {
         }
 
         let level = bandLevel(of: mono)
+        if calibrationLeft > 0, !speaking {
+            // The room's own level first: the floor starts at its median, so an air conditioner or fan that's
+            // already running never opens a turn.
+            calibrationLevels.append(level)
+            calibrationLeft -= seconds
+            if calibrationLeft <= 0 { noiseFloor = calibrationLevels.sorted()[calibrationLevels.count / 2] }
+            appendPreRoll(mono, seconds: seconds)
+            return
+        }
+        trackFloor(level, seconds: seconds)
         // Echo from the reply survives the canceller a little, so speech has to be louder while it plays.
-        let margin: Float = replyPlaying ? 16 : 10
-        let threshold = max(noiseFloor + margin, -52)
+        let margin: Float = replyPlaying ? 16 : 12
+        let threshold = max(noiseFloor + margin, -50)
 
         if !speaking {
-            // The floor follows the room when nobody is talking.
-            if level < threshold { noiseFloor = noiseFloor * 0.98 + level * 0.02 }
             appendPreRoll(mono, seconds: seconds)
             if level > threshold {
                 speechFrames += 1
@@ -417,6 +431,16 @@ final class VoiceTapProcessor: @unchecked Sendable {
         if silenceSeconds >= endSilenceSeconds || utteranceSeconds >= maximumUtteranceSeconds {
             endUtterance()
         }
+    }
+
+    /// The floor follows the room all the time: it drops to a quieter level within a quarter second and creeps up to a
+    /// louder steady one over a few seconds. The old floor only moved while the sound stayed under the speech
+    /// threshold, so a hum that started above it counted as speech forever (and its clip came back as "Hmm."). Mid
+    /// utterance it creeps much slower, so a long sentence doesn't raise it, but a hum that opened a turn still ends.
+    private func trackFloor(_ level: Float, seconds: Double) {
+        let timeConstant = level < noiseFloor ? 0.25 : (speaking ? 12.0 : 2.5)
+        let step = Float(1 - exp(-seconds / timeConstant))
+        noiseFloor += (level - noiseFloor) * step
     }
 
     private func beginUtterance() {

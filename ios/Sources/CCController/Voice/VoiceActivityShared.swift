@@ -15,12 +15,15 @@ public struct VoiceActivityAttributes: ActivityAttributes {
         /// The sentence being spoken, or what was heard, or empty.
         public var line: String
         public var isPaused: Bool
+        /// The mic is off but replies keep playing.
+        public var isMicMuted: Bool
 
-        public init(phase: String, symbol: String, line: String, isPaused: Bool) {
+        public init(phase: String, symbol: String, line: String, isPaused: Bool, isMicMuted: Bool) {
             self.phase = phase
             self.symbol = symbol
             self.line = line
             self.isPaused = isPaused
+            self.isMicMuted = isMicMuted
         }
     }
 
@@ -35,6 +38,7 @@ public struct VoiceActivityAttributes: ActivityAttributes {
 @MainActor
 public enum VoiceActivityActions {
     public static var togglePause: (() -> Void)?
+    public static var toggleMic: (() -> Void)?
     public static var end: (() -> Void)?
 }
 
@@ -46,6 +50,18 @@ public struct ToggleVoicePauseIntent: LiveActivityIntent {
 
     public func perform() async throws -> some IntentResult {
         await MainActor.run { VoiceActivityActions.togglePause?() }
+        return .result()
+    }
+}
+
+/// Turns the mic off or on; replies keep playing either way.
+public struct ToggleVoiceMicIntent: LiveActivityIntent {
+    public static let title: LocalizedStringResource = "Mute or unmute the mic in voice mode"
+
+    public init() {}
+
+    public func perform() async throws -> some IntentResult {
+        await MainActor.run { VoiceActivityActions.toggleMic?() }
         return .result()
     }
 }
