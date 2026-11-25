@@ -207,39 +207,35 @@ struct ComposerView: View, Equatable {
         !isInUse && !configuration.hasAttachments
     }
 
+    /// One custom layout for both states, so every control keeps its identity: the buttons stay in the bottom row and
+    /// the field moves between that row and its own line above. Focusing the field switches the layout without
+    /// rebuilding it (which would drop the keyboard), and the owner's spring moves everything to its new place.
     private var composerLayout: some View {
-        ComposerCard {
-            // The field keeps one place in the tree in both layouts, so focusing it (which switches the layout) never
-            // rebuilds it and drops the keyboard.
-            HStack(alignment: .center, spacing: 8) {
-                if isCompact, configuration.canAttach {
-                    attachmentMenu
-                }
-                messageField
-                if isCompact {
-                    if configuration.isWorking, configuration.canInterrupt {
-                        stopButton
-                    }
-                    sendButton
-                }
+        ComposerRowsLayout(isCompact: isCompact) {
+            if configuration.canAttach {
+                attachmentMenu
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .layoutValue(key: ComposerSlotKey.self, value: .leading)
             }
-            if !isCompact {
-                HStack(spacing: 8) {
-                    if configuration.canAttach {
-                        attachmentMenu
-                    }
-                    if configuration.modelName != nil, configuration.canRunCommands {
-                        modelButton
-                    }
-                    Spacer(minLength: 0)
-                    if configuration.isWorking, configuration.canInterrupt {
-                        stopButton
-                    }
-                    sendButton
-                }
+            messageField
+                .layoutValue(key: ComposerSlotKey.self, value: .field)
+            if !isCompact, configuration.modelName != nil, configuration.canRunCommands {
+                modelButton
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .transition(.opacity)
+                    .layoutValue(key: ComposerSlotKey.self, value: .leading)
+            }
+            if configuration.isWorking, configuration.canInterrupt {
+                stopButton
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .layoutValue(key: ComposerSlotKey.self, value: .trailing)
+            }
+            sendButton
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-            }
+                .layoutValue(key: ComposerSlotKey.self, value: .trailing)
         }
+        .padding(ComposerRowsLayout.cardInset)
+        .glassEffect(.regular, in: .rect(cornerRadius: ComposerRowsLayout.cornerRadius))
         .onChange(of: resetGeneration) { _, generation in
             restoreFocus = restoresFocusOnReset && isFocused
             fieldGeneration = generation

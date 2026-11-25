@@ -386,10 +386,12 @@ struct BottomStackView: View {
             .padding(.top, 0)
             .padding(.bottom, 4)
             // The composer and the approval card share one piece of glass. Animating the swap lets the glass
-            // grow into the card and shrink back, where it used to cut from one to the other. Only these two
-            // values start an animation here, so typing and sending stay as they were.
+            // grow into the card and shrink back, where it used to cut from one to the other. Only these values
+            // start an animation here, so typing and sending stay as they were.
             .animation(CCMotion.spring(reduceMotion: reduceMotion), value: configuration.approvals.isEmpty)
             .animation(CCMotion.quick(reduceMotion: reduceMotion), value: configuration.waking)
+            // The composer opening to two rows on focus and folding back to one: the field slides, the card grows.
+            .animation(CCMotion.spring(reduceMotion: reduceMotion), value: composerFocused || !text.isEmpty)
         }
         #if DEBUG
         .task { await runMotionAutoSendIfAsked() }
