@@ -62,6 +62,16 @@ final class RelayTests: XCTestCase {
         XCTAssertEqual(delegate.observedPin, try RelayPin.spkiSHA256(of: certificate))
     }
 
+    func testPinnedMatchRecordsThePinForTheIdentityCheck() throws {
+        // Pairing again keeps the pinned Mac key; the pairing command's check comes from observedPin.
+        let certificate = try certificate(named: "relay-p256")
+        let trust = try makeTrust(certificate)
+        let pin = try RelayPin(RelayPin.spkiSHA256(of: certificate))
+        let delegate = PinnedTrustDelegate(endpoints: [URL(string: "https://192.0.2.1:47833")!], mode: .pinned(pin))
+        XCTAssertEqual(disposition(delegate: delegate, challenge: challenge(trust: trust, host: "192.0.2.1")), .useCredential)
+        XCTAssertEqual(delegate.observedPin, pin.value)
+    }
+
     func testSelectorPrefersEarlierEndpointWithinWindowAndCaches() async throws {
         let endpoints = [URL(string: "https://192.0.2.1:47833")!, URL(string: "https://192.0.2.2:47833")!]
         let clock = RelayTestClock()

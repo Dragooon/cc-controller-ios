@@ -76,9 +76,21 @@ final class UnlockPolicyTests: XCTestCase {
         )
     }
 
-    func testThePrimaryRemovingThisIPhoneStillAsksToPairAgain() {
+    func testThePrimaryNeedingPairingNoLongerHidesMustafar() {
+        // 25 Nov: the Mac forgot this iPhone and the pairing screen hid Mustafar, which was signed in.
         XCTAssertEqual(
             appUnlockOutcome([mac(.unknownSecret), mustafarResult(nil)]),
+            .unlocked(signedOut: [.mac: .signInNeeded])
+        )
+    }
+
+    func testThePrimaryRemovingThisIPhoneAsksToPairAgainWhenNothingElseSignedIn() {
+        XCTAssertEqual(
+            appUnlockOutcome([mac(.unknownSecret), mustafarResult(.network("offline"))]),
+            .rePair(message: "This iPhone was removed on the Mac. Pair again to continue.")
+        )
+        XCTAssertEqual(
+            appUnlockOutcome([mac(.unknownSecret)]),
             .rePair(message: "This iPhone was removed on the Mac. Pair again to continue.")
         )
         XCTAssertEqual(

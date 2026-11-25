@@ -42,19 +42,20 @@ public enum AppUnlockOutcome: Sendable, Equatable {
     case unlocked(signedOut: [ControllerID: ControllerSignOutReason])
     /// Nothing signed in. The lock screen stays, with this message.
     case locked(message: String)
-    /// The primary no longer knows this iPhone, or Face ID changed: pair again.
+    /// The primary no longer knows this iPhone, or Face ID changed, and nothing else signed in: pair again.
     case rePair(message: String)
 }
 
-/// Decides the unlock from every controller's sign-in. One controller that can't be reached no longer holds
-/// the others back; only the primary's re-pair answer, which is a deliberate reply rather than reachability,
-/// still sends the app back to pairing.
+/// Decides the unlock from every controller's sign-in. One controller that can't be reached or needs pairing
+/// doesn't hold the others back: the primary asking to pair again sends the app to pairing only when nothing
+/// else signed in. Otherwise the primary shows "Sign in needed", and signing it in from there starts pairing.
 public func appUnlockOutcome(_ results: [ControllerUnlockResult]) -> AppUnlockOutcome {
-    if let primaryError = results.first(where: \.isPrimary)?.error,
+    let failures = results.filter { $0.error != nil }
+    if failures.count == results.count,
+       let primaryError = results.first(where: \.isPrimary)?.error,
        case .rePair(let message) = unlockRoute(for: primaryError) {
         return .rePair(message: message)
     }
-    let failures = results.filter { $0.error != nil }
     if failures.count < results.count {
         var signedOut: [ControllerID: ControllerSignOutReason] = [:]
         for failure in failures {

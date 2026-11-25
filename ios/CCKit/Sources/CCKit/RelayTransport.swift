@@ -96,6 +96,10 @@ public final class PinnedTrustDelegate: NSObject, URLSessionDelegate, URLSession
                     completionHandler(.cancelAuthenticationChallenge, nil)
                     return
                 }
+                // The key it just matched, so pairing again over a pinned connection can show the identity check.
+                lock.lock()
+                pin = observed
+                lock.unlock()
             case .trustOnFirstUse:
                 lock.lock()
                 if let pin, pin != observed {
