@@ -488,12 +488,7 @@ struct SessionScreen: View {
                 dismissKeyboard()
                 modelSheetPresented = true
             },
-            onVoice: voiceAvailable(for: current) && activeVoice == nil
-                ? { [current] in
-                    dismissKeyboard()
-                    startVoice(name: current.name ?? "Session")
-                }
-                : nil,
+            onVoice: voiceStart(for: current),
             onAllow: { approval in
                 performApprovalDecision(approval, scope: .once)
             },
@@ -961,6 +956,17 @@ struct SessionScreen: View {
 
     private func voiceAvailable(for session: Session) -> Bool {
         store.voiceCapabilities?.isAvailable == true && session.writable != false && controllerID != nil
+    }
+
+    /// The composer's start-voice action, when this session can take voice mode and it isn't on already. Built out
+    /// here: inline, the closure-or-nil inside the bottom stack's configuration was too much for the type checker.
+    private func voiceStart(for session: Session) -> (@MainActor @Sendable () -> Void)? {
+        guard voiceAvailable(for: session), activeVoice == nil else { return nil }
+        let name = session.name ?? "Session"
+        return {
+            dismissKeyboard()
+            startVoice(name: name)
+        }
     }
 
     /// Voice mode starts from the composer's button, where send sits while the field is empty.
