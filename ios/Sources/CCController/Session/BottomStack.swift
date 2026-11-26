@@ -1,5 +1,6 @@
 import CCKit
 import SwiftUI
+import UIKit
 
 @MainActor
 final class SendRevealCoordinator {
@@ -293,6 +294,10 @@ struct BottomStackView: View {
     @State private var stopFeedbackCount = 0
     @State private var pulseFailedAttachments = false
     @FocusState private var composerFocused: Bool
+    /// Up from the keyboard's will-show to its will-hide. The composer's two-row shape follows this, not focus:
+    /// focus lands a moment after the keyboard starts moving, and a separate spring then ran late and on a different
+    /// curve, which read as a hitch both ways (Shitiz, 25 Nov).
+    @State private var keyboardUp = false
     @Namespace private var glassNamespace
 
     init(configuration: BottomStackConfiguration) {
@@ -383,7 +388,7 @@ struct BottomStackView: View {
                         glassNamespace: glassNamespace,
                         resetGeneration: fieldResetGeneration,
                         restoresFocusOnReset: fieldResetRestoresFocus,
-                        isInUse: composerFocused || !text.isEmpty
+                        isInUse: keyboardUp || !text.isEmpty
                     )
                     .equatable()
                 }
@@ -396,8 +401,16 @@ struct BottomStackView: View {
             // start an animation here, so typing and sending stay as they were.
             .animation(CCMotion.spring(reduceMotion: reduceMotion), value: configuration.approvals.isEmpty)
             .animation(CCMotion.quick(reduceMotion: reduceMotion), value: configuration.waking)
-            // The composer opening to two rows on focus and folding back to one: the field slides, the card grows.
-            .animation(CCMotion.spring(reduceMotion: reduceMotion), value: composerFocused || !text.isEmpty)
+        }
+        // The composer opens to two rows as the keyboard rises and folds back as it falls, in the same transaction and
+        // on the keyboard's own curve.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            guard !keyboardUp else { return }
+            withAnimation(CCMotion.keyboard(reduceMotion: reduceMotion)) { keyboardUp = true }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            guard keyboardUp else { return }
+            withAnimation(CCMotion.keyboard(reduceMotion: reduceMotion)) { keyboardUp = false }
         }
         #if DEBUG
         .task { await runMotionAutoSendIfAsked() }

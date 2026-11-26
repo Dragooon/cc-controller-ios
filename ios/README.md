@@ -29,7 +29,7 @@ The fixture daemon the UI tests use lives in the controller repository. From a s
 
 ## Composer
 
-An empty composer that isn't focused is one row: attach, the field and send (plus stop while a turn runs), 52 pt tall with the circles 8 pt from the edge, like the Claude app. Focusing it, a draft or an attachment brings back the full composer: the field on its own line above the same button row, which gains the model chip. Both shapes come from one custom layout (`ComposerRowsLayout`), so every control keeps its identity: the buttons don't move, the field slides between the row and the line above on `CCMotion.spring`, and focusing never rebuilds the field (which would drop the keyboard).
+An empty composer that isn't focused is one row: attach, the field and send (plus stop while a turn runs), 52 pt tall with the circles 8 pt from the edge, like the Claude app. Focusing it, a draft or an attachment brings back the full composer: the field on its own line above the same button row, which gains the model chip. Both shapes come from one custom layout (`ComposerRowsLayout`), so every control keeps its identity: the buttons don't move, the field slides between the row and the line above, and focusing never rebuilds the field (which would drop the keyboard). The switch follows the keyboard, not focus: it starts on `keyboardWillShow`/`keyboardWillHide` with `CCMotion.keyboard` (UIKit's keyboard spring), so composer and keyboard move as one; a spring started from focus ran late and on another curve.
 
 ## Voice mode
 

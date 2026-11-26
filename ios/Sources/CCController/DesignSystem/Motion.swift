@@ -11,6 +11,11 @@ enum CCMotion {
 
     /// The spring, or no animation when the person asked the system to reduce motion.
     static func spring(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : spring }
+    /// The keyboard's own motion: UIKit animates it on curve 7, which is this spring (mass 3, stiffness 1000,
+    /// damping 500). Anything that changes shape as the keyboard comes or goes uses it, started from the keyboard's
+    /// own notification, so the two move as one.
+    static let keyboard = Animation.interpolatingSpring(mass: 3, stiffness: 1000, damping: 500, initialVelocity: 0)
+    static func keyboard(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : keyboard }
     static func quick(reduceMotion: Bool) -> Animation? { reduceMotion ? nil : quick }
 }
 
