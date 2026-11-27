@@ -31,6 +31,18 @@ The fixture daemon the UI tests use lives in the controller repository. From a s
 
 An empty composer that isn't focused is one row: attach, the field and send (plus stop while a turn runs), 52 pt tall with the circles 8 pt from the edge, like the Claude app. Focusing it, a draft or an attachment brings back the full composer: the field on its own line above the same button row, which gains the model chip. Both shapes come from one custom layout (`ComposerRowsLayout`), so every control keeps its identity: the buttons don't move, the field slides between the row and the line above, and focusing never rebuilds the field (which would drop the keyboard). The switch follows the keyboard, not focus: it starts on `keyboardWillShow`/`keyboardWillHide` with `CCMotion.keyboard` (UIKit's keyboard spring), so composer and keyboard move as one; a spring started from focus ran late and on another curve.
 
+## Goals and sudo
+
+- **Goal row.** While a session has a `/goal` set, a row above the composer shows it, as the terminal does under its
+  prompt: the goal, how long it has run, how many checks found it not yet met, and an × that sends `/goal clear`. The
+  target is tinted while the session works toward it. The host reads the goal from Claude Code's `goal_status`
+  transcript records (stockade-next 8106889) and reports it as the session's `goal`.
+- **Goal markers.** The transcript shows "Goal: …" where a goal was set, then "Goal met · N checks · 12m", "Goal stopped:
+  reason" or "Goal cleared". Checks that found it not yet met stay out of the transcript; the row counts them.
+- **Sudo markers.** The first message after `/sudo on` or `/sudo off` carries Stockade's `[platform: sudo mode …]` note;
+  the app shows "Sudo on" or "Sudo off" above that message. The switch itself also shows a toast and the header's
+  "sudo" label, and the session stays listed as running after it (stockade-next af39e0f).
+
 ## Voice mode
 
 The composer's waveform button (where send sits while the field is empty, as in the Claude app; typing morphs it into

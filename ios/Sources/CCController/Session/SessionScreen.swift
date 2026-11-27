@@ -510,8 +510,20 @@ struct SessionScreen: View {
             allowsSessionScope: store.controllerInfo.kind != .stockade,
             terminalPaneAvailable: current.tmuxPane?.isEmpty == false,
             approvalAttachCommand: claudeAttachCommand(for: current),
-            readOnlyLabel: readOnlyLabel(for: current)
+            readOnlyLabel: readOnlyLabel(for: current),
+            goal: current.goal,
+            goalRunning: current.state == .working,
+            onClearGoal: clearGoal(for: current)
         )
+    }
+
+    /// Clears the session's goal with Claude Code's own command; nil when this session can't take commands now.
+    private func clearGoal(for session: Session) -> (@MainActor @Sendable () -> Void)? {
+        guard composerCapabilities.canRunCommands, session.live == true, session.goal != nil else { return nil }
+        let target = session.id ?? sessionID
+        return { [model] in
+            Task { _ = await send(text: "/goal clear", to: target, now: false, using: model) }
+        }
     }
 
     /// The controller's commands, plus the sudo switch on a writable Stockade session that advertises it. The

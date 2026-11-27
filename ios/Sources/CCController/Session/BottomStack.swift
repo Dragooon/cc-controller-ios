@@ -176,6 +176,12 @@ struct BottomStackConfiguration: @unchecked Sendable {
     let approvalAttachCommand: String?
     /// Set on sessions the app may only read, such as "Read-only · Discord". It replaces the composer.
     let readOnlyLabel: String?
+    /// The session's `/goal`, shown above the composer while one is set, as the terminal shows it under its prompt.
+    let goal: SessionGoal?
+    /// The session is working toward it right now.
+    let goalRunning: Bool
+    /// Clears the goal (`/goal clear`); nil when this session can't run commands.
+    let onClearGoal: (@MainActor @Sendable () -> Void)?
 
     init(
         sessionID: String? = nil,
@@ -209,7 +215,10 @@ struct BottomStackConfiguration: @unchecked Sendable {
         allowsSessionScope: Bool = true,
         terminalPaneAvailable: Bool = true,
         approvalAttachCommand: String? = nil,
-        readOnlyLabel: String? = nil
+        readOnlyLabel: String? = nil,
+        goal: SessionGoal? = nil,
+        goalRunning: Bool = false,
+        onClearGoal: (@MainActor @Sendable () -> Void)? = nil
     ) {
         self.sessionID = sessionID
         self.sendRevealCoordinator = sendRevealCoordinator
@@ -243,6 +252,9 @@ struct BottomStackConfiguration: @unchecked Sendable {
         self.terminalPaneAvailable = terminalPaneAvailable
         self.approvalAttachCommand = approvalAttachCommand
         self.readOnlyLabel = readOnlyLabel
+        self.goal = goal
+        self.goalRunning = goalRunning
+        self.onClearGoal = onClearGoal
     }
 
     func withAvailableHeight(_ height: CGFloat) -> Self {
@@ -278,7 +290,10 @@ struct BottomStackConfiguration: @unchecked Sendable {
             allowsSessionScope: allowsSessionScope,
             terminalPaneAvailable: terminalPaneAvailable,
             approvalAttachCommand: approvalAttachCommand,
-            readOnlyLabel: readOnlyLabel
+            readOnlyLabel: readOnlyLabel,
+            goal: goal,
+            goalRunning: goalRunning,
+            onClearGoal: onClearGoal
         )
     }
 }
@@ -372,6 +387,11 @@ struct BottomStackView: View {
                     WakeErrorBanner(message: wakeError, onRetry: configuration.onRetryWake)
                 }
 
+                if configuration.approvals.isEmpty, let goal = configuration.goal {
+                    GoalRow(goal: goal, running: configuration.goalRunning, onClear: configuration.onClearGoal)
+                        .transition(.move(edge: .bottom))
+                }
+
                 if configuration.approvals.isEmpty, let readOnlyLabel = configuration.readOnlyLabel {
                     ReadOnlyBar(label: readOnlyLabel)
                 } else if configuration.approvals.isEmpty {
@@ -401,6 +421,7 @@ struct BottomStackView: View {
             // start an animation here, so typing and sending stay as they were.
             .animation(CCMotion.spring(reduceMotion: reduceMotion), value: configuration.approvals.isEmpty)
             .animation(CCMotion.quick(reduceMotion: reduceMotion), value: configuration.waking)
+            .animation(CCMotion.spring(reduceMotion: reduceMotion), value: configuration.goal?.condition)
         }
         // The composer opens to two rows as the keyboard rises and folds back as it falls, in the same transaction and
         // on the keyboard's own curve.
@@ -649,6 +670,56 @@ private struct WakeErrorBanner: View {
 }
 
 /// Takes the composer's place on a session the app may only read.
+/// The active goal, like the terminal's goal row under its prompt: what Claude is working toward, for how long, how
+/// many checks have found it not yet met, and a button that clears it.
+private struct GoalRow: View {
+    let goal: SessionGoal
+    let running: Bool
+    let onClear: (@MainActor @Sendable () -> Void)?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: "target")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(running ? Color.ccAccent : Color.ccSecondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(goal.condition)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.ccLabel)
+                    .lineLimit(2)
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Text(goalStatusLine(goal, now: context.date))
+                        .font(.caption)
+                        .foregroundStyle(.ccSecondary)
+                        .monospacedDigit()
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let onClear {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.ccSecondary)
+                        .tapOutset(horizontal: 12, vertical: 12)
+                }
+                .buttonStyle(.ccPressable)
+                .accessibilityLabel("Clear goal")
+                .accessibilityIdentifier("goal-clear")
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
+        .padding(.vertical, 8)
+        .frame(minHeight: CCMetrics.minTap)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("goal-row")
+        .accessibilityLabel("Goal: \(goal.condition)")
+    }
+}
+
 private struct ReadOnlyBar: View {
     let label: String
 

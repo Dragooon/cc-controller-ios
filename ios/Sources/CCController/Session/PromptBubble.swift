@@ -99,6 +99,13 @@ struct PromptBubble: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 3) {
+            if let sudoSwitch = normalized.sudoSwitch {
+                // The first message after /sudo carries the switch; this is where the session changed hands.
+                CaptionRow(symbol: sudoSwitch ? "lock.open.fill" : "lock.fill", text: sudoSwitch ? "Sudo on" : "Sudo off", symbolColor: sudoSwitch ? .ccAmber : .ccSecondary)
+                    .padding(.bottom, 6)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("sudo-caption")
+            }
             if let chatSender {
                 Text(chatSender)
                     .font(.caption)

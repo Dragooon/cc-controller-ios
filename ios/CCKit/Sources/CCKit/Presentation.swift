@@ -17,11 +17,14 @@ public struct NormalizedPromptText: Codable, Sendable, Equatable {
     public let attachments: [String]
     /// Who wrote a message that arrived from a chat platform; nil for messages typed in this app.
     public let sender: String?
+    /// Stockade switched sudo on (true) or off (false) before this message; its platform note says so.
+    public let sudoSwitch: Bool?
 
-    public init(text: String, attachments: [String], sender: String? = nil) {
+    public init(text: String, attachments: [String], sender: String? = nil, sudoSwitch: Bool? = nil) {
         self.text = text
         self.attachments = attachments
         self.sender = sender
+        self.sudoSwitch = sudoSwitch
     }
 }
 
@@ -917,9 +920,14 @@ private func stockadeSender(_ line: String) -> String? {
 public func normalisePromptText(_ value: String?) -> NormalizedPromptText {
     var source = value ?? ""
     var sender: String?
+    var sudoSwitch: Bool?
     if let preamble = source.range(of: stockadePreamble, options: .regularExpression) {
-        let senderLine = source[preamble].split(separator: "\n").last.map(String.init) ?? ""
+        let lines = source[preamble].split(separator: "\n").map(String.init)
+        let senderLine = lines.last ?? ""
         sender = stockadeSender(String(senderLine.dropFirst(senderLinePrefix.count).dropLast()))
+        // "[platform: sudo mode on. You now run as …]": the message after a switch carries it.
+        if lines.contains(where: { $0.hasPrefix("[platform: sudo mode on.") }) { sudoSwitch = true }
+        else if lines.contains(where: { $0.hasPrefix("[platform: sudo mode off.") }) { sudoSwitch = false }
         source.removeSubrange(preamble)
     }
     if let listing = source.range(of: stockadeAttachments, options: .regularExpression) {
@@ -931,10 +939,10 @@ public func normalisePromptText(_ value: String?) -> NormalizedPromptText {
             return path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
         }.filter { !$0.isEmpty }
         let text = String(source[..<listing.lowerBound]).replacingOccurrences(of: #"\s+$"#, with: "", options: .regularExpression)
-        return NormalizedPromptText(text: text, attachments: attachments, sender: sender)
+        return NormalizedPromptText(text: text, attachments: attachments, sender: sender, sudoSwitch: sudoSwitch)
     }
     guard let match = source.range(of: "\\nAttached files:\\s*\\n((?:\\s*-\\s*.+(?:\\r?\\n|$))+)[ \\t]*$", options: [.regularExpression, .caseInsensitive]) else {
-        return NormalizedPromptText(text: source, attachments: [], sender: sender)
+        return NormalizedPromptText(text: source, attachments: [], sender: sender, sudoSwitch: sudoSwitch)
     }
     let suffix = String(source[match])
     let lines = suffix.split(whereSeparator: \ .isNewline).dropFirst().map(String.init)
@@ -943,7 +951,7 @@ public func normalisePromptText(_ value: String?) -> NormalizedPromptText {
         return path.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
     }.filter { !$0.isEmpty }
     let text = String(source[..<match.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-    return NormalizedPromptText(text: text, attachments: attachments, sender: sender)
+    return NormalizedPromptText(text: text, attachments: attachments, sender: sender, sudoSwitch: sudoSwitch)
 }
 
 public func toolArgument(_ tool: String?, args: JSONValue? = nil) -> String {

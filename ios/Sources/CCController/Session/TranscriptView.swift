@@ -1998,8 +1998,14 @@ struct TurnItemView: View {
             CompactionDivider(entry: entry, onOpen: onCompaction)
         case .file(let entry):
             FileEntryView(entry: entry, download: downloadFile, heightKey: expansionKey)
-        case .other:
-            EmptyView()
+        case .other(let entry):
+            if let goal = entry.goal, let caption = goalCaption(goal) {
+                CaptionRow(symbol: caption.symbol, text: caption.text, symbolColor: goal.status == "met" ? .ccGreen : .ccSecondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("goal-caption")
+            } else {
+                EmptyView()
+            }
         }
     }
 }
