@@ -11,7 +11,7 @@ struct ImagePreviewSheet: UIViewControllerRepresentable {
     let close: @MainActor () -> Void
 
     func makeUIViewController(context: Context) -> UINavigationController {
-        let viewer = ImageViewerController(image: image, close: close)
+        let viewer = ImageViewerController(url: url, image: image, close: close)
         viewer.title = url.lastPathComponent
         let navigationController = UINavigationController(rootViewController: viewer)
         return navigationController
@@ -20,7 +20,7 @@ struct ImagePreviewSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ navigationController: UINavigationController, context: Context) {
         guard let viewer = navigationController.viewControllers.first as? ImageViewerController else { return }
         viewer.title = url.lastPathComponent
-        viewer.show(image)
+        viewer.show(image, from: url)
     }
 }
 
@@ -29,8 +29,10 @@ final class ImageViewerController: UIViewController, UIScrollViewDelegate, UIGes
     private let imageView = UIImageView()
     private let close: @MainActor () -> Void
     private var lastLaidOutSize: CGSize = .zero
+    private var url: URL
 
-    init(image: UIImage, close: @escaping @MainActor () -> Void) {
+    init(url: URL, image: UIImage, close: @escaping @MainActor () -> Void) {
+        self.url = url
         self.close = close
         super.init(nibName: nil, bundle: nil)
         imageView.image = image
@@ -88,8 +90,10 @@ final class ImageViewerController: UIViewController, UIScrollViewDelegate, UIGes
         fitImage()
     }
 
-    func show(_ image: UIImage) {
-        guard imageView.image !== image else { return }
+    /// Shows another file's image. SwiftUI calls this on every redraw, so the same file keeps its zoom and pan.
+    func show(_ image: UIImage, from url: URL) {
+        guard url != self.url else { return }
+        self.url = url
         imageView.image = image
         imageView.accessibilityLabel = title
         fitImage()

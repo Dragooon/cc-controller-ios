@@ -42,6 +42,15 @@ final class AttachmentsJourneyFlowTests: JourneyTestCase {
         let viewer = app.element(identifier: "image-preview-canvas")
         XCTAssertTrue(viewer.waitToExist(timeout: 15), "Image viewer did not appear")
         XCTAssertEqual(viewer.label, "attachment.png")
+        // A pinch zooms in and stays zoomed while the session redraws behind the sheet; each redraw used to hand the
+        // viewer a freshly decoded image, which fit it back to the screen.
+        let fittedWidth = viewer.frame.width
+        viewer.pinch(withScale: 3, velocity: 2)
+        XCTAssertTrue(pollUntil(timeout: 5) { viewer.frame.width > fittedWidth * 1.5 }, "The pinch did not zoom in: \(viewer.frame.width) vs \(fittedWidth)")
+        let zoomedWidth = viewer.frame.width
+        XCTAssertFalse(pollUntil(timeout: 3, scaled: false) { viewer.frame.width < zoomedWidth * 0.9 }, "The viewer lost its zoom: \(viewer.frame.width) vs \(zoomedWidth)")
+        viewer.doubleTap()
+        XCTAssertTrue(pollUntil(timeout: 5) { abs(viewer.frame.width - fittedWidth) < 2 }, "A double tap did not fit the image again")
         viewer.swipeDown(velocity: .fast)
         XCTAssertTrue(viewer.waitToDisappear(timeout: 10), "A downward swipe did not close the image viewer")
         csv.tap()

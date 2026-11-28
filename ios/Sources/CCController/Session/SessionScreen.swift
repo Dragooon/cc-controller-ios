@@ -73,6 +73,7 @@ struct SessionScreen: View {
     @State private var contentWidth: CGFloat = 0
     @State private var activityPresented = false
     @State private var filePreviewURL: URL?
+    @State private var previewImages = PreviewImageCache()
     @State private var destination: SessionDestination?
     @State private var pendingInspectorDestination: SessionDestination?
     @State private var pendingSubagentDestination: SessionDestination?
@@ -114,10 +115,7 @@ struct SessionScreen: View {
 
     /// The image at a local file URL, or nil when it isn't one, so it opens in Quick Look instead.
     private func previewImage(at url: URL) -> UIImage? {
-        guard url.isFileURL, let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) else {
-            return nil
-        }
-        return UIImage(contentsOfFile: url.path)
+        previewImages.image(at: url)
     }
 
     var body: some View {
@@ -1122,4 +1120,23 @@ private struct ShowsActivityAction: ViewModifier {
 private struct CommandsLoadKey: Equatable {
     let sessionID: String
     let isLive: Bool
+}
+
+/// The open preview's decoded image. The sheet's content is rebuilt on every redraw of the session screen (a working
+/// turn's timer redraws it each second), and decoding the file again each time handed the viewer a new image, which
+/// reset its zoom and pan.
+final class PreviewImageCache {
+    private var url: URL?
+    private var image: UIImage?
+
+    func image(at url: URL) -> UIImage? {
+        if url == self.url { return image }
+        self.url = url
+        if url.isFileURL, let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) {
+            image = UIImage(contentsOfFile: url.path)
+        } else {
+            image = nil
+        }
+        return image
+    }
 }
