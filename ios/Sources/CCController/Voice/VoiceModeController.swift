@@ -715,6 +715,12 @@ enum VoiceSettings {
     private static let voiceKey = "voiceModeVoice"
     static let speedKey = "voiceModeSpeed"
     static let pauseKey = "voiceModePause"
+    /// Voice mode plays over other apps' audio (a podcast keeps going, lowered while either of you talks) instead of
+    /// stopping it. Off by default: a mixable session may not be the lock screen's Now Playing app. Read when voice
+    /// mode starts.
+    static let mixKey = "voiceModeMixesOtherAudio"
+
+    static var mixesOtherAudio: Bool { UserDefaults.standard.bool(forKey: mixKey) }
     /// Seconds after your last words before a finished thought is sent. 0 in storage is the default.
     static let pauseChoices: [Double] = [1, 0, 3.5]
     static let defaultPause = 2.0

@@ -6,6 +6,7 @@ struct VoiceSettingsSection: View {
     @AppStorage("voiceModeVoice") private var voice = ""
     @AppStorage(VoiceSettings.speedKey) private var speed = 0.0
     @AppStorage(VoiceSettings.pauseKey) private var pause = 0.0
+    @AppStorage(VoiceSettings.mixKey) private var mixesOtherAudio = false
     @State private var confirmingDelete = false
     @State private var bytes: Int64 = 0
 
@@ -38,6 +39,11 @@ struct VoiceSettingsSection: View {
                 }
             }
             .accessibilityIdentifier("settings-voice-pause")
+            Toggle(isOn: $mixesOtherAudio) {
+                Text("Keep other audio playing")
+                Text("A podcast keeps going, quieter while either of you talks. From the next conversation.")
+            }
+            .accessibilityIdentifier("settings-voice-mix")
             LabeledContent("Recordings", value: "\(archive.recordings.count) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))")
                 .accessibilityIdentifier("settings-voice-recordings")
             if !archive.recordings.isEmpty {

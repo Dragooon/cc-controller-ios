@@ -113,17 +113,28 @@ final class VoiceAudioEngine {
         isStarting = true
         defer { isStarting = false }
         listens = listen
+        let mixesOtherAudio = VoiceSettings.mixesOtherAudio
         let engineBox = Unchecked(value: engine)
         try await Self.onAudioQueue {
             let session = AVAudioSession.sharedInstance()
             if listen {
-                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+                // Mixable, a podcast in another app keeps playing; without it, starting voice mode stops it
+                // (playAndRecord is non-mixable by default, Apple's AVAudioSession docs).
+                var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+                if mixesOtherAudio { options.insert(.mixWithOthers) }
+                try session.setCategory(.playAndRecord, mode: .voiceChat, options: options)
             } else {
                 try session.setCategory(.playback, mode: .spokenAudio, options: [])
             }
             try session.setActive(true)
             if listen {
                 try engineBox.value.inputNode.setVoiceProcessingEnabled(true)
+                // Advanced ducking lowers other audio while either side talks and eases off when neither does
+                // (WWDC23 "What's new in voice processing"); the fixed default ducks it the whole time.
+                if mixesOtherAudio {
+                    engineBox.value.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+                        AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: true, duckingLevel: .max)
+                }
             }
         }
         engine.attach(replyPlayer)

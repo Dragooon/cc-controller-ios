@@ -62,6 +62,12 @@ phone only records, decides when a turn has ended, plays and keeps the recording
   8 s. Your voice wins: a reply that arrives while you're talking, or before what you said is sent, waits; one
   already playing ducks and stops after its sentence, and two words of yours cut it. Before 28 Nov a reply could
   start mid-sentence, and its echo raised the bar for speech enough that the rest went unheard (Shitiz).
+- Settings, "Keep other audio playing" (off by default): the voice session adds `.mixWithOthers`, so a podcast in
+  another app keeps playing, and voice processing's advanced ducking (`voiceProcessingOtherAudioDuckingConfiguration`,
+  `.max`) lowers it while either side talks and eases off when neither does (WWDC23 10235). Apple doesn't say it
+  returns to full volume in between, whether the reply counts as the far side, or whether a podcast on the speaker
+  reaches the mic as speech; built for AirPods first (Shitiz, 28 Nov). A mixable session may not be the lock
+  screen's Now Playing app, hence off by default.
 - Nothing said is handled as a command. Pause (strip, lock screen, Live Activity) holds the reply where it is and
   turns the mic off; resume picks up from there and then speaks whatever arrived meanwhile. A sentence cut by an
   audio engine restart (muting or an AirPods route change can rebuild the graph) is queued again, never dropped.
