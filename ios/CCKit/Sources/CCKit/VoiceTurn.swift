@@ -9,10 +9,15 @@ public struct VoiceTurnPolicy: Sendable, Equatable {
     public var holdAfterTrailingWord: TimeInterval
     /// The longest a turn is held open in total, however you trail off.
     public var maximumHold: TimeInterval
+    /// How long after your last words a finished thought waits before it's sent, counted from when the phone stopped
+    /// hearing you. People pause mid-thought; at once, it sent half a thought (Shitiz: "naturally I pause a bit while
+    /// speaking").
+    public var pauseBeforeSend: TimeInterval
 
-    public init(holdAfterTrailingWord: TimeInterval = 3, maximumHold: TimeInterval = 8) {
+    public init(holdAfterTrailingWord: TimeInterval = 3, maximumHold: TimeInterval = 8, pauseBeforeSend: TimeInterval = 2) {
         self.holdAfterTrailingWord = holdAfterTrailingWord
         self.maximumHold = maximumHold
+        self.pauseBeforeSend = pauseBeforeSend
     }
 
     public static let trailingWords: Set<String> = [
@@ -47,13 +52,16 @@ public struct VoiceTurnPolicy: Sendable, Equatable {
     ///   - speaking: the phone hears you talking right now.
     ///   - transcribing: an utterance of this turn is still with the host.
     ///   - turnStartedAt: when the turn's first utterance ended.
-    public func decide(text: String, speaking: Bool, transcribing: Bool, turnStartedAt: Date, now: Date) -> Decision {
+    ///   - speechEndedAt: when its latest utterance ended; nil counts from now.
+    public func decide(text: String, speaking: Bool, transcribing: Bool, turnStartedAt: Date, now: Date, speechEndedAt: Date? = nil) -> Decision {
         if transcribing { return .wait }
         if speaking && now.timeIntervalSince(turnStartedAt) < maximumHold { return .wait }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .wait }
-        guard endsMidThought(text) else { return .send }
         let latest = turnStartedAt.addingTimeInterval(maximumHold)
-        let until = min(now.addingTimeInterval(holdAfterTrailingWord), latest)
+        let ready = endsMidThought(text)
+            ? now.addingTimeInterval(holdAfterTrailingWord)
+            : (speechEndedAt ?? now).addingTimeInterval(pauseBeforeSend)
+        let until = min(ready, latest)
         return until <= now ? .send : .hold(until: until)
     }
 

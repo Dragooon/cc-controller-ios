@@ -5,6 +5,7 @@ import SwiftUI
 struct VoiceSettingsSection: View {
     @AppStorage("voiceModeVoice") private var voice = ""
     @AppStorage(VoiceSettings.speedKey) private var speed = 0.0
+    @AppStorage(VoiceSettings.pauseKey) private var pause = 0.0
     @State private var confirmingDelete = false
     @State private var bytes: Int64 = 0
 
@@ -31,6 +32,12 @@ struct VoiceSettingsSection: View {
                 }
             }
             .accessibilityIdentifier("settings-voice-speed")
+            Picker("Pause before sending", selection: $pause) {
+                ForEach(VoiceSettings.pauseChoices, id: \.self) { choice in
+                    Text(VoiceSettings.pauseLabel(choice)).tag(choice)
+                }
+            }
+            .accessibilityIdentifier("settings-voice-pause")
             LabeledContent("Recordings", value: "\(archive.recordings.count) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))")
                 .accessibilityIdentifier("settings-voice-recordings")
             if !archive.recordings.isEmpty {

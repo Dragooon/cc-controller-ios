@@ -57,6 +57,11 @@ phone only records, decides when a turn has ended, plays and keeps the recording
   player, generated cues), the conversation controller, the stage (markdown text, or an image the host serves) and
   the recordings sheet. The app draws nothing itself: a diagram reaches the stage as an image the agent rendered on
   the host (Shitiz, 23 Nov).
+- Turn-taking: an utterance ends after 1 s of quiet, and a finished thought is sent 2 s after your last words
+  (Settings, "Pause before sending": Short 1 s, Normal 2 s, Long 3.5 s); a trailing word holds it 3 s, never past
+  8 s. Your voice wins: a reply that arrives while you're talking, or before what you said is sent, waits; one
+  already playing ducks and stops after its sentence, and two words of yours cut it. Before 28 Nov a reply could
+  start mid-sentence, and its echo raised the bar for speech enough that the rest went unheard (Shitiz).
 - Nothing said is handled as a command. Pause (strip, lock screen, Live Activity) holds the reply where it is and
   turns the mic off; resume picks up from there and then speaks whatever arrived meanwhile. A sentence cut by an
   audio engine restart (muting or an AirPods route change can rebuild the graph) is queued again, never dropped.

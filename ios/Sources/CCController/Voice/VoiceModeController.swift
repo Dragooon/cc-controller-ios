@@ -91,7 +91,10 @@ final class VoiceModeController {
 
     @ObservationIgnored private let engine = VoiceAudioEngine()
     @ObservationIgnored private let archive: VoiceRecordingArchive
-    @ObservationIgnored private let policy = VoiceTurnPolicy()
+    /// Read at each decision, so a change in Settings applies to the next turn.
+    private var policy: VoiceTurnPolicy { VoiceTurnPolicy(pauseBeforeSend: VoiceSettings.pause) }
+    /// When the phone last stopped hearing you: the pause before a turn is sent counts from here.
+    @ObservationIgnored private var speechEndedAt: Date?
     @ObservationIgnored private var tracker = VoiceReplyTracker(baseline: [])
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
 
@@ -310,6 +313,7 @@ final class VoiceModeController {
             evaluateTurn()
         case .utterance(let clip):
             userSpeaking = false
+            speechEndedAt = Date()
             receive(clip)
         case .failed(let message):
             notice = message
@@ -388,7 +392,7 @@ final class VoiceModeController {
     private func evaluateTurn() {
         guard !isPaused, !turnUtterances.isEmpty, let started = turnStartedAt else { return }
         holdTask?.cancel()
-        switch policy.decide(text: heardText, speaking: userSpeaking, transcribing: transcribing > 0, turnStartedAt: started, now: Date()) {
+        switch policy.decide(text: heardText, speaking: userSpeaking, transcribing: transcribing > 0, turnStartedAt: started, now: Date(), speechEndedAt: speechEndedAt) {
         case .send:
             sendTurn()
         case .wait:
@@ -530,12 +534,28 @@ final class VoiceModeController {
         }
     }
 
+    /// You're talking, or what you said hasn't been sent yet.
+    private var yourTurnOpen: Bool {
+        userSpeaking || transcribing > 0 || !turnUtterances.isEmpty
+    }
+
     private func speakQueue() async {
         var cuts = 0
         while !Task.isCancelled, !sentenceQueue.isEmpty {
             while isPaused {
                 try? await Task.sleep(for: .milliseconds(200))
                 if Task.isCancelled { return }
+            }
+            // Your voice wins: a reply that arrives while you're talking (or before what you said is sent) waits, and
+            // one already playing stops after its sentence. It used to talk over you, and with its echo raising the
+            // bar for speech, the rest of what you said went unheard (Shitiz, 28 Nov).
+            if yourTurnOpen {
+                speakingText = ""
+                refreshPhase()
+                while yourTurnOpen || isPaused {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if Task.isCancelled { return }
+                }
             }
             let sentence = sentenceQueue.removeFirst()
             if let next = sentenceQueue.first { prefetch(next) }
@@ -694,6 +714,23 @@ final class VoiceModeController {
 enum VoiceSettings {
     private static let voiceKey = "voiceModeVoice"
     static let speedKey = "voiceModeSpeed"
+    static let pauseKey = "voiceModePause"
+    /// Seconds after your last words before a finished thought is sent. 0 in storage is the default.
+    static let pauseChoices: [Double] = [1, 0, 3.5]
+    static let defaultPause = 2.0
+
+    static func pauseLabel(_ value: Double) -> String {
+        switch value {
+        case 1: "Short"
+        case 3.5: "Long"
+        default: "Normal"
+        }
+    }
+
+    static var pause: Double {
+        let value = UserDefaults.standard.double(forKey: pauseKey)
+        return value > 0 ? value : defaultPause
+    }
     /// 0 is the host's normal speed.
     static let speedChoices: [Double] = [0.8, 0, 1.2, 1.4, 1.6, 1.8, 2.0]
 

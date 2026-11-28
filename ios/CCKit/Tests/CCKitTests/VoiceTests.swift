@@ -68,8 +68,13 @@ final class VoiceTurnTests: XCTestCase {
         XCTAssertFalse(policy.endsMidThought("Restart the gateway."))
     }
 
-    func testAFinishedThoughtIsSentAtOnce() {
-        XCTAssertEqual(policy.decide(text: "Restart the gateway", speaking: false, transcribing: false, turnStartedAt: now, now: now), .send)
+    func testAFinishedThoughtWaitsForAPauseAfterYourLastWords() {
+        XCTAssertEqual(policy.decide(text: "Restart the gateway", speaking: false, transcribing: false, turnStartedAt: now, now: now), .hold(until: now.addingTimeInterval(2)))
+        // Counted from when the phone stopped hearing you, so a slow transcription doesn't add to it.
+        let ended = now.addingTimeInterval(-1.5)
+        XCTAssertEqual(policy.decide(text: "Restart the gateway", speaking: false, transcribing: false, turnStartedAt: ended, now: now, speechEndedAt: ended), .hold(until: now.addingTimeInterval(0.5)))
+        XCTAssertEqual(policy.decide(text: "Restart the gateway", speaking: false, transcribing: false, turnStartedAt: now.addingTimeInterval(-3), now: now, speechEndedAt: now.addingTimeInterval(-3)), .send)
+        XCTAssertEqual(VoiceTurnPolicy(pauseBeforeSend: 0).decide(text: "Restart the gateway", speaking: false, transcribing: false, turnStartedAt: now, now: now), .send)
     }
 
     func testATrailingThoughtWaitsThreeSeconds() {
@@ -88,6 +93,10 @@ final class VoiceTurnTests: XCTestCase {
         XCTAssertEqual(
             policy.decide(text: "Restart the gateway", speaking: true, transcribing: false, turnStartedAt: now.addingTimeInterval(-9), now: now),
             .send
+        )
+        XCTAssertEqual(
+            policy.decide(text: "Restart the gateway", speaking: false, transcribing: false, turnStartedAt: now.addingTimeInterval(-7), now: now),
+            .hold(until: now.addingTimeInterval(1))
         )
         XCTAssertEqual(
             policy.decide(text: "and", speaking: false, transcribing: false, turnStartedAt: now.addingTimeInterval(-7), now: now),
