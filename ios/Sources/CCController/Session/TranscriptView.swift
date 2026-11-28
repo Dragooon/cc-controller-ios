@@ -236,7 +236,7 @@ struct SessionTranscriptView: View {
     @State private var stackGeneration = 0
     @State private var rebuildScrollTask: Task<Void, Never>?
     @State private var pagingError: String?
-    @State private var availableHeight: CGFloat = 0
+    @State private var availableHeight = TranscriptAvailableHeight()
     @State private var userHasScrolled = false
     @State private var contentFitsViewport = false
     @State private var isPinnedToBottom = true
@@ -368,7 +368,7 @@ struct SessionTranscriptView: View {
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 if showsComposer {
                     let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
-                    BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
+                    BottomStackHost(configuration: configuration, availableHeight: availableHeight)
                         .frame(maxWidth: readableContentMaxWidth)
                         .frame(maxWidth: .infinity)
                         .background(MotionTraceProbe(id: "composer"))
@@ -415,8 +415,8 @@ struct SessionTranscriptView: View {
         .onGeometryChange(for: CGFloat.self) { geometry in
             geometry.size.height
         } action: { _, height in
-            guard abs(height - availableHeight) >= 1 else { return }
-            availableHeight = height
+            guard abs(height - availableHeight.value) >= 1 else { return }
+            availableHeight.value = height
         }
     }
 
@@ -491,7 +491,7 @@ struct SessionTranscriptView: View {
         .safeAreaBar(edge: .bottom, spacing: 0) {
             if showsComposer {
                 let configuration = bottomStackConfiguration ?? BottomStackConfiguration()
-                BottomStackView(configuration: configuration.withAvailableHeight(availableHeight))
+                BottomStackHost(configuration: configuration, availableHeight: availableHeight)
                     .frame(maxWidth: readableContentMaxWidth)
                     .frame(maxWidth: .infinity)
                     .background(MotionTraceProbe(id: "composer"))
@@ -537,8 +537,8 @@ struct SessionTranscriptView: View {
         .onGeometryChange(for: CGFloat.self) { geometry in
             geometry.size.height
         } action: { _, height in
-            guard abs(height - availableHeight) >= 1 else { return }
-            availableHeight = height
+            guard abs(height - availableHeight.value) >= 1 else { return }
+            availableHeight.value = height
         }
         .background(.ccBackground)
     }
@@ -2007,5 +2007,24 @@ struct TurnItemView: View {
                 EmptyView()
             }
         }
+    }
+}
+
+/// The transcript's height, which only the bottom stack reads (the approval card takes up to half of it). Held as
+/// state of the transcript view, every keyboard rise and fall changed it and rebuilt the whole transcript, which
+/// compares every row: a 120-140 ms frame each time on a long session (Shitiz's motion trace, 28 Nov). In this box,
+/// only the bottom stack redraws.
+@MainActor @Observable
+final class TranscriptAvailableHeight {
+    var value: CGFloat = 0
+}
+
+/// Reads the height inside its own body, so a change redraws this and not the transcript around it.
+private struct BottomStackHost: View {
+    let configuration: BottomStackConfiguration
+    let availableHeight: TranscriptAvailableHeight
+
+    var body: some View {
+        BottomStackView(configuration: configuration.withAvailableHeight(availableHeight.value))
     }
 }

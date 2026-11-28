@@ -874,6 +874,17 @@ struct TranscriptCollectionRepresentable: UIViewRepresentable {
 
         func update(_ representable: TranscriptCollectionRepresentable) -> Bool {
             guard let collectionView = self.collectionView else { return false }
+            // Each update compares every row, so a motion trace times it: a stall that lines up with one is the
+            // transcript rebuilding.
+            let updateStarted = CACurrentMediaTime()
+            defer {
+                if MotionTrace.shared.isEnabled {
+                    MotionTrace.shared.recordEvent("transcriptUpdate", data: [
+                        "ms": (CACurrentMediaTime() - updateStarted) * 1_000,
+                        "rows": representable.rows.count,
+                    ])
+                }
+            }
             if updateSizingTraits(from: collectionView),
                let layout = collectionView.collectionViewLayout as? TranscriptListLayout {
                 layout.invalidateAllHeights()
